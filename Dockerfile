@@ -1,28 +1,38 @@
-# Use a lightweight Python image
-FROM python:3.9-slim
+FROM python:3.11.5
 
-# Prevent Python from writing bytecode and enable unbuffered output.
+# set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Set work directory
-WORKDIR /code
+COPY requirements.txt .
+# install python dependencies
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install system dependencies including Node.js, npm, and build-essential
-RUN apt-get update && apt-get install -y nodejs npm build-essential
+COPY . .
 
-# Copy Python dependencies and install them
-COPY requirements.txt /code/
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# Install node 18 and npm
+RUN set -uex; \
+    apt-get update; \
+    apt-get install -y ca-certificates curl gnupg; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+     | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    NODE_MAJOR=18; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" \
+     > /etc/apt/sources.list.d/nodesource.list; \
+    apt-get update; \
+    apt-get install nodejs -y;
 
-# Copy the entire project into the container
-COPY . /code/
+# Install Modules, Webpack and Tailwind set up
+RUN npm i
+RUN npm run build
+RUN npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css
 
-# (Optional) Debug: list the theme directory
-RUN ls -la /code/theme
+# Manage Assets & DB 
+RUN python manage.py collectstatic --no-input 
+RUN python manage.py makemigrations
+RUN python manage.py migrate
 
-# Expose port 8000
-EXPOSE 8000
-
-# Run migrations, build Tailwind assets, then start the app using gunicorn
-CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py makemigrations && python manage.py migrate && gunicorn medapp.wsgi:application --bind 0.0.0.0:8000 && python manage.py tailwind start"]
+# gunicorn
+CMD ["gunicorn", "--config", "gunicorn-cfg.py", "core.wsgi"]
