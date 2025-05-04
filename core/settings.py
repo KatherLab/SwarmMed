@@ -31,7 +31,6 @@ if not SECRET_KEY:
 
 # Enable/Disable DEBUG Mode
 DEBUG = str2bool(os.environ.get('DEBUG'))
-#print(' DEBUG -> ' + str(DEBUG) ) 
 
 # Hosts Settings
 ALLOWED_HOSTS = ['*']
@@ -87,7 +86,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [UI_TEMPLATES],
-        "APP_DIRS": True,
+        "APP_DIRS": True, 
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.debug",

@@ -2,6 +2,7 @@ version: "3.8"
 services:
   appseed-app:
     container_name: mediswarmcloud
+    command: python manage.py runserver 0.0.0.0:8000
     restart: always
     build:
       context: .
@@ -9,7 +10,9 @@ services:
       - db_network
       - web_network
     volumes:
-      - ./db.sqlite3:/db.sqlite3
+      - ./:/app
+    ports:
+      - "8000:8000"
   nginx:
     container_name: nginx
     restart: always

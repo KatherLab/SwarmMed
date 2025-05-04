@@ -1,7 +1,7 @@
 {
-  "name": "rocket-django",
-  "version": "1.0.0",
-  "description": "SaaS Django Starter styled with Tailwind/Flowbite",
+  "name": "mediswarmcloud",
+  "version": "0.1.0",
+  "description": "decentralized medical data storage and training platform",
   "main": "index.js",
   "directories": {
     "doc": "docs"
