@@ -19,20 +19,28 @@ def index(request):
 
 def data(request):
 
-  context = {}
+  context = {
+    'segment': 'data',
+  }
   return render(request, "pages/data.html", context)
 
 def network(request):
 
-  context = {}
+  context = {
+    'segment': 'network',
+  }
   return render(request, "pages/network.html", context)
 
 def training(request):
 
-  context = {}
+  context = {
+    'segment': 'training',
+  }
   return render(request, "pages/training.html", context)
 
 def logs(request):
 
-  context = {}
+  context = {
+    'segment': 'logs',
+  }
   return render(request, "pages/logs.html", context)
