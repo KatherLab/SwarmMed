@@ -17,6 +17,13 @@ def index(request):
   }
   return render(request, "dashboard/index.html", context)
 
+def project(request):
+
+  context = {
+    'segment': 'project',
+  }
+  return render(request, "pages/project.html", context)
+
 def data(request):
 
   context = {
@@ -37,6 +44,13 @@ def training(request):
     'segment': 'training',
   }
   return render(request, "pages/training.html", context)
+
+def results(request):
+
+  context = {
+    'segment': 'results',
+  }
+  return render(request, "pages/results.html", context)
 
 def logs(request):
 
