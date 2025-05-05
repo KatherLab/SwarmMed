@@ -23,3 +23,9 @@ gunicorn==21.2.0
 # DB Layer
 psycopg2
 
+# MINIO Database
+django-storages 
+boto3
+minio
+
+

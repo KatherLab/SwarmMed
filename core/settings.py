@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'django_api_gen',
 
     "debug_toolbar",
+    'storages',
 ]
 
 MIDDLEWARE = [
@@ -219,3 +220,15 @@ MESSAGE_TAGS = {
     messages.WARNING: 'text-yellow-800 border border-yellow-300 bg-yellow-50 dark:text-yellow-300 dark:border-yellow-800',
     messages.ERROR: 'text-red-800 border border-red-300 bg-red-50 dark:text-red-400 dark:border-red-800',
 }
+
+######## MINIO ###############
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', 'minio')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', 'minio123')
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME', 'mediswarmcloud')
+AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL', 'http://host.docker.internal:9000')
+
+# Since MinIO is usually accessed over HTTP:
+AWS_S3_REGION_NAME = 'us-east-1'
+AWS_S3_ADDRESSING_STYLE = "path"

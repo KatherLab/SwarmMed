@@ -9,4 +9,6 @@ urlpatterns = [
     path("network/", views.network, name="network"),
     path("training/", views.training, name="training"),
     path("logs/", views.logs, name="logs"),
+    ##
+    path('upload/', views.upload_document, name='upload_document'),
 ]
