@@ -35,92 +35,172 @@
         </nav>
         <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Logs</h1>
       </div>
-      <div class="max-w-7xl mx-auto bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-        <div class="flex flex-col md:flex-row items-center justify-between mb-4">
-          <h1 class="text-2xl font-semibold dark:text-white">Log Viewer</h1>
-    
-          <div class="flex gap-4 mt-4 md:mt-0">
-           
-            <!-- Search -->
-            <div class="relative">
-              <input type="text" placeholder="Search logs..." class="block w-full px-4 py-2 text-sm text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-    
-            <!-- Dropdown filter -->
-            <div>
-              <button id="dropdownLogLevelButton" data-dropdown-toggle="dropdownLogLevel" class="text-white bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 text-center inline-flex items-center" type="button">
-                Filter Level
-                <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                </svg>
-              </button>
-    
-              <!-- Dropdown menu -->
-              <div id="dropdownLogLevel" class="z-10 hidden bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700 rounded-lg shadow w-44">
-                <ul class="py-2 text-sm text-gray-700 dark:text-gray-200" aria-labelledby="dropdownLogLevelButton">
-                  <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">All</a></li>
-                  <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">Info</a></li>
-                  <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">Warning</a></li>
-                  <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">Error</a></li>
-                </ul>
-              </div>
-            </div>
-          </div>
+
+      <div class="max-w-4xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-2xl font-semibold text-gray-900 dark:text-white">
+            Data Validation Logs
+          </h2>
+          <a 
+            href="" 
+            class="inline-flex items-center px-4 py-2 text-sm font-medium bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:text-white dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800"
+            download
+          >
+            Download Log
+            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4">
+              </path>
+            </svg>
+          </a>
         </div>
     
-        <!-- Logs table -->
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm text-left text-gray-500 dark:text-gray-300">
-            <thead class="text-xs text-gray-700 dark:text-gray-200 uppercase bg-gray-100 dark:bg-gray-700">
-              <tr>
-                <th scope="col" class="px-4 py-3">Timestamp</th>
-                <th scope="col" class="px-4 py-3">Level</th>
-                <th scope="col" class="px-4 py-3">Message</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                <td class="px-4 py-3">2025-05-04 12:34:56</td>
-                <td class="px-4 py-3 text-blue-600 font-medium">Info</td>
-                <td class="px-4 py-3">Application started successfully.</td>
-              </tr>
-              <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                <td class="px-4 py-3">2025-05-04 13:00:01</td>
-                <td class="px-4 py-3 text-yellow-600 font-medium">Warning</td>
-                <td class="px-4 py-3">Memory usage is high.</td>
-              </tr>
-              <tr class="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                <td class="px-4 py-3">2025-05-04 14:15:22</td>
-                <td class="px-4 py-3 text-red-600 font-medium">Error</td>
-                <td class="px-4 py-3">Database connection failed.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-    
-        <!-- Pagination -->
-        <div class="flex justify-end mt-4">
-          <nav>
-            <ul class="inline-flex items-center -space-x-px text-sm">
-              <li>
-                <a href="#" class="px-3 py-2 ml-0 leading-tight text-gray-500 bg-white dark:bg-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-l-lg hover:bg-gray-100 dark:hover:bg-gray-600">Previous</a>
-              </li>
-              <li>
-                <a href="#" class="px-3 py-2 leading-tight text-blue-600 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600">1</a>
-              </li>
-              <li>
-                <a href="#" class="px-3 py-2 leading-tight text-gray-500 dark:text-gray-300 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600">2</a>
-              </li>
-              <li>
-                <a href="#" class="px-3 py-2 leading-tight text-gray-500 dark:text-gray-300 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600">3</a>
-              </li>
-              <li>
-                <a href="#" class="px-3 py-2 leading-tight text-gray-500 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-r-lg hover:bg-gray-100 dark:hover:bg-gray-600">Next</a>
-              </li>
-            </ul>
-          </nav>
+        <div class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-mono text-sm rounded-lg p-4 max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-700">
+          <pre ><code>
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+          </code></pre>
         </div>
       </div>
+     
+      <div class="max-w-4xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-2xl font-semibold text-gray-900 dark:text-white">
+            Network Logs
+          </h2>
+          <a 
+            href="" 
+            class="inline-flex items-center px-4 py-2 text-sm font-medium bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:text-white dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800"
+            download
+          >
+            Download Log
+            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4">
+              </path>
+            </svg>
+          </a>
+        </div>
+    
+        <div class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-mono text-sm rounded-lg p-4 max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-700">
+          <pre ><code>
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+          </code></pre>
+        </div>
+      </div>
+
+      <div class="max-w-4xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-2xl font-semibold text-gray-900 dark:text-white">
+            Training Logs
+          </h2>
+          <a 
+            href="" 
+            class="inline-flex items-center px-4 py-2 text-sm font-medium bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:text-white dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800"
+            download
+          >
+            Download Log
+            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4">
+              </path>
+            </svg>
+          </a>
+        </div>
+    
+        <div class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-mono text-sm rounded-lg p-4 max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-700">
+          <pre ><code>
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+          </code></pre>
+        </div>
+      </div>
+
+      <div class="max-w-4xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-2xl font-semibold text-gray-900 dark:text-white">
+            Results Visualisation Logs
+          </h2>
+          <a 
+            href="" 
+            class="inline-flex items-center px-4 py-2 text-sm font-medium bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:text-white dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800"
+            download
+          >
+            Download Log
+            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4">
+              </path>
+            </svg>
+          </a>
+        </div>
+    
+        <div class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-mono text-sm rounded-lg p-4 max-h-24 overflow-y-auto border border-gray-300 dark:border-gray-700">
+          <pre ><code>
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+      [2025-05-06 12:00:11] GET /favicon.ico 404 Not Found
+      [2025-05-06 12:00:12] POST /api/upload 201 Created
+      [2025-05-06 12:00:00] Starting application...
+      [2025-05-06 12:00:01] Connecting to database...
+      [2025-05-06 12:00:02] Database connected ✔
+      [2025-05-06 12:00:05] Serving on http://localhost:3000
+      [2025-05-06 12:00:10] GET /api/data 200 OK
+          </code></pre>
+        </div>
+      </div>
+
+
+    </main>
+
+      
+      
       
 </main>
 
