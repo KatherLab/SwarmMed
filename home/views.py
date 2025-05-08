@@ -9,7 +9,6 @@ def starter(request):
   return render(request, "pages/starter.html", context)
 
 @login_required(login_url='/users/signin/')
-
 def index(request):
 
   context = {
@@ -17,6 +16,7 @@ def index(request):
   }
   return render(request, "dashboard/index.html", context)
 
+@login_required(login_url='/users/signin/')
 def project(request):
 
   context = {
@@ -24,6 +24,7 @@ def project(request):
   }
   return render(request, "pages/project.html", context)
 
+@login_required(login_url='/users/signin/')
 def data(request):
 
   context = {
@@ -31,6 +32,7 @@ def data(request):
   }
   return render(request, "pages/data.html", context)
 
+@login_required(login_url='/users/signin/')
 def network(request):
 
   context = {
@@ -38,6 +40,7 @@ def network(request):
   }
   return render(request, "pages/network.html", context)
 
+@login_required(login_url='/users/signin/')
 def training(request):
 
   context = {
@@ -45,6 +48,7 @@ def training(request):
   }
   return render(request, "pages/training.html", context)
 
+@login_required(login_url='/users/signin/')
 def results(request):
 
   context = {
@@ -52,6 +56,7 @@ def results(request):
   }
   return render(request, "pages/results.html", context)
 
+@login_required(login_url='/users/signin/')
 def logs(request):
 
   context = {
@@ -62,6 +67,7 @@ def logs(request):
 #### new code ####
 from .forms import DocumentForm
 
+@login_required(login_url='/users/signin/')
 def upload_document(request):
     uploaded = False  # Flag to indicate if the file was successfully uploaded
     if request.method == 'POST':
