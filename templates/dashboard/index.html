@@ -30,13 +30,14 @@
             <p class="text-lg font-medium text-gray-700 dark:text-gray-300">Projects</p>
           </div>
         </div>
-    
-        <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">
-          <p class="text-sm font-medium text-gray-800 dark:text-white">Single Cell</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">Current project</p>
-        </div>
-    
-        <a href="/projects" class="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline">&rarr; Go to Projects</a>
+        <a href="/project" class="block cursor-pointer">
+          <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">
+            <p class="text-sm font-medium text-gray-800 dark:text-white">Single Cell</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Current project</p>
+          </div>
+        </a>
+        
+        <a href="/project" class="mt-4 text-sm dark:text-blue-400 hover:text-blue-600">&rarr; Go to Projects</a>
       </div>
     
       <!-- Datasets Block -->
@@ -54,9 +55,14 @@
           </div>
         </div>
     
-        <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded h-[60px]"></div>
+        <a href="/project" class="block cursor-pointer">
+          <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">
+            <p class="text-sm font-medium text-gray-800 dark:text-white">512</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">files</p>
+          </div>
+        </a>
     
-        <a href="/datasets" class="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline">&rarr; Go to Datasets</a>
+        <a href="/data" class="mt-4 text-sm dark:text-blue-400 hover:text-blue-600">&rarr; Go to Data</a>
       </div>
     
       <!-- Networks Block -->
@@ -74,13 +80,15 @@
           </div>
         </div>
     
-        <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">
-          <p class="text-sm text-gray-800 dark:text-white">8 Partners</p>
-          <p class="text-sm font-medium text-gray-800 dark:text-white">Saxony Network</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">Current network</p>
-        </div>
+        <a href="/network" class="block cursor-pointer">
+          <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">
+            <p class="text-sm text-gray-800 dark:text-white">8 Partners</p>
+            <p class="text-sm font-medium text-gray-800 dark:text-white">Saxony Network</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Current network</p>
+          </div>
+        </a>
     
-        <a href="/networks" class="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline">&rarr; Go to Networks</a>
+        <a href="/network" class="mt-4 text-sm dark:text-blue-400 hover:text-blue-600">&rarr; Go to Network</a>
       </div>
     
       <!-- Training Block -->
@@ -98,12 +106,16 @@
           </div>
         </div>
     
-        <div class="w-full bg-gray-50 dark:bg-gray-700 rounded h-10">
-          <div class="bg-green-100 h-10 rounded text-m text-center text-green-500 flex items-center justify-center" style="width: 50%">50%</div>
+        <div class="w-full bg-gray-50 dark:bg-gray-700 rounded h-10 relative">
+          <div class="bg-green-100 h-10 rounded text-m text-center text-green-500 flex items-center justify-center" style="width: 50%">
+            50%
+          </div>
+          <p class="text-xs text-right text-gray-500 dark:text-gray-400 absolute bottom-0 right-0 mr-1 mb-1">
+            done
+          </p>
         </div>
-    
-        <p class="text-xs text-right text-gray-500 dark:text-gray-400 mt-2">done</p>
-        <a href="/training" class="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline">&rarr; Go to Training</a>
+        
+        <a href="/training" class="mt-4 text-sm dark:text-blue-400 hover:text-blue-600">&rarr; Go to Training</a>
       </div>
     
     </section>
@@ -148,7 +160,7 @@
         <!-- Report Issue -->
         <a href="https://github.com/your-repo/issues" target="_blank" class="block p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:shadow-md transition">
           <div class="flex items-center space-x-3">
-            <div class="p-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg">
+            <div class="p-2 bg-red-200 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856A2.006 2.006 0 0019 18.132V5.868A2.006 2.006 0 0018.928 4H5.072A2.006 2.006 0 004 5.868v12.264A2.006 2.006 0 005.072 20z"/>
               </svg>
