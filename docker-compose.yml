@@ -10,7 +10,8 @@ services:
       - db_network
       - web_network
     volumes:
-      - ./:/app
+      - ./static:/app/static
+      - ./templates:/app/templates
     ports:
       - "8000:8000"
   nginx:
