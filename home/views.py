@@ -24,6 +24,14 @@ def project(request):
   }
   return render(request, "pages/project.html", context)
 
+login_required(login_url='/users/signin/')
+def new_project(request):
+
+  context = {
+    'segment': 'project',
+  }
+  return render(request, "pages/new_project.html", context)
+
 @login_required(login_url='/users/signin/')
 def data(request):
 
