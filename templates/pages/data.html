@@ -109,23 +109,39 @@
 </section>
 
     
-    <section class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-4 mt-6">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Project Files</h2>
+    <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+      <!-- Header -->
+        <div class="items-center justify-between lg:flex mb-4">
+          <div class="mb-4 lg:mb-0">
+            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Project Files</h3>
+            <span class="text-base font-normal text-gray-500 dark:text-gray-400">Manage your project files</span>
+          </div>
+        </div>
     
       <div class="flex overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-x divide-gray-200 dark:divide-gray-700">
         
         <!-- Column 1: Projects -->
-        <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-800 p-4">
+        <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-700 p-4">
           <ul class="space-y-2 min-w-[160px]">
             <li class="flex items-center justify-between px-2 py-1 rounded bg-gray-200 dark:bg-gray-700">
               <span class="text-gray-900 dark:text-white">Project Alpha</span>
               <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
+                <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit train.py">
+                  <svg class="w-4 h-4 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
+                  </svg>
+                </button>
                 <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete Project Alpha">&times;</button>
               </div>
             </li>
             <li class="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
               <span class="text-gray-900 dark:text-white">Project Beta</span>
               <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
+                <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit train.py">
+                  <svg class="w-4 h-4 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
+                  </svg>
+                </button>
                 <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete Project Beta">&times;</button>
               </div>
             </li>
@@ -133,17 +149,27 @@
         </div>
     
         <!-- Column 2: Folders -->
-        <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-800 p-4">
+        <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-700 p-4">
           <ul class="space-y-2 min-w-[160px]">
             <li class="flex items-center justify-between px-2 py-1 rounded bg-gray-200 dark:bg-gray-700">
               <span class="text-gray-900 dark:text-white">src</span>
               <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
+                <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit train.py">
+                  <svg class="w-4 h-4 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
+                  </svg>
+                </button>
                 <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete folder src">&times;</button>
               </div>
             </li>
             <li class="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
               <span class="text-gray-900 dark:text-white">data</span>
               <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
+                <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit train.py">
+                  <svg class="w-4 h-4 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
+                  </svg>
+                </button>
                 <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete folder data">&times;</button>
               </div>
             </li>
@@ -151,23 +177,38 @@
         </div>
     
         <!-- Column 3: Files -->
-        <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-800 p-4">
+        <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-700 p-4">
           <ul class="space-y-2 min-w-[160px]">
             <li class="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-100 dark:bg-gray-700">
               <span class="text-gray-900 dark:text-white">train.py</span>
               <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
+                <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit train.py">
+                  <svg class="w-4 h-4 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
+                  </svg>
+                </button>
                 <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete train.py">&times;</button>
               </div>
             </li>
             <li class="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
               <span class="text-gray-900 dark:text-white">main.py</span>
               <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
+                <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit train.py">
+                  <svg class="w-4 h-4 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
+                  </svg>
+                </button>
                 <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete main.py">&times;</button>
               </div>
             </li>
             <li class="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
               <span class="text-gray-900 dark:text-white">utils.py</span>
               <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
+                <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit train.py">
+                  <svg class="w-4 h-4 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
+                  </svg>
+                </button>
                 <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete main.py">&times;</button>
               </div>
             </li>

@@ -1419,6 +1419,10 @@ input:checked + .toggle-bg {
   height: 10rem;
 }
 
+.h-2 {
+  height: 0.5rem;
+}
+
 .max-h-\[\] {
   max-height: ;
 }
@@ -1517,6 +1521,10 @@ input:checked + .toggle-bg {
 
 .w-full {
   width: 100%;
+}
+
+.w-2 {
+  width: 0.5rem;
 }
 
 .min-w-0 {
@@ -3398,6 +3406,11 @@ input:checked + .toggle-bg {
 .hover\:text-white:hover {
   --tw-text-opacity: 1;
   color: rgb(255 255 255 / var(--tw-text-opacity, 1));
+}
+
+.hover\:text-blue-700:hover {
+  --tw-text-opacity: 1;
+  color: rgb(26 86 219 / var(--tw-text-opacity, 1));
 }
 
 .hover\:underline:hover {
