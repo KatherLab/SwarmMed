@@ -49,6 +49,14 @@ def network(request):
   return render(request, "pages/network.html", context)
 
 @login_required(login_url='/users/signin/')
+def new_network(request):
+
+  context = {
+    'segment': 'network',
+  }
+  return render(request, "pages/new_network.html", context)
+
+@login_required(login_url='/users/signin/')
 def training(request):
 
   context = {

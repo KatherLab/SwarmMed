@@ -5,15 +5,14 @@
 {% block content %}
 
 <main>
-  <div
-    class="p-4 block sm:flex items-center justify-between lg:mt-1.5">
+  <div class="p-4 block sm:flex items-center justify-between lg:mt-1.5">
     <div class="w-full mb-1">
       <div class="mb-4">
         <nav class="flex mb-5" aria-label="Breadcrumb">
           <ol class="inline-flex items-center space-x-1 text-sm font-medium md:space-x-2">
             <li class="inline-flex items-center">
               <a href="/"
-                class="inline-flex items-center text-gray-700 hover:text-primary-600 dark:text-gray-300 dark:hover:text-white">
+                class="inline-flex items-center text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">
                 <svg class="w-5 h-5 mr-2.5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path d="M15 4H9v16h6V4Zm2 16h3a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3v16ZM4 4h3v16H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
                 </svg>
@@ -36,102 +35,130 @@
         <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Results</h1>
       </div>
 
-      <section class="mt-6">
-        <div class="flex flex-wrap gap-4">
-      
-          <!-- Download Trained Model Block -->
-          <div class="flex-1 min-w-[280px] max-w-md bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700">
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Download Trained Model</h2>
-      
-            <div class="flex flex-col gap-4">
-              <!-- Model Info -->
-              <div>
-                <p class="text-sm text-gray-700 dark:text-gray-300">Model: <span class="font-medium">resnet50_model_v3.pt</span></p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">Size: 43.2 MB · Format: PyTorch</p>
-              </div>
-      
-              <!-- Download Button -->
-              <a href="/path/to/trained-model/resnet50_model_v3.pt" download class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg focus:ring-4 focus:outline-none focus:ring-blue-300 dark:focus:ring-blue-800">
-                <svg class="w-5 h-5 mr-2 -ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 4v12" />
-                </svg>
-                Download Model
-              </a>
-            </div>
-          </div>
-      
-          <!-- Download CSV Block -->
-          <div class="flex-1 min-w-[280px] max-w-md bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700">
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Download Statistics</h2>
-      
-            <div class="flex flex-col gap-4">
-              <!-- File Info -->
-              <div>
-                <p class="text-sm text-gray-700 dark:text-gray-300">File: <span class="font-medium">training_metrics_v3.csv</span></p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">Size: 12.8 KB · Format: CSV</p>
-              </div>
-      
-              <!-- Download Button -->
-              <a href="/path/to/statistics/training_metrics_v3.csv" download class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg focus:ring-4 focus:outline-none focus:ring-indigo-300 dark:focus:ring-indigo-800">
-                <svg class="w-5 h-5 mr-2 -ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 17l4 4 4-4m0-5V3H8v9H5l7 7 7-7h-3z" />
-                </svg>
-                Download CSV
-              </a>
-            </div>
-          </div>
-      
-        </div>
-      </section>
+      <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+  <!-- Header -->
+  <div class="items-center justify-between lg:flex">
+    <div class="mb-4 lg:mb-0">
+      <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Model Training Results</h3>
+      <span class="text-base font-normal text-gray-500 dark:text-gray-400">Download trained model and associated files</span>
+    </div>
+  </div>
 
-      <section class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 mt-6 border border-gray-200 dark:border-gray-700">
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Data Visualization</h2>
+  <!-- Downloads Grid -->
+  <div class="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 md:grid-cols-3">
+    <!-- Model File -->
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col justify-between h-full">
+      <div>
+        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Model File</h4>
+        <p class="text-lg font-semibold text-gray-900 dark:text-white">resnet50_model_v3.pt</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: 43.2 MB · Format: PyTorch</p>
+      </div>
+      <div class="mt-4">
+        <a href="/downloads/resnet50_model_v3.pt" download
+           class="w-full inline-flex items-center bg-orange-100 text-orange-700 border border-orange-100 hover:border-orange-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-900 dark:border-gray-900 dark:hover:border-orange-300 dark:text-orange-300">
+          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4">
+              </path>
+            </svg>
+          Download Model
+        </a>
+      </div>
+    </div>
+
+    <!-- Training Statistics -->
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col justify-between h-full">
+      <div>
+        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Training Statistics</h4>
+        <p class="text-lg font-semibold text-gray-900 dark:text-white">training_report.json</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: 8.6 KB · Format: JSON</p>
+      </div>
+      <div class="mt-4">
+        <a href="/downloads/training_report.json" download
+           class="w-full inline-flex items-center bg-teal-100 text-teal-700 border border-teal-100 hover:border-teal-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-900 dark:border-gray-900 dark:hover:border-teal-300 dark:text-teal-300">
+          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4">
+              </path>
+            </svg>
+          Download Stats
+        </a>
+      </div>
+    </div>
+
+    <!-- Optional: Logs File -->
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col justify-between h-full">
+      <div>
+        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Training Logs</h4>
+        <p class="text-lg font-semibold text-gray-900 dark:text-white">logs.txt</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: 132 KB · Format: TXT</p>
+      </div>
+      <div class="mt-4">
+        <a href="/downloads/logs.txt" download
+           class="w-full inline-flex items-center bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-100 hover:border-fuchsia-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-900 dark:border-gray-900 dark:hover:border-fuchsia-300 dark:text-fuchsia-300">
+          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4">
+              </path>
+            </svg>
+          Download Logs
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+    
+      <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+        <!-- Header -->
+        <div class="items-center justify-between lg:flex">
+          <div class="mb-4 lg:mb-0">
+            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Visualization</h3>
+            <span class="text-base font-normal text-gray-500 dark:text-gray-400">Analyze your model's performance</span>
+          </div>
+        </div>
+
       
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 mt-5 md:grid-cols-2 gap-6">
           
           <!-- Chart Placeholder 1 -->
-          <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
+          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
             <div>
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
           </div>
       
           <!-- Chart Placeholder 2 -->
-          <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
+          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
             <div>
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
           </div>
       
           <!-- Chart Placeholder 3 -->
-          <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
+          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
             <div>
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
           </div>
       
-          <!-- Chart Placeholder 4 -->
-          <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
+            <!-- Chart Placeholder 4 -->
+            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
             <div>
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
           </div>
       
         </div>
       </section>
-
-
-      
-
-     
-
-      
-
-
 
     </main>
   {%endblock content%}
