@@ -2226,6 +2226,11 @@ input:checked + .toggle-bg {
   background-color: rgb(209 213 219 / var(--tw-bg-opacity, 1));
 }
 
+.bg-sky-100 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(224 242 254 / var(--tw-bg-opacity, 1));
+}
+
 .bg-opacity-50 {
   --tw-bg-opacity: 0.5;
 }
@@ -2706,6 +2711,11 @@ input:checked + .toggle-bg {
 .text-teal-700 {
   --tw-text-opacity: 1;
   color: rgb(3 102 114 / var(--tw-text-opacity, 1));
+}
+
+.text-sky-700 {
+  --tw-text-opacity: 1;
+  color: rgb(3 105 161 / var(--tw-text-opacity, 1));
 }
 
 .underline {
@@ -3701,6 +3711,16 @@ input:checked + .toggle-bg {
   background-color: rgb(14 159 110 / var(--tw-bg-opacity, 1));
 }
 
+.dark\:bg-teal-900:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(1 68 81 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-sky-900:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(12 74 110 / var(--tw-bg-opacity, 1));
+}
+
 .dark\:bg-opacity-80:is(.dark *) {
   --tw-bg-opacity: 0.8;
 }
@@ -3833,6 +3853,11 @@ input:checked + .toggle-bg {
 .dark\:text-teal-300:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(126 220 226 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-sky-300:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(125 211 252 / var(--tw-text-opacity, 1));
 }
 
 .dark\:placeholder-gray-400:is(.dark *)::-moz-placeholder {
@@ -4352,6 +4377,18 @@ input:checked + .toggle-bg {
 
   .lg\:grid-cols-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .lg\:flex-row {
+    flex-direction: row;
+  }
+
+  .lg\:items-center {
+    align-items: center;
+  }
+
+  .lg\:justify-between {
+    justify-content: space-between;
   }
 
   .lg\:gap-8 {

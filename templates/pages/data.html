@@ -5,15 +5,14 @@
 {% block content %}
 
 <main>
-  <div
-    class="p-4  block sm:flex items-center justify-between lg:mt-1.5 ">
+  <div class="p-4 block sm:flex items-center justify-between lg:mt-1.5">
     <div class="w-full mb-1">
       <div class="mb-4">
         <nav class="flex mb-5" aria-label="Breadcrumb">
           <ol class="inline-flex items-center space-x-1 text-sm font-medium md:space-x-2">
             <li class="inline-flex items-center">
               <a href="/"
-                class="inline-flex items-center text-gray-700 hover:text-primary-600 dark:text-gray-300 dark:hover:text-white">
+                class="inline-flex items-center text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">
                 <svg class="w-5 h-5 mr-2.5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path d="M15 4H9v16h6V4Zm2 16h3a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3v16ZM4 4h3v16H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
                 </svg>
@@ -35,36 +34,80 @@
         </nav>
         <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Data</h1>
       </div>
-  <div class="px-4 pt-6">
-    
-        
 
-    <div class="grid w-full grid-cols-1 gap-4 mt-4 xl:grid-cols-2 2xl:grid-cols-3">
-      <div
-        class="items-center justify-between p-4 bg-white border border-gray-200 rounded-lg shadow-sm sm:flex dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-        <div class="w-full">
-          <h3 class="text-base font-normal text-gray-500 dark:text-gray-400">Datasets</h3>
-          <span class="text-2xl font-bold leading-none text-gray-900 sm:text-3xl dark:text-white">7</span>
-          <p class="flex items-center text-base font-normal text-gray-500 dark:text-gray-400">
-            <span class="flex items-center mr-1.5 text-sm text-green-500 dark:text-green-400">
-              569 GB 
-            </span>
-            in total
-          </p>
-        </div>
-        <div class="w-full" id="new-products-chart"></div>
+    <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+  <!-- Data Section Header -->
+  <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+    <!-- Left: Icon + Heading -->
+    <div class="flex items-start gap-4">
+      <!-- Indigo Icon -->
+      <div class="p-3 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-lg">
+        <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 7.205c4.418 0 8-1.165 8-2.602C20 3.165 16.418 2 12 2S4 3.165 4 4.603c0 1.437 3.582 2.602 8 2.602ZM12 22c4.963 0 8-1.686 8-2.603v-4.404c-.052.032-.112.06-.165.09a7.75 7.75 0 0 1-.745.387c-.193.088-.394.173-.6.253-.063.024-.124.05-.189.073a18.934 18.934 0 0 1-6.3.998c-2.135.027-4.26-.31-6.3-.998-.065-.024-.126-.05-.189-.073a10.143 10.143 0 0 1-.852-.373 7.75 7.75 0 0 1-.493-.267c-.053-.03-.113-.058-.165-.09v4.404C4 20.315 7.037 22 12 22Zm7.09-13.928a9.91 9.91 0 0 1-.6.253c-.063.025-.124.05-.189.074a18.935 18.935 0 0 1-6.3.998c-2.135.027-4.26-.31-6.3-.998-.065-.024-.126-.05-.189-.074a10.163 10.163 0 0 1-.852-.372 7.816 7.816 0 0 1-.493-.268c-.055-.03-.115-.058-.167-.09V12c0 .917 3.037 2.603 8 2.603s8-1.686 8-2.603V7.596c-.052.031-.112.059-.165.09a7.816 7.816 0 0 1-.745.386Z"/>
+        </svg>
       </div>
-        <!-- Provided Box Card -->
-    <div class="items-center justify-between p-4 bg-white border border-gray-200 rounded-lg shadow-sm sm:flex dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-      <div class="w-full">
-
-        <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4">Upload Data</h2>
-
-        <a href="/upload" class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Upload Data</a>
-        
-    </div>
+      <!-- Title & Description -->
+      <div>
+        <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Data management</h3>
+        <span class="text-base font-normal text-gray-500 dark:text-gray-400">Upload and manage your datasets</span>
       </div>
     </div>
+
+    <!-- Right: Upload Button -->
+    <div class="flex items-center">
+      <a href="/upload"
+        class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 5v9m-5 0H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1h-2M8 9l4-5 4 5m1 8h.01" />
+        </svg>
+        Upload Data
+      </a>
+    </div>
+  </div>
+
+  <!-- Status Info -->
+  <div class="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 md:grid-cols-3">
+    <!-- VPN Status -->
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+            d="M10 12v1h4v-1m4 7H6a1 1 0 0 1-1-1V9h14v9a1 1 0 0 1-1 1ZM4 5h16a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" />
+        </svg>
+        Datasets
+      </div>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">8</p>
+    </div>
+
+    <!-- Network IP -->
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+            d="M10 3v4a1 1 0 0 1-1 1H5m14-4v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7.914a1 1 0 0 1 .293-.707l3.914-3.914A1 1 0 0 1 9.914 3H18a1 1 0 0 1 1 1Z" />
+        </svg>
+        Files
+      </div>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="ipAddress">350</p>
+    </div>
+
+    <!-- Connection Speed -->
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+            d="M4 5a1 1 0 0 1 1-1h11.586a1 1 0 0 1 .707.293l2.414 2.414a1 1 0 0 1 .293.707V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5Z" />
+          <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+            d="M8 4h8v4H8V4Zm7 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+        </svg>
+        Space used
+      </div>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="connectionSpeed">550 GB</p>
+    </div>
+  </div>
+</section>
+
     
     <section class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-4 mt-6">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Project Files</h2>
@@ -134,8 +177,21 @@
       </div>
     </section>
 
-    <section class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 mt-6 border border-gray-200 dark:border-gray-700">
-      <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Data Validation</h2>
+    <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+      <!-- Header -->
+        <div class="items-center justify-between lg:flex">
+          <div class="mb-4 lg:mb-0">
+            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Validation</h3>
+            <span class="text-base font-normal text-gray-500 dark:text-gray-400">Check your data for issues</span>
+          </div>
+        </div>
+      
+        <!-- Validation Button -->
+        <div class="mt-6 mb-4">
+          <button type="submit" class="w-full inline-flex items-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700">
+            Stop Validation
+          </button>
+        </div>
     
       <!-- Validation Checks -->
       <div class="space-y-4">
@@ -161,58 +217,57 @@
       [ERROR] Null values found in 'status' column
           </pre>
         </div>
-        
-    
-        <!-- Validation Button -->
-        <div class="mt-6 text-right">
-          <button type="submit" class="bg-purple-100 text-purple-800 border border-purple-100 hover:bg-primary-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-purple-500 dark:text-purple-400">
-            Start Validation
-          </button>
-        </div>
       </div>
     
 
     </section>
 
-    <section class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 mt-6 border border-gray-200 dark:border-gray-700">
-      <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Data Visualization</h2>
-    
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        <!-- Chart Placeholder 1 -->
-        <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
-          <div>
-            <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+     <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+        <!-- Header -->
+        <div class="items-center justify-between lg:flex">
+          <div class="mb-4 lg:mb-0">
+            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Visualization</h3>
+            <span class="text-base font-normal text-gray-500 dark:text-gray-400">Analyze your model's performance</span>
           </div>
         </div>
-    
-        <!-- Chart Placeholder 2 -->
-        <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
-          <div>
-            <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+
+      
+        <div class="grid grid-cols-1 mt-5 md:grid-cols-2 gap-6">
+          
+          <!-- Chart Placeholder 1 -->
+          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
+            <div>
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+            </div>
           </div>
-        </div>
-    
-        <!-- Chart Placeholder 3 -->
-        <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
-          <div>
-            <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+      
+          <!-- Chart Placeholder 2 -->
+          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
+            <div>
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+            </div>
           </div>
-        </div>
-    
-        <!-- Chart Placeholder 4 -->
-        <div class="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg h-64 flex items-center justify-center text-center">
-          <div>
-            <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">Upload results or run visualization to render chart</p>
+      
+          <!-- Chart Placeholder 3 -->
+          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
+            <div>
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+            </div>
           </div>
+      
+            <!-- Chart Placeholder 4 -->
+            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
+            <div>
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+            </div>
+          </div>
+      
         </div>
-    
-      </div>
-    </section>
+      </section>
     
     
     

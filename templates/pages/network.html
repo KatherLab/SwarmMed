@@ -34,125 +34,108 @@
         </nav>
         <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Network</h1>
       </div>
-      
-      <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-  <!-- VPN Section Header -->
+ 
+        <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+  <!-- Header Row -->
   <div class="items-center justify-between lg:flex">
-    <div class="mb-4 lg:mb-0">
-      <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">VPN & Network Status</h3>
-      <span class="text-base font-normal text-gray-500 dark:text-gray-400">Monitor and connect to VPN</span>
+    <!-- Left Side: Icon + Title -->
+    <div class="flex items-start gap-4">
+      <div class="p-3 bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 rounded-lg">
+        <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M4.857 3A1.857 1.857 0 0 0 3 4.857v4.286C3 10.169 3.831 11 4.857 11h4.286A1.857 1.857 0 0 0 11 9.143V4.857A1.857 1.857 0 0 0 9.143 3H4.857Zm10 0A1.857 1.857 0 0 0 13 4.857v4.286c0 1.026.831 1.857 1.857 1.857h4.286A1.857 1.857 0 0 0 21 9.143V4.857A1.857 1.857 0 0 0 19.143 3h-4.286Zm-10 10A1.857 1.857 0 0 0 3 14.857v4.286C3 20.169 3.831 21 4.857 21h4.286A1.857 1.857 0 0 0 11 19.143v-4.286A1.857 1.857 0 0 0 9.143 13H4.857Zm10 0A1.857 1.857 0 0 0 13 14.857v4.286c0 1.026.831 1.857 1.857 1.857h4.286A1.857 1.857 0 0 0 21 19.143v-4.286A1.857 1.857 0 0 0 19.143 13h-4.286Z"/>
+        </svg>
+      </div>
+      <div>
+        <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Network and VPN Status</h3>
+        <span class="text-base font-normal text-gray-500 dark:text-gray-400">Monitor and connect to VPN</span>
+      </div>
     </div>
-    <!-- Connect VPN Button -->
-    <div class="flex items-center">
+    <!-- VPN Action Button -->
+    <div class="flex items-center mt-4 lg:mt-0">
       <button type="button"
         class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700">
-        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 20a16.405 16.405 0 0 1-5.092-5.804A16.694 16.694 0 0 1 5 6.666L12 4l7 2.667a16.695 16.695 0 0 1-1.908 7.529A16.406 16.406 0 0 1 12 20Z"/>
+        <svg class="w-6 h-6 mr-2" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 20a16.405 16.405 0 0 1-5.092-5.804A16.694 16.694 0 0 1 5 6.666L12 4l7 2.667a16.695 16.695 0 0 1-1.908 7.529A16.406 16.406 0 0 1 12 20Z"/>
         </svg>
-
         Disconnect VPN
       </button>
     </div>
   </div>
 
-  <!-- Status Info -->
+  <!-- VPN Status Grid -->
   <div class="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 md:grid-cols-3">
-    <!-- VPN Status -->
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
       <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-       <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 20a16.405 16.405 0 0 1-5.092-5.804A16.694 16.694 0 0 1 5 6.666L12 4l7 2.667a16.695 16.695 0 0 1-1.908 7.529A16.406 16.406 0 0 1 12 20Z"/>
+        <svg class="w-6 h-6 mr-2" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 20a16.405 16.405 0 0 1-5.092-5.804A16.694 16.694 0 0 1 5 6.666L12 4l7 2.667a16.695 16.695 0 0 1-1.908 7.529A16.406 16.406 0 0 1 12 20Z"/>
         </svg>
         VPN Status
       </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">Connected</p>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">connected</p>
     </div>
 
-    <!-- Network IP -->
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
       <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-          <path stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M4.37 7.657c2.063.528 2.396 2.806 3.202 3.87 1.07 1.413 2.075 1.228 3.192 2.644 1.805 2.289 1.312 5.705 1.312 6.705M20 15h-1a4 4 0 0 0-4 4v1M8.587 3.992c0 .822.112 1.886 1.515 2.58 1.402.693 2.918.351 2.918 2.334 0 .276 0 2.008 1.972 2.008 2.026.031 2.026-1.678 2.026-2.008 0-.65.527-.9 1.177-.9H20M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+        <svg class="w-6 h-6 mr-2" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linecap="round" stroke-width="2"
+            d="M4.37 7.657c2.063.528 2.396 2.806 3.202 3.87 1.07 1.413 2.075 1.228 3.192 2.644 1.805 2.289 1.312 5.705 1.312 6.705M20 15h-1a4 4 0 0 0-4 4v1M8.587 3.992c0 .822.112 1.886 1.515 2.58 1.402.693 2.918.351 2.918 2.334 0 .276 0 2.008 1.972 2.008 2.026.031 2.026-1.678 2.026-2.008 0-.65.527-.9 1.177-.9H20M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
         </svg>
-
         IP Address
       </div>
       <p class="text-lg font-semibold text-gray-900 dark:text-white" id="ipAddress">192.168.0.100</p>
     </div>
 
-    <!-- Connection Speed -->
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
       <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
-</svg>
-
+        <svg class="w-6 h-6 mr-2" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+        </svg>
         Speed
       </div>
       <p class="text-lg font-semibold text-gray-900 dark:text-white" id="connectionSpeed">100 Mbps</p>
     </div>
   </div>
+
+  <!-- Divider -->
+  <hr class="my-6 border-gray-200 dark:border-gray-600" />
+
+  <!-- Current Network Section -->
+  <div>
+    <div class="mb-4">
+      <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Current Network</h3>
+      <span class="text-base font-normal text-gray-500 dark:text-gray-400">This is the currently selected network</span>
+    </div>
+
+    <div class="overflow-x-auto rounded-lg mt-4">
+      <div class="inline-block min-w-full align-middle">
+        <div class="overflow-hidden shadow-sm sm:rounded-lg">
+          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-600">
+            <thead class="bg-gray-50 dark:bg-gray-700">
+              <tr>
+                <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Title</th>
+                <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Creation date</th>
+                <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Author</th>
+                <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Description</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white dark:bg-gray-800">
+              <tr>
+                <td class="p-4 text-sm font-semibold text-gray-900 whitespace-nowrap dark:text-white">Test</td>
+                <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">Apr 23, 2021</td>
+                <td class="p-4 text-sm font-normal text-gray-900 whitespace-nowrap dark:text-white">Kevin Pfeiffer</td>
+                <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">Lorem ipsum</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
-
-      <section class="p-4 bg-green-100 border mt-4 border-green-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-green-900 border border-green-100 dark:border-green-500 dark:bg-gray-700">
-        <!-- Card header -->
-        <div class="items-center justify-between lg:flex">
-          <div class="mb-4 lg:mb-0">
-            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Current Network</h3>
-            <span class="text-base font-normal text-gray-500 dark:text-gray-400">This is the currently seleted Network</span>
-          </div>
-        </div>
-        
-        <!-- Table -->
-        <div class="flex flex-col mt-6">
-          <div class="overflow-x-auto rounded-lg">
-            <div class="inline-block min-w-full align-middle">
-              <div class="overflow-hidden shadow sm:rounded-lg">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-600">
-                  <thead class="bg-gray-50 dark:bg-gray-700">
-                    <tr>
-                      <th scope="col"
-                        class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
-                        Title
-                      </th>
-                      <th scope="col"
-                        class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
-                       Creation date
-                      </th>
-                      <th scope="col"
-                        class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
-                        Author
-                      </th>
-                      <th scope="col"
-                        class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
-                        Description
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="bg-white dark:bg-gray-800">
-                    <tr>
-                      <td class="p-4 text-sm font-semibold text-gray-900 whitespace-nowrap dark:text-white">
-                       Test
-                      </td>
-                      <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
-                        Apr 23 ,2021
-                      </td>
-                      <td class="p-4 text-sm font-normal text-gray-900 whitespace-nowrap dark:text-white">
-                       Kevin Pfeiffer
-                      </td>
-                      <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
-                        Lorem ipsum
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-        </section>
- 
     
       <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
       <!-- Card header -->
