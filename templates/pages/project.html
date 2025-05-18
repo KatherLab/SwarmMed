@@ -35,22 +35,75 @@
         <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Project</h1>
       </div>
 
-      <section class="p-4 bg-green-100 border mt-4 border-green-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-green-900 border border-green-100 dark:border-green-500 dark:bg-gray-700">
-        <!-- Card header -->
-        <div class="items-center justify-between lg:flex">
-          <div class="mb-4 lg:mb-0">
-            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Current Project</h3>
-            <span class="text-base font-normal text-gray-500 dark:text-gray-400">This is the currently seleted project</span>
+       <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+  <!-- Header Row -->
+  <div class="items-center justify-between lg:flex">
+    <!-- Left Side: Icon + Title -->
+    <div class="flex items-start gap-4">
+      <div class="p-3 bg-fuchsia-100 dark:bg-fuchsia-900 text-fuchsia-700 dark:text-fuchsia-300 rounded-lg">
+            <svg class="w-10 h-10"
+            fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 6a2 2 0 0 1 2-2h5.532a2 2 0 0 1 1.536.72l1.9 2.28H3V6Zm0 3v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9H3Z"/>
+            </svg>
           </div>
-        </div>
-        
-        <!-- Table -->
-        <div class="flex flex-col mt-6">
-          <div class="overflow-x-auto rounded-lg">
-            <div class="inline-block min-w-full align-middle">
-              <div class="overflow-hidden shadow sm:rounded-lg">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-600">
-                  <thead class="bg-gray-50 dark:bg-gray-700">
+      <div>
+        <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Project Status</h3>
+        <span class="text-base font-normal text-gray-500 dark:text-gray-400">View details about your projects</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- VPN Status Grid -->
+  <div class="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 md:grid-cols-3">
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6H6m12 4H6m12 4H6m12 4H6"/>
+</svg>
+
+        Projects
+      </div>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">3</p>
+    </div>
+
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.032 12 1.984 1.984 4.96-4.96m4.55 5.272.893-.893a1.984 1.984 0 0 0 0-2.806l-.893-.893a1.984 1.984 0 0 1-.581-1.403V7.04a1.984 1.984 0 0 0-1.984-1.984h-1.262a1.983 1.983 0 0 1-1.403-.581l-.893-.893a1.984 1.984 0 0 0-2.806 0l-.893.893a1.984 1.984 0 0 1-1.403.581H7.04A1.984 1.984 0 0 0 5.055 7.04v1.262c0 .527-.209 1.031-.581 1.403l-.893.893a1.984 1.984 0 0 0 0 2.806l.893.893c.372.372.581.876.581 1.403v1.262a1.984 1.984 0 0 0 1.984 1.984h1.262c.527 0 1.031.209 1.403.581l.893.893a1.984 1.984 0 0 0 2.806 0l.893-.893a1.985 1.985 0 0 1 1.403-.581h1.262a1.984 1.984 0 0 0 1.984-1.984V15.7c0-.527.209-1.031.581-1.403Z"/>
+</svg>
+
+       Finished Projects
+      </div>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="ipAddress">0</p>
+    </div>
+
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 4h3a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3m0 3h6m-3 5h3m-6 0h.01M12 16h3m-6 0h.01M10 3v4h4V3h-4Z"/>
+</svg>
+
+        Projects to do
+      </div>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="connectionSpeed">3</p>
+    </div>
+  </div>
+
+  <!-- Divider -->
+  <hr class="my-6 border-gray-200 dark:border-gray-600" />
+
+  <!-- Current Network Section -->
+  <div>
+    <div class="mb-4">
+      <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Current Project</h3>
+      <span class="text-base font-normal text-gray-500 dark:text-gray-400">This is the currently selected project</span>
+    </div>
+
+    <div class="overflow-x-auto rounded-lg mt-4">
+      <div class="inline-block min-w-full align-middle">
+        <div class="overflow-hidden shadow-sm sm:rounded-lg">
+          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-600">
+           <thead class="bg-gray-50 dark:bg-gray-700">
                     <tr>
                       <th scope="col"
                         class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
@@ -86,13 +139,12 @@
                       </td>
                     </tr>
                   </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          </table>
         </div>
-        </section>
- 
+      </div>
+    </div>
+  </div>
+</section>
     
       <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
       <!-- Card header -->
