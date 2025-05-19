@@ -16,69 +16,6 @@ def index(request):
   }
   return render(request, "dashboard/index.html", context)
 
-@login_required(login_url='/users/signin/')
-def project(request):
-
-  context = {
-    'segment': 'project',
-  }
-  return render(request, "pages/project.html", context)
-
-login_required(login_url='/users/signin/')
-def new_project(request):
-
-  context = {
-    'segment': 'project',
-  }
-  return render(request, "pages/new_project.html", context)
-
-@login_required(login_url='/users/signin/')
-def data(request):
-
-  context = {
-    'segment': 'data',
-  }
-  return render(request, "pages/data.html", context)
-
-@login_required(login_url='/users/signin/')
-def network(request):
-
-  context = {
-    'segment': 'network',
-  }
-  return render(request, "pages/network.html", context)
-
-@login_required(login_url='/users/signin/')
-def new_network(request):
-
-  context = {
-    'segment': 'network',
-  }
-  return render(request, "pages/new_network.html", context)
-
-@login_required(login_url='/users/signin/')
-def training(request):
-
-  context = {
-    'segment': 'training',
-  }
-  return render(request, "pages/training.html", context)
-
-@login_required(login_url='/users/signin/')
-def results(request):
-
-  context = {
-    'segment': 'results',
-  }
-  return render(request, "pages/results.html", context)
-
-@login_required(login_url='/users/signin/')
-def logs(request):
-
-  context = {
-    'segment': 'logs',
-  }
-  return render(request, "pages/logs.html", context)
 
 #### new code ####
 from .forms import DocumentForm

@@ -57,6 +57,13 @@ INSTALLED_APPS = [
     "apps.api",
     "apps.charts", 
     "apps.tables",
+    
+    "apps.project",
+    "apps.data",
+    "apps.network",
+    "apps.training",
+    "apps.results",
+    "apps.logs",
 
     'rest_framework',
     'rest_framework.authtoken', 
