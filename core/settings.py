@@ -54,21 +54,12 @@ INSTALLED_APPS = [
     "home",
     "apps.common",
     "apps.users",
-    "apps.api",
-    "apps.charts", 
-    "apps.tables",
-    
     "apps.project",
     "apps.data",
     "apps.network",
     "apps.training",
     "apps.results",
     "apps.logs",
-
-    'rest_framework',
-    'rest_framework.authtoken', 
-    'drf_spectacular',
-    'django_api_gen',
 
     "debug_toolbar",
     'storages',
@@ -200,23 +191,6 @@ EMAIL_PORT = os.environ.get('EMAIL_PORT', 587)
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', True)
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER',)
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
-
-# ### API-GENERATOR Settings ###
-API_GENERATOR = {
-    'product' : "apps.common.models.Product",
-}
-
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-    ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
-    ],
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-}
-########################################
 
 # risky
 SESSION_COOKIE_HTTPONLY=False

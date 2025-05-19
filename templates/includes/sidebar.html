@@ -121,45 +121,7 @@
                             </svg>
                             <span class="ml-3" sidebar-toggle-item>Django Admin</span>
                         </a>
-                    </li> 
-                    <li>
-                        <button type="button"
-                            class="flex items-center w-full p-2 text-base text-gray-900 transition duration-75 rounded-lg group hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700 {% if 'apps' in parent %} bg-gray-100 dark:bg-gray-700 {% endif %}"
-                            aria-controls="dropdown-dashboard" data-collapse-toggle="dropdown-dashboard">
-                            <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true"
-                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
-                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M6.143 1H1.857A.857.857 0 0 0 1 1.857v4.286c0 .473.384.857.857.857h4.286A.857.857 0 0 0 7 6.143V1.857A.857.857 0 0 0 6.143 1Zm10 0h-4.286a.857.857 0 0 0-.857.857v4.286c0 .473.384.857.857.857h4.286A.857.857 0 0 0 17 6.143V1.857A.857.857 0 0 0 16.143 1Zm-10 10H1.857a.857.857 0 0 0-.857.857v4.286c0 .473.384.857.857.857h4.286A.857.857 0 0 0 7 16.143v-4.286A.857.857 0 0 0 6.143 11Zm10 0h-4.286a.857.857 0 0 0-.857.857v4.286c0 .473.384.857.857.857h4.286a.857.857 0 0 0 .857-.857v-4.286a.857.857 0 0 0-.857-.857Z" />
-                            </svg>
-                            <span class="flex-1 ml-3 text-left whitespace-nowrap" sidebar-toggle-item>Apps</span>
-                            <svg sidebar-toggle-item class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"
-                                xmlns="http://www.w3.org/2000/svg">
-                                <path fill-rule="evenodd"
-                                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                                    clip-rule="evenodd"></path>
-                            </svg>
-                        </button>
-                        <ul id="dropdown-dashboard" class="py-2 space-y-2 block">
-                            <li>
-                                <a href="{% url 'datatables' %}"
-                                    class="flex items-center p-2 text-base text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700 {% if 'datatables' in segment %} bg-gray-100 dark:bg-gray-700 {% endif %}">Tables</a>
-                            </li>
-                            <li>
-                                <a href="{% url 'charts' %}"
-                                    class="flex items-center p-2 text-base text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700 {% if 'charts' in segment %} bg-gray-100 dark:bg-gray-700 {% endif %}">Charts</a>
-                            </li>
-                            <li>
-                                <a href="/api/product/" target="_blank"
-                                    class="flex items-center p-2 text-base text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">API</a>
-                            </li>
-                            <li>
-                                <a href="/api/docs/" target="_blank"
-                                    class="flex items-center p-2 text-base text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">API Docs</a>
-                            </li>
-                            
-                        </ul>
-                    </li>                           
+                    </li>              
                     {% else %}
                     <li>
                         <a href="{% url 'profile' %}"
