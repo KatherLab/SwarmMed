@@ -7,7 +7,7 @@ def network(request):
   context = {
     'segment': 'network',
   }
-  return render(request, "pages/network.html", context)
+  return render(request, "apps/network/network.html", context)
 
 @login_required(login_url='/users/signin/')
 def new_network(request):
@@ -15,4 +15,4 @@ def new_network(request):
   context = {
     'segment': 'network',
   }
-  return render(request, "pages/new_network.html", context)
+  return render(request, "apps/network/new_network.html", context)

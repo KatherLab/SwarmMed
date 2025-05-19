@@ -7,4 +7,4 @@ def training(request):
   context = {
     'segment': 'training',
   }
-  return render(request, "pages/training.html", context)
+  return render(request, "apps/training.html", context)

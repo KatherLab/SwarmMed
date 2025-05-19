@@ -7,4 +7,4 @@ def results(request):
   context = {
     'segment': 'results',
   }
-  return render(request, "pages/results.html", context)
+  return render(request, "apps/results.html", context)

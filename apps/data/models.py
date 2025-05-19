@@ -1,12 +1,5 @@
 from django.db import models
 
-class FileInfo(models.Model):
-    path = models.URLField()
-    info = models.CharField(max_length=255)
-
-    def __str__(self):
-        return self.path
-
 class Document(models.Model):
     title = models.CharField(max_length=100)
     file = models.FileField(upload_to='documents/')

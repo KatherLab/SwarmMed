@@ -7,4 +7,4 @@ def logs(request):
   context = {
     'segment': 'logs',
   }
-  return render(request, "pages/logs.html", context)
+  return render(request, "apps/logs.html", context)

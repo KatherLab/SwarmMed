@@ -7,7 +7,7 @@ def data(request):
   context = {
     'segment': 'data',
   }
-  return render(request, "pages/data.html", context)# Create your views here.
+  return render(request, "apps/data/data.html", context)# Create your views here.
 
 from .forms import DocumentForm
 
@@ -23,4 +23,4 @@ def upload(request):
             form = DocumentForm()
     else:
         form = DocumentForm()
-    return render(request, 'pages/upload.html', {'form': form, 'uploaded': uploaded})
+    return render(request, 'apps/data/upload.html', {'form': form, 'uploaded': uploaded})
