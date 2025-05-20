@@ -18,9 +18,8 @@ gunicorn==21.2.0
 # DB Layer
 psycopg2
 
-# MINIO Database
+# S3 Database
 django-storages 
 boto3
-minio
 
 
