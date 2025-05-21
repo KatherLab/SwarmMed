@@ -46,4 +46,18 @@ def rename_s3_object(old_key, new_key):
         CopySource={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': old_key},
         Key=new_key
     )
-    s3.delete_object(Bucket=settings.S3_BUCKET, Key=old_key)
+    s3.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=old_key)
+    
+def make_public_presigned_url(url):
+    internal = settings.AWS_S3_ENDPOINT_URL
+    public = settings.PUBLIC_URL
+    return url.replace(internal, public)
+
+def get_s3_download_url(key, expires=3600):
+    s3 = get_s3_client()
+    url = s3.generate_presigned_url(
+        'get_object',
+        Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': key},
+        ExpiresIn=expires
+    )
+    return make_public_presigned_url(url)

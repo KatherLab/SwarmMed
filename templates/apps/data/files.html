@@ -1,7 +1,6 @@
 {% extends "layouts/base.html" %}
 {% load static %}
 
-
 {% block content %}
 
 <main>
@@ -42,71 +41,80 @@
         <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Upload</h1>
       </div>
 
-
 <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-  <div class="mb-4">
-    <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Project Files</h3>
-    <span class="text-base font-normal text-gray-500 dark:text-gray-400">Manage your project files</span>
-    <!-- Breadcrumbs -->
-    <div class="mt-2 text-sm text-gray-500 dark:text-gray-400">
-      <a href="{% url 'list_files' %}">Root</a>
-      {% for name, crumb_prefix in breadcrumbs %}
-        / <a href="{% url 'list_files' %}?prefix={{ crumb_prefix }}">{{ name }}</a>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="flex overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-x divide-gray-200 dark:divide-gray-700">
-    <!-- Folders -->
-    <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-700 p-4">
-      <ul class="space-y-2 min-w-[160px]">
-        {% for folder in folders %}
-        <li class="flex items-center justify-between px-2 py-1 rounded bg-gray-200 dark:bg-gray-700">
-          <a href="{% url 'list_files' %}?prefix={{ folder }}" class="text-gray-900 dark:text-white flex-1">{{ folder|slice:":-1"|cut:prefix }}</a>
-          <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
-            <form method="post" action="{% url 'rename_file' %}" class="inline">
-              {% csrf_token %}
-              <input type="hidden" name="old_key" value="{{ folder }}">
-              <input type="text" name="new_name" placeholder="Rename" class="w-16 text-xs">
-              <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit {{ folder }}">✏️</button>
-            </form>
-            <form method="post" action="{% url 'delete_file' %}" class="inline">
-              {% csrf_token %}
-              <input type="hidden" name="key" value="{{ folder }}">
-              <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete {{ folder }}">&times;</button>
-            </form>
-          </div>
+  <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Project Files</h3>
+  <span class="text-base font-normal text-gray-500 dark:text-gray-400">Finder-style S3 browser</span>
+  <div class="flex overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-x divide-gray-200 dark:divide-gray-700 mt-4" style="min-height: 300px;">
+    {% for column in columns %}
+    <div class="w-64 flex-shrink-0 bg-gray-50 dark:bg-gray-700 p-2">
+      <ul class="space-y-1">
+        {% for folder in column.folders %}
+        <li class="flex items-center group">
+          <a href="{% url 'list_files' %}?prefix={{ folder.key }}"
+             class="flex-1 text-gray-900 dark:text-white px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600
+             {% if folder.key in active_prefixes %} bg-blue-100 dark:bg-blue-900 {% endif %}">
+            <span class="folder-name" data-key="{{ folder.key }}">{{ folder.name }}</span>
+          </a>
+          <!-- Rename button for folder -->
+          <button class="text-yellow-500 hover:text-yellow-700 px-1 rename-btn" data-key="{{ folder.key }}" data-name="{{ folder.name }}" title="Rename">&#9998;</button>
+          <form method="post" action="{% url 'delete_file' %}" class="inline ml-1">
+            {% csrf_token %}
+            <input type="hidden" name="key" value="{{ folder.key }}">
+            <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete {{ folder.name }}">&times;</button>
+          </form>
         </li>
-        {% empty %}
-        <li class="text-gray-400">No subfolders</li>
+        {% endfor %}
+        {% for file in column.files %}
+        <li class="flex items-center group">
+          <span class="flex-1 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+            <span class="file-name" data-key="{{ file.key }}" tabindex="0">{{ file.name }}</span>
+          </span>
+          <a href="{{ file.download_url }}" class="text-blue-500 hover:text-blue-700 px-1" title="Download" download>
+            ⬇️
+          </a>
+          <!-- Rename button for file -->
+          <button class="text-yellow-500 hover:text-yellow-700 px-1 rename-btn" data-key="{{ file.key }}" data-name="{{ file.name }}" title="Rename">&#9998;</button>
+          <form method="post" action="{% url 'delete_file' %}" class="inline ml-1">
+            {% csrf_token %}
+            <input type="hidden" name="key" value="{{ file.key }}">
+            <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete {{ file.name }}">&times;</button>
+          </form>
+        </li>
         {% endfor %}
       </ul>
     </div>
-    <!-- Files -->
-    <div class="w-auto flex-shrink-0 bg-gray-50 dark:bg-gray-700 p-4">
-      <ul class="space-y-2 min-w-[160px]">
-        {% for file in files %}
-        <li class="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
-          <span class="text-gray-900 dark:text-white">{{ file|cut:prefix }}</span>
-          <div class="flex items-center pl-2 ml-2 border-l border-gray-300 dark:border-gray-600">
-            <form method="post" action="{% url 'rename_file' %}" class="inline">
-              {% csrf_token %}
-              <input type="hidden" name="old_key" value="{{ file }}">
-              <input type="text" name="new_name" placeholder="Rename" class="w-16 text-xs">
-              <button class="text-black-500 hover:text-black-700 px-1" aria-label="Edit {{ file }}">✏️</button>
-            </form>
-            <form method="post" action="{% url 'delete_file' %}" class="inline">
-              {% csrf_token %}
-              <input type="hidden" name="key" value="{{ file }}">
-              <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete {{ file }}">&times;</button>
-            </form>
-          </div>
-        </li>
-        {% empty %}
-        <li class="text-gray-400">No files</li>
-        {% endfor %}
-      </ul>
-    </div>
+    {% endfor %}
   </div>
 </section>
+
+<!-- Rename Modal -->
+<div id="renameModal" class="fixed inset-0 z-50 hidden bg-black bg-opacity-30 flex items-center justify-center">
+  <div class="bg-white dark:bg-gray-800 p-6 rounded shadow-lg">
+    <form id="renameForm" method="post" action="{% url 'rename_file' %}">
+      {% csrf_token %}
+      <input type="hidden" name="old_key" id="renameOldKey">
+      <label for="renameNewName" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">New name:</label>
+      <input type="text" name="new_name" id="renameNewName" class="border rounded px-2 py-1 w-full mb-4 dark:bg-gray-700 dark:text-white" required>
+      <div class="flex justify-end space-x-2">
+        <button type="button" id="renameCancel" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600">Cancel</button>
+        <button type="submit" class="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">Rename</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.rename-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.getElementById('renameModal').classList.remove('hidden');
+    document.getElementById('renameOldKey').value = this.dataset.key;
+    document.getElementById('renameNewName').value = this.dataset.name;
+    document.getElementById('renameNewName').focus();
+  });
+});
+document.getElementById('renameCancel').onclick = function() {
+  document.getElementById('renameModal').classList.add('hidden');
+};
+</script>
 
 {% endblock content %}
