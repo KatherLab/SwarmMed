@@ -58,17 +58,77 @@
                    webkitdirectory
                    directory>
             <input type="hidden" id="directories" name="directories" />
-            <button type="submit" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Upload</button>
+            <button type="submit" id="submit_btn" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Upload</button>
         </form>
+        <!-- Progress Bar -->
+        <div id="progress_container" class="w-full bg-gray-200 rounded-full h-4 mt-4 hidden">
+            <div id="progress_bar" class="bg-blue-600 h-4 rounded-full text-xs text-white text-center" style="width: 0%;">0%</div>
+        </div>
+        <!-- Success Message -->
+        <div id="success_message" class="hidden mt-4 p-4 bg-green-100 text-green-800 rounded">
+            Files uploaded successfully!
+        </div>
     </div>
     <script>
-        document.querySelector("#file_input").addEventListener("change", function() {
-            var files = document.querySelector("#file_input").files;
+        const fileInput = document.getElementById("file_input");
+        const directoriesInput = document.getElementById("directories");
+        const form = document.getElementById("upload_form");
+        const progressContainer = document.getElementById("progress_container");
+        const progressBar = document.getElementById("progress_bar");
+        const successMessage = document.getElementById("success_message");
+        const submitBtn = document.getElementById("submit_btn");
+
+        fileInput.addEventListener("change", function() {
+            var files = fileInput.files;
             var directories = {};
             for (var i = 0; i < files.length; i++) {
                 directories[files[i].name + '_' + i] = files[i].webkitRelativePath;
             }
-            document.querySelector("#directories").value = JSON.stringify(directories);
+            directoriesInput.value = JSON.stringify(directories);
+        });
+
+        form.addEventListener("submit", function(e) {
+            e.preventDefault();
+            progressContainer.classList.remove("hidden");
+            progressBar.style.width = "0%";
+            progressBar.textContent = "0%";
+            successMessage.classList.add("hidden");
+            submitBtn.disabled = true;
+
+            var formData = new FormData(form);
+
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", form.action, true);
+
+            xhr.upload.addEventListener("progress", function(e) {
+                if (e.lengthComputable) {
+                    var percent = Math.round((e.loaded / e.total) * 100);
+                    progressBar.style.width = percent + "%";
+                    progressBar.textContent = percent + "%";
+                }
+            });
+
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    submitBtn.disabled = false;
+                    if (xhr.status === 200) {
+                        progressBar.style.width = "100%";
+                        progressBar.textContent = "100%";
+                        successMessage.classList.remove("hidden");
+                        form.reset();
+                        // Optionally, hide progress bar after a delay
+                        setTimeout(() => {
+                            progressContainer.classList.add("hidden");
+                        }, 1500);
+                    } else {
+                        progressBar.style.width = "0%";
+                        progressBar.textContent = "0%";
+                        alert("Upload failed. Please try again.");
+                    }
+                }
+            };
+
+            xhr.send(formData);
         });
     </script>
 
