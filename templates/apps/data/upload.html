@@ -1,19 +1,17 @@
 {% extends "layouts/base.html" %}
 {% load static %}
 
-
 {% block content %}
 
 <main>
-  <div
-    class="p-4 bg-white block sm:flex items-center justify-between border-b border-gray-200 lg:mt-1.5 dark:bg-gray-800 dark:border-gray-700">
+  <div class="p-4 block sm:flex items-center justify-between lg:mt-1.5">
     <div class="w-full mb-1">
       <div class="mb-4">
         <nav class="flex mb-5" aria-label="Breadcrumb">
           <ol class="inline-flex items-center space-x-1 text-sm font-medium md:space-x-2">
             <li class="inline-flex items-center">
               <a href="/"
-                class="inline-flex items-center text-gray-700 hover:text-primary-600 dark:text-gray-300 dark:hover:text-white">
+                class="inline-flex items-center text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">
                 <svg class="w-5 h-5 mr-2.5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path d="M15 4H9v16h6V4Zm2 16h3a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3v16ZM4 4h3v16H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
                 </svg>
@@ -23,7 +21,7 @@
             <li>
               <div class="flex items-center">
                 <svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path></svg>
-                <a href="#" class="ml-1 text-gray-700 hover:text-primary-600 md:ml-2 dark:text-gray-300 dark:hover:text-white">Data</a>
+                <a href="#" class="ml-1 text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">Data</a>
               </div>
             </li>
             <li>
@@ -42,96 +40,188 @@
         <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Upload</h1>
       </div>
 
-    
+      <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+        <h2 class="mb-4 text-xl font-semibold dark:text-white">Upload Files or Folders</h2>
         
-
-   <div class="max-w-lg mx-auto bg-white p-6 rounded shadow">
-        <h2 class="text-2xl font-bold mb-4">Upload Files or Folders</h2>
-        <form id="upload_form" method="post" enctype="multipart/form-data" class="space-y-4">
+        <form id="upload_form" method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
-            <label class="block mb-2 text-sm font-medium text-gray-900" for="file_input">Select files or folders</label>
-            <input class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none"
-                   id="file_input"
-                   type="file"
-                   name="file_field"
-                   multiple
-                   webkitdirectory
-                   directory>
+            
+            <div>
+              <label for="file_input" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Select files or folders</label>
+              <label for="file_input" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600">
+                <div class="flex flex-col items-center justify-center pt-5 pb-5">
+                  <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                    <path fill-rule="evenodd" d="M5 4a2 2 0 0 0-2 2v1h10.968l-1.9-2.28A2 2 0 0 0 10.532 4H5ZM3 19V9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm9-8.5a1 1 0 0 1 1 1V13h1.5a1 1 0 1 1 0 2H13v1.5a1 1 0 1 1-2 0V15H9.5a1 1 0 1 1 0-2H11v-1.5a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
+                  </svg>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span> or <span class="font-semibold">drag & drop</span></p>
+                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">files or folders</p>
+                </div>
+                <input class="hidden"
+                    id="file_input"
+                    type="file"
+                    name="file_field"
+                    multiple
+                    webkitdirectory
+                    directory>
+              </label>
+            </div>
+            
+            <!-- Selected Files/Folders Display -->
+            <div id="selected_files_container" class="mt-4 hidden">
+              <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-2">Selected files/folders:</h3>
+              <div id="selected_files_list" class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 max-h-60 overflow-y-auto">
+                <!-- File list will be inserted here by JavaScript -->
+              </div>
+            </div>
+            
             <input type="hidden" id="directories" name="directories" />
-            <button type="submit" id="submit_btn" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Upload</button>
+            
+            <!-- Progress Bar -->
+            <div id="progress_container" class="w-full bg-gray-200 rounded-full h-4 mt-4 hidden">
+                <div id="progress_bar" class="bg-purple-700 h-4 rounded-full text-xs text-white text-center" style="width: 0%;">0%</div>
+            </div>
+            
+            <!-- Success Message -->
+            <div id="success_message" class="hidden mt-4 p-4 bg-green-100 text-green-800 rounded">
+                Files uploaded successfully!
+            </div>
+            
+            <button type="submit" id="submit_btn" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+                Upload
+            </button>
         </form>
-        <!-- Progress Bar -->
-        <div id="progress_container" class="w-full bg-gray-200 rounded-full h-4 mt-4 hidden">
-            <div id="progress_bar" class="bg-blue-600 h-4 rounded-full text-xs text-white text-center" style="width: 0%;">0%</div>
-        </div>
-        <!-- Success Message -->
-        <div id="success_message" class="hidden mt-4 p-4 bg-green-100 text-green-800 rounded">
-            Files uploaded successfully!
-        </div>
+      </section>
     </div>
-    <script>
-        const fileInput = document.getElementById("file_input");
-        const directoriesInput = document.getElementById("directories");
-        const form = document.getElementById("upload_form");
-        const progressContainer = document.getElementById("progress_container");
-        const progressBar = document.getElementById("progress_bar");
-        const successMessage = document.getElementById("success_message");
-        const submitBtn = document.getElementById("submit_btn");
+  </div>
+</main>
 
-        fileInput.addEventListener("change", function() {
-            var files = fileInput.files;
-            var directories = {};
+<script>
+    const fileInput = document.getElementById("file_input");
+    const directoriesInput = document.getElementById("directories");
+    const form = document.getElementById("upload_form");
+    const progressContainer = document.getElementById("progress_container");
+    const progressBar = document.getElementById("progress_bar");
+    const successMessage = document.getElementById("success_message");
+    const submitBtn = document.getElementById("submit_btn");
+    const selectedFilesContainer = document.getElementById("selected_files_container");
+    const selectedFilesList = document.getElementById("selected_files_list");
+
+    fileInput.addEventListener("change", function() {
+        var files = fileInput.files;
+        var directories = {};
+        
+        // Clear the previous list
+        selectedFilesList.innerHTML = '';
+        
+        // Display selected files/folders
+        if (files.length > 0) {
+            selectedFilesContainer.classList.remove("hidden");
+            
+            // Group files by directory
+            let filesByDirectory = {};
+            
             for (var i = 0; i < files.length; i++) {
-                directories[files[i].name + '_' + i] = files[i].webkitRelativePath;
+                // Use webkitRelativePath if present, else just the file name
+                var relPath = files[i].webkitRelativePath || files[i].name;
+                directories[files[i].name + '_' + i] = relPath;
+                
+                // Extract directory path for grouping
+                let dirPath = '';
+                if (relPath.includes('/')) {
+                    dirPath = relPath.substring(0, relPath.lastIndexOf('/'));
+                }
+                
+                if (!filesByDirectory[dirPath]) {
+                    filesByDirectory[dirPath] = [];
+                }
+                filesByDirectory[dirPath].push(files[i]);
             }
-            directoriesInput.value = JSON.stringify(directories);
+            
+            // Create elements to display files grouped by directory
+            for (const [dirPath, dirFiles] of Object.entries(filesByDirectory)) {
+                // Create directory header if it's not the root
+                if (dirPath !== '') {
+                    const dirHeader = document.createElement('div');
+                    dirHeader.className = 'font-medium text-purple-700 dark:text-purple-300 mt-2 mb-1';
+                    dirHeader.textContent = '📁 ' + dirPath;
+                    selectedFilesList.appendChild(dirHeader);
+                }
+                
+                // Create file list for this directory
+                dirFiles.forEach(file => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'text-sm text-gray-700 dark:text-gray-300 pl-4 py-1';
+                    fileItem.textContent = '📄 ' + file.name + ' (' + formatFileSize(file.size) + ')';
+                    selectedFilesList.appendChild(fileItem);
+                });
+            }
+            
+            // Add summary at the top
+            const summaryElement = document.createElement('div');
+            summaryElement.className = 'font-medium text-gray-800 dark:text-white mb-2';
+            summaryElement.textContent = `${files.length} file(s) selected`;
+            selectedFilesList.insertBefore(summaryElement, selectedFilesList.firstChild);
+        } else {
+            selectedFilesContainer.classList.add("hidden");
+        }
+        
+        directoriesInput.value = JSON.stringify(directories);
+    });
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    form.addEventListener("submit", function(e) {
+        e.preventDefault();
+        progressContainer.classList.remove("hidden");
+        progressBar.style.width = "0%";
+        progressBar.textContent = "0%";
+        successMessage.classList.add("hidden");
+        submitBtn.disabled = true;
+
+        var formData = new FormData(form);
+
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", form.action, true);
+
+        xhr.upload.addEventListener("progress", function(e) {
+            if (e.lengthComputable) {
+                var percent = Math.round((e.loaded / e.total) * 100);
+                progressBar.style.width = percent + "%";
+                progressBar.textContent = percent + "%";
+            }
         });
 
-        form.addEventListener("submit", function(e) {
-            e.preventDefault();
-            progressContainer.classList.remove("hidden");
-            progressBar.style.width = "0%";
-            progressBar.textContent = "0%";
-            successMessage.classList.add("hidden");
-            submitBtn.disabled = true;
-
-            var formData = new FormData(form);
-
-            var xhr = new XMLHttpRequest();
-            xhr.open("POST", form.action, true);
-
-            xhr.upload.addEventListener("progress", function(e) {
-                if (e.lengthComputable) {
-                    var percent = Math.round((e.loaded / e.total) * 100);
-                    progressBar.style.width = percent + "%";
-                    progressBar.textContent = percent + "%";
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                submitBtn.disabled = false;
+                if (xhr.status === 200) {
+                    progressBar.style.width = "100%";
+                    progressBar.textContent = "100%";
+                    successMessage.classList.remove("hidden");
+                    form.reset();
+                    selectedFilesContainer.classList.add("hidden");
+                    // Optionally, hide progress bar after a delay
+                    setTimeout(() => {
+                        progressContainer.classList.add("hidden");
+                    }, 1500);
+                } else {
+                    progressBar.style.width = "0%";
+                    progressBar.textContent = "0%";
+                    alert("Upload failed. Please try again.");
                 }
-            });
+            }
+        };
 
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === XMLHttpRequest.DONE) {
-                    submitBtn.disabled = false;
-                    if (xhr.status === 200) {
-                        progressBar.style.width = "100%";
-                        progressBar.textContent = "100%";
-                        successMessage.classList.remove("hidden");
-                        form.reset();
-                        // Optionally, hide progress bar after a delay
-                        setTimeout(() => {
-                            progressContainer.classList.add("hidden");
-                        }, 1500);
-                    } else {
-                        progressBar.style.width = "0%";
-                        progressBar.textContent = "0%";
-                        alert("Upload failed. Please try again.");
-                    }
-                }
-            };
+        xhr.send(formData);
+    });
+</script>
 
-            xhr.send(formData);
-        });
-    </script>
-
-  
 {% endblock content %}
-
