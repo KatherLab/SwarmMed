@@ -45,7 +45,17 @@
         
         <form id="upload_form" method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
-            
+            <div class="mb-4">
+              <label for="destination_folder" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">
+                Destination folder
+              </label>
+              <select id="destination_folder" name="destination_folder" class="w-full rounded border-gray-300">
+                <option value="">(root)</option>
+              </select>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Choose where to upload your files.
+              </p>
+            </div>
             <div>
               <label for="file_input" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Select files or folders</label>
               <label for="file_input" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600">
@@ -222,6 +232,20 @@
 
         xhr.send(formData);
     });
+
+    document.addEventListener("DOMContentLoaded", function() {
+    fetch("/data/folders/")
+        .then(response => response.json())
+        .then(folders => {
+            const select = document.getElementById("destination_folder");
+            folders.forEach(folder => {
+                const option = document.createElement("option");
+                option.value = folder.value;
+                option.textContent = folder.label;
+                select.appendChild(option);
+            });
+        });
+});
 </script>
 
 {% endblock content %}

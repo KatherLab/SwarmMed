@@ -1,7 +1,7 @@
 import json
 import os
 from django.shortcuts import render, redirect
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
 from django.views.decorators.http import require_POST
@@ -28,12 +28,13 @@ def upload_files(request):
         files = request.FILES.getlist('file_field')
         directories_json = request.POST.get('directories', '{}')
         directories = json.loads(directories_json)
+        destination_folder = request.POST.get('destination_folder', '')
+        if destination_folder and not destination_folder.endswith('/'):
+            destination_folder += '/'
         for idx, file in enumerate(files):
-            # Match the key used in JS
             key = file.name + '_' + str(idx)
             rel_path = directories.get(key, file.name)
-            # Save to MinIO (or default storage) preserving the folder structure
-            save_path = os.path.join('uploads', rel_path)
+            save_path = os.path.join(destination_folder, rel_path) if destination_folder else rel_path
             default_storage.save(save_path, file)
         return HttpResponse('Files uploaded with folder structure preserved!')
     return render(request, 'apps/data/upload.html')
@@ -110,3 +111,22 @@ def rename_file(request):
     except Exception as e:
         messages.error(request, f"Error renaming {old_key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
+
+def list_all_folders(request):
+    """
+    Return a flat list of all folders (recursively) in the bucket.
+    """
+    def collect_folders(prefix=""):
+        folders, _ = list_s3_folder(prefix)
+        all_folders = []
+        for folder in folders:
+            all_folders.append(folder)
+            all_folders.extend(collect_folders(folder))
+        return all_folders
+
+    all_folders = collect_folders("")
+    # Remove trailing slash for display, but keep it in value
+    folder_list = [{"label": f.rstrip('/'), "value": f} for f in all_folders]
+    # Always include root
+    folder_list.insert(0, {"label": "(root)", "value": ""})
+    return JsonResponse(folder_list, safe=False)
