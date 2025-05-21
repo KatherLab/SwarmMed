@@ -47,6 +47,30 @@ def rename_s3_object(old_key, new_key):
         Key=new_key
     )
     s3.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=old_key)
+
+def delete_s3_folder(prefix):
+    """Delete all objects under the given prefix (i.e., a folder)."""
+    s3 = get_s3_client()
+    paginator = s3.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix):
+        objects = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
+        if objects:
+            s3.delete_objects(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Delete={'Objects': objects})
+
+def rename_s3_folder(old_prefix, new_prefix):
+    """Rename a folder by copying all objects to new prefix and deleting the old ones."""
+    s3 = get_s3_client()
+    paginator = s3.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=old_prefix):
+        for obj in page.get('Contents', []):
+            old_key = obj['Key']
+            new_key = new_prefix + old_key[len(old_prefix):]
+            s3.copy_object(
+                Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+                CopySource={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': old_key},
+                Key=new_key
+            )
+            s3.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=old_key)
     
 def make_public_presigned_url(url):
     internal = settings.AWS_S3_ENDPOINT_URL

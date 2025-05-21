@@ -8,7 +8,10 @@ from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.urls import reverse
 
-from .utils import list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url
+from .utils import (
+    list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
+    delete_s3_folder, rename_s3_folder
+)
 
 
 @login_required(login_url='/users/signin/')
@@ -73,11 +76,16 @@ def list_files(request):
 def delete_file(request):
     key = request.POST.get('key')
     try:
-        delete_s3_object(key)
-        messages.success(request, f"Deleted {key}")
+        if key.endswith('/'):
+            delete_s3_folder(key)
+            messages.success(request, f"Deleted folder {key}")
+        else:
+            delete_s3_object(key)
+            messages.success(request, f"Deleted {key}")
     except Exception as e:
         messages.error(request, f"Error deleting {key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
+
 
 @require_POST
 def rename_file(request):
@@ -93,8 +101,12 @@ def rename_file(request):
         if old_key.endswith('/'):
             new_key += '/'
     try:
-        rename_s3_object(old_key, new_key)
-        messages.success(request, f"Renamed {old_key} to {new_key}")
+        if old_key.endswith('/'):
+            rename_s3_folder(old_key, new_key)
+            messages.success(request, f"Renamed folder {old_key} to {new_key}")
+        else:
+            rename_s3_object(old_key, new_key)
+            messages.success(request, f"Renamed {old_key} to {new_key}")
     except Exception as e:
         messages.error(request, f"Error renaming {old_key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
