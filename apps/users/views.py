@@ -52,7 +52,6 @@ def profile(request):
     profile = get_object_or_404(Profile, user=request.user)
     if request.method == 'POST':
         form = ProfileForm(request.POST, instance=profile)
-
         if form.is_valid():
             form.save()
             messages.success(request, 'Profile updated successfully')
@@ -64,16 +63,6 @@ def profile(request):
         'segment': 'profile',
     }
     return render(request, 'dashboard/profile.html', context)
-
-
-def upload_avatar(request):
-    profile = get_object_or_404(Profile, user=request.user)
-    if request.method == 'POST':
-        profile.avatar = request.FILES.get('avatar')
-        profile.save()
-        messages.success(request, 'Avatar uploaded successfully')
-    return redirect(request.META.get('HTTP_REFERER'))
-
 
 def change_password(request):
     user = request.user

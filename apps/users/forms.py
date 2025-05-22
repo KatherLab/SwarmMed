@@ -67,12 +67,10 @@ class UserPasswordChangeForm(PasswordChangeForm):
         'placeholder': 'Confirm New Password'
     }), label="Confirm New Password")
 
-
-
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = Profile
-        exclude = ('user', 'role', 'avatar',)
+        exclude = ('user', 'role')
 
     def __init__(self, *args, **kwargs):
         super(ProfileForm, self).__init__(*args, **kwargs)

@@ -10,6 +10,13 @@ def get_s3_client():
         endpoint_url=settings.AWS_S3_ENDPOINT_URL
     )
 
+def create_minio_bucket(bucket_name):
+       s3 = get_s3_client()
+       # Check if bucket exists
+       buckets = s3.list_buckets()
+       if not any(b['Name'] == bucket_name for b in buckets['Buckets']):
+           s3.create_bucket(Bucket=bucket_name)
+
 def list_s3_folder(prefix=""):
     """
     List immediate files and folders under the given prefix.

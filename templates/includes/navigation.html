@@ -80,11 +80,7 @@
                 class="flex text-sm bg-gray-800 rounded-full focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
                 id="user-menu-button-2" aria-expanded="false" data-dropdown-toggle="dropdown-2">
                 <span class="sr-only">Open user menu</span>
-                {% if request.user.profile.avatar %}
-                  <img class="w-8 h-8 rounded-full" src="{{ request.user.profile.avatar.url }}" alt="user photo">
-                {% else %}
                   <img class="w-8 h-8 rounded-full" src="{% static "dist/img/default-user.png" %}" alt="user photo">
-                {% endif %}
               </button>
             </div>
 
