@@ -42,20 +42,19 @@
 
 
 <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-  <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Project Files</h3>
-  <span class="text-base font-normal text-gray-500 dark:text-gray-400">Finder-style S3 browser</span>
+  <h2 class="mb-4 text-xl font-semibold dark:text-white">Check & Update Project files</h2>
   <div class="flex overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-x divide-gray-200 dark:divide-gray-700 mt-4" style="min-height: 300px;">
     {% for column in columns %}
     <div class="flex-1 min-w-[200px] max-w-fit bg-gray-50 dark:bg-gray-700 p-2">
       <ul class="space-y-1">
         {% for folder in column.folders %}
-        <li class="flex items-center group rounded hover:bg-gray-200 dark:hover:bg-gray-600 {% if folder.key in active_prefixes %} bg-blue-100 dark:bg-blue-900 {% endif %}">
+        <li class="flex items-center group rounded hover:bg-gray-200 dark:hover:bg-gray-600 {% if folder.key in active_prefixes %} bg-gray-200 dark:bg-gray-600 {% endif %}">
           <a href="{% url 'list_files' %}?prefix={{ folder.key }}"
              class="flex-1 text-gray-900 dark:text-white px-2 py-1">
             <span class="folder-name" data-key="{{ folder.key }}">{{ folder.name }}</span>
           </a>
           <!-- Rename button for folder -->
-          <button class="text-yellow-500 hover:text-yellow-700 px-1 rename-btn" data-key="{{ folder.key }}" data-name="{{ folder.name }}" title="Rename">
+          <button class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1 rename-btn" data-key="{{ folder.key }}" data-name="{{ folder.name }}" title="Rename">
             <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
               <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
             </svg>
@@ -63,22 +62,22 @@
           <form method="post" action="{% url 'delete_file' %}" class="inline ml-1">
             {% csrf_token %}
             <input type="hidden" name="key" value="{{ folder.key }}">
-            <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete {{ folder.name }}">&times;</button>
+            <button class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1" aria-label="Delete {{ folder.name }}">&times;</button>
           </form>
         </li>
         {% endfor %}
         {% for file in column.files %}
-        <li class="flex items-center group rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+        <li class="flex items-center group rounded hover:bg-gray-200 dark:hover:bg-gray-600">
           <span class="flex-1 px-2 py-1">
-            <span class="file-name" data-key="{{ file.key }}" tabindex="0">{{ file.name }}</span>
+            <span class="file-name text-gray-900 dark:text-white" data-key="{{ file.key }}" tabindex="0">{{ file.name }}</span>
           </span>
-          <a href="{{ file.download_url }}" class="text-blue-500 hover:text-blue-700 px-1" title="Download" download>
+          <a href="{{ file.download_url }}" class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1" title="Download" download>
             <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
               <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 15v2a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-2m-8 1V4m0 12-4-4m4 4 4-4"/>
             </svg>
           </a>
           <!-- Rename button for file -->
-          <button class="text-yellow-500 hover:text-yellow-700 px-1 rename-btn" data-key="{{ file.key }}" data-name="{{ file.name }}" title="Rename">
+          <button class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1 rename-btn" data-key="{{ file.key }}" data-name="{{ file.name }}" title="Rename">
             <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
               <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
             </svg>
@@ -86,7 +85,7 @@
           <form method="post" action="{% url 'delete_file' %}" class="inline ml-1">
             {% csrf_token %}
             <input type="hidden" name="key" value="{{ file.key }}">
-            <button class="text-red-500 hover:text-red-700 px-1" aria-label="Delete {{ file.name }}">&times;</button>
+            <button class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1" aria-label="Delete {{ file.name }}">&times;</button>
           </form>
         </li>
         {% endfor %}
@@ -111,6 +110,7 @@
     </form>
   </div>
 </div>
+</main>
 
 <script>
 document.querySelectorAll('.rename-btn').forEach(btn => {
