@@ -49,7 +49,7 @@
               <label for="destination_folder" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">
                 Destination folder
               </label>
-              <select id="destination_folder" name="destination_folder" class="w-full rounded border-gray-300">
+              <select id="destination_folder" name="destination_folder" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300">
                 <option value="">(root)</option>
               </select>
               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -63,7 +63,7 @@
                   <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                     <path fill-rule="evenodd" d="M5 4a2 2 0 0 0-2 2v1h10.968l-1.9-2.28A2 2 0 0 0 10.532 4H5ZM3 19V9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm9-8.5a1 1 0 0 1 1 1V13h1.5a1 1 0 1 1 0 2H13v1.5a1 1 0 1 1-2 0V15H9.5a1 1 0 1 1 0-2H11v-1.5a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
-                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span> or <span class="font-semibold">drag & drop</span></p>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">files or folders</p>
                 </div>
                 <input class="hidden"
@@ -87,12 +87,12 @@
             <input type="hidden" id="directories" name="directories" />
             
             <!-- Progress Bar -->
-            <div id="progress_container" class="w-full bg-gray-200 rounded-full h-4 mt-4 hidden">
-                <div id="progress_bar" class="bg-purple-700 h-4 rounded-full text-xs text-white text-center" style="width: 0%;">0%</div>
+            <div id="progress_container" class="w-full bg-gray-50 dark:bg-gray-700 rounded h-10 relative hidden">
+                <div id="progress_bar" class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: 0%;">0%</div>
             </div>
             
             <!-- Success Message -->
-            <div id="success_message" class="hidden mt-4 p-4 bg-green-100 text-green-800 rounded">
+            <div id="success_message" class="hidden mt-4 p-4 bg-green-100 dark:bg-green-900 text-green-500 dark:text-green-300 rounded">
                 Files uploaded successfully!
             </div>
             
@@ -153,7 +153,7 @@
                 if (dirPath !== '') {
                     const dirHeader = document.createElement('div');
                     dirHeader.className = 'font-medium text-purple-700 dark:text-purple-300 mt-2 mb-1';
-                    dirHeader.textContent = '📁 ' + dirPath;
+                    dirHeader.textContent = '- ' + dirPath;
                     selectedFilesList.appendChild(dirHeader);
                 }
                 
@@ -161,7 +161,7 @@
                 dirFiles.forEach(file => {
                     const fileItem = document.createElement('div');
                     fileItem.className = 'text-sm text-gray-700 dark:text-gray-300 pl-4 py-1';
-                    fileItem.textContent = '📄 ' + file.name + ' (' + formatFileSize(file.size) + ')';
+                    fileItem.textContent = file.name + ' (' + formatFileSize(file.size) + ')';
                     selectedFilesList.appendChild(fileItem);
                 });
             }
