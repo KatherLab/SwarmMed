@@ -7,6 +7,7 @@ from django.core.files.storage import default_storage
 from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.urls import reverse
+from ..project.models import UserCurrentProject
 
 from .utils import (
     list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
@@ -24,21 +25,39 @@ def data(request):
 
 @login_required(login_url='/users/signin/')
 def upload_files(request):
+    # Get the current user's active project
+    try:
+        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        current_project_uuid = str(user_current_project.project.identifier)
+    except UserCurrentProject.DoesNotExist:
+        return HttpResponse('Please select a current project first', status=400)
+    
     if request.method == 'POST':
         files = request.FILES.getlist('file_field')
         directories_json = request.POST.get('directories', '{}')
         directories = json.loads(directories_json)
         destination_folder = request.POST.get('destination_folder', '')
-        if destination_folder and not destination_folder.endswith('/'):
-            destination_folder += '/'
+        
+        # Set the root path to be within the project's data directory
+        root_path = f"{current_project_uuid}/data/"
+        
+        # If destination_folder was provided, add it after the root_path
+        if destination_folder:
+            if not destination_folder.endswith('/'):
+                destination_folder += '/'
+            full_destination = f"{root_path}{destination_folder}"
+        else:
+            full_destination = root_path
+            
         for idx, file in enumerate(files):
             key = file.name + '_' + str(idx)
             rel_path = directories.get(key, file.name)
-            save_path = os.path.join(destination_folder, rel_path) if destination_folder else rel_path
+            save_path = os.path.join(full_destination, rel_path).replace('\\', '/')  # Ensure forward slashes
             default_storage.save(save_path, file)
+            
         return HttpResponse('Files uploaded with folder structure preserved!')
+    
     return render(request, 'apps/data/upload.html')
-
 def get_column_prefixes(path):
     """Given a path like 'foo/bar/baz/', return ['','foo/','foo/bar/','foo/bar/baz/']"""
     if not path:
@@ -130,3 +149,4 @@ def list_all_folders(request):
     # Always include root
     folder_list.insert(0, {"label": "(root)", "value": ""})
     return JsonResponse(folder_list, safe=False)
+
