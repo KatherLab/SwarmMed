@@ -68,29 +68,93 @@ def get_column_prefixes(path):
         prefixes.append('/'.join(parts[:i+1]) + '/')
     return prefixes
 
+@login_required(login_url='/users/signin/')
 def list_files(request):
-    # Get the current folder from query params, default to root
-    prefix = request.GET.get('prefix', '')
-    column_prefixes = get_column_prefixes(prefix)
+    # Get the current user's active project
+    try:
+        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        current_project_uuid = str(user_current_project.project.identifier)
+    except UserCurrentProject.DoesNotExist:
+        return HttpResponse('Please select a current project first', status=400)
+    
+    # Set the root path to be within the project's data directory
+    root_path = f"{current_project_uuid}/data/"
+    
+    # Get the current folder from query params, default to root of the project
+    user_prefix = request.GET.get('prefix', '')
+    
+    # Combine the root path with any additional path from query parameters
+    full_prefix = root_path
+    if user_prefix:
+        full_prefix = f"{root_path}{user_prefix}"
+    
+    # Get column prefixes relative to the user's view
+    column_prefixes = get_column_prefixes(user_prefix)
     columns = []
+    
     for col_prefix in column_prefixes:
-        folders, files = list_s3_folder(col_prefix)
-        # Only show immediate children (strip prefix)
-        folders = [{'name': f[len(col_prefix):-1], 'key': f} for f in folders]
-        files = [{'name': f[len(col_prefix):], 'key': f, 'download_url': get_s3_download_url(f)} for f in files]
-        columns.append({'prefix': col_prefix, 'folders': folders, 'files': files})
+        # Convert the relative column prefix to full S3 path within project
+        full_col_prefix = root_path
+        if col_prefix:
+            full_col_prefix = f"{root_path}{col_prefix}"
+        
+        # Get folders and files at this prefix
+        folders, files = list_s3_folder(full_col_prefix)
+        
+        # Process folders - show only folders within this project
+        processed_folders = []
+        for folder in folders:
+            # Skip folders not in this project
+            if not folder.startswith(root_path):
+                continue
+                
+            # For display: just show the folder name
+            folder_name = folder[len(full_col_prefix):-1]
+            
+            # For navigation: use the path relative to the project
+            relative_folder_path = folder[len(root_path):]
+            
+            processed_folders.append({
+                'name': folder_name,
+                'key': relative_folder_path
+            })
+        
+        # Process files - show only files within this project
+        processed_files = []
+        for file in files:
+            # Skip files not in this project
+            if not file.startswith(root_path):
+                continue
+                
+            # For display: just show the file name
+            file_name = file[len(full_col_prefix):]
+            
+            processed_files.append({
+                'name': file_name,
+                'key': file,  # Keep full path for operations
+                'download_url': get_s3_download_url(file)
+            })
+        
+        columns.append({
+            'prefix': col_prefix,
+            'folders': processed_folders,
+            'files': processed_files
+        })
+    
     # Build active_prefixes for highlighting
     active_prefixes = set()
-    if prefix:
-        parts = prefix.rstrip('/').split('/')
+    if user_prefix:
+        parts = user_prefix.rstrip('/').split('/')
         for i in range(len(parts)):
             active_prefixes.add('/'.join(parts[:i+1]) + '/')
+    
     context = {
         'columns': columns,
-        'active_prefix': prefix,
+        'active_prefix': user_prefix,
         'active_prefixes': active_prefixes,
     }
     return render(request, 'apps/data/files.html', context)
+
 
 @require_POST
 def delete_file(request):
