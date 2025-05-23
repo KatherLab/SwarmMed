@@ -58,6 +58,7 @@ def upload_files(request):
         return HttpResponse('Files uploaded with folder structure preserved!')
     
     return render(request, 'apps/data/upload.html')
+
 def get_column_prefixes(path):
     """Given a path like 'foo/bar/baz/', return ['','foo/','foo/bar/','foo/bar/baz/']"""
     if not path:
