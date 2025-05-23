@@ -225,22 +225,51 @@ def rename_file(request):
         messages.error(request, f"Error renaming {old_key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
+@login_required(login_url='/users/signin/')
 def list_all_folders(request):
     """
-    Return a flat list of all folders (recursively) in the bucket.
+    Return a flat list of all folders (recursively) in the current project's data directory.
     """
-    def collect_folders(prefix=""):
+    # Get the current user's active project
+    try:
+        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        if not user_current_project.project:
+            # Project is None
+            return JsonResponse([], safe=False)
+        
+        current_project_uuid = str(user_current_project.project.identifier)
+    except UserCurrentProject.DoesNotExist:
+        return JsonResponse([], safe=False)
+    
+    # Set the root path to be within the project's data directory
+    root_path = f"{current_project_uuid}/data/"
+    
+    def collect_folders(prefix):
         folders, _ = list_s3_folder(prefix)
         all_folders = []
         for folder in folders:
-            all_folders.append(folder)
-            all_folders.extend(collect_folders(folder))
+            # Only include folders that start with the root path
+            if folder.startswith(root_path):
+                all_folders.append(folder)
+                all_folders.extend(collect_folders(folder))
         return all_folders
 
-    all_folders = collect_folders("")
-    # Remove trailing slash for display, but keep it in value
-    folder_list = [{"label": f.rstrip('/'), "value": f} for f in all_folders]
+    # Start collecting folders from the project's data directory
+    all_folders = collect_folders(root_path)
+    
+    # Process the folders to make them relative to the project's data directory
+    folder_list = []
+    for folder in all_folders:
+        # Create a display name that's relative to the data directory
+        relative_path = folder[len(root_path):]
+        folder_list.append({
+            "label": relative_path if relative_path else "(root)",
+            "value": relative_path
+        })
+    
     # Always include root
-    folder_list.insert(0, {"label": "(root)", "value": ""})
+    if not any(item["value"] == "" for item in folder_list):
+        folder_list.insert(0, {"label": "(root)", "value": ""})
+    
     return JsonResponse(folder_list, safe=False)
 
