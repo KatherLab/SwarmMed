@@ -1,6 +1,9 @@
+import json
+import os
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db import models 
+from django.core.files.storage import default_storage
 from .models import Project, UserCurrentProject
 from .forms import ProjectForm
 import re
@@ -58,6 +61,21 @@ def project_create(request):
                         # Invalid UUID format or no user with this identifier
                         continue
             
+            # Process training code files (multiple files)
+            training_code_directories_json = request.POST.get('training_code_directories', '{}')
+            if training_code_directories_json:
+                directories = json.loads(training_code_directories_json)
+                files = request.FILES.getlist('training_code')
+                
+                # Set the root path to be within the project's code directory
+                root_path = f"{project.identifier}/code/training/"
+                
+                for idx, file in enumerate(files):
+                    key = file.name + '_' + str(idx)
+                    rel_path = directories.get(key, file.name)
+                    save_path = os.path.join(root_path, rel_path).replace('\\', '/')  # Ensure forward slashes
+                    default_storage.save(save_path, file)
+            
             return redirect('project_list')
     else:
         form = ProjectForm()
@@ -93,6 +111,23 @@ def project_edit(request, pk):
                     except (ValueError, Profile.DoesNotExist):
                         continue
             
+            # Process training code files (multiple files)
+            training_code_directories_json = request.POST.get('training_code_directories', '{}')
+            if training_code_directories_json:
+                directories = json.loads(training_code_directories_json)
+                files = request.FILES.getlist('training_code')
+                
+                # Only process if files were uploaded
+                if files:
+                    # Set the root path to be within the project's code directory
+                    root_path = f"{project.identifier}/code/training/"
+                    
+                    for idx, file in enumerate(files):
+                        key = file.name + '_' + str(idx)
+                        rel_path = directories.get(key, file.name)
+                        save_path = os.path.join(root_path, rel_path).replace('\\', '/')  # Ensure forward slashes
+                        default_storage.save(save_path, file)
+            
             return redirect('project_list')
     else:
         form = ProjectForm(instance=project)
@@ -123,4 +158,3 @@ def set_current_project(request, pk):
     )
     
     return redirect('project_list')
-

@@ -38,38 +38,43 @@ class Project(models.Model):
         return self.title
     
     def save(self, *args, **kwargs):
-        # Check if this is an existing instance (has ID)
+    # Check if this is an existing instance (has ID)
         if self.pk:
-            # Get the old instance from the database
-            old_instance = Project.objects.get(pk=self.pk)
+            try:
+                old_instance = Project.objects.get(pk=self.pk)
+                
+                # Helper function to handle file replacement
+                def replace_file_and_cleanup(old_file, new_file, subfolder):
+                    if old_file and new_file and str(old_file) != str(new_file):
+                        # Delete all files in the directory
+                        folder_path = os.path.join(str(self.identifier), subfolder)
+                        if hasattr(default_storage, 'bucket'):  # For S3
+                            prefix = folder_path
+                            s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)
+                            s3_objects.delete()
+                        else:  # For local storage
+                            full_path = os.path.join(settings.MEDIA_ROOT, folder_path)
+                            if os.path.exists(full_path):
+                                shutil.rmtree(full_path)
+                                os.makedirs(full_path, exist_ok=True)
+                        
+                        # Delete the reference to the old file
+                        old_file.delete(save=False)
+                
+                # Handle file replacements for each field
+                replace_file_and_cleanup(old_instance.training_code, self.training_code, 'code/training/')
+                replace_file_and_cleanup(old_instance.data_validation_script, self.data_validation_script, 'code/data_validation/')
+                replace_file_and_cleanup(old_instance.results_visualization_script, self.results_visualization_script, 'code/results_visualization/')
             
-            # Check if training_code file has changed
-            if old_instance.training_code and self.training_code != old_instance.training_code:
-                # Delete the old file
-                old_instance.training_code.delete(save=False)
+            except Project.DoesNotExist:
+                pass  # New instance
                 
-            # Check if data_validation_script file has changed
-            if old_instance.data_validation_script and self.data_validation_script != old_instance.data_validation_script:
-                # Delete the old file
-                old_instance.data_validation_script.delete(save=False)
-                
-            # Check if results_visualization_script file has changed
-            if old_instance.results_visualization_script and self.results_visualization_script != old_instance.results_visualization_script:
-                # Delete the old file
-                old_instance.results_visualization_script.delete(save=False)
-                
-        # Call the parent save method to save the new file
         super(Project, self).save(*args, **kwargs)
+
+
     
     def delete(self, *args, **kwargs):
         """Override delete method to delete all associated files and directories"""
-        # Delete individual files first
-        if self.training_code:
-            self.training_code.delete(save=False)
-        if self.data_validation_script:
-            self.data_validation_script.delete(save=False)
-        if self.results_visualization_script:
-            self.results_visualization_script.delete(save=False)
         
         # For S3, delete all objects with the project identifier prefix
         if hasattr(default_storage, 'bucket'):  # Check if using S3
