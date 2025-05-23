@@ -259,6 +259,7 @@
           </svg>
           Edit
         </a>
+         {% if request.user == project.author %}
         <a href="{% url 'project_delete' project.id %}" onclick="return confirm('Are you sure you want to delete this project?');"
           class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700">
           <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"
@@ -267,6 +268,7 @@
           </svg>
           Delete
         </a>
+        {% endif %}
       </td>
     </tr>
   {% endfor %}
