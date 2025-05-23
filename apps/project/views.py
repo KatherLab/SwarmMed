@@ -44,7 +44,10 @@ def project_create(request):
             
             # Handle training code directory uploads
             training_code_directories_json = request.POST.get('training_code_directories', '{}')
-            directories = json.loads(training_code_directories_json)
+            try:
+                directories = json.loads(training_code_directories_json)
+            except json.JSONDecodeError:
+                directories = {}  # Default to empty dictionary if JSON parsing fails
             
             if directories and request.FILES.getlist('training_code'):
                 # Set training_code to None as we're handling files manually
@@ -56,8 +59,37 @@ def project_create(request):
             # Process member identifiers (existing code)
             member_identifiers = form.cleaned_data.get('member_identifiers', '')
             if member_identifiers:
-                # Your existing member processing code here
-                pass
+                # Clear existing members if editing (except the author)
+                if hasattr(project, 'pk'):
+                    project.members.clear()
+                
+                # Process the identifiers (split by commas or new lines)
+                identifiers = re.split(r'[,\n]+', member_identifiers)
+                
+                for identifier_str in identifiers:
+                    identifier_str = identifier_str.strip()
+                    if not identifier_str:
+                        continue
+                        
+                    try:
+                        # Convert string to UUID to validate format
+                        identifier = uuid.UUID(identifier_str)
+                        
+                        # Find the profile with this UUID
+                        try:
+                            profile = Profile.objects.get(identifier=identifier)
+                            # Add the user to project members
+                            if profile.user != project.author:  # Don't add author as a member
+                                project.members.add(profile.user)
+                        except Profile.DoesNotExist:
+                            # Handle the case when UUID doesn't match any profile
+                            # You might want to log this or show a message to the user
+                            continue
+                            
+                    except ValueError:
+                        # Invalid UUID format
+                        # You might want to log this or show a message to the user
+                        continue
             
             # Process training code files (multiple files)
             if directories and request.FILES.getlist('training_code'):
@@ -90,7 +122,10 @@ def project_edit(request, pk):
             
             # Handle training code directory uploads
             training_code_directories_json = request.POST.get('training_code_directories', '{}')
-            directories = json.loads(training_code_directories_json)
+            try:
+                directories = json.loads(training_code_directories_json)
+            except json.JSONDecodeError:
+                directories = {}  # Default to empty dictionary if JSON parsing fails
             files = request.FILES.getlist('training_code')
             
             if directories and files:
@@ -115,8 +150,37 @@ def project_edit(request, pk):
             # Process member identifiers (existing code)
             member_identifiers = form.cleaned_data.get('member_identifiers', '')
             if member_identifiers:
-                # Your existing member processing code here
-                pass
+                # Clear existing members if editing (except the author)
+                if hasattr(project, 'pk'):
+                    project.members.clear()
+                
+                # Process the identifiers (split by commas or new lines)
+                identifiers = re.split(r'[,\n]+', member_identifiers)
+                
+                for identifier_str in identifiers:
+                    identifier_str = identifier_str.strip()
+                    if not identifier_str:
+                        continue
+                        
+                    try:
+                        # Convert string to UUID to validate format
+                        identifier = uuid.UUID(identifier_str)
+                        
+                        # Find the profile with this UUID
+                        try:
+                            profile = Profile.objects.get(identifier=identifier)
+                            # Add the user to project members
+                            if profile.user != project.author:  # Don't add author as a member
+                                project.members.add(profile.user)
+                        except Profile.DoesNotExist:
+                            # Handle the case when UUID doesn't match any profile
+                            # You might want to log this or show a message to the user
+                            continue
+                            
+                    except ValueError:
+                        # Invalid UUID format
+                        # You might want to log this or show a message to the user
+                        continue
             
             # Process training code files (multiple files)
             if directories and files:
