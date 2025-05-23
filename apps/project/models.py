@@ -4,6 +4,7 @@ import uuid
 import os
 import shutil
 from django.conf import settings
+from django.core.files.storage import default_storage
 
 def get_upload_path(instance, filename, subfolder):
     """Generic function to get upload path based on project UUID and subfolder"""
@@ -70,13 +71,15 @@ class Project(models.Model):
         if self.results_visualization_script:
             self.results_visualization_script.delete(save=False)
         
-        # Delete the entire project directory if it exists
-        project_dir = os.path.join(settings.MEDIA_ROOT, str(self.identifier))
-        if os.path.exists(project_dir):
-            shutil.rmtree(project_dir)
+        # For S3, delete all objects with the project identifier prefix
+        if hasattr(default_storage, 'bucket'):  # Check if using S3
+            prefix = str(self.identifier) + '/'
+            s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)
+            s3_objects.delete()
             
         # Call the parent delete method
         super(Project, self).delete(*args, **kwargs)
+
 
 class UserCurrentProject(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='current_project_relation')

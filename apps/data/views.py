@@ -20,11 +20,15 @@ def data(request):
     # Get the current user's active project
     try:
         user_current_project = UserCurrentProject.objects.get(user=request.user)
+        if not user_current_project.project:
+            # Project is None
+            return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
+        
         current_project_uuid = str(user_current_project.project.identifier)
     except UserCurrentProject.DoesNotExist:
-        return HttpResponse('Please select a current project first', status=400)
+        return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
     
-    # Set the root path to be within the project's data directory
+    # Rest of your existing code
     root_path = f"{current_project_uuid}/data/"
     
     # Get storage statistics for this project
@@ -39,14 +43,19 @@ def data(request):
     }
     return render(request, "apps/data/data.html", context)
 
+
 @login_required(login_url='/users/signin/')
 def upload_files(request):
     # Get the current user's active project
     try:
         user_current_project = UserCurrentProject.objects.get(user=request.user)
+        if not user_current_project.project:
+            # Project is None
+            return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
+        
         current_project_uuid = str(user_current_project.project.identifier)
     except UserCurrentProject.DoesNotExist:
-        return HttpResponse('Please select a current project first', status=400)
+        return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
     
     if request.method == 'POST':
         files = request.FILES.getlist('file_field')
@@ -90,10 +99,14 @@ def list_files(request):
     # Get the current user's active project
     try:
         user_current_project = UserCurrentProject.objects.get(user=request.user)
+        if not user_current_project.project:
+            # Project is None
+            return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
+        
         current_project_uuid = str(user_current_project.project.identifier)
     except UserCurrentProject.DoesNotExist:
-        return HttpResponse('Please select a current project first', status=400)
-    
+        return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
+
     # Set the root path to be within the project's data directory
     root_path = f"{current_project_uuid}/data/"
     
