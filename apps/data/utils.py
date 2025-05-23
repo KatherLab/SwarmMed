@@ -92,3 +92,60 @@ def get_s3_download_url(key, expires=3600):
         ExpiresIn=expires
     )
     return make_public_presigned_url(url)
+
+def get_storage_stats(prefix=""):
+    """
+    Get storage statistics for a given prefix.
+    Returns:
+    - total_size: Total size in bytes
+    - folder_count: Number of unique folders
+    - file_count: Number of files
+    """
+    s3 = get_s3_client()
+    paginator = s3.get_paginator('list_objects_v2')
+    
+    total_size = 0
+    file_count = 0
+    folders = set()
+    
+    # For tracking progress through all pages
+    for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix):
+        for obj in page.get('Contents', []):
+            # Count this as a file
+            file_count += 1
+            
+            # Add its size to the total
+            total_size += obj.get('Size', 0)
+            
+            # Extract the folder path from the key
+            key = obj['Key']
+            parts = key.split('/')
+            
+            # Add all parent folders to the set
+            for i in range(1, len(parts)):
+                folder_path = '/'.join(parts[:i]) + '/'
+                folders.add(folder_path)
+    
+    folder_count = len(folders)
+    
+    return total_size, folder_count, file_count
+
+def format_size(size_bytes):
+    """Convert bytes to human-readable format"""
+    # Define unit prefixes
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    # Start with bytes
+    size = size_bytes
+    unit_index = 0
+    
+    # Keep dividing by 1024 until we get a reasonable number
+    while size > 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    # Format with one decimal place if not bytes
+    if unit_index > 0:
+        return f"{size:.1f} {units[unit_index]}"
+    else:
+        return f"{size} {units[unit_index]}"
+

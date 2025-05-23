@@ -11,17 +11,33 @@ from ..project.models import UserCurrentProject
 
 from .utils import (
     list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
-    delete_s3_folder, rename_s3_folder
+    delete_s3_folder, rename_s3_folder, get_storage_stats, format_size
 )
 
 
 @login_required(login_url='/users/signin/')
 def data(request):
-
-  context = {
-    'segment': 'data',
-  }
-  return render(request, "apps/data/data.html", context)# Create your views here.
+    # Get the current user's active project
+    try:
+        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        current_project_uuid = str(user_current_project.project.identifier)
+    except UserCurrentProject.DoesNotExist:
+        return HttpResponse('Please select a current project first', status=400)
+    
+    # Set the root path to be within the project's data directory
+    root_path = f"{current_project_uuid}/data/"
+    
+    # Get storage statistics for this project
+    total_size, folder_count, file_count = get_storage_stats(root_path)
+    formatted_size = format_size(total_size)
+    
+    context = {
+        'segment': 'data',
+        'folder_count': folder_count,
+        'file_count': file_count,
+        'space_used': formatted_size,
+    }
+    return render(request, "apps/data/data.html", context)
 
 @login_required(login_url='/users/signin/')
 def upload_files(request):

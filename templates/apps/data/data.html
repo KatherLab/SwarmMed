@@ -81,45 +81,45 @@
   </div>
 
   <!-- Status Info -->
-  <div class="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 md:grid-cols-3">
-    <!-- VPN Status -->
-    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
-      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-        <svg class="w-6 h-6 mr-2 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 8H4m0-2v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1h-5.032a1 1 0 0 1-.768-.36l-1.9-2.28a1 1 0 0 0-.768-.36H5a1 1 0 0 0-1 1Z"/>
-</svg>
-
-        Folders
-      </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">8</p>
+<div class="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 md:grid-cols-3">
+  <!-- Folders -->
+  <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+    <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+      <svg class="w-6 h-6 mr-2 " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 8H4m0-2v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1h-5.032a1 1 0 0 1-.768-.36l-1.9-2.28a1 1 0 0 0-.768-.36H5a1 1 0 0 0-1 1Z"/>
+      </svg>
+      Folders
     </div>
-
-    <!-- Network IP -->
-    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
-      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
-            d="M10 3v4a1 1 0 0 1-1 1H5m14-4v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7.914a1 1 0 0 1 .293-.707l3.914-3.914A1 1 0 0 1 9.914 3H18a1 1 0 0 1 1 1Z" />
-        </svg>
-        Files
-      </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="ipAddress">350</p>
-    </div>
-
-    <!-- Connection Speed -->
-    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
-      <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
-            d="M4 5a1 1 0 0 1 1-1h11.586a1 1 0 0 1 .707.293l2.414 2.414a1 1 0 0 1 .293.707V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5Z" />
-          <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
-            d="M8 4h8v4H8V4Zm7 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-        </svg>
-        Space used
-      </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="connectionSpeed">550 GB</p>
-    </div>
+    <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">{{ folder_count }}</p>
   </div>
+
+  <!-- Files -->
+  <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+    <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+      <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+          d="M10 3v4a1 1 0 0 1-1 1H5m14-4v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7.914a1 1 0 0 1 .293-.707l3.914-3.914A1 1 0 0 1 9.914 3H18a1 1 0 0 1 1 1Z" />
+      </svg>
+      Files
+    </div>
+    <p class="text-lg font-semibold text-gray-900 dark:text-white" id="ipAddress">{{ file_count }}</p>
+  </div>
+
+  <!-- Space used -->
+  <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+    <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+      <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+          d="M4 5a1 1 0 0 1 1-1h11.586a1 1 0 0 1 .707.293l2.414 2.414a1 1 0 0 1 .293.707V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5Z" />
+        <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+          d="M8 4h8v4H8V4Zm7 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+      </svg>
+      Space used
+    </div>
+    <p class="text-lg font-semibold text-gray-900 dark:text-white" id="connectionSpeed">{{ space_used }}</p>
+  </div>
+</div>
+
 </section>
 
     <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
