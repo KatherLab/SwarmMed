@@ -14,21 +14,38 @@ from .utils import (
     delete_s3_folder, rename_s3_folder, get_storage_stats, format_size
 )
 
-
-@login_required(login_url='/users/signin/')
-def data(request):
-    # Get the current user's active project
+def get_user_project(request):
+    """
+    Get the current user's active project identifier.
+    
+    Args:
+        request: Django request object
+        
+    Returns:
+        tuple: (project_uuid, is_valid)
+            - project_uuid: String UUID of the project or None
+            - is_valid: Boolean indicating if a valid project was found
+    """
     try:
         user_current_project = UserCurrentProject.objects.get(user=request.user)
         if not user_current_project.project:
-            # Project is None
-            return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
+            return None, False
         
-        current_project_uuid = str(user_current_project.project.identifier)
+        return str(user_current_project.project.identifier), True
     except UserCurrentProject.DoesNotExist:
+        return None, False
+
+@login_required(login_url='/users/signin/')
+def data(request):
+    """
+    View for the main data page showing storage statistics.
+    """
+    # Get the current user's active project
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
         return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
     
-    # Rest of your existing code
+    # Set the root path for the project's data directory
     root_path = f"{current_project_uuid}/data/"
     
     # Get storage statistics for this project
@@ -43,18 +60,14 @@ def data(request):
     }
     return render(request, "apps/data/data.html", context)
 
-
 @login_required(login_url='/users/signin/')
 def upload_files(request):
+    """
+    View for uploading files and folders.
+    """
     # Get the current user's active project
-    try:
-        user_current_project = UserCurrentProject.objects.get(user=request.user)
-        if not user_current_project.project:
-            # Project is None
-            return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
-        
-        current_project_uuid = str(user_current_project.project.identifier)
-    except UserCurrentProject.DoesNotExist:
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
         return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
     
     if request.method == 'POST':
@@ -77,7 +90,8 @@ def upload_files(request):
         for idx, file in enumerate(files):
             key = file.name + '_' + str(idx)
             rel_path = directories.get(key, file.name)
-            save_path = os.path.join(full_destination, rel_path).replace('\\', '/')  # Ensure forward slashes
+            # Ensure forward slashes for consistency
+            save_path = os.path.join(full_destination, rel_path).replace('\\', '/')
             default_storage.save(save_path, file)
             
         return HttpResponse('Files uploaded with folder structure preserved!')
@@ -85,7 +99,15 @@ def upload_files(request):
     return render(request, 'apps/data/upload.html')
 
 def get_column_prefixes(path):
-    """Given a path like 'foo/bar/baz/', return ['','foo/','foo/bar/','foo/bar/baz/']"""
+    """
+    Given a path like 'foo/bar/baz/', return ['','foo/','foo/bar/','foo/bar/baz/']
+    
+    Args:
+        path (str): Path string
+        
+    Returns:
+        list: List of path prefixes
+    """
     if not path:
         return [""]
     parts = path.rstrip('/').split('/')
@@ -96,15 +118,12 @@ def get_column_prefixes(path):
 
 @login_required(login_url='/users/signin/')
 def list_files(request):
+    """
+    View for listing files and folders in a column layout.
+    """
     # Get the current user's active project
-    try:
-        user_current_project = UserCurrentProject.objects.get(user=request.user)
-        if not user_current_project.project:
-            # Project is None
-            return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
-        
-        current_project_uuid = str(user_current_project.project.identifier)
-    except UserCurrentProject.DoesNotExist:
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
         return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
 
     # Set the root path to be within the project's data directory
@@ -185,9 +204,11 @@ def list_files(request):
     }
     return render(request, 'apps/data/files.html', context)
 
-
 @require_POST
 def delete_file(request):
+    """
+    View for deleting files or folders.
+    """
     key = request.POST.get('key')
     try:
         if key.endswith('/'):
@@ -200,12 +221,18 @@ def delete_file(request):
         messages.error(request, f"Error deleting {key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
-
 @require_POST
 def rename_file(request):
+    """
+    View for renaming files or folders.
+    """
     old_key = request.POST.get('old_key')
     new_name = request.POST.get('new_name')
+    
+    # Extract the directory path
     prefix = '/'.join(old_key.rstrip('/').split('/')[:-1])
+    
+    # Build the new key
     if prefix:
         new_key = f"{prefix}/{new_name}"
         if old_key.endswith('/'):
@@ -214,6 +241,7 @@ def rename_file(request):
         new_key = new_name
         if old_key.endswith('/'):
             new_key += '/'
+    
     try:
         if old_key.endswith('/'):
             rename_s3_folder(old_key, new_key)
@@ -223,6 +251,7 @@ def rename_file(request):
             messages.success(request, f"Renamed {old_key} to {new_key}")
     except Exception as e:
         messages.error(request, f"Error renaming {old_key}: {e}")
+    
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
 @login_required(login_url='/users/signin/')
@@ -231,20 +260,23 @@ def list_all_folders(request):
     Return a flat list of all folders (recursively) in the current project's data directory.
     """
     # Get the current user's active project
-    try:
-        user_current_project = UserCurrentProject.objects.get(user=request.user)
-        if not user_current_project.project:
-            # Project is None
-            return JsonResponse([], safe=False)
-        
-        current_project_uuid = str(user_current_project.project.identifier)
-    except UserCurrentProject.DoesNotExist:
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
         return JsonResponse([], safe=False)
     
     # Set the root path to be within the project's data directory
     root_path = f"{current_project_uuid}/data/"
     
     def collect_folders(prefix):
+        """
+        Recursively collect all folders under a prefix.
+        
+        Args:
+            prefix (str): S3 prefix to start from
+            
+        Returns:
+            list: All folder paths
+        """
         folders, _ = list_s3_folder(prefix)
         all_folders = []
         for folder in folders:
@@ -272,4 +304,3 @@ def list_all_folders(request):
         folder_list.insert(0, {"label": "(root)", "value": ""})
     
     return JsonResponse(folder_list, safe=False)
-
