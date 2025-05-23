@@ -1,7 +1,6 @@
 {% extends "layouts/base.html" %}
 {% load static %}
 
-
 {% block content %}
 
 <main>
@@ -33,66 +32,102 @@
                     d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
                     clip-rule="evenodd"></path>
                 </svg>
-                <span class="ml-1 text-gray-400 md:ml-2 dark:text-gray-500" aria-current="page">New</span>
+                <span class="ml-1 text-gray-400 md:ml-2 dark:text-gray-500" aria-current="page">{% if edit %}Edit{% else %}New{% endif %}</span>
               </div>
             </li>
           </ol>
         </nav>
-        <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">New Project</h1>
+        <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">{% if edit %}Edit{% else %}New{% endif %} Project</h1>
       </div>
 
-  
-        
-
       <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-        <h2 class="mb-4 text-xl font-semibold dark:text-white">Create New Project</h2>
+        <h2 class="mb-4 text-xl font-semibold dark:text-white">{% if edit %}Edit{% else %}Create New{% endif %} Project</h2>
       
-        <form class="space-y-6">
+        {% if messages %}
+        <div class="mb-4">
+          {% for message in messages %}
+          <div class="p-4 mb-4 text-sm {% if message.tags == 'success' %}text-green-800 bg-green-100{% elif message.tags == 'error' %}text-red-800 bg-red-100{% else %}text-blue-800 bg-blue-100{% endif %} rounded-lg dark:bg-gray-700 dark:text-{% if message.tags == 'success' %}green{% elif message.tags == 'error' %}red{% else %}blue{% endif %}-300" role="alert">
+            {{ message }}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <form class="space-y-6" method="POST" action="{% if edit %}{% url 'project_edit' form.instance.id %}{% else %}{% url 'project_create' %}{% endif %}" enctype="multipart/form-data">
+          {% csrf_token %}
+          
           <!-- Title -->
           <div>
-            <label for="title" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Title</label>
-            <input type="text" id="title" name="title" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Enter project title" required />
+            <label for="id_title" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Title</label>
+            <input type="text" id="id_title" name="title" class="shadow-sm bg-gray-50 border {% if form.title.errors %}border-red-500{% else %}border-gray-300{% endif %} text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Enter project title" required {% if form.title.value %}value="{{ form.title.value }}"{% endif %} />
+            {% if form.title.errors %}
+            <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.title.errors.0 }}</p>
+            {% endif %}
           </div>
-      
+          
           <!-- Author -->
           <div>
-            <label for="author" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Author</label>
-            <input type="text" id="author" name="author" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Author name" required />
+            <label for="id_author" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Author</label>
+            <input type="text" id="id_author" name="author" class="shadow-sm bg-gray-50 border {% if form.author.errors %}border-red-500{% else %}border-gray-300{% endif %} text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Author name" required {% if form.author.value %}value="{{ form.author.value }}"{% endif %} />
+            {% if form.author.errors %}
+            <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.author.errors.0 }}</p>
+            {% endif %}
           </div>
-      
+          
           <!-- Creation Date -->
           <div>
-            <label for="creation-date" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Creation Date</label>
-            <input type="date" id="creation-date" name="creation-date" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" required />
+            <label for="id_creation_date" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Creation Date</label>
+            <input type="date" id="id_creation_date" name="creation_date" class="shadow-sm bg-gray-50 border {% if form.creation_date.errors %}border-red-500{% else %}border-gray-300{% endif %} text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" required {% if form.creation_date.value %}value="{{ form.creation_date.value|date:'Y-m-d' }}"{% endif %} />
+            {% if form.creation_date.errors %}
+            <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.creation_date.errors.0 }}</p>
+            {% endif %}
           </div>
-      
+          
           <!-- Description -->
           <div>
-            <label for="description" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Description</label>
-            <textarea id="description" name="description" rows="4" class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-purple-700 focus:border-purple-700 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Write a brief project description..."></textarea>
+            <label for="id_description" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Description</label>
+            <textarea id="id_description" name="description" rows="4" class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border {% if form.description.errors %}border-red-500{% else %}border-gray-300{% endif %} focus:ring-purple-700 focus:border-purple-700 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Write a brief project description...">{% if form.description.value %}{{ form.description.value }}{% endif %}</textarea>
+            {% if form.description.errors %}
+            <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.description.errors.0 }}</p>
+            {% endif %}
           </div>
-      
+          
           <!-- Drag and Drop Upload Areas -->
           <div class="space-y-6">
-            <!-- Training Code (Folder Upload) -->
+            <!-- Training Code (File Upload) -->
             <div>
-              <label for="training-code" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Training Code</label>
-              <label for="training-code" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600">
+              <label for="id_training_code" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Training Code</label>
+              {% if form.instance.training_code %}
+                <div class="flex items-center mb-2 gap-2">
+                  <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.training_code.name }}</span>
+                  <a href="{{ form.instance.training_code.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                </div>
+              {% endif %}
+              <label for="id_training_code" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.training_code.errors %}border-red-500{% endif %}">
                 <div class="flex flex-col items-center justify-center pt-5 pb-5">
                   <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                     <path fill-rule="evenodd" d="M5 4a2 2 0 0 0-2 2v1h10.968l-1.9-2.28A2 2 0 0 0 10.532 4H5ZM3 19V9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm9-8.5a1 1 0 0 1 1 1V13h1.5a1 1 0 1 1 0 2H13v1.5a1 1 0 1 1-2 0V15H9.5a1 1 0 1 1 0-2H11v-1.5a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
                   <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span> or <span class="font-semibold">drag & drop</span></p>
-                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">folder of training scripts only</p>
+                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Upload training code file</p>
                 </div>
-                <input id="training-code" name="training-code" type="file" webkitdirectory directory class="hidden" />
+                <input id="id_training_code" name="training_code" type="file" class="hidden" />
               </label>
+              {% if form.training_code.errors %}
+              <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.training_code.errors.0 }}</p>
+              {% endif %}
             </div>
-      
+          
             <!-- Data Validation Script -->
             <div>
-              <label for="data-validation" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Data Validation Script</label>
-              <label for="data-validation" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600">
+              <label for="id_data_validation_script" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Data Validation Script</label>
+              {% if form.instance.data_validation_script %}
+                <div class="flex items-center mb-2 gap-2">
+                  <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.data_validation_script.name }}</span>
+                  <a href="{{ form.instance.data_validation_script.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                </div>
+              {% endif %}
+              <label for="id_data_validation_script" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.data_validation_script.errors %}border-red-500{% endif %}">
                 <div class="flex flex-col items-center justify-center pt-5 pb-5">
                   <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                     <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
@@ -101,14 +136,23 @@
                   <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span> or <span class="font-semibold">drag & drop</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">.py file only</p>
                 </div>
-                <input id="data-validation" name="data-validation" type="file" accept=".py" class="hidden" />
+                <input id="id_data_validation_script" name="data_validation_script" type="file" accept=".py" class="hidden" />
               </label>
+              {% if form.data_validation_script.errors %}
+              <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.data_validation_script.errors.0 }}</p>
+              {% endif %}
             </div>
-      
+          
             <!-- Results Visualization Script -->
             <div>
-              <label for="results-visualization" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Results Visualization Script</label>
-              <label for="results-visualization" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600">
+              <label for="id_results_visualization_script" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Results Visualization Script</label>
+              {% if form.instance.results_visualization_script %}
+                <div class="flex items-center mb-2 gap-2">
+                  <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.results_visualization_script.name }}</span>
+                  <a href="{{ form.instance.results_visualization_script.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                </div>
+              {% endif %}
+              <label for="id_results_visualization_script" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.results_visualization_script.errors %}border-red-500{% endif %}">
                 <div class="flex flex-col items-center justify-center pt-5 pb-5">
                   <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                     <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
@@ -117,18 +161,27 @@
                   <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span> or <span class="font-semibold">drag & drop</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">.py file only</p>
                 </div>
-                <input id="results-visualization" name="results-visualization" type="file" accept=".py" class="hidden" />
+                <input id="id_results_visualization_script" name="results_visualization_script" type="file" accept=".py" class="hidden" />
               </label>
+              {% if form.results_visualization_script.errors %}
+              <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.results_visualization_script.errors.0 }}</p>
+              {% endif %}
             </div>
           </div>
-      
+          
           <!-- Submit Button -->
-          <button type="submit" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
-            Save Project
-          </button>
+          <div class="flex justify-between items-center">
+            <button type="submit" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+              {% if edit %}Update{% else %}Save{% endif %} Project
+            </button>
+            <a href="{% url 'project_list' %}" class="text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600 dark:text-gray-300">
+              Cancel
+            </a>
+          </div>
         </form>
       </section>
-      
+    </div>
+  </div>
 </main>
 
 {% endblock content %}
