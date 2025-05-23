@@ -1,18 +1,18 @@
 import json
 import os
+import shutil
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db import models 
 from django.core.files.storage import default_storage
+from django.conf import settings
 from .models import Project, UserCurrentProject
 from .forms import ProjectForm
-import re
-import uuid
-from ..users.models import Profile  
-
+from .utils import process_member_identifiers, handle_training_code_upload
 
 @login_required(login_url='/users/signin/')
 def project_list(request):
+    """List all projects where the user is author or member."""
     # Get only projects where the user is author or member
     user_projects = Project.objects.filter(
         models.Q(author=request.user) | models.Q(members=request.user)
@@ -25,84 +25,32 @@ def project_list(request):
     except UserCurrentProject.DoesNotExist:
         current_project = None
     
-    # Count of projects
-    projects_count = user_projects.count()
+    # Count of finished projects (assuming a status field or other criteria)
+    finished_projects_count = 0  # Replace with actual query when implemented
     
     return render(request, 'apps/project/project.html', {
         'projects': user_projects,
         'current_project': current_project,
-        'projects_count': projects_count,
+        'finished_projects_count': finished_projects_count,
     })
 
 @login_required(login_url='/users/signin/')
 def project_create(request):
+    """Create a new project."""
     if request.method == 'POST':
         form = ProjectForm(request.POST, request.FILES)
         if form.is_valid():
             project = form.save(commit=False)
             project.author = request.user
             
-            # Handle training code directory uploads
-            training_code_directories_json = request.POST.get('training_code_directories', '{}')
-            try:
-                directories = json.loads(training_code_directories_json)
-            except json.JSONDecodeError:
-                directories = {}  # Default to empty dictionary if JSON parsing fails
-            
-            if directories and request.FILES.getlist('training_code'):
-                # Set training_code to None as we're handling files manually
-                project.training_code = None
-            
             # Save the project first to get an ID
             project.save()
             
-            # Process member identifiers (existing code)
-            member_identifiers = form.cleaned_data.get('member_identifiers', '')
-            if member_identifiers:
-                # Clear existing members if editing (except the author)
-                if hasattr(project, 'pk'):
-                    project.members.clear()
-                
-                # Process the identifiers (split by commas or new lines)
-                identifiers = re.split(r'[,\n]+', member_identifiers)
-                
-                for identifier_str in identifiers:
-                    identifier_str = identifier_str.strip()
-                    if not identifier_str:
-                        continue
-                        
-                    try:
-                        # Convert string to UUID to validate format
-                        identifier = uuid.UUID(identifier_str)
-                        
-                        # Find the profile with this UUID
-                        try:
-                            profile = Profile.objects.get(identifier=identifier)
-                            # Add the user to project members
-                            if profile.user != project.author:  # Don't add author as a member
-                                project.members.add(profile.user)
-                        except Profile.DoesNotExist:
-                            # Handle the case when UUID doesn't match any profile
-                            # You might want to log this or show a message to the user
-                            continue
-                            
-                    except ValueError:
-                        # Invalid UUID format
-                        # You might want to log this or show a message to the user
-                        continue
+            # Process member identifiers
+            process_member_identifiers(project, form.cleaned_data.get('member_identifiers', ''))
             
-            # Process training code files (multiple files)
-            if directories and request.FILES.getlist('training_code'):
-                files = request.FILES.getlist('training_code')
-                
-                # Set the root path
-                root_path = f"{project.identifier}/code/training/"
-                
-                for idx, file in enumerate(files):
-                    key = file.name + '_' + str(idx)
-                    rel_path = directories.get(key, file.name)
-                    save_path = os.path.join(root_path, rel_path).replace('\\', '/')
-                    default_storage.save(save_path, file)
+            # Process training code files
+            handle_training_code_upload(project, request)
             
             return redirect('project_list')
     else:
@@ -111,6 +59,7 @@ def project_create(request):
 
 @login_required(login_url='/users/signin/')
 def project_edit(request, pk):
+    """Edit an existing project."""
     project = get_object_or_404(Project, pk=pk)
     if request.user != project.author and request.user not in project.members.all():
         return redirect('project_list')
@@ -119,90 +68,22 @@ def project_edit(request, pk):
         form = ProjectForm(request.POST, request.FILES, instance=project)
         if form.is_valid():
             project = form.save(commit=False)
-            
-            # Handle training code directory uploads
-            training_code_directories_json = request.POST.get('training_code_directories', '{}')
-            try:
-                directories = json.loads(training_code_directories_json)
-            except json.JSONDecodeError:
-                directories = {}  # Default to empty dictionary if JSON parsing fails
-            files = request.FILES.getlist('training_code')
-            
-            if directories and files:
-                # Set training_code to None as we're handling files manually
-                project.training_code = None
-                
-                # IMPORTANT: Clean up existing files BEFORE saving new ones
-                folder_path = f"{project.identifier}/code/training/"
-                if hasattr(default_storage, 'bucket'):  # For S3
-                    prefix = folder_path
-                    s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)
-                    s3_objects.delete()
-                else:  # For local storage
-                    full_path = os.path.join(settings.MEDIA_ROOT, folder_path)
-                    if os.path.exists(full_path):
-                        shutil.rmtree(full_path)
-                        os.makedirs(full_path, exist_ok=True)
-            
-            # Save the project
             project.save()
             
-            # Process member identifiers (existing code)
-            member_identifiers = form.cleaned_data.get('member_identifiers', '')
-            if member_identifiers:
-                # Clear existing members if editing (except the author)
-                if hasattr(project, 'pk'):
-                    project.members.clear()
-                
-                # Process the identifiers (split by commas or new lines)
-                identifiers = re.split(r'[,\n]+', member_identifiers)
-                
-                for identifier_str in identifiers:
-                    identifier_str = identifier_str.strip()
-                    if not identifier_str:
-                        continue
-                        
-                    try:
-                        # Convert string to UUID to validate format
-                        identifier = uuid.UUID(identifier_str)
-                        
-                        # Find the profile with this UUID
-                        try:
-                            profile = Profile.objects.get(identifier=identifier)
-                            # Add the user to project members
-                            if profile.user != project.author:  # Don't add author as a member
-                                project.members.add(profile.user)
-                        except Profile.DoesNotExist:
-                            # Handle the case when UUID doesn't match any profile
-                            # You might want to log this or show a message to the user
-                            continue
-                            
-                    except ValueError:
-                        # Invalid UUID format
-                        # You might want to log this or show a message to the user
-                        continue
+            # Process member identifiers
+            process_member_identifiers(project, form.cleaned_data.get('member_identifiers', ''))
             
-            # Process training code files (multiple files)
-            if directories and files:
-                # Set the root path
-                root_path = f"{project.identifier}/code/training/"
-                
-                for idx, file in enumerate(files):
-                    key = file.name + '_' + str(idx)
-                    rel_path = directories.get(key, file.name)
-                    save_path = os.path.join(root_path, rel_path).replace('\\', '/')
-                    default_storage.save(save_path, file)
+            # Process training code files
+            handle_training_code_upload(project, request)
             
             return redirect('project_list')
     else:
         form = ProjectForm(instance=project)
     return render(request, 'apps/project/new_project.html', {'form': form, 'edit': True})
 
-
-
-
 @login_required(login_url='/users/signin/')
 def project_delete(request, pk):
+    """Delete a project (author only)."""
     project = get_object_or_404(Project, pk=pk)
     # Only allow the author to delete the project
     if request.user == project.author:
@@ -211,7 +92,7 @@ def project_delete(request, pk):
 
 @login_required(login_url='/users/signin/')
 def set_current_project(request, pk):
-    # Get project
+    """Set a project as the current project for a user."""
     project = get_object_or_404(Project, pk=pk)
     
     # Check if user has access to this project

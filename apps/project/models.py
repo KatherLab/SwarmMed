@@ -6,20 +6,27 @@ import shutil
 from django.conf import settings
 from django.core.files.storage import default_storage
 
+# Helper functions for file paths
 def get_upload_path(instance, filename, subfolder):
     """Generic function to get upload path based on project UUID and subfolder"""
     return os.path.join(str(instance.identifier), subfolder, filename)
 
 def training_code_path(instance, filename):
+    """Path for training code files"""
     return get_upload_path(instance, filename, 'code/training')
 
 def data_validation_path(instance, filename):
+    """Path for data validation script"""
     return get_upload_path(instance, filename, 'code/data_validation')
 
 def results_visualization_path(instance, filename):
+    """Path for results visualization script"""
     return get_upload_path(instance, filename, 'code/results_visualization')
 
 class Project(models.Model):
+    """
+    Project model to store information about projects including code files.
+    """
     title = models.CharField(max_length=255)
     identifier = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_projects')
@@ -27,7 +34,7 @@ class Project(models.Model):
     creation_date = models.DateField()
     description = models.TextField(blank=True)
     
-    # Updated file fields to use UUID-based paths
+    # File fields
     training_code = models.FileField(upload_to=training_code_path, blank=True, null=True)
     data_validation_script = models.FileField(upload_to=data_validation_path, blank=True, null=True)
     results_visualization_script = models.FileField(upload_to=results_visualization_path, blank=True, null=True)
@@ -38,7 +45,7 @@ class Project(models.Model):
         return self.title
     
     def save(self, *args, **kwargs):
-    # Check if this is an existing instance (has ID)
+        """Override save to handle file replacements"""
         if self.pk:
             try:
                 old_instance = Project.objects.get(pk=self.pk)
@@ -70,8 +77,6 @@ class Project(models.Model):
                 pass  # New instance
                 
         super(Project, self).save(*args, **kwargs)
-
-
     
     def delete(self, *args, **kwargs):
         """Override delete method to delete all associated files and directories"""
@@ -85,10 +90,11 @@ class Project(models.Model):
         # Call the parent delete method
         super(Project, self).delete(*args, **kwargs)
 
-
 class UserCurrentProject(models.Model):
+    """Model to track which project is currently active for a user"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='current_project_relation')
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, related_name='current_for_users')
     
     class Meta:
         unique_together = ('user', 'project')
+
