@@ -240,56 +240,76 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function updateUI(data) {
-        if (data.status === 'none') {
-            statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
-            startBtn.style.display = 'block';
-            stopBtn.style.display = 'none';
-            outputDiv.style.display = 'none';
-            return;
+    if (data.status === 'none') {
+        statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+        outputDiv.style.display = 'none';
+        stopPolling(); // Stop polling if no validation runs
+        return;
+    }
+    
+    // Show checks
+    let checksHtml = '<div class="space-y-4">';
+    
+    if (data.status === 'running') {
+        checksHtml += '<div class="flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2">Running validation...</span></div>';
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+    } else {
+        // Validation is completed/failed/cancelled - stop polling
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+            stopPolling();
         }
         
-        // Show checks
-        let checksHtml = '<div class="space-y-4">';
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
         
-        if (data.status === 'running') {
-            checksHtml += '<div class="flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2">Running validation...</span></div>';
-            startBtn.style.display = 'none';
-            stopBtn.style.display = 'block';
-        } else {
-            startBtn.style.display = 'block';
-            stopBtn.style.display = 'none';
-        }
-        
-        data.checks.forEach(check => {
-            let statusClass = 'bg-gray-100 text-gray-800';
-            if (check.status === 'ok') statusClass = 'bg-green-100 text-green-800 border-green-300';
-            else if (check.status === 'warning') statusClass = 'bg-yellow-100 text-yellow-700 border-yellow-300';
-            else if (check.status === 'error') statusClass = 'bg-red-100 text-red-800 border-red-300';
-            
-            checksHtml += `
-                <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                    <div class="text-sm text-gray-800 dark:text-gray-100">${check.name}</div>
-                    <span class="text-xs font-medium px-2 py-1 rounded ${statusClass}">${check.status.toUpperCase()}</span>
-                </div>
-            `;
-            
-            if (check.message) {
-                checksHtml += `<div class="text-sm text-gray-600 dark:text-gray-400 px-4">${check.message}</div>`;
+        // Add a status indicator for completed validations
+        if (data.status === 'completed') {
+            if (data.success) {
+                checksHtml += '<div class="flex items-center justify-center py-4 text-green-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg><span>Validation completed successfully</span></div>';
+            } else {
+                checksHtml += '<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>Validation completed with errors</span></div>';
             }
-        });
-        
-        checksHtml += '</div>';
-        statusDiv.innerHTML = checksHtml;
-        
-        // Show output if available
-        if (data.output || data.error_message) {
-            const output = data.error_message || data.output;
-            outputDiv.querySelector('pre').textContent = output;
-            outputDiv.style.display = 'block';
-        } else {
-            outputDiv.style.display = 'none';
+        } else if (data.status === 'failed') {
+            checksHtml += '<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>Validation failed</span></div>';
+        } else if (data.status === 'cancelled') {
+            checksHtml += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Validation was cancelled</span></div>';
         }
     }
+    
+    data.checks.forEach(check => {
+        let statusClass = 'bg-gray-100 text-gray-800';
+        if (check.status === 'ok') statusClass = 'bg-green-100 text-green-800 border-green-300';
+        else if (check.status === 'warning') statusClass = 'bg-yellow-100 text-yellow-700 border-yellow-300';
+        else if (check.status === 'error') statusClass = 'bg-red-100 text-red-800 border-red-300';
+        
+        checksHtml += `
+            <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                <div class="text-sm text-gray-800 dark:text-gray-100">${check.name}</div>
+                <span class="text-xs font-medium px-2 py-1 rounded ${statusClass}">${check.status.toUpperCase()}</span>
+            </div>
+        `;
+        
+        if (check.message) {
+            checksHtml += `<div class="text-sm text-gray-600 dark:text-gray-400 px-4">${check.message}</div>`;
+        }
+    });
+    
+    checksHtml += '</div>';
+    statusDiv.innerHTML = checksHtml;
+    
+    // Show output if available
+    if (data.output || data.error_message) {
+        const output = data.error_message || data.output;
+        outputDiv.querySelector('pre').textContent = output;
+        outputDiv.style.display = 'block';
+    } else {
+        outputDiv.style.display = 'none';
+    }
+}
+
     
     function startPolling() {
         pollInterval = setInterval(updateValidationStatus, 2000);
