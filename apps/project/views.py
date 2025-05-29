@@ -28,11 +28,14 @@ def project_list(request):
     # Count of finished projects (assuming a status field or other criteria)
     finished_projects_count = 0  # Replace with actual query when implemented
     
-    return render(request, 'apps/project/project.html', {
+    context = {
+        'segment': 'project',
         'projects': user_projects,
         'current_project': current_project,
         'finished_projects_count': finished_projects_count,
-    })
+    }
+    
+    return render(request, 'apps/project/project.html', context)
 
 @login_required(login_url='/users/signin/')
 def project_create(request):
@@ -55,7 +58,12 @@ def project_create(request):
             return redirect('project_list')
     else:
         form = ProjectForm()
-    return render(request, 'apps/project/new_project.html', {'form': form})
+    
+    context = {
+        'segment': 'project',
+        'form': form,
+    }
+    return render(request, 'apps/project/new_project.html', context)
 
 @login_required(login_url='/users/signin/')
 def project_edit(request, pk):
@@ -88,7 +96,13 @@ def project_edit(request, pk):
             return redirect('project_list')
     else:
         form = ProjectForm(instance=project)
-    return render(request, 'apps/project/new_project.html', {'form': form, 'edit': True})
+    
+    context = {
+        'segment': 'project',
+        'form': form,
+        'edit': True,
+    }
+    return render(request, 'apps/project/new_project.html', context)
 
 @login_required(login_url='/users/signin/')
 def project_delete(request, pk):

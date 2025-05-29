@@ -101,7 +101,11 @@ def upload_files(request):
             
         return HttpResponse('Files uploaded with folder structure preserved!')
     
-    return render(request, 'apps/data/upload.html')
+    context = {
+        'segment': 'data',
+    }
+    
+    return render(request, 'apps/data/upload.html', context)
 
 def get_column_prefixes(path):
     """
@@ -203,6 +207,7 @@ def list_files(request):
             active_prefixes.add('/'.join(parts[:i+1]) + '/')
     
     context = {
+        'segment': 'data',
         'columns': columns,
         'active_prefix': user_prefix,
         'active_prefixes': active_prefixes,

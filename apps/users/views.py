@@ -92,6 +92,7 @@ def user_list(request):
             return post_request_handling(request, form)
 
     context = {
+        'segment': 'users',
         'users': users,
         'form': form,
     }
