@@ -32,7 +32,7 @@ class VisualizationContext:
         
         # Save the current figure to a BytesIO buffer
         buffer = io.BytesIO()
-        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', transparent=True)
         buffer.seek(0)
         
         # Encode as base64

@@ -149,16 +149,16 @@
 
   </div>
 
-  <!-- Validation Status -->
-  <div id="validationStatus">
-    <div class="text-center py-8">
-      <p class="text-gray-500 dark:text-gray-400">Click "Start Validation" to check your data</p>
-    </div>
+<!-- Validation Status -->
+<div id="validationStatus">
+  <div class="text-center py-8">
+    <p class="text-gray-500 dark:text-gray-400">Click "Start Validation" to check your data</p>
   </div>
+</div>
 
   <!-- Results Output -->
   <div id="validationOutput" style="display: none;" class="mt-6">
-    <pre class="bg-gray-50 text-gray-800 dark:bg-gray-700 dark:text-gray-200 text-sm p-4 rounded-lg overflow-x-auto border"></pre>
+    <pre class="bg-gray-50 text-gray-800 dark:bg-gray-700 dark:text-gray-200 text-sm p-4 rounded-lg overflow-x-auto"></pre>
   </div>
 </section>
 
@@ -172,27 +172,27 @@
     <!-- Control Buttons -->
     <div class="flex items-center space-x-2">
       <button id="startVisualizationBtn"
-        class="inline-flex items-center bg-blue-100 text-blue-700 border border-blue-100 hover:border-blue-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-blue-300 dark:text-blue-300">
-        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15v4m6-6v6m6-4v4m6-6v6M3 11l6-5 6 5 5.5-5.5"/>
-        </svg>
+        class="inline-flex items-center justify-center whitespace-nowrap min-w-max bg-green-100 text-green-700 border border-green-100 hover:border-green-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-green-300 dark:text-green-300">
+        <svg class="w-6 h-6 mr-2 flex-shrink-0 inline-block" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 18V6l8 6-8 6Z"/>
+</svg>
+
         Generate Plots
       </button>
       <button id="stopVisualizationBtn" style="display: none;"
-        class="inline-flex items-center bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
-        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+        class="inline-flex items-center justify-center whitespace-nowrap min-w-max bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
+        <svg class="w-6 h-6 mr-2 flex-shrink-0 inline-block" style="vertical-align: middle;" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
           <rect width="12" height="12" x="6" y="6" stroke="currentColor" stroke-linejoin="round" stroke-width="2" rx="1"/>
         </svg>
-        Stop
+        Stop Visualization
       </button>
     </div>
   </div>
 
   <!-- Visualization Status -->
-  <div id="visualizationStatus" class="mb-4" style="display: none;">
-    <div class="text-center py-4">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700 mx-auto mb-2"></div>
-      <p class="text-blue-600">Generating visualizations...</p>
+  <div id="visualizationStatus">
+    <div class="text-center py-8">
+      <p class="text-gray-500 dark:text-gray-400">Click "Generate Plots" to visualize your data</p>
     </div>
   </div>
 
@@ -200,47 +200,50 @@
   <div class="grid grid-cols-1 mt-5 md:grid-cols-2 gap-6" id="chartsGrid">
     
     <!-- Chart 1 -->
-    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center" data-plot="1">
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="1">
       <div class="placeholder-content">
         <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 1</p>
         <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
       </div>
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 1" />
-      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+      <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
     </div>
 
     <!-- Chart 2 -->
-    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center relative" data-plot="2">
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="2">
       <div class="placeholder-content">
         <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 2</p>
         <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
       </div>
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 2" />
-      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+      <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
     </div>
 
     <!-- Chart 3 -->
-    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center relative" data-plot="3">
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="3">
       <div class="placeholder-content">
         <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 3</p>
         <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
       </div>
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 3" />
-      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+      <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
     </div>
 
     <!-- Chart 4 -->
-    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center relative" data-plot="4">
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="4">
       <div class="placeholder-content">
         <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 4</p>
         <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
       </div>
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 4" />
-      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+      <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
     </div>
 
   </div>
+
+  
 </section>
+
     
   
 </main>
@@ -268,66 +271,75 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
     
-    function updateUI(data) {
-        if (data.status === 'none') {
-            statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
-            startBtn.style.display = 'block';
-            stopBtn.style.display = 'none';
-            outputDiv.style.display = 'none';
-            stopPolling(); // Stop polling if no validation runs
-            return;
-        }
-        
-        // Show checks
-        let checksHtml = '<div class="space-y-4">';
-        
-        if (data.status === 'running') {
-            checksHtml += '<div class="inline-flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2">Running validation...</span></div>';
-            startBtn.style.display = 'none';
-            stopBtn.style.display = 'block';
-        } else {
-            // Validation is completed/failed/cancelled - stop polling
-            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
-                stopPolling();
-            }
-            
-            startBtn.style.display = 'block';
-            stopBtn.style.display = 'none';
-        }
-        
-        if (data.checks && data.checks.length > 0) {
-            data.checks.forEach(check => {
-                let statusClass = 'bg-gray-100 text-gray-800';
-                if (check.status === 'ok') statusClass = 'border border-green-100 bg-green-100 text-green-700 border-green-300 dark:text-green-300 dark:bg-gray-700 dark:border dark:border-green-300';
-                else if (check.status === 'info') statusClass = 'border border-blue-100 bg-blue-100 text-blue-700 border-blue-300 dark:text-blue-300 dark:bg-gray-700 dark:border dark:border-blue-300';
-                else if (check.status === 'warning') statusClass = 'border border-yellow-100 bg-yellow-100 text-yellow-700 border-yellow-300 dark:text-yellow-300 dark:bg-gray-700 dark:border dark:border-yellow-300';
-                else if (check.status === 'error') statusClass = 'border border-red-100 bg-red-100 text-red-700 border-red-300 dark:text-red-300 dark:bg-gray-700 dark:border dark:border-red-300';
-
-                checksHtml += `
-                    <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                        <div class="text-sm text-gray-800 dark:text-gray-100">${check.name}</div>
-                        <span class="text-xs font-medium px-2 py-1 rounded ${statusClass}">${check.status.toUpperCase()}</span>
-                    </div>
-                `;
-                
-                if (check.message) {
-                    checksHtml += `<div class="text-sm text-gray-600 dark:text-gray-400 px-4">${check.message}</div>`;
-                }
-            });
-        }
-        
-        checksHtml += '</div>';
-        statusDiv.innerHTML = checksHtml;
-        
-        // Show output if available
-        if (data.output || data.error_message) {
-            const output = data.error_message || data.output;
-            outputDiv.querySelector('pre').textContent = output;
-            outputDiv.style.display = 'block';
-        } else {
-            outputDiv.style.display = 'none';
-        }
+   function updateUI(data) {
+    if (data.status === 'none') {
+        statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+        outputDiv.style.display = 'none';
+        stopPolling();
+        return;
     }
+    
+    // Show checks
+    let checksHtml = '<div class="space-y-4">';
+    
+    // Show stop button for both 'pending' and 'running' states
+    if (data.status === 'pending' || data.status === 'running') {
+        if (data.status === 'running') {
+            checksHtml += '<div class="inline-flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700 "></div><span class="ml-2 dark:text-white">Running validation...</span></div>';
+        } else {
+            checksHtml += '<div class="inline-flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700 "></div><span class="ml-2 dark:text-white">Starting validation...</span></div>';
+        }
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+    } else {
+        // Validation is completed/failed/cancelled - stop polling
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+            stopPolling();
+        }
+        
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+    }
+    
+    // Only show checks when not in pending/running state
+    if (data.status !== 'pending' && data.status !== 'running' && data.checks && data.checks.length > 0) {
+        data.checks.forEach(check => {
+            let statusClass = 'bg-gray-100 text-gray-800';
+            if (check.status === 'ok') statusClass = 'border border-green-100 bg-green-100 text-green-700 border-green-300 dark:text-green-300 dark:bg-gray-700 dark:border dark:border-green-300';
+            else if (check.status === 'info') statusClass = 'border border-blue-100 bg-blue-100 text-blue-700 border-blue-300 dark:text-blue-300 dark:bg-gray-700 dark:border dark:border-blue-300';
+            else if (check.status === 'warning') statusClass = 'border border-yellow-100 bg-yellow-100 text-yellow-700 border-yellow-300 dark:text-yellow-300 dark:bg-gray-700 dark:border dark:border-yellow-300';
+            else if (check.status === 'error') statusClass = 'border border-red-100 bg-red-100 text-red-700 border-red-300 dark:text-red-300 dark:bg-gray-700 dark:border dark:border-red-300';
+
+            checksHtml += `
+                <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                    <div class="text-sm text-gray-800 dark:text-gray-100">${check.name}</div>
+                    <span class="text-xs font-medium px-2 py-1 rounded ${statusClass}">${check.status.toUpperCase()}</span>
+                </div>
+            `;
+            
+            if (check.message) {
+                checksHtml += `<div class="text-sm text-gray-600 dark:text-gray-400 px-4">${check.message}</div>`;
+            }
+        });
+    }
+    
+    checksHtml += '</div>';
+    statusDiv.innerHTML = checksHtml;
+    
+    // Show output if available
+    if (data.output || data.error_message) {
+        const output = data.error_message || data.output;
+        outputDiv.querySelector('pre').textContent = output;
+        outputDiv.style.display = 'block';
+    } else {
+        outputDiv.style.display = 'none';
+    }
+}
+
+
+
     
     function startPolling() {
         pollInterval = setInterval(updateValidationStatus, 2000);
@@ -407,37 +419,59 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function updateVisualizationUI(data) {
-        if (data.status === 'none') {
-            // No visualizations yet, show placeholders
-            showPlaceholders();
-            startVizBtn.style.display = 'block';
-            stopVizBtn.style.display = 'none';
-            vizStatusDiv.style.display = 'none';
+    if (data.status === 'none') {
+        // No visualizations yet, show placeholders
+        showPlaceholders();
+        vizStatusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">Click "Generate Plots" to visualize your data</p></div>';
+        startVizBtn.style.display = 'block';
+        stopVizBtn.style.display = 'none';
+        stopVisualizationPolling();
+        return;
+    }
+    
+    // Show loading/results
+    let statusHtml = '<div class="space-y-4">';
+    
+    // Show stop button for both 'pending' and 'running' states
+    if (data.status === 'pending' || data.status === 'running') {
+        if (data.status === 'running') {
+            statusHtml += '<div class="inline-flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2 dark:text-white">Generating visualizations...</span></div>';
+        } else {
+            statusHtml += '<div class="inline-flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2 dark:text-white">Starting visualization...</span></div>';
+        }
+        startVizBtn.style.display = 'none';
+        stopVizBtn.style.display = 'block';
+    } else {
+        // Visualization completed/failed/cancelled
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
             stopVisualizationPolling();
-            return;
         }
         
-        if (data.status === 'running') {
-            startVizBtn.style.display = 'none';
-            stopVizBtn.style.display = 'block';
-            vizStatusDiv.style.display = 'block';
-        } else {
-            // Visualization completed/failed/cancelled
-            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
-                stopVisualizationPolling();
-            }
-            
-            startVizBtn.style.display = 'block';
-            stopVizBtn.style.display = 'none';
-            vizStatusDiv.style.display = 'none';
-            
-            if (data.status === 'completed' && data.plots) {
+        startVizBtn.style.display = 'block';
+        stopVizBtn.style.display = 'none';
+        
+        if (data.status === 'completed') {
+            if (data.success && data.plots && data.plots.length > 0) {
                 displayPlots(data.plots);
             } else {
+                statusHtml += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Visualization completed with no plots</span></div>';
                 showPlaceholders();
             }
+        } else if (data.status === 'failed') {
+            statusHtml += '<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>Visualization failed</span></div>';
+            showPlaceholders();
+        } else if (data.status === 'cancelled') {
+            statusHtml += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Visualization was cancelled</span></div>';
+            showPlaceholders();
         }
     }
+    
+    statusHtml += '</div>';
+    vizStatusDiv.innerHTML = statusHtml;
+}
+
+
+
     
     function showPlaceholders() {
         const containers = document.querySelectorAll('.chart-container');
