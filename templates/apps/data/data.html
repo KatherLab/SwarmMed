@@ -162,65 +162,94 @@
   </div>
 </section>
 
-     <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-        <!-- Header -->
-        <div class="items-center justify-between lg:flex">
-          <div class="mb-4 lg:mb-0">
-            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Visualization</h3>
-            <span class="text-base font-normal text-gray-500 dark:text-gray-400">Analyze your data</span>
-          </div>
-        </div>
+<section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+  <!-- Header -->
+  <div class="items-center justify-between lg:flex mb-4">
+    <div class="mb-4 lg:mb-0">
+      <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Visualization</h3>
+      <span class="text-base font-normal text-gray-500 dark:text-gray-400">Analyze your data</span>
+    </div>
+    <!-- Control Buttons -->
+    <div class="flex items-center space-x-2">
+      <button id="startVisualizationBtn"
+        class="inline-flex items-center bg-blue-100 text-blue-700 border border-blue-100 hover:border-blue-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-blue-300 dark:text-blue-300">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15v4m6-6v6m6-4v4m6-6v6M3 11l6-5 6 5 5.5-5.5"/>
+        </svg>
+        Generate Plots
+      </button>
+      <button id="stopVisualizationBtn" style="display: none;"
+        class="inline-flex items-center bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+          <rect width="12" height="12" x="6" y="6" stroke="currentColor" stroke-linejoin="round" stroke-width="2" rx="1"/>
+        </svg>
+        Stop
+      </button>
+    </div>
+  </div>
 
-      
-        <div class="grid grid-cols-1 mt-5 md:grid-cols-2 gap-6">
-          
-          <!-- Chart Placeholder 1 -->
-          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
-            </div>
-          </div>
-      
-          <!-- Chart Placeholder 2 -->
-          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
-            </div>
-          </div>
-      
-          <!-- Chart Placeholder 3 -->
-          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
-            </div>
-          </div>
-      
-            <!-- Chart Placeholder 4 -->
-            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
-            </div>
-          </div>
-      
-        </div>
-      </section>
-    
-    
-    
-    
-    
+  <!-- Visualization Status -->
+  <div id="visualizationStatus" class="mb-4" style="display: none;">
+    <div class="text-center py-4">
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700 mx-auto mb-2"></div>
+      <p class="text-blue-600">Generating visualizations...</p>
+    </div>
+  </div>
 
-   
+  <!-- Charts Grid -->
+  <div class="grid grid-cols-1 mt-5 md:grid-cols-2 gap-6" id="chartsGrid">
+    
+    <!-- Chart 1 -->
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center" data-plot="1">
+      <div class="placeholder-content">
+        <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 1</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+      </div>
+      <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 1" />
+      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+    </div>
+
+    <!-- Chart 2 -->
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center relative" data-plot="2">
+      <div class="placeholder-content">
+        <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 2</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+      </div>
+      <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 2" />
+      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+    </div>
+
+    <!-- Chart 3 -->
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center relative" data-plot="3">
+      <div class="placeholder-content">
+        <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 3</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+      </div>
+      <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 3" />
+      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+    </div>
+
+    <!-- Chart 4 -->
+    <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center relative" data-plot="4">
+      <div class="placeholder-content">
+        <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 4</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+      </div>
+      <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 4" />
+      <div class="plot-title hidden absolute top-2 left-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
+    </div>
+
+  </div>
+</section>
     
   
 </main>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // ======================
+    // VALIDATION CODE
+    // ======================
     const startBtn = document.getElementById('startValidationBtn');
     const stopBtn = document.getElementById('stopValidationBtn');
     const statusDiv = document.getElementById('validationStatus');
@@ -240,76 +269,77 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function updateUI(data) {
-    if (data.status === 'none') {
-        statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
-        startBtn.style.display = 'block';
-        stopBtn.style.display = 'none';
-        outputDiv.style.display = 'none';
-        stopPolling(); // Stop polling if no validation runs
-        return;
-    }
-    
-    // Show checks
-    let checksHtml = '<div class="space-y-4">';
-    
-    if (data.status === 'running') {
-        checksHtml += '<div class="flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2">Running validation...</span></div>';
-        startBtn.style.display = 'none';
-        stopBtn.style.display = 'block';
-    } else {
-        // Validation is completed/failed/cancelled - stop polling
-        if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
-            stopPolling();
+        if (data.status === 'none') {
+            statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
+            startBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+            outputDiv.style.display = 'none';
+            stopPolling(); // Stop polling if no validation runs
+            return;
         }
         
-        startBtn.style.display = 'block';
-        stopBtn.style.display = 'none';
+        // Show checks
+        let checksHtml = '<div class="space-y-4">';
         
-        // Add a status indicator for completed validations
-        if (data.status === 'completed') {
-            if (data.success) {
-                checksHtml += '<div class="flex items-center justify-center py-4 text-green-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg><span>Validation completed successfully</span></div>';
-            } else {
-                checksHtml += '<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>Validation completed with errors</span></div>';
+        if (data.status === 'running') {
+            checksHtml += '<div class="flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2">Running validation...</span></div>';
+            startBtn.style.display = 'none';
+            stopBtn.style.display = 'block';
+        } else {
+            // Validation is completed/failed/cancelled - stop polling
+            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+                stopPolling();
             }
-        } else if (data.status === 'failed') {
-            checksHtml += '<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>Validation failed</span></div>';
-        } else if (data.status === 'cancelled') {
-            checksHtml += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Validation was cancelled</span></div>';
+            
+            startBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+            
+            // Add a status indicator for completed validations
+            if (data.status === 'completed') {
+                if (data.success) {
+                    checksHtml += '<div class="flex items-center justify-center py-4 text-green-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg><span>Validation completed successfully</span></div>';
+                } else {
+                    checksHtml += '<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>Validation completed with errors</span></div>';
+                }
+            } else if (data.status === 'failed') {
+                checksHtml += '<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>Validation failed</span></div>';
+            } else if (data.status === 'cancelled') {
+                checksHtml += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Validation was cancelled</span></div>';
+            }
+        }
+        
+        if (data.checks && data.checks.length > 0) {
+            data.checks.forEach(check => {
+                let statusClass = 'bg-gray-100 text-gray-800';
+                if (check.status === 'ok') statusClass = 'bg-green-100 text-green-800 border-green-300';
+                else if (check.status === 'warning') statusClass = 'bg-yellow-100 text-yellow-700 border-yellow-300';
+                else if (check.status === 'error') statusClass = 'bg-red-100 text-red-800 border-red-300';
+                
+                checksHtml += `
+                    <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <div class="text-sm text-gray-800 dark:text-gray-100">${check.name}</div>
+                        <span class="text-xs font-medium px-2 py-1 rounded ${statusClass}">${check.status.toUpperCase()}</span>
+                    </div>
+                `;
+                
+                if (check.message) {
+                    checksHtml += `<div class="text-sm text-gray-600 dark:text-gray-400 px-4">${check.message}</div>`;
+                }
+            });
+        }
+        
+        checksHtml += '</div>';
+        statusDiv.innerHTML = checksHtml;
+        
+        // Show output if available
+        if (data.output || data.error_message) {
+            const output = data.error_message || data.output;
+            outputDiv.querySelector('pre').textContent = output;
+            outputDiv.style.display = 'block';
+        } else {
+            outputDiv.style.display = 'none';
         }
     }
-    
-    data.checks.forEach(check => {
-        let statusClass = 'bg-gray-100 text-gray-800';
-        if (check.status === 'ok') statusClass = 'bg-green-100 text-green-800 border-green-300';
-        else if (check.status === 'warning') statusClass = 'bg-yellow-100 text-yellow-700 border-yellow-300';
-        else if (check.status === 'error') statusClass = 'bg-red-100 text-red-800 border-red-300';
-        
-        checksHtml += `
-            <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                <div class="text-sm text-gray-800 dark:text-gray-100">${check.name}</div>
-                <span class="text-xs font-medium px-2 py-1 rounded ${statusClass}">${check.status.toUpperCase()}</span>
-            </div>
-        `;
-        
-        if (check.message) {
-            checksHtml += `<div class="text-sm text-gray-600 dark:text-gray-400 px-4">${check.message}</div>`;
-        }
-    });
-    
-    checksHtml += '</div>';
-    statusDiv.innerHTML = checksHtml;
-    
-    // Show output if available
-    if (data.output || data.error_message) {
-        const output = data.error_message || data.output;
-        outputDiv.querySelector('pre').textContent = output;
-        outputDiv.style.display = 'block';
-    } else {
-        outputDiv.style.display = 'none';
-    }
-}
-
     
     function startPolling() {
         pollInterval = setInterval(updateValidationStatus, 2000);
@@ -318,6 +348,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function stopPolling() {
         if (pollInterval) {
             clearInterval(pollInterval);
+            pollInterval = null;
         }
     }
     
@@ -366,15 +397,185 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('Error stopping validation');
         });
     });
+
+    // ======================
+    // VISUALIZATION CODE
+    // ======================
+    const startVizBtn = document.getElementById('startVisualizationBtn');
+    const stopVizBtn = document.getElementById('stopVisualizationBtn');
+    const vizStatusDiv = document.getElementById('visualizationStatus');
     
-    // Initial status check
+    let vizPollInterval;
+    
+    function updateVisualizationStatus() {
+        fetch('/data/visualization/status/')
+            .then(response => response.json())
+            .then(data => {
+                updateVisualizationUI(data);
+            })
+            .catch(error => {
+                console.error('Error fetching visualization status:', error);
+            });
+    }
+    
+    function updateVisualizationUI(data) {
+        if (data.status === 'none') {
+            // No visualizations yet, show placeholders
+            showPlaceholders();
+            startVizBtn.style.display = 'block';
+            stopVizBtn.style.display = 'none';
+            vizStatusDiv.style.display = 'none';
+            stopVisualizationPolling();
+            return;
+        }
+        
+        if (data.status === 'running') {
+            startVizBtn.style.display = 'none';
+            stopVizBtn.style.display = 'block';
+            vizStatusDiv.style.display = 'block';
+        } else {
+            // Visualization completed/failed/cancelled
+            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+                stopVisualizationPolling();
+            }
+            
+            startVizBtn.style.display = 'block';
+            stopVizBtn.style.display = 'none';
+            vizStatusDiv.style.display = 'none';
+            
+            if (data.status === 'completed' && data.plots) {
+                displayPlots(data.plots);
+            } else {
+                showPlaceholders();
+            }
+        }
+    }
+    
+    function showPlaceholders() {
+        const containers = document.querySelectorAll('.chart-container');
+        containers.forEach(container => {
+            const placeholder = container.querySelector('.placeholder-content');
+            const image = container.querySelector('.plot-image');
+            const title = container.querySelector('.plot-title');
+            
+            if (placeholder) placeholder.style.display = 'block';
+            if (image) {
+                image.style.display = 'none';
+                image.classList.add('hidden');
+            }
+            if (title) {
+                title.style.display = 'none';
+                title.classList.add('hidden');
+            }
+        });
+    }
+    
+    function displayPlots(plots) {
+        // Clear all containers first
+        showPlaceholders();
+        
+        // Display each plot
+        plots.forEach(plot => {
+            const container = document.querySelector(`[data-plot="${plot.plot_number}"]`);
+            if (container) {
+                const placeholder = container.querySelector('.placeholder-content');
+                const image = container.querySelector('.plot-image');
+                const title = container.querySelector('.plot-title');
+                
+                // Hide placeholder
+                if (placeholder) placeholder.style.display = 'none';
+                
+                // Show image
+                if (image) {
+                    image.src = `data:image/png;base64,${plot.image_data}`;
+                    image.style.display = 'block';
+                    image.classList.remove('hidden');
+                }
+                
+                // Show title
+                if (title) {
+                    title.textContent = plot.title;
+                    title.style.display = 'block';
+                    title.classList.remove('hidden');
+                }
+            }
+        });
+    }
+    
+    function startVisualizationPolling() {
+        vizPollInterval = setInterval(updateVisualizationStatus, 2000);
+    }
+    
+    function stopVisualizationPolling() {
+        if (vizPollInterval) {
+            clearInterval(vizPollInterval);
+            vizPollInterval = null;
+        }
+    }
+    
+    startVizBtn.addEventListener('click', function() {
+        fetch('/data/visualization/start/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                startVisualizationPolling();
+                updateVisualizationStatus();
+            } else {
+                alert('Error starting visualization: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error starting visualization:', error);
+            alert('Error starting visualization');
+        });
+    });
+    
+    stopVizBtn.addEventListener('click', function() {
+        fetch('/data/visualization/stop/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                stopVisualizationPolling();
+                updateVisualizationStatus();
+            } else {
+                alert('Error stopping visualization: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error stopping visualization:', error);
+            alert('Error stopping visualization');
+        });
+    });
+    
+    // ======================
+    // INITIAL STATUS CHECKS
+    // ======================
+    // Initial validation status check
     updateValidationStatus();
+    
+    // Initial visualization status check
+    updateVisualizationStatus();
     
     // Cleanup on page unload
     window.addEventListener('beforeunload', function() {
         stopPolling();
+        stopVisualizationPolling();
     });
 });
 </script>
+
+
 
 {% endblock content %}
