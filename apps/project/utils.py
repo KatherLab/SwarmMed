@@ -9,18 +9,12 @@ from django.conf import settings
 from ..users.models import Profile
 
 def process_member_identifiers(project, member_identifiers):
-    """
-    Process member identifiers and add them to the project.
+    # Always clear existing members first if it's an existing project
+    if project.pk:
+        project.members.clear()
     
-    Args:
-        project: The project instance to add members to
-        member_identifiers: String containing UUIDs separated by commas or new lines
-    """
+    # Only process new members if there are identifiers
     if member_identifiers:
-        # Clear existing members (except the author)
-        if project.pk:
-            project.members.clear()
-        
         # Process the identifiers (split by commas or new lines)
         identifiers = re.split(r'[,\n]+', member_identifiers)
         

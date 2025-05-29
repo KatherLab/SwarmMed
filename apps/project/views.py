@@ -76,6 +76,15 @@ def project_edit(request, pk):
             # Process training code files
             handle_training_code_upload(project, request)
             
+            # Remove current project settings for users who are no longer members
+            UserCurrentProject.objects.filter(
+                project=project
+            ).exclude(
+                user=project.author  # Author always has access
+            ).exclude(
+                user__in=project.members.all()  # Current members have access
+            ).delete()
+            
             return redirect('project_list')
     else:
         form = ProjectForm(instance=project)
