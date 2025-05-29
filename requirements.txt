@@ -23,6 +23,6 @@ psycopg2
 django-storages 
 boto3
 
-#dev
+# for data validation add custom libarys as necessary
 pandas==2.1.3
 
