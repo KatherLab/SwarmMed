@@ -123,51 +123,44 @@
 </section>
 
     <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-      <!-- Header -->
-        <div class="items-center justify-between lg:flex mb-4">
-        <div class="mb-4 lg:mb-0">
-          <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Validation</h3>
-          <span class="text-base font-normal text-gray-500 dark:text-gray-400">Check your data for issues</span>
-        </div>
-        <!-- Add Button -->
-        <div class="flex items-center">
-          <a href="/network/new"
-            class="inline-flex items-center bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
-            <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-  <rect width="12" height="12" x="6" y="6" stroke="currentColor" stroke-linejoin="round" stroke-width="2" rx="1"/>
-</svg>
-            Stop Validation
-          </a>
-        </div>
-      </div>
-      <!-- Validation Checks -->
-      <div class="space-y-4">
-    
-        <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-          <div class="text-sm text-gray-800 dark:text-gray-100">Checking file format</div>
-          <span class="text-xs font-medium px-2 py-1 rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 border border-green-300 dark:border-green-600">OK</span>
-        </div>
-    
-        <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-          <div class="text-sm text-gray-800 dark:text-gray-100">Validating schema</div>
-          <span class="text-xs font-medium px-2 py-1 rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-600">Warning</span>
-        </div>
-    
-        <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-          <div class="text-sm text-gray-800 dark:text-gray-100">Checking missing values</div>
-          <span class="text-xs font-medium px-2 py-1 rounded bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 border border-red-300 dark:border-red-600">Error</span>
-        </div>
-        <div class="mt-6">
-          <pre class="bg-gray-50 text-gray-800 dark:bg-gray-700 dark:text-gray-200 text-sm p-4 rounded-lg overflow-x-auto border border-red-300 dark:border-red-600">
-      [ERROR] Missing required column: 'user_id'
-      [ERROR] Invalid date format in row 112
-      [ERROR] Null values found in 'status' column
-          </pre>
-        </div>
-      </div>
-    
+  <!-- Header -->
+  <div class="items-center justify-between lg:flex mb-4">
+    <div class="mb-4 lg:mb-0">
+      <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Validation</h3>
+      <span class="text-base font-normal text-gray-500 dark:text-gray-400">Check your data for issues</span>
+    </div>
+    <!-- Control Buttons -->
+    <div class="flex items-center space-x-2">
+      {% csrf_token %}
+      <button id="startValidationBtn"
+        class="inline-flex items-center bg-green-100 text-green-700 border border-green-100 hover:border-green-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-green-300 dark:text-green-300">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 18V6l8 6-8 6Z"/>
+        </svg>
+        Start Validation
+      </button>
+      <button id="stopValidationBtn" style="display: none;"
+        class="inline-flex items-center bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
+        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+          <rect width="12" height="12" x="6" y="6" stroke="currentColor" stroke-linejoin="round" stroke-width="2" rx="1"/>
+        </svg>
+        Stop Validation
+      </button>
+    </div>
+  </div>
 
-    </section>
+  <!-- Validation Status -->
+  <div id="validationStatus">
+    <div class="text-center py-8">
+      <p class="text-gray-500 dark:text-gray-400">Click "Start Validation" to check your data</p>
+    </div>
+  </div>
+
+  <!-- Results Output -->
+  <div id="validationOutput" style="display: none;" class="mt-6">
+    <pre class="bg-gray-50 text-gray-800 dark:bg-gray-700 dark:text-gray-200 text-sm p-4 rounded-lg overflow-x-auto border"></pre>
+  </div>
+</section>
 
      <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
         <!-- Header -->
@@ -225,5 +218,143 @@
     
   
 </main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const startBtn = document.getElementById('startValidationBtn');
+    const stopBtn = document.getElementById('stopValidationBtn');
+    const statusDiv = document.getElementById('validationStatus');
+    const outputDiv = document.getElementById('validationOutput');
+    
+    let pollInterval;
+    
+    function updateValidationStatus() {
+        fetch('/data/validation/status/')
+            .then(response => response.json())
+            .then(data => {
+                updateUI(data);
+            })
+            .catch(error => {
+                console.error('Error fetching validation status:', error);
+            });
+    }
+    
+    function updateUI(data) {
+        if (data.status === 'none') {
+            statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
+            startBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+            outputDiv.style.display = 'none';
+            return;
+        }
+        
+        // Show checks
+        let checksHtml = '<div class="space-y-4">';
+        
+        if (data.status === 'running') {
+            checksHtml += '<div class="flex items-center justify-center py-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div><span class="ml-2">Running validation...</span></div>';
+            startBtn.style.display = 'none';
+            stopBtn.style.display = 'block';
+        } else {
+            startBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+        }
+        
+        data.checks.forEach(check => {
+            let statusClass = 'bg-gray-100 text-gray-800';
+            if (check.status === 'ok') statusClass = 'bg-green-100 text-green-800 border-green-300';
+            else if (check.status === 'warning') statusClass = 'bg-yellow-100 text-yellow-700 border-yellow-300';
+            else if (check.status === 'error') statusClass = 'bg-red-100 text-red-800 border-red-300';
+            
+            checksHtml += `
+                <div class="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                    <div class="text-sm text-gray-800 dark:text-gray-100">${check.name}</div>
+                    <span class="text-xs font-medium px-2 py-1 rounded ${statusClass}">${check.status.toUpperCase()}</span>
+                </div>
+            `;
+            
+            if (check.message) {
+                checksHtml += `<div class="text-sm text-gray-600 dark:text-gray-400 px-4">${check.message}</div>`;
+            }
+        });
+        
+        checksHtml += '</div>';
+        statusDiv.innerHTML = checksHtml;
+        
+        // Show output if available
+        if (data.output || data.error_message) {
+            const output = data.error_message || data.output;
+            outputDiv.querySelector('pre').textContent = output;
+            outputDiv.style.display = 'block';
+        } else {
+            outputDiv.style.display = 'none';
+        }
+    }
+    
+    function startPolling() {
+        pollInterval = setInterval(updateValidationStatus, 2000);
+    }
+    
+    function stopPolling() {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+        }
+    }
+    
+    startBtn.addEventListener('click', function() {
+        fetch('/data/validation/start/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                startPolling();
+                updateValidationStatus();
+            } else {
+                alert('Error starting validation: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error starting validation:', error);
+            alert('Error starting validation');
+        });
+    });
+    
+    stopBtn.addEventListener('click', function() {
+        fetch('/data/validation/stop/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                stopPolling();
+                updateValidationStatus();
+            } else {
+                alert('Error stopping validation: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error stopping validation:', error);
+            alert('Error stopping validation');
+        });
+    });
+    
+    // Initial status check
+    updateValidationStatus();
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        stopPolling();
+    });
+});
+</script>
 
 {% endblock content %}

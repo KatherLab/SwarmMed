@@ -13,10 +13,30 @@ services:
       - ./:/app
     depends_on:
       - postgres
+      - redis
     ports:
       - "8000:8000"
     env_file:
       - .env
+
+  celery_worker:
+    container_name: celery_worker
+    command: celery -A core worker --loglevel=info --concurrency=2
+    restart: always
+    build:
+      context: .
+    networks:
+      - db_network
+    volumes:
+      - ./:/app
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+    environment:
+      - C_FORCE_ROOT=1  # Allow Celery to run as root in Docker
+
   nginx:
     container_name: nginx
     restart: always
@@ -29,6 +49,7 @@ services:
       - web_network
     depends_on:
       - app
+
   redis:
     image: redis:7.0.12
     container_name: redis
@@ -38,6 +59,7 @@ services:
       - 6379:6379
     networks:
       - db_network
+
   postgres:
     image: postgres:13
     container_name: postgres
@@ -50,6 +72,7 @@ services:
       - .env
     networks:
       - db_network
+
   minio:
     image: minio/minio
     container_name: minio
@@ -61,6 +84,7 @@ services:
     env_file:
       - .env
     command: server /data --console-address ":9001"
+
 networks:
   db_network:
     driver: bridge

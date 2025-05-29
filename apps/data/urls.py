@@ -1,5 +1,4 @@
 from django.urls import path
-
 from . import views
 
 urlpatterns = [
@@ -9,5 +8,9 @@ urlpatterns = [
     path('files/delete/', views.delete_file, name='delete_file'),
     path('files/rename/', views.rename_file, name='rename_file'),
     path('folders/', views.list_all_folders, name='list_all_folders'),
-
+    
+    # Validation endpoints
+    path('validation/start/', views.start_validation, name='start_validation'),
+    path('validation/stop/', views.stop_validation, name='stop_validation'), 
+    path('validation/status/', views.validation_status, name='validation_status'),
 ]
