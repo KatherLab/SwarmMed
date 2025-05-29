@@ -161,6 +161,39 @@
                 </div>
               </div>
             </div>
+
+            <!-- Data Visualization Script (Only .py file) -->
+            <div>
+              <label for="id_data_visualization_script" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Data Visualization Script</label>
+              {% if form.instance.data_visualization_script %}
+                <div class="flex items-center mb-2 gap-2">
+                  <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.data_visualization_script.name }}</span>
+                  <a href="{{ form.instance.data_visualization_script.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                </div>
+              {% endif %}
+              <label for="id_data_visualization_script" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.data_visualization_script.errors %}border-red-500{% endif %}">
+                <div class="flex flex-col items-center justify-center pt-5 pb-5">
+                  <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                    <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
+                    <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
+                  </svg>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
+                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">.py file only</p>
+                </div>
+                <input id="id_data_visualization_script" name="data_visualization_script" type="file" accept=".py" class="hidden" />
+              </label>
+              {% if form.data_visualization_script.errors %}
+              <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.data_visualization_script.errors.0 }}</p>
+              {% endif %}
+
+              <!-- Selected Files Display for Data Visualization Script -->
+              <div id="data_visualization_files_container" class="mt-4 hidden">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-2">Selected visualization script:</h3>
+                <div id="data_visualization_files_list" class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 max-h-60 overflow-y-auto">
+                  <!-- File info will be inserted here by JavaScript -->
+                </div>
+              </div>
+            </div>
           
             <!-- Results Visualization Script (Only .py file) -->
             <div>
@@ -227,6 +260,13 @@
       "id_data_validation_script", 
       "data_validation_files_container", 
       "data_validation_files_list"
+    );
+
+    // Handle file selection display for Data Visualization Script (single .py file)
+    setupSingleFileUploadDisplay(
+      "id_data_visualization_script", 
+      "data_visualization_files_container", 
+      "data_visualization_files_list"
     );
     
     // Handle file selection display for Results Visualization Script (single .py file)
