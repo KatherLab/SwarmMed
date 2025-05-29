@@ -1,13 +1,18 @@
 import json
 import os
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse, JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
 from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.urls import reverse
+from django.utils import timezone
+from celery import current_app
 from ..project.models import UserCurrentProject
+from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
+from .tasks import run_validation_task, run_visualization_task
+
 
 from .utils import (
     list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
@@ -304,3 +309,255 @@ def list_all_folders(request):
         folder_list.insert(0, {"label": "(root)", "value": ""})
     
     return JsonResponse(folder_list, safe=False)
+
+###### New Validation Views ######
+@login_required(login_url='/users/signin/')
+@require_POST
+def start_validation(request):
+    """Start a validation run for the current project."""
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return JsonResponse({'error': 'No project selected'}, status=400)
+    
+    try:
+        from ..project.models import Project
+        project = Project.objects.get(identifier=current_project_uuid)
+        
+        if not project.data_validation_script:
+            return JsonResponse({'error': 'No validation script uploaded'}, status=400)
+        
+        # Cancel any running validation for this project
+        running_validations = ValidationRun.objects.filter(
+            project=project,
+            status__in=['pending', 'running']
+        )
+        
+        for validation in running_validations:
+            if validation.celery_task_id:
+                current_app.control.revoke(validation.celery_task_id, terminate=True)
+            validation.status = 'cancelled'
+            validation.completed_at = timezone.now()
+            validation.save()
+        
+        # Create new validation run
+        validation_run = ValidationRun.objects.create(
+            project=project,
+            user=request.user
+        )
+        
+        # Start the task
+        task = run_validation_task.delay(str(validation_run.id))
+        validation_run.celery_task_id = task.id
+        validation_run.save()
+        
+        return JsonResponse({
+            'success': True,
+            'validation_run_id': str(validation_run.id),
+            'task_id': task.id
+        })
+        
+    except Project.DoesNotExist:
+        return JsonResponse({'error': 'Project not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required(login_url='/users/signin/')
+@require_POST  
+def stop_validation(request):
+    """Stop the currently running validation."""
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return JsonResponse({'error': 'No project selected'}, status=400)
+    
+    try:
+        from ..project.models import Project
+        project = Project.objects.get(identifier=current_project_uuid)
+        
+        # Find running validation
+        validation_run = ValidationRun.objects.filter(
+            project=project,
+            status__in=['pending', 'running']
+        ).first()
+        
+        if not validation_run:
+            return JsonResponse({'error': 'No running validation found'}, status=404)
+        
+        # Cancel the Celery task
+        if validation_run.celery_task_id:
+            current_app.control.revoke(validation_run.celery_task_id, terminate=True)
+        
+        # Update status
+        validation_run.status = 'cancelled'
+        validation_run.completed_at = timezone.now()
+        validation_run.save()
+        
+        return JsonResponse({'success': True})
+        
+    except Project.DoesNotExist:
+        return JsonResponse({'error': 'Project not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required(login_url='/users/signin/')
+def validation_status(request):
+    """Get the current validation status for the project."""
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return JsonResponse({'error': 'No project selected'}, status=400)
+    
+    try:
+        from ..project.models import Project
+        project = Project.objects.get(identifier=current_project_uuid)
+        
+        # Get latest validation run
+        latest_validation = ValidationRun.objects.filter(project=project).first()
+        
+        if not latest_validation:
+            return JsonResponse({
+                'status': 'none',
+                'checks': []
+            })
+        
+        # Get validation checks
+        checks = list(ValidationCheck.objects.filter(
+            validation_run=latest_validation
+        ).values('name', 'status', 'message', 'details'))
+        
+        return JsonResponse({
+            'status': latest_validation.status,
+            'success': latest_validation.success,
+            'output': latest_validation.output,
+            'error_message': latest_validation.error_message,
+            'checks': checks,
+            'started_at': latest_validation.started_at,
+            'completed_at': latest_validation.completed_at
+        })
+        
+    except Project.DoesNotExist:
+        return JsonResponse({'error': 'Project not found'}, status=404)
+    
+
+@login_required(login_url='/users/signin/')
+@require_POST
+def start_visualization(request):
+    """Start a visualization run for the current project."""
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return JsonResponse({'error': 'No project selected'}, status=400)
+    
+    try:
+        from ..project.models import Project
+        project = Project.objects.get(identifier=current_project_uuid)
+        
+        if not project.data_visualization_script:
+            return JsonResponse({'error': 'No visualization script uploaded'}, status=400)
+        
+        # Cancel any running visualization for this project
+        running_visualizations = VisualizationRun.objects.filter(
+            project=project,
+            status__in=['pending', 'running']
+        )
+        
+        for visualization in running_visualizations:
+            if visualization.celery_task_id:
+                current_app.control.revoke(visualization.celery_task_id, terminate=True)
+            visualization.status = 'cancelled'
+            visualization.completed_at = timezone.now()
+            visualization.save()
+        
+        # Create new visualization run
+        visualization_run = VisualizationRun.objects.create(
+            project=project,
+            user=request.user
+        )
+        
+        # Start the task
+        task = run_visualization_task.delay(str(visualization_run.id))
+        visualization_run.celery_task_id = task.id
+        visualization_run.save()
+        
+        return JsonResponse({
+            'success': True,
+            'visualization_run_id': str(visualization_run.id),
+            'task_id': task.id
+        })
+        
+    except Project.DoesNotExist:
+        return JsonResponse({'error': 'Project not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required(login_url='/users/signin/')
+@require_POST  
+def stop_visualization(request):
+    """Stop the currently running visualization."""
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return JsonResponse({'error': 'No project selected'}, status=400)
+    
+    try:
+        from ..project.models import Project
+        project = Project.objects.get(identifier=current_project_uuid)
+        
+        # Find running visualization
+        visualization_run = VisualizationRun.objects.filter(
+            project=project,
+            status__in=['pending', 'running']
+        ).first()
+        
+        if not visualization_run:
+            return JsonResponse({'error': 'No running visualization found'}, status=404)
+        
+        # Cancel the Celery task
+        if visualization_run.celery_task_id:
+            current_app.control.revoke(visualization_run.celery_task_id, terminate=True)
+        
+        # Update status
+        visualization_run.status = 'cancelled'
+        visualization_run.completed_at = timezone.now()
+        visualization_run.save()
+        
+        return JsonResponse({'success': True})
+        
+    except Project.DoesNotExist:
+        return JsonResponse({'error': 'Project not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required(login_url='/users/signin/')
+def visualization_status(request):
+    """Get the current visualization status for the project."""
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return JsonResponse({'error': 'No project selected'}, status=400)
+    
+    try:
+        from ..project.models import Project
+        project = Project.objects.get(identifier=current_project_uuid)
+        
+        # Get latest visualization run
+        latest_visualization = VisualizationRun.objects.filter(project=project).first()
+        
+        if not latest_visualization:
+            return JsonResponse({
+                'status': 'none',
+                'plots': []
+            })
+        
+        # Get visualization plots
+        plots = list(VisualizationPlot.objects.filter(
+            visualization_run=latest_visualization
+        ).values('title', 'plot_number', 'image_data'))
+        
+        return JsonResponse({
+            'status': latest_visualization.status,
+            'success': latest_visualization.success,
+            'output': latest_visualization.output,
+            'error_message': latest_visualization.error_message,
+            'plots': plots,
+            'started_at': latest_visualization.started_at,
+            'completed_at': latest_visualization.completed_at
+        })
+        
+    except Project.DoesNotExist:
+        return JsonResponse({'error': 'Project not found'}, status=404)

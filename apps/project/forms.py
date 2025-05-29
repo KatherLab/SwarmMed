@@ -15,7 +15,7 @@ class ProjectForm(forms.ModelForm):
         model = Project
         fields = [
             'title', 'creation_date', 'description',
-            'training_code', 'data_validation_script', 
+            'training_code', 'data_validation_script', 'data_visualization_script',
             'results_visualization_script'
         ]
         # Note: 'members' field is removed from here

@@ -19,6 +19,10 @@ def data_validation_path(instance, filename):
     """Path for data validation script"""
     return get_upload_path(instance, filename, 'code/data_validation')
 
+def data_visualization_path(instance, filename):
+    """Path for data visualization script"""
+    return get_upload_path(instance, filename, 'code/data_visualization')
+
 def results_visualization_path(instance, filename):
     """Path for results visualization script"""
     return get_upload_path(instance, filename, 'code/results_visualization')
@@ -37,6 +41,7 @@ class Project(models.Model):
     # File fields
     training_code = models.FileField(upload_to=training_code_path, blank=True, null=True)
     data_validation_script = models.FileField(upload_to=data_validation_path, blank=True, null=True)
+    data_visualization_script = models.FileField(upload_to=data_visualization_path, blank=True, null=True)
     results_visualization_script = models.FileField(upload_to=results_visualization_path, blank=True, null=True)
     
     is_current = models.BooleanField(default=False)
@@ -71,6 +76,7 @@ class Project(models.Model):
                 # Handle file replacements for each field
                 replace_file_and_cleanup(old_instance.training_code, self.training_code, 'code/training/')
                 replace_file_and_cleanup(old_instance.data_validation_script, self.data_validation_script, 'code/data_validation/')
+                replace_file_and_cleanup(old_instance.data_visualization_script, self.data_visualization_script, 'code/data_visualization/')
                 replace_file_and_cleanup(old_instance.results_visualization_script, self.results_visualization_script, 'code/results_visualization/')
             
             except Project.DoesNotExist:
