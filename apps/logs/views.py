@@ -1,4 +1,3 @@
-# apps/logs/views.py
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
@@ -32,7 +31,7 @@ def logs_dashboard(request):
         return render(request, "apps/logs/no_project_selected.html", {"segment": "logs"})
     
     # Query actual log entries from database
-    from .models import LogEntry, LogSession, LogCategory
+    from .models import LogEntry, LogCategory
     
     # Create a list of categories with their data (easier for template to iterate)
     categories_list = []
@@ -72,20 +71,14 @@ def logs_dashboard(request):
             'recent_entries': recent_count,
         })
     
-    # Get recent sessions
-    recent_sessions = LogSession.objects.filter(
-        user=request.user,
-        project=project
-    ).order_by('-started_at')[:10]
-    
     context = {
         'segment': 'logs',
         'project': project,
-        'categories_list': categories_list,  # Changed from categories_data
-        'recent_sessions': recent_sessions,
+        'categories_list': categories_list,
     }
     return render(request, "apps/logs/logs.html", context)
 
 # Alias the function to match your URL pattern
 logs = logs_dashboard
+
 

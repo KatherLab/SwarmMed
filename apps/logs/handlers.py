@@ -20,7 +20,6 @@ class DatabaseLogHandler(logging.Handler):
             user_id = getattr(record, 'user_id', None)
             project_id = getattr(record, 'project_id', None)
             category = getattr(record, 'category', 'project')
-            session_id = getattr(record, 'session_id', None)
             
             if user_id and project_id:
                 try:
@@ -31,7 +30,6 @@ class DatabaseLogHandler(logging.Handler):
                         user=user,
                         project=project,
                         category=category,
-                        session_id=session_id,
                         level=record.levelname,
                         message=record.getMessage(),
                         context_data=getattr(record, 'context_data', {})
@@ -42,5 +40,6 @@ class DatabaseLogHandler(logging.Handler):
         except Exception as e:
             # Don't let logging errors break the application
             self.handleError(record)
+
 
 
