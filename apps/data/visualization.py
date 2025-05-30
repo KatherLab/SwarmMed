@@ -23,19 +23,14 @@ class VisualizationContext:
         
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
-            self.log.data.error("Visualization context exited with error",
-                                 error_type=str(exc_type),
-                                 error_message=str(exc_val))
+            self.log.data.error(f"Visualization context exited with error: {str(exc_val)}")
             
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
         
     def save_plot(self, title="Untitled Plot"):
         """Save the current matplotlib plot."""
         if self.current_plot_number >= 4:
-            self.log.data.warning(f"Maximum of 4 plots allowed. Plot '{title}' will be ignored.",
-                                   current_plots=self.current_plot_number,
-                                   max_plots=4,
-                                   rejected_title=title)
+            self.log.data.warning(f"Maximum of 4 plots allowed. Plot '{title}' will be ignored.")
             return
         
         self.current_plot_number += 1
@@ -60,16 +55,10 @@ class VisualizationContext:
             # Clear the current figure for the next plot
             plt.clf()
 
-            self.log.data.info(f"Plot {self.current_plot_number}: '{title}' saved successfully",
-                               plot_number=self.current_plot_number,
-                               title=title,
-                               image_size_bytes=image_size)
+            self.log.data.info(f"Plot {self.current_plot_number}: '{title}' saved successfully")
 
         except Exception as e:
-            self.log.data.error(f"Failed to save plot '{title}': {str(e)}",
-                                plot_number=self.current_plot_number,
-                                title=title,
-                                 error=str(e))
+            self.log.data.error(f"Failed to save plot '{title}': {str(e)}")
             raise
     
     def open(self, relative_path: str, mode: str = 'r', **kwargs):
@@ -80,9 +69,7 @@ class VisualizationContext:
             
             return file_handle
         except Exception as e:
-            self.log.data.error(f"Failed to open file '{relative_path}': {str(e)}",
-                                mode=mode,
-                                error=str(e))
+            self.log.data.error(f"Failed to open file '{relative_path}': {str(e)}")
             raise
     
     def exists(self, relative_path: str) -> bool:

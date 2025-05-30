@@ -1,13 +1,10 @@
 import os
 import traceback
 import tempfile
-from datetime import datetime
 from celery import shared_task
 from django.utils import timezone
-from django.contrib.auth.models import User
 from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
 from .filesystem import ValidationContext
-from apps.project.models import Project
 from .visualization import VisualizationContext
 from apps.logs import logger
 from apps.logs.context import set_context
@@ -26,9 +23,7 @@ def run_validation_task(self, validation_run_id):
         set_context(user=user, project=project)
         log = logger.get_logger()
         
-        log.data.info("Starting validation task", 
-                        validation_run_id=validation_run_id,
-                        celery_task_id=self.request.id)
+        log.data.info("Starting validation")
         
         validation_run.status = 'running'
         validation_run.started_at = timezone.now()
@@ -39,18 +34,12 @@ def run_validation_task(self, validation_run_id):
             log.data.error("No validation script found for project")
             raise Exception("No validation script found for project")
         
-        log.data.info("Creating validation context", project_id=project.identifier)
-        
         # Create validation context
         with ValidationContext(str(project.identifier), str(validation_run_id)) as context:
             # Read validation script
             script_content = project.data_validation_script.read()
             if isinstance(script_content, bytes):
                 script_content = script_content.decode('utf-8')
-
-            log.data.debug("Read validation script", 
-                            script_size=len(script_content),
-                            script_filename=project.data_validation_script.name)
             
             # Create temporary script file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_file:
@@ -95,8 +84,6 @@ validation = _validation_context
                 script_file.write(script_with_context)
                 script_file.flush()
 
-                log.data.info("Executing validation script", script_path=script_file.name)
-
                 # Execute the script
                 try:
                     # Create a namespace for execution
@@ -113,9 +100,6 @@ validation = _validation_context
                     # Mark as successful
                     validation_run.success = True
                     validation_run.output = "Validation completed successfully"
-
-                    log.data.info("Validation script executed successfully", 
-                                   checks_found=len(context.checks))
                     
                 except Exception as e:
                     # Capture script execution error
@@ -123,7 +107,7 @@ validation = _validation_context
                     validation_run.error_message = str(e)
                     validation_run.output = traceback.format_exc()
                     
-                    log.data.error("Validation script execution failed", 
+                    log.data.error(f"Validation script execution failed: {str(e)}", 
                                     error=str(e),
                                     traceback=traceback.format_exc())
                 
@@ -131,9 +115,8 @@ validation = _validation_context
                     # Clean up script file
                     try:
                         os.unlink(script_file.name)
-                        log.data.debug("Cleaned up temporary script file")
                     except:
-                        log.data.warning("Failed to clean up temporary script file")
+                        log.data.warning(f"Failed to clean up temporary script file '{script_file.name}'")
 
             # Save validation checks
             for check_data in context.checks:
@@ -141,20 +124,13 @@ validation = _validation_context
                     validation_run=validation_run,
                     **check_data
                 )
-            
-            log.data.info("Saved validation checks", 
-                         checks_count=len(context.checks),
-                         validation_run_id=validation_run_id)
         
         # Update validation run status
         validation_run.status = 'completed'
         validation_run.completed_at = timezone.now()
         validation_run.save()
         
-        log.data.info("Validation task completed successfully",
-                        validation_run_id=validation_run_id,
-                        success=validation_run.success,
-                        checks_count=len(context.checks))
+        log.data.info("Validation completed successfully")
         
         return {
             'success': validation_run.success,
@@ -173,9 +149,7 @@ validation = _validation_context
             validation_run.completed_at = timezone.now()
             validation_run.save()
 
-            log.data.error("Validation task failed completely",
-                            validation_run_id=validation_run_id,
-                            error=str(e))
+            log.data.error(f"Validation task failed completely: {str(e)}")
         except:
             pass
         
@@ -194,9 +168,7 @@ def run_visualization_task(self, visualization_run_id):
         set_context(user=user, project=project)
         log = logger.get_logger()
         
-        log.data.info("Starting visualization task", 
-                        visualization_run_id=visualization_run_id,
-                        celery_task_id=self.request.id)
+        log.data.info("Starting visualization")
         
         visualization_run.status = 'running'
         visualization_run.started_at = timezone.now()
@@ -207,18 +179,12 @@ def run_visualization_task(self, visualization_run_id):
             log.data.error("No visualization script found for project")
             raise Exception("No visualization script found for project")
         
-        log.data.info("Creating visualization context", project_id=project.identifier)
-        
         # Create visualization context
         with VisualizationContext(str(project.identifier), str(visualization_run_id)) as context:
             # Read visualization script
             script_content = project.data_visualization_script.read()
             if isinstance(script_content, bytes):
                 script_content = script_content.decode('utf-8')
-
-            log.data.debug("Read visualization script", 
-                            script_size=len(script_content),
-                            script_filename=project.data_visualization_script.name)
             
             # Create temporary script file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_file:
@@ -259,9 +225,7 @@ visualization = _viz_context
 """
                 script_file.write(script_with_context)
                 script_file.flush()
-
-                log.data.info("Executing visualization script", script_path=script_file.name)
-
+                
                 # Execute the script
                 try:
                     # Create a namespace for execution
@@ -277,9 +241,6 @@ visualization = _viz_context
                     # Mark as successful
                     visualization_run.success = True
                     visualization_run.output = f"Visualization completed successfully. Generated {len(context.plots)} plots."
-
-                    log.data.info("Visualization script executed successfully",
-                                   plots_generated=len(context.plots))
                     
                 except Exception as e:
                     # Capture script execution error
@@ -287,18 +248,15 @@ visualization = _viz_context
                     visualization_run.error_message = str(e)
                     visualization_run.output = traceback.format_exc()
 
-                    log.data.error("Visualization script execution failed",
-                                    error=str(e),
-                                    traceback=traceback.format_exc())
-                
+                    log.data.error(f"Visualization script execution failed: {str(e)}")
+
                 finally:
                     # Clean up script file
                     try:
                         os.unlink(script_file.name)
-                        log.data.debug("Cleaned up temporary script file")
                     except:
-                        log.data.warning("Failed to clean up temporary script file")
-            
+                        log.data.warning(f"Failed to clean up temporary script file: {script_file.name}")
+
             # Save visualization plots
             for plot_data in context.plots:
                 VisualizationPlot.objects.create(
@@ -306,19 +264,13 @@ visualization = _viz_context
                     **plot_data
                 )
 
-            log.data.info("Saved visualization plots",
-                           plots_count=len(context.plots),
-                           visualization_run_id=visualization_run_id)
         
         # Update visualization run status
         visualization_run.status = 'completed'
         visualization_run.completed_at = timezone.now()
         visualization_run.save()
 
-        log.data.info("Visualization task completed successfully",
-                      visualization_run_id=visualization_run_id,
-                        success=visualization_run.success,
-                        plots_count=len(context.plots))
+        log.data.info("Visualization completed successfully")
         
         return {
             'success': visualization_run.success,
@@ -337,10 +289,8 @@ visualization = _viz_context
             visualization_run.completed_at = timezone.now()
             visualization_run.save()
 
-            log.data.error("Visualization task failed completely",
-                            visualization_run_id=visualization_run_id,
-                            error=str(e))
+            log.data.error(f"Visualization task failed completely: {str(e)}")
         except:
             pass
-        
+
         raise e
