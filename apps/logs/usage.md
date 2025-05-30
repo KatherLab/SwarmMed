@@ -1,28 +1,40 @@
-# Import the simplified logger
-from ..logs.utils import get_logger, DATA, NETWORK, TRAINING, RESULTS, PROJECT
+# Import 
+    from apps.logs import logger
 
-# Use in any view
-# In Django views (auto-detects context)
-from ..logs.utils import get_logger, DATA
-logger = get_logger(DATA)
-logger.info("This works in views!")
+# simple usage
+    log = logger.get_logger()
+    # Log different levels with categories
+    log.project.info("User accessed dashboard")
+    log.data.info("File uploaded", filename="data.csv", size="1.5MB")
+    log.network.warning("Slow network detected", latency="500ms")
+    log.training.error("Model training failed", error="Out of memory")
+    log.results.info("Analysis complete", accuracy="95%")
 
-# In Celery tasks (explicit context)
-logger = get_logger(DATA, user=task_user, project=task_project)
-logger.info("This works in Celery tasks!")
+# manual context management
+    from apps.logs import logger
+    from apps.logs.context import set_context
+    from django.contrib.auth.models import User
+    from apps.project.models import Project
 
-# In any other file (basic logging)
-logger = get_logger()
-logger.info("This works anywhere!")
+    # Set context manually
+    user = User.objects.get(id=1)
+    project = Project.objects.get(identifier='my-project')
+    set_context(user=user, project=project)
 
-# In utility functions
-def some_utility_function(user, project):
-    logger = get_logger(DATA, user=user, project=project)
-    logger.info("Processing data...")
+    log = logger.get_logger()
+    log.training.info("Batch processing started")
 
-# Example usage in a script
-logger.info("This is a test")
-logger.error("An error occurred")
-logger.warning("This is a warning")
-logger.debug("Debugging information")
-logger.critical("Critical issue")
+# explicit context management
+    log = logger.get_logger()
+
+    # Use automatic context
+    log.data.info("Using automatic context")
+
+    # Override context for this log only
+    different_user = User.objects.get(id=2)
+    different_project = Project.objects.get(identifier='other-project')
+
+    log.data.info("Using different context", 
+                user=different_user, 
+                project=different_project,
+                operation="cross-project-sync")
