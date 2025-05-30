@@ -16,6 +16,7 @@ from .utils import (
     list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
     delete_s3_folder, rename_s3_folder, get_storage_stats, format_size
 )
+from apps.logs import logger
 
 def get_user_project(request):
     """
@@ -72,7 +73,10 @@ def upload_files(request):
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
         return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
-    
+
+    # Initialize logger
+    log = logger.get_logger()
+
     if request.method == 'POST':
         files = request.FILES.getlist('file_field')
         directories_json = request.POST.get('directories', '{}')
@@ -96,7 +100,8 @@ def upload_files(request):
             # Ensure forward slashes for consistency
             save_path = os.path.join(full_destination, rel_path).replace('\\', '/')
             default_storage.save(save_path, file)
-            
+
+        log.data.info(f"Files uploaded to {full_destination} successfully.")
         return HttpResponse('Files uploaded with folder structure preserved!')
     
     context = {
@@ -219,19 +224,23 @@ def delete_file(request):
     """
     View for deleting files or folders.
     """
+    # Initialize logger
+    log = logger.get_logger()
+    
+    # Get the key from the request
     key = request.POST.get('key')
 
     try:
         if key.endswith('/'):
             delete_s3_folder(key)
-            messages.success(request, f"Deleted folder {key}")
+            log.data.info(f"Deleted folder {key}")
             
         else:
             delete_s3_object(key)
-            messages.success(request, f"Deleted {key}")
-            
+            log.data.info(f"Deleted {key}")
+
     except Exception as e:
-        messages.error(request, f"Error deleting {key}: {e}")
+        log.data.error(f"Error deleting {key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
 @require_POST
@@ -239,6 +248,10 @@ def rename_file(request):
     """
     View for renaming files or folders.
     """
+    # Initialize logger
+    log = logger.get_logger()
+    
+    # Get the old key and new name from the request
     old_key = request.POST.get('old_key')
     new_name = request.POST.get('new_name')
     
@@ -258,13 +271,13 @@ def rename_file(request):
     try:
         if old_key.endswith('/'):
             rename_s3_folder(old_key, new_key)
-            messages.success(request, f"Renamed folder {old_key} to {new_key}")
+            log.data.info(f"Renamed folder {old_key} to {new_key}")
         else:
             rename_s3_object(old_key, new_key)
-            messages.success(request, f"Renamed {old_key} to {new_key}")
+            log.data.info(f"Renamed {old_key} to {new_key}")
     except Exception as e:
-        messages.error(request, f"Error renaming {old_key}: {e}")
-    
+        log.data.error(f"Error renaming {old_key}: {e}")
+
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
 @login_required(login_url='/users/signin/')
