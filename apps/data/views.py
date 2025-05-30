@@ -12,12 +12,11 @@ from celery import current_app
 from ..project.models import UserCurrentProject
 from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
 from .tasks import run_validation_task, run_visualization_task
-
-
 from .utils import (
     list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
     delete_s3_folder, rename_s3_folder, get_storage_stats, format_size
 )
+from ..logs.utils import get_user_project_logger, DATA
 
 def get_user_project(request):
     """
@@ -219,16 +218,20 @@ def delete_file(request):
     """
     View for deleting files or folders.
     """
+    logger = get_user_project_logger(DATA)
     key = request.POST.get('key')
     try:
         if key.endswith('/'):
             delete_s3_folder(key)
             messages.success(request, f"Deleted folder {key}")
+            logger.info(f"Deleted folder {key}")
         else:
             delete_s3_object(key)
             messages.success(request, f"Deleted {key}")
+            logger.info(f"Deleted {key}")   
     except Exception as e:
         messages.error(request, f"Error deleting {key}: {e}")
+        logger.error(f"Error deleting {key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
 @require_POST
@@ -566,3 +569,4 @@ def visualization_status(request):
         
     except Project.DoesNotExist:
         return JsonResponse({'error': 'Project not found'}, status=404)
+    
