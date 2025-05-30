@@ -54,14 +54,14 @@
             <span class="folder-name" data-key="{{ folder.key }}">{{ folder.name }}</span>
           </a>
           <!-- Rename button for folder -->
-          <button class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1 rename-btn" data-key="{{ folder.key }}" data-name="{{ folder.name }}" title="Rename">
+          <button class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1 rename-btn" data-key="{{ folder.full_key }}" data-name="{{ folder.name }}" title="Rename">
             <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
               <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z"/>
             </svg>
           </button>
           <form method="post" action="{% url 'delete_file' %}" class="inline ml-1">
             {% csrf_token %}
-            <input type="hidden" name="key" value="{{ folder.key }}">
+            <input type="hidden" name="key" value="{{ folder.full_key }}">
             <button class="hover:text-purple-700 dark:text-white dark:hover:text-purple-300 px-1" aria-label="Delete {{ folder.name }}">&times;</button>
           </form>
         </li>

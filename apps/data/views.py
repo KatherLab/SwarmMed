@@ -172,8 +172,10 @@ def list_files(request):
             
             processed_folders.append({
                 'name': folder_name,
-                'key': relative_folder_path
+                'key': relative_folder_path,  # for navigation
+                'full_key': folder            # for S3 operations
             })
+
         
         # Process files - show only files within this project
         processed_files = []
