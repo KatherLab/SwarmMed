@@ -7,8 +7,11 @@ import shutil
 from django.core.files.storage import default_storage
 from django.conf import settings
 from apps.users.models import Profile
+from apps.logs import logger
 
 def process_member_identifiers(project, member_identifiers):
+    log = logger.get_logger()
+    
     # Always clear existing members first if it's an existing project
     if project.pk:
         project.members.clear()
@@ -34,11 +37,11 @@ def process_member_identifiers(project, member_identifiers):
                     if profile.user != project.author:
                         project.members.add(profile.user)
                 except Profile.DoesNotExist:
-                    # UUID doesn't match any profile - could log this
+                    log.project.warning(f"UUID {identifier} doesn't match any profile")
                     continue
                     
             except ValueError:
-                # Invalid UUID format - could log this
+                log.project.warning(f"Invalid UUID format: {identifier_str}")
                 continue
 
 def handle_training_code_upload(project, request):
