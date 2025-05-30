@@ -10,9 +10,6 @@ from .models import Project, UserCurrentProject
 from .forms import ProjectForm
 from .utils import process_member_identifiers, handle_training_code_upload
 
-from ..logs.utils import get_user_project_logger, PROJECT
-
-
 @login_required(login_url='/users/signin/')
 def project_list(request):
     """List all projects where the user is author or member."""
@@ -57,9 +54,6 @@ def project_create(request):
             
             # Process training code files
             handle_training_code_upload(project, request)
-            
-            logger = get_user_project_logger(PROJECT)
-            logger.info(f'Project created')
             
             return redirect('project_list')
     else:

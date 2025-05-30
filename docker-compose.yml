@@ -84,6 +84,17 @@ services:
     env_file:
       - .env
     command: server /data --console-address ":9001"
+  
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - db_network
+    depends_on:
+      - postgres
 
 networks:
   db_network:
