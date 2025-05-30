@@ -1,4 +1,6 @@
 import logging
+from typing import Optional, Union
+from django.contrib.auth.models import User
 from .context import get_context, set_context
 from .models import LogCategory
 
@@ -56,28 +58,70 @@ def log(level, message, category='project', user=None, project=None, **extra):
     # Log the message
     getattr(_logger, level.lower())(message, extra=log_extra)
 
-# Simple functions for each level
-def info(message, **kwargs):
-    log('INFO', message, **kwargs)
+class CategoryLogger:
+    """Logger for a specific category"""
+    
+    def __init__(self, category, user=None, project=None):
+        self.category = category
+        self.user = user
+        self.project_obj = project  # Use different name to avoid conflict
+    
+    def info(self, message, **kwargs):
+        log('INFO', message, category=self.category, user=self.user, project=self.project_obj, **kwargs)
+    
+    def error(self, message, **kwargs):
+        log('ERROR', message, category=self.category, user=self.user, project=self.project_obj, **kwargs)
+    
+    def warning(self, message, **kwargs):
+        log('WARNING', message, category=self.category, user=self.user, project=self.project_obj, **kwargs)
+    
+    def debug(self, message, **kwargs):
+        log('DEBUG', message, category=self.category, user=self.user, project=self.project_obj, **kwargs)
+    
+    def critical(self, message, **kwargs):
+        log('CRITICAL', message, category=self.category, user=self.user, project=self.project_obj, **kwargs)
 
-def error(message, **kwargs):
-    log('ERROR', message, **kwargs)
+class Logger:
+    """Main logger with category properties"""
+    
+    def __init__(self, user=None, project=None):
+        self.user_obj = user      # Use different names to avoid conflicts
+        self.project_obj = project # with property names
+    
+    @property
+    def project(self):
+        return CategoryLogger(LogCategory.PROJECT, self.user_obj, self.project_obj)
+    
+    @property
+    def data(self):
+        return CategoryLogger(LogCategory.DATA, self.user_obj, self.project_obj)
+    
+    @property
+    def network(self):
+        return CategoryLogger(LogCategory.NETWORK, self.user_obj, self.project_obj)
+    
+    @property
+    def training(self):
+        return CategoryLogger(LogCategory.TRAINING, self.user_obj, self.project_obj)
+    
+    @property
+    def results(self):
+        return CategoryLogger(LogCategory.RESULTS, self.user_obj, self.project_obj)
 
-def warning(message, **kwargs):
-    log('WARNING', message, **kwargs)
-
-def debug(message, **kwargs):
-    log('DEBUG', message, **kwargs)
-
-# Category shortcuts
-def log_data(message, level='INFO', **kwargs):
-    log(level, message, category=LogCategory.DATA, **kwargs)
-
-def log_training(message, level='INFO', **kwargs):
-    log(level, message, category=LogCategory.TRAINING, **kwargs)
-
-def log_network(message, level='INFO', **kwargs):
-    log(level, message, category=LogCategory.NETWORK, **kwargs)
-
-def log_results(message, level='INFO', **kwargs):
-    log(level, message, category=LogCategory.RESULTS, **kwargs)
+def get_logger(user=None, project=None) -> Logger:
+    """
+    Get a logger with category properties
+    
+    Args:
+        user: Optional User object (auto-detected if None)
+        project: Optional Project object (auto-detected if None)
+    
+    Returns:
+        Logger instance with category properties
+    """
+    # Get context
+    ctx_user, ctx_project = get_context()
+    final_user = user or ctx_user
+    final_project = project or ctx_project
+    
+    return Logger(user=final_user, project=final_project)

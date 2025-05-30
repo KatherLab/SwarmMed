@@ -1,4 +1,5 @@
 import threading
+from django.utils.deprecation import MiddlewareMixin
 
 _thread_locals = threading.local()
 
@@ -15,8 +16,6 @@ def get_context():
     # Try to auto-detect from Django request if not set
     if not user or not project:
         try:
-            from django.utils import timezone
-            from django.contrib.auth.models import User
             request = getattr(_thread_locals, 'request', None)
             
             if request and hasattr(request, 'user') and request.user.is_authenticated:
@@ -46,3 +45,4 @@ class RequestContextMiddleware:
         if hasattr(_thread_locals, 'request'):
             del _thread_locals.request
         return response
+

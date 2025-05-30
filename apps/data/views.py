@@ -220,18 +220,19 @@ def delete_file(request):
     View for deleting files or folders.
     """
     key = request.POST.get('key')
+    log = logger.get_logger()
     try:
         if key.endswith('/'):
             delete_s3_folder(key)
             messages.success(request, f"Deleted folder {key}")
-            logger.log_data(f"Deleted folder {key}")
+            log.data.info(f"Deleted folder {key}")
         else:
             delete_s3_object(key)
             messages.success(request, f"Deleted {key}")
-            logger.log_data(f"Deleted {key}")
+            log.data.info(f"Deleted {key}")
     except Exception as e:
         messages.error(request, f"Error deleting {key}: {e}")
-        logger.log_data(f"Error deleting {key}: {e}", level='ERROR')
+        log.data.error(f"Error deleting {key}: {e}")
     return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
 @require_POST

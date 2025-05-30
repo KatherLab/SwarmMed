@@ -4,6 +4,7 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from .filesystem import DataFileSystem
+from ..logs import logger
 
 class VisualizationContext:
     """Context providing access to data and utilities for visualization scripts."""
@@ -14,57 +15,134 @@ class VisualizationContext:
         self.filesystem = DataFileSystem(project_uuid)
         self.plots = []
         self.current_plot_number = 0
+        self.log = logger.get_logger()
+        
+        self.log.data.debug("Initializing visualization context",
+                              project_uuid=project_uuid,
+                              visualization_run_id=visualization_run_id)
         
     def __enter__(self):
+        self.log.data.info("Entering visualization context", 
+                          project_uuid=self.project_uuid)
         self.filesystem.__enter__()
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.log.data.error("Visualization context exited with error",
+                                 error_type=str(exc_type),
+                                 error_message=str(exc_val))
+        else:
+            self.log.data.info("Visualization context completed successfully",
+                                plots_generated=len(self.plots))
+        
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
+        
+        self.log.data.info("Exited visualization context",
+                          project_uuid=self.project_uuid)
     
     def save_plot(self, title="Untitled Plot"):
         """Save the current matplotlib plot."""
         if self.current_plot_number >= 4:
+            self.log.data.warning("Maximum plots limit reached",
+                                   current_plots=self.current_plot_number,
+                                   max_plots=4,
+                                   rejected_title=title)
             print(f"Warning: Maximum of 4 plots allowed. Plot '{title}' will be ignored.")
             return
         
         self.current_plot_number += 1
+
+        self.log.data.info("Saving plot",
+                           plot_number=self.current_plot_number,
+                            title=title)
         
-        # Save the current figure to a BytesIO buffer
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', transparent=True)
-        buffer.seek(0)
-        
-        # Encode as base64
-        image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        
-        # Store plot data
-        self.plots.append({
-            'title': title,
-            'plot_number': self.current_plot_number,
-            'image_data': image_base64
-        })
-        
-        # Clear the current figure for the next plot
-        plt.clf()
-        
-        print(f"Plot {self.current_plot_number}: '{title}' saved successfully")
+        try:
+            # Save the current figure to a BytesIO buffer
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', transparent=True)
+            buffer.seek(0)
+            
+            # Encode as base64
+            image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            image_size = len(image_base64)
+            
+            # Store plot data
+            self.plots.append({
+                'title': title,
+                'plot_number': self.current_plot_number,
+                'image_data': image_base64
+            })
+            
+            # Clear the current figure for the next plot
+            plt.clf()
+
+            self.log.data.info("Plot saved successfully",
+                               plot_number=self.current_plot_number,
+                               title=title,
+                               image_size_bytes=image_size)
+
+            print(f"Plot {self.current_plot_number}: '{title}' saved successfully")
+            
+        except Exception as e:
+            self.log.data.error("Failed to save plot",
+                                plot_number=self.current_plot_number,
+                                title=title,
+                                 error=str(e))
+            raise
     
     def open(self, relative_path: str, mode: str = 'r', **kwargs):
         """Open a file with the given mode."""
-        return self.filesystem.open(relative_path, mode, **kwargs)
+        self.log.data.debug("Opening file",
+                           relative_path=relative_path,
+                           mode=mode)
+        
+        try:
+            file_handle = self.filesystem.open(relative_path, mode, **kwargs)
+            self.log.data.info("File opened successfully",
+                             relative_path=relative_path,
+                             mode=mode)
+            return file_handle
+        except Exception as e:
+            self.log.data.error("Failed to open file",
+                              relative_path=relative_path,
+                              mode=mode,
+                              error=str(e))
+            raise
     
     def exists(self, relative_path: str) -> bool:
         """Check if a file exists in the data directory."""
-        return self.filesystem.exists(relative_path)
+        exists = self.filesystem.exists(relative_path)
+        self.log.data.debug("File existence check",
+                           relative_path=relative_path,
+                           exists=exists)
+        return exists
     
     def listdir(self, relative_path: str = "") -> list:
         """List files and directories in the given path."""
-        return self.filesystem.listdir(relative_path)
+        try:
+            files = self.filesystem.listdir(relative_path)
+            self.log.data.debug("Listed directory contents",
+                              relative_path=relative_path,
+                              file_count=len(files),
+                              files=files[:10])  # Log first 10 files to avoid spam
+            return files
+        except Exception as e:
+            self.log.data.error("Failed to list directory",
+                              relative_path=relative_path,
+                              error=str(e))
+            raise
     
     def get_data_path(self, relative_path: str = "") -> str:
         """Get local filesystem path to data."""
         if relative_path:
-            return self.filesystem.get_path(relative_path)
+            full_path = self.filesystem.get_path(relative_path)
+            self.log.data.debug("Got data path",
+                              relative_path=relative_path,
+                              full_path=full_path)
         else:
-            return self.filesystem.temp_dir
+            full_path = self.filesystem.temp_dir
+            self.log.data.debug("Got base data path",
+                              full_path=full_path)
+        
+        return full_path
