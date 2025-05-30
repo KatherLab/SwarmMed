@@ -9,6 +9,7 @@ from django.conf import settings
 from .models import Project, UserCurrentProject
 from .forms import ProjectForm
 from .utils import process_member_identifiers, handle_training_code_upload
+from apps.logs import logger
 
 @login_required(login_url='/users/signin/')
 def project_list(request):
@@ -40,6 +41,8 @@ def project_list(request):
 @login_required(login_url='/users/signin/')
 def project_create(request):
     """Create a new project."""
+    log = logger.get_logger(user=request.user, project=None)
+     
     if request.method == 'POST':
         form = ProjectForm(request.POST, request.FILES)
         if form.is_valid():
@@ -49,12 +52,19 @@ def project_create(request):
             # Save the project first to get an ID
             project.save()
             
+           
+            
             # Process member identifiers
             process_member_identifiers(project, form.cleaned_data.get('member_identifiers', ''))
             
             # Process training code files
-            handle_training_code_upload(project, request)
+            try:
+                handle_training_code_upload(project, request)
+            except Exception as e:
+                log.project.error(f"ERROR PROCESSING TRAINING CODE UPLOAD - {project.name}: {str(e)}")
             
+            log.project.info(f"PROJECT CREATED SUCCESSFULLY - {project.name}")
+
             return redirect('project_list')
     else:
         form = ProjectForm()
@@ -68,6 +78,7 @@ def project_create(request):
 @login_required(login_url='/users/signin/')
 def project_edit(request, pk):
     """Edit an existing project."""
+    log = logger.get_logger(user=request.user, project=project)
     project = get_object_or_404(Project, pk=pk)
     if request.user != project.author and request.user not in project.members.all():
         return redirect('project_list')
@@ -93,6 +104,8 @@ def project_edit(request, pk):
                 user__in=project.members.all()  # Current members have access
             ).delete()
             
+            log.project.info("Project updated successfully")
+            
             return redirect('project_list')
     else:
         form = ProjectForm(instance=project)
@@ -107,10 +120,12 @@ def project_edit(request, pk):
 @login_required(login_url='/users/signin/')
 def project_delete(request, pk):
     """Delete a project (author only)."""
+    log = logger.get_logger(user=request.user, project=None)
     project = get_object_or_404(Project, pk=pk)
     # Only allow the author to delete the project
     if request.user == project.author:
         project.delete()
+        log.project.info(f"Project deleted successfully - {project.name}")
     return redirect('project_list')
 
 @login_required(login_url='/users/signin/')
