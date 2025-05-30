@@ -61,9 +61,9 @@ def project_create(request):
             try:
                 handle_training_code_upload(project, request)
             except Exception as e:
-                log.project.error(f"ERROR PROCESSING TRAINING CODE UPLOAD - {project.name}: {str(e)}")
-            
-            log.project.info(f"PROJECT CREATED SUCCESSFULLY - {project.name}")
+                log.project.error(f"ERROR PROCESSING TRAINING CODE UPLOAD - {project.title}: {str(e)}")
+
+            log.project.info(f"PROJECT CREATED SUCCESSFULLY - {project.title}")
 
             return redirect('project_list')
     else:
@@ -125,7 +125,7 @@ def project_delete(request, pk):
     # Only allow the author to delete the project
     if request.user == project.author:
         project.delete()
-        log.project.info(f"Project deleted successfully - {project.name}")
+        log.project.info(f"Project deleted successfully - {project.title}")
     return redirect('project_list')
 
 @login_required(login_url='/users/signin/')
