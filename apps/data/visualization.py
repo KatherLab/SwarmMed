@@ -4,7 +4,7 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from .filesystem import DataFileSystem
-from ..logs import logger
+from apps.logs import logger
 
 class VisualizationContext:
     """Context providing access to data and utilities for visualization scripts."""

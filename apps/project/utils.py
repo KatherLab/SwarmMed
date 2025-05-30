@@ -6,7 +6,7 @@ import uuid
 import shutil
 from django.core.files.storage import default_storage
 from django.conf import settings
-from ..users.models import Profile
+from apps.users.models import Profile
 
 def process_member_identifiers(project, member_identifiers):
     # Always clear existing members first if it's an existing project

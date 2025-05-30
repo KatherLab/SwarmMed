@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
 from .models import Project
-from ..users.models import Profile 
+from apps.users.models import Profile 
 
 
 class ProjectForm(forms.ModelForm):

@@ -7,10 +7,10 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
 from .filesystem import ValidationContext
-from ..project.models import Project
+from apps.project.models import Project
 from .visualization import VisualizationContext
-from ..logs import logger
-from ..logs.context import set_context
+from apps.logs import logger
+from apps.logs.context import set_context
 
 
 @shared_task(bind=True)

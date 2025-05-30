@@ -2,7 +2,7 @@ import uuid
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
-from ..project.models import Project
+from apps.project.models import Project
 
 class LogCategory(models.TextChoices):
     PROJECT = 'project', 'Project'
