@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from django.core.files.storage import default_storage
 from .utils import list_s3_folder
+from apps.logs import logger
+
 
 class DataFileSystem:
     """
@@ -17,18 +19,21 @@ class DataFileSystem:
         self.root_path = f"{project_uuid}/data/"
         self.temp_dir = tempfile.mkdtemp(prefix=f"validation_{project_uuid}_")
         self._downloaded_files: Dict[str, str] = {}
+        self.log = logger.get_logger()
         
     def __enter__(self):
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.log.data.error(f"DataFileSystem context exited with error: {str(exc_val)}")
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up temporary directory"""
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
-    
+
     def _ensure_file_downloaded(self, relative_path: str) -> str:
         """
         Ensure a file is downloaded to local temp storage.
@@ -55,6 +60,7 @@ class DataFileSystem:
             self._downloaded_files[relative_path] = local_path
             return local_path
         except Exception as e:
+            self.log.data.error(f"Failed to download file {relative_path}: {str(e)}")
             raise FileNotFoundError(f"Could not download file {relative_path}: {str(e)}")
     
     def open(self, relative_path: str, mode: str = 'r', **kwargs):
@@ -104,6 +110,7 @@ class ValidationContext:
         self.validation_run_id = validation_run_id
         self.filesystem = DataFileSystem(project_uuid)
         self.checks = []
+        self.log = logger.get_logger()
     
     def __enter__(self):
         self.filesystem.__enter__()
