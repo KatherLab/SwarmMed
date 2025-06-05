@@ -42,14 +42,12 @@ def logs_dashboard(request):
         
         # Get recent logs for this category (last 50 entries)
         recent_logs = LogEntry.objects.filter(
-            user=request.user,
             project=project,
             category=category_key
-        ).order_by('-timestamp')[:50]
+        ).select_related('user').order_by('-timestamp')[:50]
         
         # Get stats
         total_count = LogEntry.objects.filter(
-            user=request.user,
             project=project,
             category=category_key
         ).count()
@@ -57,7 +55,6 @@ def logs_dashboard(request):
         # Recent entries (last 24 hours)
         yesterday = timezone.now() - timedelta(days=1)
         recent_count = LogEntry.objects.filter(
-            user=request.user,
             project=project,
             category=category_key,
             timestamp__gte=yesterday
