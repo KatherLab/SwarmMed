@@ -37,6 +37,10 @@ docker compose build
 docker compose up
 ```
 
+### 4. Create Superuser
+```bash
+docker exec -it mediswarmcloud python manage.py createsuperuser
+```
 
 
 ## During Development

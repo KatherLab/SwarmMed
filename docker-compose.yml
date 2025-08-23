@@ -11,6 +11,8 @@ services:
       - web_network
     volumes:
       - ./:/app
+      - /var/run/tailscale:/var/run/tailscale:ro
+      - /usr/bin/tailscale:/usr/bin/tailscale:ro
     depends_on:
       - postgres
       - redis
