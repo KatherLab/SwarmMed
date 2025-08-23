@@ -155,7 +155,7 @@ def get_s3_download_url(key, expires=3600):
         Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': key},
         ExpiresIn=expires
     )
-    return make_public_presigned_url(url)
+    return url #make_public_presigned_url(url)
 
 def get_storage_stats(prefix=""):
     """
