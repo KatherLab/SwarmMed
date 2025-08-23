@@ -37,7 +37,7 @@ def is_tailscale_connected():
         # Tailscale status returns exit code 0 and shows peer info when connected
         is_connected = bool(result.stdout.strip()) and 'peerapi' not in result.stdout.lower()
         
-        cache.set('tailscale_connected', is_connected, 30)  # Cache for 30 seconds
+        cache.set('tailscale_connected', "connected" if is_connected else "disconnected", 30)  # Cache for 30 seconds
         return "connected" if is_connected else "disconnected"
 
     except (subprocess.CalledProcessError, FileNotFoundError):
