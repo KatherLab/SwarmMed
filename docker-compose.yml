@@ -84,6 +84,8 @@ services:
     env_file:
       - .env
     command: server /data --console-address ":9001"
+    networks:
+      - db_network
   
   adminer:
     image: adminer:latest
