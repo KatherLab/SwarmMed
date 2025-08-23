@@ -32,7 +32,7 @@ DEBUG = str2bool(os.environ.get('DEBUG', 'False'))
 
 # Hosts Settings
 ALLOWED_HOSTS = ['*']
-CSRF_TRUSTED_ORIGINS = ['http://localhost:8000', 'http://localhost:5085', 'http://127.0.0.1:8000', 'http://127.0.0.1:5085', 'https://rocket-django.onrender.com']
+CSRF_TRUSTED_ORIGINS = ['http://localhost:8000', 'http://localhost:5085', 'http://127.0.0.1:8000', 'http://127.0.0.1:5085', 'https://rocket-django.onrender.com', 'http://192.168.33.105:8000']
 
 # Used by DEBUG-Toolbar 
 INTERNAL_IPS = [
