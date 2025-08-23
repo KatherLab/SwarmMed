@@ -124,7 +124,7 @@ def rename_s3_folder(old_prefix, new_prefix):
             copy_s3_object(old_key, new_key)
             delete_s3_object(old_key)
     
-def old_make_public_presigned_url(url):
+def make_public_presigned_url(url):
     """
     Convert internal URLs to public-facing URLs.
     
@@ -136,31 +136,6 @@ def old_make_public_presigned_url(url):
     """
     internal = settings.AWS_S3_ENDPOINT_URL
     public = settings.PUBLIC_URL
-    return url.replace(internal, public)
-
-def make_public_presigned_url(url, request=None):
-    """
-    Convert internal URLs to public-facing URLs based on request context.
-    
-    Args:
-        url (str): Internal URL
-        request: Django request object (optional)
-    
-    Returns:
-        str: Public URL
-    """
-    internal = settings.AWS_S3_ENDPOINT_URL
-    
-    # Dynamically determine public URL based on request
-    if request:
-        # Get the host from the request
-        host = request.get_host().split(':')[0]
-        port = ':9000' if '9000' in settings.PUBLIC_URL else ''
-        public = f"http://{host}{port}"
-    else:
-        # Fallback to settings
-        public = settings.PUBLIC_URL
-    
     return url.replace(internal, public)
 
 def get_s3_download_url(key, expires=3600):
