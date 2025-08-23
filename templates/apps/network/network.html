@@ -50,17 +50,6 @@
         <span class="text-base font-normal text-gray-500 dark:text-gray-400">Monitor and connect to VPN</span>
       </div>
     </div>
-    <!-- VPN Action Button -->
-    <div class="flex items-center mt-4 lg:mt-0">
-      <button type="button"
-        class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700">
-        <svg class="w-6 h-6 mr-2" fill="none" viewBox="0 0 24 24">
-          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M12 20a16.405 16.405 0 0 1-5.092-5.804A16.694 16.694 0 0 1 5 6.666L12 4l7 2.667a16.695 16.695 0 0 1-1.908 7.529A16.406 16.406 0 0 1 12 20Z"/>
-        </svg>
-        Disconnect VPN
-      </button>
-    </div>
   </div>
 
   <!-- VPN Status Grid -->
@@ -73,7 +62,7 @@
         </svg>
         VPN Status
       </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">connected</p>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="vpnStatus">{{ tailscale_status }}</p>
     </div>
 
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">

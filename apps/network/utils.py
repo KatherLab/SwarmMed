@@ -20,18 +20,26 @@ def get_tailscale_ip():
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "Not Available"
 
-def get_local_ip():
-    """Get the local IP address - simplified and reliable"""
+def is_tailscale_connected():
+    """Check if Tailscale is currently connected."""
+    # Cache the connection state for 30 seconds
+    cached_state = cache.get('tailscale_connected')
+    if cached_state is not None:
+        return cached_state
+    
     try:
-        # Create a socket and connect to an external address
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            # Connect to Cloudflare DNS (doesn't actually send data)
-            s.connect(("1.1.1.1", 80))
-            return s.getsockname()[0]
-    except Exception:
-        # Fallback to hostname method
-        try:
-            hostname = socket.gethostname()
-            return socket.gethostbyname(hostname)
-        except:
-            return "127.0.0.1"
+        result = subprocess.run(['tailscale', 'status'], 
+                              capture_output=True, 
+                              text=True, 
+                              check=True)
+        
+        # Check if the output indicates we're connected
+        # Tailscale status returns exit code 0 and shows peer info when connected
+        is_connected = bool(result.stdout.strip()) and 'peerapi' not in result.stdout.lower()
+        
+        cache.set('tailscale_connected', is_connected, 30)  # Cache for 30 seconds
+        return "connected" if is_connected else "disconnected"
+
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        cache.set('tailscale_connected', False, 10)
+        return "disconnected"
