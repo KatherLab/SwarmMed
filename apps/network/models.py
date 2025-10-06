@@ -18,7 +18,9 @@ class SwarmNetwork(models.Model):
     ]
 
     name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='swarm_networks')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='authored_swarm_networks', null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='INITIALIZING')
     identifier = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -29,7 +31,7 @@ class SwarmNetwork(models.Model):
 
     def delete(self, *args, **kwargs):
         # Clean up the provisioning directory before deleting the object
-        provision_dir = os.path.join('workspaces', str(self.project.identifier), 'provision', str(self.identifier))
+        provision_dir = os.path.join('workspaces', str(self.project.identifier), str(self.identifier))
         if os.path.exists(provision_dir):
             shutil.rmtree(provision_dir)
             print(f"Deleted provisioning directory: {provision_dir}")
@@ -54,3 +56,11 @@ class SwarmParticipant(models.Model):
 
     def __str__(self):
         return f"{self.user.username} as {self.get_role_display()} in {self.network.name}"
+
+class UserCurrentNetwork(models.Model):
+    """Model to track which network is currently active for a user"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='current_network_relation')
+    network = models.ForeignKey(SwarmNetwork, on_delete=models.SET_NULL, null=True, related_name='current_for_users')
+    
+    class Meta:
+        unique_together = ('user', 'network')

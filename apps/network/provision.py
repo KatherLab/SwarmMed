@@ -5,7 +5,7 @@ import textwrap
 from .models import SwarmNetwork
 
 
-def generate_flare_startup_kit(network_id: str):
+def generate_flare_startup_kit(network_id: str, local_test: bool = False, clients: list = []):
     """
     Generates the startup kits for a given SwarmNetwork.
     """
@@ -16,11 +16,62 @@ def generate_flare_startup_kit(network_id: str):
         return
 
     project_dir = os.path.join('workspaces', str(network.project.identifier))
-    provision_dir = os.path.join(project_dir, 'provision', str(network.identifier))
+    provision_dir = os.path.join(project_dir, str(network.identifier))
 
     if os.path.exists(provision_dir):
         shutil.rmtree(provision_dir)
     os.makedirs(provision_dir)
+
+    participants = []
+    if local_test:
+        participants.append({
+            'name': 'server',
+            'type': 'server',
+            'org': 'nvidia',
+            'fed_learn_port': 8002,
+            'admin_port': 8003,
+        })
+        participants.append({
+            'name': 'fl-client',
+            'type': 'client',
+            'org': 'nvidia',
+        })
+    else:
+        participants.append({
+            'name': 'server',
+            'type': 'server',
+            'org': 'nvidia',
+            'fed_learn_port': 8002,
+            'admin_port': 8003,
+        })
+        for client in clients:
+            participants.append({
+                'name': client['name'],
+                'type': 'client',
+                'org': 'nvidia',
+                'listening_host': client['ip'],
+            })
+
+    participants.append({
+        'name': 'admin@nvidia.com',
+        'type': 'admin',
+        'org': 'nvidia',
+        'role': 'project_admin',
+    })
+
+    participants_yaml = ""
+    for p in participants:
+        participants_yaml += f"      - name: {p['name']}\n"
+        participants_yaml += f"        type: {p['type']}\n"
+        participants_yaml += f"        org: {p['org']}\n"
+        if 'fed_learn_port' in p:
+            participants_yaml += f"        fed_learn_port: {p['fed_learn_port']}\n"
+        if 'admin_port' in p:
+            participants_yaml += f"        admin_port: {p['admin_port']}\n"
+        if 'listening_host' in p:
+            participants_yaml += f"        listening_host: {p['listening_host']}\n"
+        if 'role' in p:
+            participants_yaml += f"        role: {p['role']}\n"
 
     project_yml_content = textwrap.dedent(f"""
     api_version: 3
@@ -28,59 +79,13 @@ def generate_flare_startup_kit(network_id: str):
     description: FLARE project for {network.project.title}
 
     participants:
-      # Change the name of the server (server1) to the Fully Qualified Domain Name
-      # (FQDN) of the server, for example: server1.example.com.
-      # Ensure that the FQDN is correctly mapped in the /etc/hosts file.
-      - name: server
-        type: server
-        org: nvidia
-        fed_learn_port: 8002
-        admin_port: 8003
-    #    docker_comm_port: 8005
-      - name: fl-client
-        type: client
-        org: nvidia
-        # Specifying listening_host will enable the creation of one pair of
-        # certificate/private key for this client, allowing the client to function
-        # as a server for 3rd-party integration.
-        # The value must be a hostname that the external trainer can reach via the network.
-        # listening_host: site-1-lh
-    #    docker_comm_port: 8006
-      - name: admin@nvidia.com
-        type: admin
-        org: nvidia
-        role: project_admin
-
+{participants_yaml}
     # The same methods in all builders are called in their order defined in builders section
     builders:
       - path: nvflare.lighter.impl.workspace.WorkspaceBuilder
         args:
           template_file: master_template.yml
       - path: nvflare.lighter.impl.static_file.StaticFileBuilder
-        args:
-          # config_folder can be set to inform NVIDIA FLARE where to get configuration
-          config_folder: config
-
-          # scheme for communication driver (currently supporting the default, grpc, only).
-          # scheme: grpc
-
-          # app_validator is used to verify if uploaded app has proper structures
-          # if not set, no app_validator is included in fed_server.json
-          # app_validator: PATH_TO_YOUR_OWN_APP_VALIDATOR
-
-          # when docker_image is set to a docker image name, docker.sh will be generated on server/client/admin
-          # docker_image:
-
-          # download_job_url is set to http://download.server.com/ as default in fed_server.json.  You can override this
-          # to different url.
-          # download_job_url: http://download.server.com/
-    #      docker_image: localhost/nvflare:0.0.1
-    #
-    #  - path: nvflare.lighter.impl.docker.DockerBuilder
-    #    args:
-    #      docker_image: localhost/nvflare:0.0.1
-    #      base_image: python:3.10
-    #      requirements_file: docker_compose_requirements.txt
       - path: nvflare.lighter.impl.cert.CertBuilder
       - path: nvflare.lighter.impl.signature.SignatureBuilder
     """).strip()
@@ -92,10 +97,6 @@ def generate_flare_startup_kit(network_id: str):
     # Copy master template
     shutil.copy(os.path.join('apps', 'network', 'master_template.yml'), os.path.join(provision_dir, 'master_template.yml'))
     
-    # Copy the config and custom directories
-    shutil.copytree(os.path.join('nvflare', 'config'), os.path.join(provision_dir, 'config'))
-    shutil.copytree(os.path.join('nvflare', 'custom'), os.path.join(provision_dir, 'custom'))
-
     try:
         print(f"Starting provisioning for network {network_id} in {provision_dir}")
         command = [

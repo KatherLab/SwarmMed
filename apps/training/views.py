@@ -23,32 +23,18 @@ def start_training(request, network_id):
         return redirect('network_detail', network_id=network.identifier)
 
     # 1. Define paths
-    job_dir = os.path.join('workspaces', str(project.identifier), 'jobs', str(network.identifier))
-    app_dir = os.path.join(job_dir, 'app')
-    app_custom_dir = os.path.join(app_dir, 'custom')
-    app_config_dir = os.path.join(app_dir, 'config')
+    job_dir = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
+    app_custom_dir = os.path.join(job_dir, 'custom')
     
     project_name = project.title.replace(' ', '_')
-    admin_startup_kit = os.path.join('/app', 'workspaces', str(project.identifier), 'provision', str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com', 'startup')
+    admin_startup_kit = os.path.join('/app', 'workspaces', str(project.identifier), str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com', 'startup')
 
     # 2. Create app structure and files
     os.makedirs(app_custom_dir, exist_ok=True)
-    os.makedirs(app_config_dir, exist_ok=True)
 
     with open(os.path.join(app_custom_dir, 'train.py'), 'wb') as f:
         for chunk in project.training_code.chunks():
             f.write(chunk)
-
-    config_fed_client = {
-        "executor": {
-            "path": "nvflare.app_common.executors.script_executor.ScriptExecutor",
-            "args": {
-                "script": "custom/train.py"
-            }
-        }
-    }
-    with open(os.path.join(app_config_dir, 'config_fed_client.json'), 'w') as f:
-        json.dump(config_fed_client, f, indent=4)
 
     # 3. Submit the job using subprocess from the app container itself
     try:
@@ -57,9 +43,8 @@ def start_training(request, network_id):
             './fl_admin.sh',
             '-o', 'overseer:8003',
             'submit_job',
-            os.path.join('/app', app_dir) # Use absolute path inside container
+            os.path.join('/app', job_dir) # Use absolute path inside container
         ]
-        
         logger.info(f"Submitting FLARE job with command: {' '.join(command)} in {admin_startup_kit}")
         result = subprocess.run(command, cwd=admin_startup_kit, capture_output=True, text=True)
 

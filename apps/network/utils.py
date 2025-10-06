@@ -45,3 +45,10 @@ def is_tailscale_connected():
     except (subprocess.CalledProcessError, FileNotFoundError):
         cache.set('tailscale_connected', "disconnected", 10)
         return "disconnected"
+
+def get_hostname():
+    """Get the current machine's hostname."""
+    try:
+        return socket.gethostname()
+    except Exception:
+        return "Not Available"
