@@ -76,11 +76,11 @@
           <div id="create-new-options" class="space-y-6">
             <div>
                 <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Test Locally</label>
-                <input type="checkbox" name="local_test" class="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
-                <span class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">Run NVFlare in a local test environment</span>
+                <input type="checkbox" name="local_test" id="local_test_checkbox" class="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
+                <span class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">Test in a local environment</span>
             </div>
 
-            <div>
+            <div id="add-client-section">
               <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Add Client</label>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                 <input type="text" id="client-name" placeholder="client-1"
@@ -157,35 +157,28 @@
             }
         });
 
-        function addClientEntry() {
-            const clientNameInput = document.getElementById('client-name');
-            const clientIpInput = document.getElementById('client-ip');
-            const clientList = document.getElementById('client-list');
+        const localTestCheckbox = document.getElementById('local_test_checkbox');
+        const addClientSection = document.getElementById('add-client-section');
+        const clientNameInput = document.getElementById('client-name');
+        const clientIpInput = document.getElementById('client-ip');
+        const addClientButton = addClientSection.querySelector('button');
 
-            const name = clientNameInput.value.trim();
-            const ip = clientIpInput.value.trim();
-
-            if (name && ip) {
-                const li = document.createElement('li');
-                li.className = 'flex justify-between items-center p-2';
-                li.innerHTML = `<span>${name} - ${ip}</span><button type="button" class="text-red-500">Remove</button>`;
-                
-                const hiddenInput = document.createElement('input');
-                hiddenInput.type = 'hidden';
-                hiddenInput.name = 'clients';
-                hiddenInput.value = JSON.stringify({ name, ip });
-                li.appendChild(hiddenInput);
-
-                clientList.appendChild(li);
-
-                li.querySelector('button').addEventListener('click', () => {
-                    li.remove();
-                });
-
-                clientNameInput.value = '';
-                clientIpInput.value = '';
+        localTestCheckbox.addEventListener('change', () => {
+            if (localTestCheckbox.checked) {
+                addClientSection.style.display = 'none';
+                clientNameInput.disabled = true;
+                clientIpInput.disabled = true;
+                addClientButton.disabled = true;
+                document.getElementById('client-list').innerHTML = '';
+                const hiddenInputs = document.querySelectorAll('input[name="clients"]');
+                hiddenInputs.forEach(input => input.remove());
+            } else {
+                addClientSection.style.display = 'block';
+                clientNameInput.disabled = false;
+                clientIpInput.disabled = false;
+                addClientButton.disabled = false;
             }
-        }
+        });
 
         // Handle file selection display for Startup Package (single .zip file)
         setupSingleFileUploadDisplay(
@@ -194,6 +187,36 @@
             "startup_package_files_list"
         );
     });
+
+    function addClientEntry() {
+        const clientNameInput = document.getElementById('client-name');
+        const clientIpInput = document.getElementById('client-ip');
+        const clientList = document.getElementById('client-list');
+
+        const name = clientNameInput.value.trim();
+        const ip = clientIpInput.value.trim();
+
+        if (name && ip) {
+            const li = document.createElement('li');
+            li.className = 'flex justify-between items-center p-2';
+            li.innerHTML = `<span>${name} - ${ip}</span><button type="button" class="text-red-500">Remove</button>`;
+            
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = 'clients';
+            hiddenInput.value = JSON.stringify({ name, ip });
+            li.appendChild(hiddenInput);
+
+            clientList.appendChild(li);
+
+            li.querySelector('button').addEventListener('click', () => {
+                li.remove();
+            });
+
+            clientNameInput.value = '';
+            clientIpInput.value = '';
+        }
+    }
 
     function setupSingleFileUploadDisplay(inputId, containerId, listId) {
         const fileInput = document.getElementById(inputId);

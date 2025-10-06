@@ -14,14 +14,10 @@ class ProjectForm(forms.ModelForm):
     class Meta:
         model = Project
         fields = [
-            'title', 'creation_date', 'description',
+            'title', 'description',
             'training_code', 'data_validation_script', 'data_visualization_script',
             'results_visualization_script'
         ]
-        # Note: 'members' field is removed from here
-        widgets = {
-            'creation_date': forms.DateInput(attrs={'type': 'date'}),
-        }
     
     def __init__(self, *args, **kwargs):
         instance = kwargs.get('instance', None)

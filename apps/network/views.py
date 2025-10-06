@@ -141,7 +141,6 @@ def download_startup_kits(request, network_id):
     response['Content-Disposition'] = f'attachment; filename="{swarm_network.name}_startup_kits.zip"'
     return response
 
-
 @login_required(login_url='/users/signin/')
 def start_swarm_network(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)

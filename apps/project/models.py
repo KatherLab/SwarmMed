@@ -35,7 +35,7 @@ class Project(models.Model):
     identifier = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_projects')
     members = models.ManyToManyField(User, related_name='member_projects', blank=True)
-    creation_date = models.DateField()
+    creation_date = models.DateField(auto_now_add=True)
     description = models.TextField(blank=True)
     
     # File fields

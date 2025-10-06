@@ -76,14 +76,7 @@
             >{{ form.member_identifiers.value|default:'' }}</textarea>
           </div>
 
-          <!-- Creation Date -->
-          <div>
-            <label for="id_creation_date" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Creation Date</label>
-            <input type="date" id="id_creation_date" name="creation_date" class="shadow-sm bg-gray-50 border {% if form.creation_date.errors %}border-red-500{% else %}border-gray-300{% endif %} text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" required {% if form.creation_date.value %}value="{{ form.creation_date.value|date:'Y-m-d' }}"{% endif %} />
-            {% if form.creation_date.errors %}
-            <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.creation_date.errors.0 }}</p>
-            {% endif %}
-          </div>
+
           
           <!-- Description -->
           <div>
