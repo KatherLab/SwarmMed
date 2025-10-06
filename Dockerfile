@@ -1,4 +1,4 @@
-FROM python:3.11.5
+FROM python:3.10
 
 # set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -25,7 +25,7 @@ RUN set -uex; \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" \
      > /etc/apt/sources.list.d/nodesource.list; \
     apt-get update; \
-    apt-get install nodejs -y;
+    apt-get install -y nodejs npm;
 
 # Install Modules, Webpack and Tailwind set up
 RUN npm i

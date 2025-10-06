@@ -4,7 +4,6 @@ import socket
 
 def get_tailscale_ip():
     """Get the current machine's Tailscale IPv4 address."""
-    # Cache the IP for 5 minutes to avoid repeated subprocess calls
     cached_ip = cache.get('tailscale_ip')
     if cached_ip:
         return cached_ip
@@ -17,12 +16,13 @@ def get_tailscale_ip():
         ip = result.stdout.strip()
         cache.set('tailscale_ip', ip, 300)  # Cache for 5 minutes
         return ip
+    except PermissionError:
+        return "Permission Denied"
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "Not Available"
 
 def is_tailscale_connected():
     """Check if Tailscale is currently connected."""
-    # Cache the connection state for 30 seconds
     cached_state = cache.get('tailscale_connected')
     if cached_state is not None:
         return cached_state
@@ -33,13 +33,15 @@ def is_tailscale_connected():
                               text=True, 
                               check=True)
         
-        # Check if the output indicates we're connected
-        # Tailscale status returns exit code 0 and shows peer info when connected
         is_connected = bool(result.stdout.strip()) and 'peerapi' not in result.stdout.lower()
         
-        cache.set('tailscale_connected', "connected" if is_connected else "disconnected", 30)  # Cache for 30 seconds
-        return "connected" if is_connected else "disconnected"
+        status = "connected" if is_connected else "disconnected"
+        cache.set('tailscale_connected', status, 30)
+        return status
 
+    except PermissionError:
+        cache.set('tailscale_connected', "Permission Denied", 10)
+        return "Permission Denied"
     except (subprocess.CalledProcessError, FileNotFoundError):
-        cache.set('tailscale_connected', False, 10)
+        cache.set('tailscale_connected', "disconnected", 10)
         return "disconnected"

@@ -66,3 +66,9 @@ npm run build
 npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
 npx webpack --watch
 ```
+### Troubleshooting
+#### No Tailscale Connection
+```bash
+tailscale set --accept-dns=false
+systemctl restart tailscaled
+```
