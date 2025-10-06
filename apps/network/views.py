@@ -79,8 +79,16 @@ def new_network(request):
 
         elif creation_method == 'upload':
             startup_package = request.FILES.get('startup_package')
-            # TODO: Handle file upload
-            pass
+            if startup_package:
+                #! adapt in the future
+                provision_dir = os.path.join('workspaces', str(project.identifier), str(swarm_network.identifier))
+                os.makedirs(provision_dir, exist_ok=True)
+
+                with zipfile.ZipFile(startup_package, 'r') as zip_ref:
+                    zip_ref.extractall(provision_dir)
+
+                swarm_network.status = 'PROVISIONED'
+                swarm_network.save()
 
         return redirect('network_detail', network_id=swarm_network.identifier)
 
