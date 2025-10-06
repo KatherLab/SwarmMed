@@ -123,19 +123,18 @@ def download_startup_kits(request, network_id):
             if item.is_dir() and item.name != 'server' and 'admin' not in item.name:
                 client_dir_path = item.path
                 
-                # Walk through all files in the client directory
-                for root, dirs, files in os.walk(client_dir_path):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        
-                        # Create archive name with the client directory as the top-level folder
-                        # This preserves the directory structure inside the zip
-                        arcname = os.path.join(item.name, os.path.relpath(file_path, client_dir_path))
-                        
-                        # Add file to zip with the directory structure
-                        zf.write(file_path, arcname)
-    
-    # Seek to beginning before reading
+                client_zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(client_zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as client_zf:
+                    for root, _, files in os.walk(client_dir_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, client_dir_path)
+                            client_zf.write(file_path, arcname)
+                
+                zip_data = client_zip_buffer.getvalue()
+                if zip_data:
+                    zf.writestr(f"{item.name}.zip", zip_data)
+
     zip_buffer.seek(0)
     
     response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
