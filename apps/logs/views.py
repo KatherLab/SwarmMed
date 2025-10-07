@@ -2,6 +2,7 @@ from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 from datetime import timedelta
+from apps.users.decorators import developer_required
 
 # Import the get_user_project function from your project app
 try:
@@ -23,6 +24,7 @@ def get_user_project(request):
     except UserCurrentProject.DoesNotExist:
         return None, False
 
+@developer_required
 @login_required(login_url='/users/signin/')
 def logs_dashboard(request):
     """Main logs dashboard"""

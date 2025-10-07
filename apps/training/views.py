@@ -4,7 +4,7 @@ import os
 import json
 import subprocess
 import logging
-from apps.network.models import SwarmNetwork
+from apps.network.models import SwarmNetwork, UserCurrentNetwork
 from .models import TrainingJob
 from django.shortcuts import render
 
@@ -20,7 +20,7 @@ def start_training(request, network_id):
 
     if not project.training_code:
         logger.warning(f"Attempted to start training for project {project.identifier} without training code.")
-        return redirect('network_detail', network_id=network.identifier)
+        return redirect('network')
 
     # 1. Define paths
     job_dir = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
@@ -72,11 +72,17 @@ def start_training(request, network_id):
             flare_job_id="exception"
         )
 
-    return redirect('network_detail', network_id=network.identifier)
+    return redirect('network')
 
 @login_required(login_url='/users/signin/')
 def training(request):
-  context = {
-    'segment': 'training',
-  }
-  return render(request, "apps/training.html", context)
+    try:
+        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+    except UserCurrentNetwork.DoesNotExist:
+        current_network = None
+
+    context = {
+        'segment': 'training',
+        'current_network': current_network,
+    }
+    return render(request, "apps/training.html", context)

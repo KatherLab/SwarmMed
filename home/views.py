@@ -40,7 +40,7 @@ def index(request):
         current_project = current_project_relation.project
     except UserCurrentProject.DoesNotExist:
         # If no current project set, use the most recent project
-        current_project = user_projects.order_by('-creation_date').first()
+        current_project = user_projects.order_by('-created_at').first()
     
     # Calculate project statistics
     total_projects = user_projects.count()
@@ -104,7 +104,7 @@ def index(request):
         if user_current_network.network and user_current_network.network.project in user_projects:
             current_network_obj = user_current_network.network
     except UserCurrentNetwork.DoesNotExist:
-        current_network_obj = SwarmNetwork.objects.filter(project__in=user_projects).order_by('-creation_date').first()
+        current_network_obj = SwarmNetwork.objects.filter(project__in=user_projects).order_by('-created_at').first()
 
     if current_network_obj:
         network_partners = SwarmParticipant.objects.filter(network=current_network_obj).count()

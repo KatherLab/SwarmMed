@@ -62,11 +62,10 @@
     </svg>
     Projects
   </div>
-  <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ projects|length }}</p>
+  <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ total_projects }}</p>
 </div>
 
 <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
-  <!-- Add logic for counting finished projects -->
   <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
     <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
       <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.032 12 1.984 1.984 4.96-4.96m4.55 5.272.893-.893a1.984 1.984 0 0 0 0-2.806l-.893-.893a1.984 1.984 0 0 1-.581-1.403V7.04a1.984 1.984 0 0 0-1.984-1.984h-1.262a1.983 1.983 0 0 1-1.403-.581l-.893-.893a1.984 1.984 0 0 0-2.806 0l-.893.893a1.984 1.984 0 0 1-1.403.581H7.04A1.984 1.984 0 0 0 5.055 7.04v1.262c0 .527-.209 1.031-.581 1.403l-.893.893a1.984 1.984 0 0 0 0 2.806l.893.893c.372.372.581.876.581 1.403v1.262a1.984 1.984 0 0 0 1.984 1.984h1.262c.527 0 1.031.209 1.403.581l.893.893a1.984 1.984 0 0 0 2.806 0l.893-.893a1.985 1.985 0 0 1 1.403-.581h1.262a1.984 1.984 0 0 0 1.984-1.984V15.7c0-.527.209-1.031.581-1.403Z"/>
@@ -84,7 +83,7 @@
 
         Projects to do
       </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="connectionSpeed">3</p>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ projects_to_do_count }}</p>
     </div>
   </div>
 
@@ -200,6 +199,10 @@
                     </th>
                     <th scope="col"
                       class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
+                      Status
+                    </th>
+                    <th scope="col"
+                      class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
                      Creation date
                     </th>
                     <th scope="col"
@@ -226,6 +229,14 @@
     <tr {% if forloop.counter|divisibleby:2 %}class="bg-gray-50 dark:bg-gray-700"{% endif %}>
       <td class="p-4 text-sm font-semibold text-gray-900 whitespace-nowrap dark:text-white">
         {{ project.title }}
+      </td>
+      <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
+        <span class="px-2 py-1 text-xs font-medium rounded-full 
+          {% if project.status == 'FINISHED' %} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300
+          {% else %} bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300
+          {% endif %}">
+          {{ project.get_status_display }}
+        </span>
       </td>
       <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
         {{ project.creation_date }}
@@ -259,6 +270,13 @@
           </svg>
           Edit
         </a>
+        {% if request.user == project.author and project.status != 'FINISHED' %}
+        <a href="{% url 'project_finish' project.id %}" 
+          class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-blue-700 bg-blue-100 rounded-lg dark:text-blue-300 border border-blue-100 hover:border-blue-700 dark:border-gray-700 dark:hover:border-blue-300 dark:bg-gray-700">
+          <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+          Finish
+        </a>
+        {% endif %}
          {% if request.user == project.author %}
         <a href="{% url 'project_delete' project.id %}" onclick="return confirm('Are you sure you want to delete this project?');"
           class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700">

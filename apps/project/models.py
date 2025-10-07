@@ -31,12 +31,17 @@ class Project(models.Model):
     """
     Project model to store information about projects including code files.
     """
+    STATUS_CHOICES = [
+        ('IN_PROGRESS', 'In Progress'),
+        ('FINISHED', 'Finished'),
+    ]
     title = models.CharField(max_length=255)
     identifier = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_projects')
     members = models.ManyToManyField(User, related_name='member_projects', blank=True)
     creation_date = models.DateField(auto_now_add=True)
     description = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='IN_PROGRESS')
     
     # File fields
     training_code = models.FileField(upload_to=training_code_path, blank=True, null=True)

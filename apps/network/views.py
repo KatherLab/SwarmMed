@@ -12,6 +12,7 @@ import os
 import json
 import io
 import zipfile
+import yaml
 from django.http import HttpResponse
 
 @login_required(login_url='/users/signin/')
@@ -24,6 +25,20 @@ def network(request):
     except UserCurrentNetwork.DoesNotExist:
         current_network = None
 
+    #! adapt later to show more detail also for uloaded startup kits (may include project.yml in startupkit download)
+    participants_details = []
+    if current_network:
+        project_yml_path = os.path.join('workspaces', str(current_network.project.identifier), str(current_network.identifier), 'project.yml')
+        if os.path.exists(project_yml_path):
+            with open(project_yml_path, 'r') as f:
+                project_yml = yaml.safe_load(f)
+                for participant in project_yml.get('participants', []):
+                    participants_details.append({
+                        'name': participant.get('name'),
+                        'org': participant.get('org'),
+                        'ip': participant.get('ip'),
+                    })
+
     context = {
         'segment': 'network',
         'tailscale_status': is_tailscale_connected(),
@@ -31,6 +46,7 @@ def network(request):
         'hostname': get_hostname(),
         'swarm_networks': swarm_networks,
         'current_network': current_network,
+        'participants_details': participants_details,
     }
     return render(request, "apps/network/network.html", context)
 
@@ -90,23 +106,12 @@ def new_network(request):
                 swarm_network.status = 'PROVISIONED'
                 swarm_network.save()
 
-        return redirect('network_detail', network_id=swarm_network.identifier)
+        return redirect('network')
 
     context = {
         'segment': 'network',
     }
     return render(request, "apps/network/new_network.html", context)
-
-@login_required(login_url='/users/signin/')
-def network_detail(request, network_id):
-    swarm_network = SwarmNetwork.objects.get(identifier=network_id)
-    network_logs = LogEntry.objects.filter(swarm_network=swarm_network).order_by('-timestamp')[:100]
-    context = {
-        'segment': 'network',
-        'network': swarm_network,
-        'logs': network_logs,
-    }
-    return render(request, "apps/network/network_detail.html", context)
 
 @login_required(login_url='/users/signin/')
 def set_current_network(request, network_id):
@@ -182,7 +187,35 @@ def start_swarm_network(request, network_id):
     swarm_network.status = 'RUNNING'
     swarm_network.save()
 
-    return redirect('network_detail', network_id=swarm_network.identifier)
+    return redirect('network')
+
+#! may adapt in the future
+@login_required(login_url='/users/signin/')
+def stop_swarm_network(request, network_id):
+    swarm_network = SwarmNetwork.objects.get(identifier=network_id)
+    
+    # Stop Overseer
+    execute_and_log_in_container.delay(
+        'overseer', 
+        'docker stop overseer', 
+        str(swarm_network.identifier), 
+        str(swarm_network.project.identifier), 
+        request.user.id
+    )
+
+    # Stop Client
+    execute_and_log_in_container.delay(
+        'fl-client', 
+        'docker stop fl-client', 
+        str(swarm_network.identifier), 
+        str(swarm_network.project.identifier), 
+        request.user.id
+    )
+
+    swarm_network.status = 'STOPPED'
+    swarm_network.save()
+
+    return redirect('network')
 
 @require_POST
 @login_required(login_url='/users/signin/')

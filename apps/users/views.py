@@ -4,7 +4,7 @@ from django.contrib.auth.views import LoginView, PasswordResetView, PasswordChan
 from django.views.generic import CreateView
 
 from apps.users.models import Profile
-from apps.users.forms import SigninForm, SignupForm, UserPasswordChangeForm, UserSetPasswordForm, UserPasswordResetForm, ProfileForm
+from apps.users.forms import SigninForm, SignupForm, UserPasswordChangeForm, UserSetPasswordForm, UserPasswordResetForm, ProfileForm, UserUpdateForm
 from django.contrib.auth import logout
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
@@ -13,6 +13,7 @@ from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from apps.users.utils import user_filter
+from .decorators import admin_required
 
 # Create your views here.
 
@@ -40,7 +41,6 @@ class UserPasswordResetView(PasswordResetView):
 class UserPasswrodResetConfirmView(PasswordResetConfirmView):
     template_name = 'authentication/reset-password.html'
     form_class = UserSetPasswordForm
-
 
 def signout_view(request):
     logout(request)
@@ -76,7 +76,7 @@ def change_password(request):
     return redirect(request.META.get('HTTP_REFERER'))
 
 
-
+@admin_required
 def user_list(request):
     filters = user_filter(request)
     user_list = User.objects.filter(**filters)
@@ -89,7 +89,10 @@ def user_list(request):
     if request.method == 'POST':
         form = SignupForm(request.POST)
         if form.is_valid():
-            return post_request_handling(request, form)
+            user = form.save()
+            profile = Profile(user=user, role=form.cleaned_data['role'])
+            profile.save()
+            return redirect(request.META.get('HTTP_REFERER'))
 
     context = {
         'segment': 'users',
@@ -115,11 +118,11 @@ def delete_user(request, id):
 def update_user(request, id):
     user = User.objects.get(id=id)
     if request.method == 'POST':
-        user.username = request.POST.get('username')
-        user.first_name = request.POST.get('first_name')
-        user.last_name = request.POST.get('last_name')
-        user.email = request.POST.get('email')
-        user.save()
+        form = UserUpdateForm(request.POST, instance=user)
+        if form.is_valid():
+            user = form.save()
+            user.profile.role = form.cleaned_data['role']
+            user.profile.save()
     return redirect(request.META.get('HTTP_REFERER'))
 
 
