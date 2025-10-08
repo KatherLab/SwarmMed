@@ -7,6 +7,7 @@ from django.db import models
 from django.core.files.storage import default_storage
 from django.conf import settings
 from .models import Project, UserCurrentProject
+from apps.network.models import UserCurrentNetwork
 from .forms import ProjectForm
 from .utils import process_member_identifiers, handle_training_code_upload
 from apps.logs import logger
@@ -146,6 +147,9 @@ def set_current_project(request, pk):
         user=request.user,
         defaults={'project': project}
     )
+    
+    # Unset the current network
+    UserCurrentNetwork.objects.filter(user=request.user).delete()
     
     return redirect('project_list')
 

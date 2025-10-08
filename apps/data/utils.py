@@ -227,3 +227,21 @@ def format_size(size_bytes):
         return f"{size:.1f} {units[unit_index]}"
     else:
         return f"{size} {units[unit_index]}"
+
+def get_column_prefixes(path):
+    """
+    Given a path like 'foo/bar/baz/', return ['','foo/','foo/bar/','foo/bar/baz/']
+    
+    Args:
+        path (str): Path string
+        
+    Returns:
+        list: List of path prefixes
+    """
+    if not path:
+        return [""]
+    parts = path.rstrip('/').split('/')
+    prefixes = [""]
+    for i in range(len(parts)):
+        prefixes.append('/'.join(parts[:i+1]) + '/')
+    return prefixes

@@ -5,27 +5,7 @@ import os
 import shutil
 from django.conf import settings
 from django.core.files.storage import default_storage
-
-# Helper functions for file paths
-def get_upload_path(instance, filename, subfolder):
-    """Generic function to get upload path based on project UUID and subfolder"""
-    return os.path.join(str(instance.identifier), subfolder, filename)
-
-def training_code_path(instance, filename):
-    """Path for training code files"""
-    return get_upload_path(instance, filename, 'code/training')
-
-def data_validation_path(instance, filename):
-    """Path for data validation script"""
-    return get_upload_path(instance, filename, 'code/data_validation')
-
-def data_visualization_path(instance, filename):
-    """Path for data visualization script"""
-    return get_upload_path(instance, filename, 'code/data_visualization')
-
-def results_visualization_path(instance, filename):
-    """Path for results visualization script"""
-    return get_upload_path(instance, filename, 'code/results_visualization')
+from .utils import training_code_path, data_validation_path, data_visualization_path, results_visualization_path
 
 class Project(models.Model):
     """

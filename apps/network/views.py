@@ -1,17 +1,13 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
-from .utils import get_tailscale_ip, is_tailscale_connected, get_hostname
+from .utils import get_tailscale_ip, is_tailscale_connected, get_hostname, create_startup_kits_zip, start_network_containers, stop_network_containers
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from apps.project.models import Project, UserCurrentProject
 from .provision import generate_flare_startup_kit
-from .tasks import execute_and_log_in_container
 from apps.logs.models import LogEntry
-import docker
 import os
 import json
-import io
-import zipfile
 import yaml
 from django.http import HttpResponse
 
@@ -116,40 +112,17 @@ def new_network(request):
 @login_required(login_url='/users/signin/')
 def set_current_network(request, network_id):
     network = SwarmNetwork.objects.get(identifier=network_id)
-    current_network, created = UserCurrentNetwork.objects.get_or_create(user=request.user)
-    current_network.network = network
-    current_network.save()
+    current_project_relation = UserCurrentProject.objects.get(user=request.user)
+    if network.project == current_project_relation.project:
+        current_network, created = UserCurrentNetwork.objects.get_or_create(user=request.user)
+        current_network.network = network
+        current_network.save()
     return redirect('network')
 
 @login_required(login_url='/users/signin/')
 def download_startup_kits(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)
-    project_name = swarm_network.project.title.replace(' ', '_')
-    base_prod_path = os.path.join('/app', 'workspaces', str(swarm_network.project.identifier), 
-                                   str(swarm_network.identifier), 'workspace', project_name, 'prod_00')
-    
-    zip_buffer = io.BytesIO()
-    
-    with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-        # Iterate through directories
-        for item in os.scandir(base_prod_path):
-            if item.is_dir() and item.name != 'server' and 'admin' not in item.name:
-                client_dir_path = item.path
-                
-                client_zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(client_zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as client_zf:
-                    for root, _, files in os.walk(client_dir_path):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, client_dir_path)
-                            client_zf.write(file_path, arcname)
-                
-                zip_data = client_zip_buffer.getvalue()
-                if zip_data:
-                    zf.writestr(f"{item.name}.zip", zip_data)
-
-    zip_buffer.seek(0)
-    
+    zip_buffer = create_startup_kits_zip(swarm_network)
     response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
     response['Content-Disposition'] = f'attachment; filename="{swarm_network.name}_startup_kits.zip"'
     return response
@@ -157,64 +130,17 @@ def download_startup_kits(request, network_id):
 @login_required(login_url='/users/signin/')
 def start_swarm_network(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)
-
-    project_name = swarm_network.project.title.replace(' ', '_')
-    base_prod_path = os.path.join('workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier), 'workspace', project_name, 'prod_00')
-
-    overseer_kit_path = os.path.join(base_prod_path, 'server', 'startup')
-    client_kit_path = os.path.join(base_prod_path, 'fl-client', 'startup')
-
-    # Start Overseer
-    overseer_command = f"/bin/bash -c 'cd /app/{overseer_kit_path} && ./start.sh'"
-    execute_and_log_in_container.delay(
-        'overseer', 
-        overseer_command, 
-        str(swarm_network.identifier), 
-        str(swarm_network.project.identifier), 
-        request.user.id
-    )
-
-    # Start Client
-    client_command = f"/bin/bash -c 'cd /app/{client_kit_path} && ./start.sh'"
-    execute_and_log_in_container.delay(
-        'fl-client', 
-        client_command, 
-        str(swarm_network.identifier), 
-        str(swarm_network.project.identifier), 
-        request.user.id
-    )
-
+    start_network_containers(swarm_network, request.user.id)
     swarm_network.status = 'RUNNING'
     swarm_network.save()
-
     return redirect('network')
 
-#! may adapt in the future
 @login_required(login_url='/users/signin/')
 def stop_swarm_network(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)
-    
-    # Stop Overseer
-    execute_and_log_in_container.delay(
-        'overseer', 
-        'docker stop overseer', 
-        str(swarm_network.identifier), 
-        str(swarm_network.project.identifier), 
-        request.user.id
-    )
-
-    # Stop Client
-    execute_and_log_in_container.delay(
-        'fl-client', 
-        'docker stop fl-client', 
-        str(swarm_network.identifier), 
-        str(swarm_network.project.identifier), 
-        request.user.id
-    )
-
+    stop_network_containers(swarm_network, request.user.id)
     swarm_network.status = 'STOPPED'
     swarm_network.save()
-
     return redirect('network')
 
 @require_POST
