@@ -73,6 +73,69 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         if 'role' in p:
             participants_yaml += f"        role: {p['role']}\n"
 
+    compose_yaml = """
+# NOTE: This compose file uses named volumes to avoid issues with Docker for Mac file sharing.
+# This means that the workspace data is not directly accessible from the host.
+services:
+  __overseer__:
+    build: ./nvflare
+    image: ${IMAGE_NAME}
+    volumes:
+      - workspace_volume:/workspace
+    command: ["${WORKSPACE}/startup/start.sh"]
+    ports:
+      - "8443:8443"
+
+  __flserver__:
+    image: ${IMAGE_NAME}
+    ports:
+      - "8002:8002"
+      - "8003:8003"
+    volumes:
+      - workspace_volume:/workspace
+      - nvflare_svc_persist:/tmp/nvflare/
+    command: ["${PYTHON_EXECUTABLE}",
+          "-u",
+          "-m",
+          "nvflare.private.fed.app.server.server_train",
+          "-m",
+          "${WORKSPACE}",
+          "-s",
+          "fed_server.json",
+          "--set",
+          "secure_train=true",
+          "config_folder=config",
+          "org=__org_name__",
+        ]
+
+  __flclient__:
+    image: ${IMAGE_NAME}
+    volumes:
+      - workspace_volume:/workspace
+    command: ["${PYTHON_EXECUTABLE}",
+          "-u",
+          "-m",
+          "nvflare.private.fed.app.client.client_train",
+          "-m",
+          "${WORKSPACE}",
+          "-s",
+          "fed_client.json",
+          "--set",
+          "secure_train=true",
+          "uid=__flclient__",
+          "org=__org_name__",
+          "config_folder=config",
+        ]
+
+volumes:
+  nvflare_svc_persist:
+  workspace_volume:
+"""
+    master_template_content = f"compose_yaml: |\n{textwrap.indent(compose_yaml, '  ')}"
+    master_template_path = os.path.join(provision_dir, 'master_template.yml')
+    with open(master_template_path, 'w') as f:
+        f.write(master_template_content)
+
     project_yml_content = textwrap.dedent(f"""
     api_version: 3
     name: {network.project.title.replace(' ', '_')}
@@ -97,9 +160,15 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     with open(project_yml_path, 'w') as f:
         f.write(project_yml_content)
 
-    # Copy master template
-    shutil.copy(os.path.join('apps', 'network', 'master_template.yml'), os.path.join(provision_dir, 'master_template.yml'))
-    
+    print("--- project.yml content ---")
+    print(project_yml_content)
+    print("--------------------------")
+
+    with open(master_template_path, 'r') as f:
+        print("--- master_template.yml content ---")
+        print(f.read())
+        print("---------------------------------")
+
     try:
         print(f"Starting provisioning for network {network_id} in {provision_dir}")
         command = [

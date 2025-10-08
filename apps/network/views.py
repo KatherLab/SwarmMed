@@ -137,23 +137,36 @@ def start_swarm_network(request, network_id):
     project_name = swarm_network.project.title.replace(' ', '_')
     provision_dir = os.path.join('workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
     compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
-    compose_file = 'compose.yaml'
+    compose_file_path = os.path.join(compose_dir, 'compose.yaml')
 
-    logger.info(f"Looking for compose file at: {os.path.join(compose_dir, compose_file)}")
-    if os.path.exists(os.path.join(compose_dir, compose_file)):
+    logger.info(f"Looking for compose file at: {compose_file_path}")
+    if os.path.exists(compose_file_path):
+        host_project_path = os.getenv('HOST_PROJECT_PATH')
+        if host_project_path:
+            with open(compose_file_path, 'r') as f:
+                compose_content = f.read()
+
+            compose_content = compose_content.replace('./fl-client', os.path.join(host_project_path, compose_dir, 'fl-client'))
+            compose_content = compose_content.replace('./server', os.path.join(host_project_path, compose_dir, 'server'))
+
+            with open(compose_file_path, 'w') as f:
+                f.write(compose_content)
+            
+            logger.info("Modified compose file to use absolute host paths.")
+
         logger.info("Compose file found. Running docker-compose build")
-        build_result = subprocess.run(['docker-compose', '-f', compose_file, 'build'], cwd=compose_dir, capture_output=True, text=True)
+        build_result = subprocess.run(['docker-compose', '-f', 'compose.yaml', 'build'], cwd=compose_dir, capture_output=True, text=True)
         logger.info(f"docker-compose build stdout: {build_result.stdout}")
         logger.error(f"docker-compose build stderr: {build_result.stderr}")
 
         logger.info("Running docker-compose up -d")
-        up_result = subprocess.run(['docker-compose', '-f', compose_file, 'up', '-d'], cwd=compose_dir, capture_output=True, text=True)
+        up_result = subprocess.run(['docker-compose', '-f', 'compose.yaml', 'up', '-d'], cwd=compose_dir, capture_output=True, text=True)
         logger.info(f"docker-compose up stdout: {up_result.stdout}")
         logger.error(f"docker-compose up stderr: {up_result.stderr}")
         swarm_network.status = 'RUNNING'
         swarm_network.save()
     else:
-        logger.error(f"Compose file not found at: {os.path.join(compose_dir, compose_file)}")
+        logger.error(f"Compose file not found at: {compose_file_path}")
 
     return redirect('network')
 
@@ -163,10 +176,21 @@ def stop_swarm_network(request, network_id):
     project_name = swarm_network.project.title.replace(' ', '_')
     provision_dir = os.path.join('workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
     compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
-    compose_file = 'compose.yaml'
+    compose_file_path = os.path.join(compose_dir, 'compose.yaml')
 
-    if os.path.exists(os.path.join(compose_dir, compose_file)):
-        subprocess.run(['docker-compose', '-f', compose_file, 'down'], cwd=compose_dir)
+    if os.path.exists(compose_file_path):
+        host_project_path = os.getenv('HOST_PROJECT_PATH')
+        if host_project_path:
+            with open(compose_file_path, 'r') as f:
+                compose_content = f.read()
+
+            compose_content = compose_content.replace('./fl-client', os.path.join(host_project_path, compose_dir, 'fl-client'))
+            compose_content = compose_content.replace('./server', os.path.join(host_project_path, compose_dir, 'server'))
+
+            with open(compose_file_path, 'w') as f:
+                f.write(compose_content)
+
+        subprocess.run(['docker-compose', '-f', 'compose.yaml', 'down'], cwd=compose_dir)
         swarm_network.status = 'STOPPED'
         swarm_network.save()
 
