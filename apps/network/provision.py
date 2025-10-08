@@ -23,6 +23,11 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     os.makedirs(provision_dir)
 
     participants = []
+    participants.append({
+        'name': 'overseer',
+        'type': 'overseer',
+        'org': 'nvidia',
+    })
     if local_test:
         participants.append({
             'name': 'server',
@@ -160,15 +165,6 @@ volumes:
     with open(project_yml_path, 'w') as f:
         f.write(project_yml_content)
 
-    print("--- project.yml content ---")
-    print(project_yml_content)
-    print("--------------------------")
-
-    with open(master_template_path, 'r') as f:
-        print("--- master_template.yml content ---")
-        print(f.read())
-        print("---------------------------------")
-
     try:
         print(f"Starting provisioning for network {network_id} in {provision_dir}")
         command = [
@@ -188,6 +184,16 @@ volumes:
         print(f"Successfully provisioned startup kit in {provision_dir}")
         network.status = 'PROVISIONED'
         network.save()
+
+        # Print the content of fed_server.json for debugging
+        fed_server_json_path = os.path.join(provision_dir, 'workspace', network.project.title.replace(' ', '_'), 'prod_00', 'server', 'fed_server.json')
+        if os.path.exists(fed_server_json_path):
+            with open(fed_server_json_path, 'r') as f:
+                print("--- fed_server.json content ---")
+                print(f.read())
+                print("-----------------------------")
+        else:
+            print(f"!!! fed_server.json not found at {fed_server_json_path}")
 
     except subprocess.CalledProcessError as e:
         print(f"An exception occurred during provisioning: {e}")

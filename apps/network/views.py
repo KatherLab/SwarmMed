@@ -146,8 +146,10 @@ def start_swarm_network(request, network_id):
             with open(compose_file_path, 'r') as f:
                 compose_content = f.read()
 
+            compose_content = compose_content.replace('build: ./nvflare', f'build: {os.path.join(host_project_path, compose_dir, "nvflare")}')
             compose_content = compose_content.replace('./fl-client', os.path.join(host_project_path, compose_dir, 'fl-client'))
             compose_content = compose_content.replace('./server', os.path.join(host_project_path, compose_dir, 'server'))
+            compose_content = compose_content.replace('./overseer', os.path.join(host_project_path, compose_dir, 'overseer'))
 
             with open(compose_file_path, 'w') as f:
                 f.write(compose_content)
@@ -184,8 +186,10 @@ def stop_swarm_network(request, network_id):
             with open(compose_file_path, 'r') as f:
                 compose_content = f.read()
 
+            compose_content = compose_content.replace('build: ./nvflare', f'build: {os.path.join(host_project_path, compose_dir, "nvflare")}')
             compose_content = compose_content.replace('./fl-client', os.path.join(host_project_path, compose_dir, 'fl-client'))
             compose_content = compose_content.replace('./server', os.path.join(host_project_path, compose_dir, 'server'))
+            compose_content = compose_content.replace('./overseer', os.path.join(host_project_path, compose_dir, 'overseer'))
 
             with open(compose_file_path, 'w') as f:
                 f.write(compose_content)
