@@ -4,11 +4,41 @@ import os
 import json
 import subprocess
 import logging
+import shutil
+import boto3
+from botocore.exceptions import ClientError
+from django.conf import settings
 from apps.network.models import SwarmNetwork, UserCurrentNetwork
 from .models import TrainingJob
 from django.shortcuts import render
 
 logger = logging.getLogger(__name__)
+
+def get_s3_client():
+    """
+    Create and return an S3 client using settings credentials.
+    """
+    return boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+        endpoint_url=settings.AWS_S3_ENDPOINT_URL
+    )
+
+def download_s3_folder(bucket_name, s3_folder, local_dir):
+    """    Download the contents of a folder directory in S3.
+    """
+    s3 = get_s3_client()
+    paginator = s3.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=bucket_name, Prefix=s3_folder):
+        for obj in page.get('Contents', []):
+            target = os.path.join(local_dir, os.path.relpath(obj['Key'], s3_folder))
+            if not os.path.exists(os.path.dirname(target)):
+                os.makedirs(os.path.dirname(target))
+            if obj['Key'][-1] == '/':
+                continue
+            s3.download_file(bucket_name, obj['Key'], target)
 
 @login_required(login_url='/users/signin/')
 def start_training(request, network_id):
@@ -18,23 +48,22 @@ def start_training(request, network_id):
     network = SwarmNetwork.objects.get(identifier=network_id)
     project = network.project
 
-    if not project.training_code:
-        logger.warning(f"Attempted to start training for project {project.identifier} without training code.")
-        return redirect('network')
-
     # 1. Define paths
     job_dir = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
     app_custom_dir = os.path.join(job_dir, 'custom')
-    
+    source_code_prefix = f"{project.identifier}/code/training/"
+
     project_name = project.title.replace(' ', '_')
     admin_startup_kit = os.path.join('/app', 'workspaces', str(project.identifier), str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com', 'startup')
 
-    # 2. Create app structure and files
+    # 2. Create app structure and download files
     os.makedirs(app_custom_dir, exist_ok=True)
-
-    with open(os.path.join(app_custom_dir, 'train.py'), 'wb') as f:
-        for chunk in project.training_code.chunks():
-            f.write(chunk)
+    
+    try:
+        download_s3_folder(settings.AWS_STORAGE_BUCKET_NAME, source_code_prefix, app_custom_dir)
+    except ClientError as e:
+        logger.error(f"Failed to download training code from S3: {e}")
+        # Handle error appropriately
 
     # 3. Submit the job using subprocess from the app container itself
     try:
