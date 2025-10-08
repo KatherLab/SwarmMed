@@ -104,33 +104,6 @@ services:
     depends_on:
       - postgres
 
-  overseer:
-    container_name: overseer
-    build:
-      context: .
-      dockerfile: flare.Dockerfile
-    command: ["tail", "-f", "/dev/null"]
-    restart: "unless-stopped"
-    volumes:
-      - ./workspaces:/app/workspaces
-    networks:
-      - flare_network
-    ports:
-      - "8002:8002"
-      - "8003:8003"
-
-  fl-client:
-    container_name: fl-client
-    build:
-      context: .
-      dockerfile: flare.Dockerfile
-    command: ["tail", "-f", "/dev/null"]
-    restart: "unless-stopped"
-    volumes:
-      - ./workspaces:/app/workspaces
-    networks:
-      - flare_network
-
 networks:
   db_network:
     driver: bridge

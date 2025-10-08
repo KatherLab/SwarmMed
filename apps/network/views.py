@@ -1,7 +1,7 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
-from .utils import get_tailscale_ip, is_tailscale_connected, get_hostname, create_startup_kits_zip, start_network_containers, stop_network_containers
+from .utils import get_tailscale_ip, is_tailscale_connected, get_hostname, create_startup_kits_zip
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from apps.project.models import Project, UserCurrentProject
 from .provision import generate_flare_startup_kit
@@ -9,7 +9,11 @@ from apps.logs.models import LogEntry
 import os
 import json
 import yaml
+import subprocess
 from django.http import HttpResponse
+import logging
+
+logger = logging.getLogger(__name__)
 
 @login_required(login_url='/users/signin/')
 def network(request):
@@ -130,17 +134,42 @@ def download_startup_kits(request, network_id):
 @login_required(login_url='/users/signin/')
 def start_swarm_network(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)
-    start_network_containers(swarm_network, request.user.id)
-    swarm_network.status = 'RUNNING'
-    swarm_network.save()
+    project_name = swarm_network.project.title.replace(' ', '_')
+    provision_dir = os.path.join('workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
+    compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
+    compose_file = 'compose.yaml'
+
+    logger.info(f"Looking for compose file at: {os.path.join(compose_dir, compose_file)}")
+    if os.path.exists(os.path.join(compose_dir, compose_file)):
+        logger.info("Compose file found. Running docker-compose build")
+        build_result = subprocess.run(['docker-compose', '-f', compose_file, 'build'], cwd=compose_dir, capture_output=True, text=True)
+        logger.info(f"docker-compose build stdout: {build_result.stdout}")
+        logger.error(f"docker-compose build stderr: {build_result.stderr}")
+
+        logger.info("Running docker-compose up -d")
+        up_result = subprocess.run(['docker-compose', '-f', compose_file, 'up', '-d'], cwd=compose_dir, capture_output=True, text=True)
+        logger.info(f"docker-compose up stdout: {up_result.stdout}")
+        logger.error(f"docker-compose up stderr: {up_result.stderr}")
+        swarm_network.status = 'RUNNING'
+        swarm_network.save()
+    else:
+        logger.error(f"Compose file not found at: {os.path.join(compose_dir, compose_file)}")
+
     return redirect('network')
 
 @login_required(login_url='/users/signin/')
 def stop_swarm_network(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)
-    stop_network_containers(swarm_network, request.user.id)
-    swarm_network.status = 'STOPPED'
-    swarm_network.save()
+    project_name = swarm_network.project.title.replace(' ', '_')
+    provision_dir = os.path.join('workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
+    compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
+    compose_file = 'compose.yaml'
+
+    if os.path.exists(os.path.join(compose_dir, compose_file)):
+        subprocess.run(['docker-compose', '-f', compose_file, 'down'], cwd=compose_dir)
+        swarm_network.status = 'STOPPED'
+        swarm_network.save()
+
     return redirect('network')
 
 @require_POST

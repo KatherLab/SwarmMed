@@ -5,11 +5,14 @@ import json
 import subprocess
 import logging
 import shutil
+import boto3
+from botocore.exceptions import ClientError
 from django.conf import settings
 from apps.network.models import SwarmNetwork, UserCurrentNetwork
 from .models import TrainingJob
 from django.shortcuts import render
 from .utils import download_s3_folder
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +41,23 @@ def start_training(request, network_id):
         logger.error(f"Failed to download training code from S3: {e}")
         # Handle error appropriately
 
+    # Log files in admin_startup_kit
+    try:
+        logger.info(f"Files in {admin_startup_kit}: {os.listdir(admin_startup_kit)}")
+        with open(os.path.join(admin_startup_kit, 'fed_admin.json'), 'r') as f:
+            logger.info(f"fed_admin.json content: {f.read()}")
+    except Exception as e:
+        logger.error(f"Could not list files in {admin_startup_kit}: {e}")
+
     # 3. Submit the job using subprocess from the app container itself
     try:
+        # Add a delay to give the overseer time to start
+        time.sleep(10)
+        
         # The command needs to be run from the admin startup directory
         command = [
             './fl_admin.sh',
-            '-o', 'overseer:8003',
+            '-p', '.',
             'submit_job',
             os.path.join('/app', job_dir) # Use absolute path inside container
         ]
@@ -74,7 +88,7 @@ def start_training(request, network_id):
             flare_job_id="exception"
         )
 
-    return redirect('training')
+    return redirect('network')
 
 @login_required(login_url='/users/signin/')
 def training(request):

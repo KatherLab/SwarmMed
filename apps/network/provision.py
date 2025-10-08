@@ -85,6 +85,9 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
       - path: nvflare.lighter.impl.workspace.WorkspaceBuilder
         args:
           template_file: master_template.yml
+      - path: nvflare.lighter.impl.docker.DockerBuilder
+        args:
+          base_image: python:3.8
       - path: nvflare.lighter.impl.static_file.StaticFileBuilder
       - path: nvflare.lighter.impl.cert.CertBuilder
       - path: nvflare.lighter.impl.signature.SignatureBuilder
@@ -103,17 +106,26 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
             'nvflare',
             'provision',
             '-p',
-            'project.yml'
+            os.path.join(str(network.identifier), 'project.yml'),
+            '-w',
+            os.path.join(str(network.identifier), 'workspace')
         ]
         
-        print(f"Running provisioning command: {' '.join(command)} in {provision_dir}")
-        # Let the subprocess stream its output directly to the container logs
-        subprocess.run(command, cwd=provision_dir, check=True)
+        print(f"Running provisioning command: {' '.join(command)} in {project_dir}")
+        result = subprocess.run(command, cwd=project_dir, capture_output=True, text=True, check=True)
+        print(f"Provisioning stdout: {result.stdout}")
+        print(f"Provisioning stderr: {result.stderr}")
         
         print(f"Successfully provisioned startup kit in {provision_dir}")
         network.status = 'PROVISIONED'
         network.save()
 
+    except subprocess.CalledProcessError as e:
+        print(f"An exception occurred during provisioning: {e}")
+        print(f"Provisioning stdout: {e.stdout}")
+        print(f"Provisioning stderr: {e.stderr}")
+        network.status = 'ERROR'
+        network.save()
     except Exception as e:
         print(f"An exception occurred during provisioning: {e}")
         network.status = 'ERROR'

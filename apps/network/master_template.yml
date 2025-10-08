@@ -707,12 +707,14 @@ docker_adm_sh: |
   docker run --rm -it --name=fladmin -v $DIR/..:/workspace/ -w /workspace/ $DOCKER_IMAGE /bin/bash
 
 compose_yaml: |
+  # NOTE: This compose file uses named volumes to avoid issues with Docker for Mac file sharing.
+  # This means that the workspace data is not directly accessible from the host.
   services:
     __overseer__:
       build: ./nvflare
       image: ${IMAGE_NAME}
       volumes:
-        - .:/workspace
+        - workspace_volume:/workspace
       command: ["${WORKSPACE}/startup/start.sh"]
       ports:
         - "8443:8443"
@@ -723,7 +725,7 @@ compose_yaml: |
         - "8002:8002"
         - "8003:8003"
       volumes:
-        - .:/workspace
+        - workspace_volume:/workspace
         - nvflare_svc_persist:/tmp/nvflare/
       command: ["${PYTHON_EXECUTABLE}",
             "-u",
@@ -742,7 +744,7 @@ compose_yaml: |
     __flclient__:
       image: ${IMAGE_NAME}
       volumes:
-        - .:/workspace
+        - workspace_volume:/workspace
       command: ["${PYTHON_EXECUTABLE}",
             "-u",
             "-m",
@@ -760,6 +762,7 @@ compose_yaml: |
 
   volumes:
     nvflare_svc_persist:
+    workspace_volume:
 
 dockerfile: |
   RUN pip install -U pip
