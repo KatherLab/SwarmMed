@@ -45,6 +45,9 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         'name': 'overseer',
         'type': 'overseer',
         'org': 'nvidia',
+        'protocol': 'https',
+        'api_root': '/api/v1',
+        'port': 8443,
     })
     if local_test:
         participants.append({
@@ -95,6 +98,12 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
             participants_yaml += f"        listening_host: {p['listening_host']}\n"
         if 'role' in p:
             participants_yaml += f"        role: {p['role']}\n"
+        if 'port' in p:
+            participants_yaml += f"        port: {p['port']}\n"
+        if 'protocol' in p: 
+            participants_yaml += f"        protocol: {p['protocol']}\n" 
+        if 'api_root' in p: 
+            participants_yaml += f"        api_root: {p['api_root']}\n"
 
     project_yml_content = textwrap.dedent(f"""
     api_version: 3
@@ -112,6 +121,10 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         args:
           base_image: python:3.10-slim
       - path: nvflare.lighter.impl.static_file.StaticFileBuilder
+        args:
+            overseer_agent:
+                path: nvflare.ha.overseer_agent.HttpOverseerAgent
+                overseer_exists: true
       - path: nvflare.lighter.impl.cert.CertBuilder
       - path: nvflare.lighter.impl.signature.SignatureBuilder
     """).strip()
@@ -143,32 +156,7 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         network.status = 'PROVISIONED'
         network.save()
 
-        # Print the content of fed_server.json for debugging
-        try:
-            project_name = network.project.title.replace(' ', '_')
-            fed_server_json_path = os.path.join(provision_dir, 'workspace', project_name, 'prod_00', 'server', 'startup', 'fed_server.json')
-            if os.path.exists(fed_server_json_path):
-                with open(fed_server_json_path, 'r') as f:
-                    print("--- fed_server.json content ---")
-                    fs = json.load(f)
-                    
-                    # Find the server component and update its sp_end_point
-                    for component in fs.get('servers', []):
-                        if component.get('name') == 'server':
-                            component['sp_end_point'] = 'host.docker.internal:8002'
-                            print("Updated server sp_end_point to host.docker.internal:8002")
-                            break
-                    
-                    # Write the updated content back to the file
-                    with open(fed_server_json_path, 'w') as f_write:
-                        json.dump(fs, f_write, indent=2)
 
-                    print(json.dumps(fs, indent=2))
-                    print("-----------------------------")
-            else:
-                print(f"!!! fed_server.json not found at {fed_server_json_path}")
-        except Exception as e:
-            print(f"Could not print or patch fed_server.json content: {e}")
 
     except subprocess.CalledProcessError as e:
         print(f"An exception occurred during provisioning: {e}")
