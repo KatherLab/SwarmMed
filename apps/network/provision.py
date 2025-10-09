@@ -2,6 +2,8 @@ import os
 import shutil
 import subprocess
 import textwrap
+import json
+from pathlib import Path
 from .models import SwarmNetwork
 
 
@@ -21,6 +23,22 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     if os.path.exists(provision_dir):
         shutil.rmtree(provision_dir)
     os.makedirs(provision_dir)
+
+    # Copy master_template.yml to provision_dir
+    repo_template_path = Path(__file__).resolve().parent / 'master_template.yml'
+    target_template_path = Path(provision_dir) / 'master_template.yml'
+    if not repo_template_path.exists():
+        print(f"ERROR: master_template.yml not found at {repo_template_path}")
+        return
+    shutil.copyfile(str(repo_template_path), str(target_template_path))
+    print(f"Copied master_template.yml to {target_template_path}")
+
+    with open(target_template_path, "r") as tf:
+        print("--- master_template.yml (effective) ---")
+        print(tf.read())
+        print("--------------------------------------")
+    
+    abs_template_path = str(target_template_path.resolve())
 
     participants = []
     participants.append({
@@ -78,69 +96,6 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         if 'role' in p:
             participants_yaml += f"        role: {p['role']}\n"
 
-    compose_yaml = """
-# NOTE: This compose file uses named volumes to avoid issues with Docker for Mac file sharing.
-# This means that the workspace data is not directly accessible from the host.
-services:
-  __overseer__:
-    build: ./nvflare
-    image: ${IMAGE_NAME}
-    volumes:
-      - workspace_volume:/workspace
-    command: ["${WORKSPACE}/startup/start.sh"]
-    ports:
-      - "8443:8443"
-
-  __flserver__:
-    image: ${IMAGE_NAME}
-    ports:
-      - "8002:8002"
-      - "8003:8003"
-    volumes:
-      - workspace_volume:/workspace
-      - nvflare_svc_persist:/tmp/nvflare/
-    command: ["${PYTHON_EXECUTABLE}",
-          "-u",
-          "-m",
-          "nvflare.private.fed.app.server.server_train",
-          "-m",
-          "${WORKSPACE}",
-          "-s",
-          "fed_server.json",
-          "--set",
-          "secure_train=true",
-          "config_folder=config",
-          "org=__org_name__",
-        ]
-
-  __flclient__:
-    image: ${IMAGE_NAME}
-    volumes:
-      - workspace_volume:/workspace
-    command: ["${PYTHON_EXECUTABLE}",
-          "-u",
-          "-m",
-          "nvflare.private.fed.app.client.client_train",
-          "-m",
-          "${WORKSPACE}",
-          "-s",
-          "fed_client.json",
-          "--set",
-          "secure_train=true",
-          "uid=__flclient__",
-          "org=__org_name__",
-          "config_folder=config",
-        ]
-
-volumes:
-  nvflare_svc_persist:
-  workspace_volume:
-"""
-    master_template_content = f"compose_yaml: |\n{textwrap.indent(compose_yaml, '  ')}"
-    master_template_path = os.path.join(provision_dir, 'master_template.yml')
-    with open(master_template_path, 'w') as f:
-        f.write(master_template_content)
-
     project_yml_content = textwrap.dedent(f"""
     api_version: 3
     name: {network.project.title.replace(' ', '_')}
@@ -152,10 +107,10 @@ volumes:
     builders:
       - path: nvflare.lighter.impl.workspace.WorkspaceBuilder
         args:
-          template_file: master_template.yml
+          template_file: "{abs_template_path}"
       - path: nvflare.lighter.impl.docker.DockerBuilder
         args:
-          base_image: python:3.8
+          base_image: python:3.10-slim
       - path: nvflare.lighter.impl.static_file.StaticFileBuilder
       - path: nvflare.lighter.impl.cert.CertBuilder
       - path: nvflare.lighter.impl.signature.SignatureBuilder
@@ -166,18 +121,21 @@ volumes:
         f.write(project_yml_content)
 
     try:
+        print("nvflare version used for provisioning:")
+        subprocess.run(['python', '-c', 'import nvflare, sys; print(getattr(nvflare, "version", "unknown"), sys.executable)'], cwd=provision_dir)
+
         print(f"Starting provisioning for network {network_id} in {provision_dir}")
         command = [
             'nvflare',
             'provision',
             '-p',
-            os.path.join(str(network.identifier), 'project.yml'),
+            'project.yml',
             '-w',
-            os.path.join(str(network.identifier), 'workspace')
+            'workspace'
         ]
         
-        print(f"Running provisioning command: {' '.join(command)} in {project_dir}")
-        result = subprocess.run(command, cwd=project_dir, capture_output=True, text=True, check=True)
+        print(f"Running provisioning command: {' '.join(command)} in {provision_dir}")
+        result = subprocess.run(command, cwd=provision_dir, capture_output=True, text=True, check=True)
         print(f"Provisioning stdout: {result.stdout}")
         print(f"Provisioning stderr: {result.stderr}")
         
@@ -186,14 +144,31 @@ volumes:
         network.save()
 
         # Print the content of fed_server.json for debugging
-        fed_server_json_path = os.path.join(provision_dir, 'workspace', network.project.title.replace(' ', '_'), 'prod_00', 'server', 'fed_server.json')
-        if os.path.exists(fed_server_json_path):
-            with open(fed_server_json_path, 'r') as f:
-                print("--- fed_server.json content ---")
-                print(f.read())
-                print("-----------------------------")
-        else:
-            print(f"!!! fed_server.json not found at {fed_server_json_path}")
+        try:
+            project_name = network.project.title.replace(' ', '_')
+            fed_server_json_path = os.path.join(provision_dir, 'workspace', project_name, 'prod_00', 'server', 'startup', 'fed_server.json')
+            if os.path.exists(fed_server_json_path):
+                with open(fed_server_json_path, 'r') as f:
+                    print("--- fed_server.json content ---")
+                    fs = json.load(f)
+                    
+                    # Find the server component and update its sp_end_point
+                    for component in fs.get('servers', []):
+                        if component.get('name') == 'server':
+                            component['sp_end_point'] = 'host.docker.internal:8002'
+                            print("Updated server sp_end_point to host.docker.internal:8002")
+                            break
+                    
+                    # Write the updated content back to the file
+                    with open(fed_server_json_path, 'w') as f_write:
+                        json.dump(fs, f_write, indent=2)
+
+                    print(json.dumps(fs, indent=2))
+                    print("-----------------------------")
+            else:
+                print(f"!!! fed_server.json not found at {fed_server_json_path}")
+        except Exception as e:
+            print(f"Could not print or patch fed_server.json content: {e}")
 
     except subprocess.CalledProcessError as e:
         print(f"An exception occurred during provisioning: {e}")

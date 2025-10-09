@@ -110,6 +110,15 @@ fed_client: |
       "ssl_private_key": "client.key",
       "ssl_cert": "client.crt",
       "ssl_root_cert": "rootCA.pem"
+    },
+    "overseer_agent": {
+        "path": "nvflare.ha.overseer_agent.HttpOverseerAgent",
+        "args": {
+            "overseer_end_point": "https://overseer:8443",
+            "project": "{~~project_name~~}",
+            "name": "{~~client_name~~}",
+            "role": "client"
+        }
     }
   }
 
@@ -227,15 +236,25 @@ fed_server: |
         {
             "name": "spleen_segmentation",
             "service": {
-                "target": "localhost:8002"
+                "target": "0.0.0.0:8002"
             },
-            "admin_host": "localhost",
-            "admin_port": 5005,
+            "admin_host": "0.0.0.0",
+            "admin_port": 8003,
             "ssl_private_key": "server.key",
             "ssl_cert": "server.crt",
             "ssl_root_cert": "rootCA.pem"
         }
-    ] 
+    ],
+    "overseer_agent": {
+        "path": "nvflare.ha.overseer_agent.HttpOverseerAgent",
+        "args": {
+            "overseer_end_point": "https://overseer:8443",
+            "project": "{~~project_name~~}",
+            "name": "server",
+            "role": "server",
+            "sp_end_point": "server:8002"
+        }
+    }
   }
 
 fed_admin: |
@@ -706,7 +725,7 @@ docker_adm_sh: |
   echo "Starting docker with $DOCKER_IMAGE"
   docker run --rm -it --name=fladmin -v $DIR/..:/workspace/ -w /workspace/ $DOCKER_IMAGE /bin/bash
 
-compose_yaml: |
+  compose_yaml: |
   # NOTE: This compose file uses named volumes to avoid issues with Docker for Mac file sharing.
   # This means that the workspace data is not directly accessible from the host.
   services:
@@ -714,8 +733,8 @@ compose_yaml: |
       build: ./nvflare
       image: ${IMAGE_NAME}
       volumes:
-        - workspace_volume:/workspace
-      command: ["${WORKSPACE}/startup/start.sh"]
+        - ./overseer:/workspace
+      command: ["/workspace/startup/start.sh"]
       ports:
         - "8443:8443"
 
@@ -725,14 +744,21 @@ compose_yaml: |
         - "8002:8002"
         - "8003:8003"
       volumes:
-        - workspace_volume:/workspace
+        - ./server:/workspace
         - nvflare_svc_persist:/tmp/nvflare/
-      command: ["${PYTHON_EXECUTABLE}",
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: all
+                capabilities: [gpu]
+      command: ["python",
             "-u",
             "-m",
             "nvflare.private.fed.app.server.server_train",
             "-m",
-            "${WORKSPACE}",
+            "/workspace",
             "-s",
             "fed_server.json",
             "--set",
@@ -744,13 +770,20 @@ compose_yaml: |
     __flclient__:
       image: ${IMAGE_NAME}
       volumes:
-        - workspace_volume:/workspace
-      command: ["${PYTHON_EXECUTABLE}",
+        - ./fl-client:/workspace
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: all
+                capabilities: [gpu]
+      command: ["python",
             "-u",
             "-m",
             "nvflare.private.fed.app.client.client_train",
             "-m",
-            "${WORKSPACE}",
+            "/workspace",
             "-s",
             "fed_client.json",
             "--set",
@@ -762,21 +795,18 @@ compose_yaml: |
 
   volumes:
     nvflare_svc_persist:
-    workspace_volume:
-
 dockerfile: |
   RUN pip install -U pip
-  RUN pip install nvflare
+  RUN pip install "nvflare==2.6.1"
   COPY requirements.txt requirements.txt
   RUN pip install -r requirements.txt
-
 helm_chart_chart: |
   apiVersion: v2
   name: nvflare
   description: A Helm chart for NVFlare overseer and servers
   type: application
   version: 0.1.0
-  appVersion: "2.2.0"
+  appVersion: "2.6.1"
 
 helm_chart_service_overseer: |
   apiVersion: v1
@@ -835,7 +865,7 @@ helm_chart_deployment_overseer: |
               type: Directory
         containers:
           - name: overseer
-            image: nvflare-min:2.2.0
+            image: nvflare-min:2.6.1
             imagePullPolicy: IfNotPresent
             volumeMounts:
               - name: workspace
@@ -873,7 +903,7 @@ helm_chart_deployment_server: |
               type: Directory
         containers:
           - name: server1
-            image: nvflare-min:2.2.0
+            image: nvflare-min:2.6.1
             imagePullPolicy: IfNotPresent
             volumeMounts:
               - name: workspace

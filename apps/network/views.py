@@ -156,15 +156,15 @@ def start_swarm_network(request, network_id):
             
             logger.info("Modified compose file to use absolute host paths.")
 
-        logger.info("Compose file found. Running docker-compose build")
-        build_result = subprocess.run(['docker-compose', '-f', 'compose.yaml', 'build'], cwd=compose_dir, capture_output=True, text=True)
-        logger.info(f"docker-compose build stdout: {build_result.stdout}")
-        logger.error(f"docker-compose build stderr: {build_result.stderr}")
+        logger.info("Compose file found. Running docker compose build")
+        build_result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'build'], cwd=compose_dir, capture_output=True, text=True)
+        logger.info(f"docker compose build stdout: {build_result.stdout}")
+        logger.error(f"docker compose build stderr: {build_result.stderr}")
 
-        logger.info("Running docker-compose up -d")
-        up_result = subprocess.run(['docker-compose', '-f', 'compose.yaml', 'up', '-d'], cwd=compose_dir, capture_output=True, text=True)
-        logger.info(f"docker-compose up stdout: {up_result.stdout}")
-        logger.error(f"docker-compose up stderr: {up_result.stderr}")
+        logger.info("Running docker compose up -d")
+        up_result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'up', '-d'], cwd=compose_dir, capture_output=True, text=True)
+        logger.info(f"docker compose up stdout: {up_result.stdout}")
+        logger.error(f"docker compose up stderr: {up_result.stderr}")
         swarm_network.status = 'RUNNING'
         swarm_network.save()
     else:
