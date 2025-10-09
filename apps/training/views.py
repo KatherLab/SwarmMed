@@ -52,6 +52,18 @@ def start_training(request, network_id):
     os.makedirs(app_client_cfg_dir, exist_ok=True)
     os.makedirs(app_client_custom_dir, exist_ok=True)
 
+    with open(os.path.join(app_client_custom_dir, 'min_executor.py'), 'w') as f:
+        f.write(
+            "from nvflare.apis.executor import Executor\n"
+            "from nvflare.apis.dxo import DXO, DataKind\n\n"
+            "class MinExecutor(Executor):\n"
+            "    def init(self):\n"
+            "        super().init()\n\n"
+            "    def execute(self, task_name, shareable, fl_ctx, abort_signal):\n"
+            "        dxo = DXO(data_kind=DataKind.WEIGHTS, data={})\n"
+            "        return dxo.to_shareable()\n"
+        )
+
     # Move downloaded code under app_client/custom (so BYOC code is inside the app)
     downloaded_custom_dir = os.path.join(job_root, 'custom')
     if os.path.isdir(downloaded_custom_dir):
@@ -100,7 +112,7 @@ def start_training(request, network_id):
         "executors": [
             {
                 "id": "executor",
-                "path": "nvflare.app_common.executors.simple_json.SimpleJsonExecutor",
+                "path": "custom.min_executor.MinExecutor",
                 "args": {},
                 "tasks": ["train"]
             }
