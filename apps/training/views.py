@@ -35,12 +35,82 @@ def start_training(request, network_id):
 
     # 2. Create app structure and download files
     os.makedirs(app_custom_dir, exist_ok=True)
-    
     try:
         download_s3_folder(settings.AWS_STORAGE_BUCKET_NAME, source_code_prefix, app_custom_dir)
     except ClientError as e:
         logger.error(f"Failed to download training code from S3: {e}")
-        # Handle error appropriately
+
+    # Build proper NVFLARE job structure:
+    job_root = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
+    app_server_dir = os.path.join(job_root, 'app_server')
+    app_client_dir = os.path.join(job_root, 'app_client')
+    app_server_cfg_dir = os.path.join(app_server_dir, 'config')
+    app_client_cfg_dir = os.path.join(app_client_dir, 'config')
+    app_client_custom_dir = os.path.join(app_client_dir, 'custom')
+
+    os.makedirs(app_server_cfg_dir, exist_ok=True)
+    os.makedirs(app_client_cfg_dir, exist_ok=True)
+    os.makedirs(app_client_custom_dir, exist_ok=True)
+
+    # Move downloaded code under app_client/custom (so BYOC code is inside the app)
+    downloaded_custom_dir = os.path.join(job_root, 'custom')
+    if os.path.isdir(downloaded_custom_dir):
+        for root, _, files in os.walk(downloaded_custom_dir):
+            for f in files:
+                src = os.path.join(root, f)
+                rel = os.path.relpath(src, downloaded_custom_dir)
+                dst = os.path.join(app_client_custom_dir, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.move(src, dst)
+        shutil.rmtree(downloaded_custom_dir, ignore_errors=True)
+
+    # Build meta.json based on current network participants
+    if network.participants.filter(role='CLIENT').exists():
+        client_names = list(network.participants.filter(role='CLIENT').values_list('participant_id', flat=True))
+    else:
+        client_names = ['fl-client']
+
+    meta = {
+        "name": f"{project_name}_job",
+        "deploy_map": {
+            "app_server": ["server"],
+            "app_client": client_names,
+        }
+    }
+    with open(os.path.join(job_root, 'meta.json'), 'w') as f:
+        json.dump(meta, f, indent=2)
+
+    # Create placeholder config files if not present.
+    server_cfg = {
+        "format_version": 2,
+        "workflows": [
+            {
+                "id": "sg",
+                "path": "nvflare.app_common.workflows.scatter_gather.ScatterAndGather",
+                "args": {
+                    "num_rounds": 1,
+                    "min_clients": 1,
+                    "wait_time_after_min_received": 1.0
+                }
+            }
+        ]
+    }
+    client_cfg = {
+        "format_version": 2,
+        "executors": [
+            {
+                "id": "executor",
+                "path": "nvflare.app_common.executors.simple_json.SimpleJsonExecutor",
+                "args": {}
+            }
+        ]
+    }
+    with open(os.path.join(app_server_cfg_dir, 'config_fed_server.json'), 'w') as f:
+        json.dump(server_cfg, f, indent=2)
+    with open(os.path.join(app_client_cfg_dir, 'config_fed_client.json'), 'w') as f:
+        json.dump(client_cfg, f, indent=2)
+
+    logger.info(f"Prepared job at {job_root}")
 
     # Log files in admin_user_dir
     try:
