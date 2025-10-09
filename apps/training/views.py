@@ -86,11 +86,11 @@ def start_training(request, network_id):
         "workflows": [
             {
                 "id": "sg",
-                "path": "nvflare.app_common.workflows.scatter_gather.ScatterAndGather",
+                "path": "nvflare.app_common.workflows.scatter_and_gather.ScatterAndGather",
                 "args": {
                     "num_rounds": 1,
                     "min_clients": 1,
-                    "wait_time_after_min_received": 1.0
+                    "wait_time_after_min_received": 1
                 }
             }
         ]
@@ -101,7 +101,8 @@ def start_training(request, network_id):
             {
                 "id": "executor",
                 "path": "nvflare.app_common.executors.simple_json.SimpleJsonExecutor",
-                "args": {}
+                "args": {},
+                "tasks": ["train"]
             }
         ]
     }
