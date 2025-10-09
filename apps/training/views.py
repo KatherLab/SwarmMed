@@ -31,7 +31,7 @@ def start_training(request, network_id):
     source_code_prefix = f"{project.identifier}/code/training/"
 
     project_name = project.title.replace(' ', '_')
-    admin_startup_kit = os.path.join('/app', 'workspaces', str(project.identifier), str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com', 'startup')
+    admin_user_dir = os.path.join('/app', 'workspaces', str(project.identifier), str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com') 
 
     # 2. Create app structure and download files
     os.makedirs(app_custom_dir, exist_ok=True)
@@ -42,51 +42,51 @@ def start_training(request, network_id):
         logger.error(f"Failed to download training code from S3: {e}")
         # Handle error appropriately
 
-    # Log files in admin_startup_kit
+    # Log files in admin_user_dir
     try:
-        logger.info(f"Files in {admin_startup_kit}: {os.listdir(admin_startup_kit)}")
-        with open(os.path.join(admin_startup_kit, 'fed_admin.json'), 'r') as f:
+        logger.info(f"Files in {admin_user_dir}: {os.listdir(admin_user_dir)}")
+        with open(os.path.join(admin_user_dir, 'fed_admin.json'), 'r') as f:
             logger.info(f"fed_admin.json content: {f.read()}")
     except Exception as e:
-        logger.error(f"Could not list files in {admin_startup_kit}: {e}")
+        logger.error(f"Could not list files in {admin_user_dir}: {e}")
 
-    # 3. Submit the job using subprocess from the app container itself
+    # 3. Submit the job using the FLARE API
     try:
-        # Add a delay to give the overseer time to start
-        time.sleep(10)
+        # Add a small delay if needed
+        time.sleep(5)
+
+        from nvflare.fuel.flare_api.flare_api import new_secure_session
         
-        # The command needs to be run from the admin startup directory
-        command = [ 'python3', '-m', 
-                   'nvflare.fuel.hci.tools.admin', '-m', '.', # workspace dir (cwd is the admin startup kit) 
-                   '-s', 'fed_admin.json', # admin config file in that dir 
-                   '-u', 'admin@nvidia.com', # non-interactive username 
-                   'submit_job', 
-                   os.path.join('/app', job_dir), ]
-        logger.info(f"Submitting FLARE job with command: {' '.join(command)} in {admin_startup_kit}")
-        result = subprocess.run(command, cwd=admin_startup_kit, capture_output=True, text=True)
+        job_path = os.path.join('/app', job_dir)
 
-        logger.info(f"FLARE job submission exited with code {result.returncode}")
-        logger.info(f"STDOUT: {result.stdout}")
-        logger.error(f"STDERR: {result.stderr}")
+        # Open secure session with the admin startup kit (cert auth)
+        sess = new_secure_session(username='admin@nvidia.com', startup_kit_location=admin_user_dir)
 
-        job_id = "unknown"
-        if result.returncode == 0 and result.stdout:
-            job_id = result.stdout.strip().split(' ')[-1]
+        # Optional: sanity check connectivity
+        # sys_info = sess.get_system_info()
 
-        # 4. Create a TrainingJob record
+        # Submit job
+        rsp = sess.api.submit_job(job_path)  # AdminAPI under the hood
+        
+        job_id = None
+        if isinstance(rsp, dict):
+            job_id = rsp.get('job_id') or rsp.get('data') or str(rsp)
+        else:
+            job_id = getattr(rsp, 'job_id', None) or str(rsp)
+
         TrainingJob.objects.create(
             project=project,
             network=network,
-            status='RUNNING' if result.returncode == 0 else 'FAILED',
-            flare_job_id=job_id
+            status='RUNNING' if job_id else 'FAILED',
+            flare_job_id=job_id or 'unknown'
         )
     except Exception as e:
-        logger.error(f"An exception occurred while submitting the training job: {e}", exc_info=True)
+        logger.error(f"Submit job via FLARE API failed: {e}", exc_info=True)
         TrainingJob.objects.create(
-            project=project,
-            network=network,
-            status='FAILED',
-            flare_job_id="exception"
+            project=project, 
+            network=network, 
+            status='FAILED', 
+            flare_job_id='exception'
         )
 
     return redirect('training')
