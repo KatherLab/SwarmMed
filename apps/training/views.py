@@ -52,13 +52,16 @@ def start_training(request, network_id):
     os.makedirs(app_client_cfg_dir, exist_ok=True)
     os.makedirs(app_client_custom_dir, exist_ok=True)
 
+    with open(os.path.join(app_client_custom_dir, '__init__.py'), 'w') as f:
+        f.write('')
+
     with open(os.path.join(app_client_custom_dir, 'min_executor.py'), 'w') as f:
         f.write(
             "from nvflare.apis.executor import Executor\n"
             "from nvflare.apis.dxo import DXO, DataKind\n\n"
             "class MinExecutor(Executor):\n"
-            "    def init(self):\n"
-            "        super().init()\n\n"
+            "    def __init__(self):\n"
+            "        super().__init__()\n\n"
             "    def execute(self, task_name, shareable, fl_ctx, abort_signal):\n"
             "        dxo = DXO(data_kind=DataKind.WEIGHTS, data={})\n"
             "        return dxo.to_shareable()\n"
@@ -93,8 +96,35 @@ def start_training(request, network_id):
         json.dump(meta, f, indent=2)
 
     # Create placeholder config files if not present.
+    server_custom_dir = os.path.join(app_server_dir, 'custom')
+    os.makedirs(server_custom_dir, exist_ok=True)
+    with open(os.path.join(server_custom_dir, '__init__.py'), 'w') as f:
+        f.write('')
+    with open(os.path.join(server_custom_dir, 'min_share_gen.py'), 'w') as f:
+        f.write(
+            "from nvflare.apis.shareable_generator import ShareableGenerator\n"
+            "from nvflare.apis.dxo import DXO, DataKind\n\n"
+            "class MinShareableGenerator(ShareableGenerator):\n"
+            "    def __init__(self):\n"
+            "        super().__init__()\n\n"
+            "    def generate(self, fl_ctx):\n"
+            "        return DXO(data_kind=DataKind.WEIGHTS, data={}).to_shareable()\n"
+        )
+
     server_cfg = {
         "format_version": 2,
+        "components": [
+            {
+                "id": "aggregator",
+                "path": "nvflare.app_common.aggregators.accumulate_model_aggregator.InTimeAccumulateWeightedAggregator",
+                "args": {}
+            },
+            {
+                "id": "share_gen",
+                "path": "custom.min_share_gen.MinShareableGenerator",
+                "args": {}
+            }
+        ],
         "workflows": [
             {
                 "id": "sg",
@@ -102,7 +132,9 @@ def start_training(request, network_id):
                 "args": {
                     "num_rounds": 1,
                     "min_clients": 1,
-                    "wait_time_after_min_received": 1
+                    "wait_time_after_min_received": 1,
+                    "aggregator_id": "aggregator",
+                    "shareable_generator_id": "share_gen"
                 }
             }
         ]
@@ -111,10 +143,12 @@ def start_training(request, network_id):
         "format_version": 2,
         "executors": [
             {
-                "id": "executor",
-                "path": "custom.min_executor.MinExecutor",
-                "args": {},
-                "tasks": ["train"]
+                "tasks": ["train"],
+                "executor": {
+                    "id": "executor",
+                    "path": "app.custom.min_executor.MinExecutor",
+                    "args": {}
+                }
             }
         ]
     }
