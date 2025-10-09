@@ -45,7 +45,7 @@ def start_training(request, network_id):
     # Log files in admin_user_dir
     try:
         logger.info(f"Files in {admin_user_dir}: {os.listdir(admin_user_dir)}")
-        with open(os.path.join(admin_user_dir, 'fed_admin.json'), 'r') as f:
+        with open(os.path.join(admin_user_dir, 'startup', 'fed_admin.json'), 'r') as f:
             logger.info(f"fed_admin.json content: {f.read()}")
     except Exception as e:
         logger.error(f"Could not list files in {admin_user_dir}: {e}")
@@ -66,7 +66,8 @@ def start_training(request, network_id):
         # sys_info = sess.get_system_info()
 
         # Submit job
-        rsp = sess.api.submit_job(job_path)  # AdminAPI under the hood
+        rsp = sess.api.do_command(f"submit_job {job_path}") 
+        logger.info(f"submit_job reply: {rsp}")
         
         job_id = None
         if isinstance(rsp, dict):
