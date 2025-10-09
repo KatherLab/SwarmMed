@@ -14,6 +14,7 @@ from django.shortcuts import render
 from .utils import download_s3_folder
 import time
 
+
 logger = logging.getLogger(__name__)
 
 @login_required(login_url='/users/signin/')
@@ -55,12 +56,12 @@ def start_training(request, network_id):
         time.sleep(10)
         
         # The command needs to be run from the admin startup directory
-        command = [
-            './fl_admin.sh',
-            '-p', '.',
-            'submit_job',
-            os.path.join('/app', job_dir) # Use absolute path inside container
-        ]
+        command = [ 'python3', '-m', 
+                   'nvflare.fuel.hci.tools.admin', '-m', '.', # workspace dir (cwd is the admin startup kit) 
+                   '-s', 'fed_admin.json', # admin config file in that dir 
+                   '-u', 'admin@nvidia.com', # non-interactive username 
+                   'submit_job', 
+                   os.path.join('/app', job_dir), ]
         logger.info(f"Submitting FLARE job with command: {' '.join(command)} in {admin_startup_kit}")
         result = subprocess.run(command, cwd=admin_startup_kit, capture_output=True, text=True)
 
@@ -88,7 +89,7 @@ def start_training(request, network_id):
             flare_job_id="exception"
         )
 
-    return redirect('network')
+    return redirect('training')
 
 @login_required(login_url='/users/signin/')
 def training(request):

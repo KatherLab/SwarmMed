@@ -5,6 +5,7 @@ import textwrap
 import json
 from pathlib import Path
 from .models import SwarmNetwork
+from apps.logs.logger import get_logger
 
 
 def generate_flare_startup_kit(network_id: str, local_test: bool = False, clients: list = []):
@@ -13,8 +14,9 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     """
     try:
         network = SwarmNetwork.objects.get(identifier=network_id)
+        logger = get_logger(project=network.project)
     except SwarmNetwork.DoesNotExist:
-        print(f"Error: SwarmNetwork with id {network_id} not found.")
+        logger.network.error(f"Error: SwarmNetwork with id {network_id} not found.")
         return
 
     project_dir = os.path.join('workspaces', str(network.project.identifier))
@@ -28,15 +30,10 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     repo_template_path = Path(__file__).resolve().parent / 'master_template.yml'
     target_template_path = Path(provision_dir) / 'master_template.yml'
     if not repo_template_path.exists():
-        print(f"ERROR: master_template.yml not found at {repo_template_path}")
+        logger.network.error(f"ERROR: master_template.yml not found at {repo_template_path}")
         return
     shutil.copyfile(str(repo_template_path), str(target_template_path))
-    print(f"Copied master_template.yml to {target_template_path}")
-
-    with open(target_template_path, "r") as tf:
-        print("--- master_template.yml (effective) ---")
-        print(tf.read())
-        print("--------------------------------------")
+    logger.network.info(f"Copied master_template.yml to {target_template_path}")
     
     abs_template_path = str(target_template_path.resolve())
 
@@ -120,6 +117,7 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
       - path: nvflare.lighter.impl.docker.DockerBuilder
         args:
           base_image: python:3.10-slim
+          #requirements_file: docker_compose_requirements.txt
       - path: nvflare.lighter.impl.static_file.StaticFileBuilder
         args:
             overseer_agent:
@@ -134,10 +132,10 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         f.write(project_yml_content)
 
     try:
-        print("nvflare version used for provisioning:")
+        logger.network.info("nvflare version used for provisioning:")
         subprocess.run(['python', '-c', 'import nvflare, sys; print(getattr(nvflare, "version", "unknown"), sys.executable)'], cwd=provision_dir)
 
-        print(f"Starting provisioning for network {network_id} in {provision_dir}")
+        logger.network.info(f"Starting provisioning for network {network_id} in {provision_dir}")
         command = [
             'nvflare',
             'provision',
@@ -147,24 +145,24 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
             'workspace'
         ]
         
-        print(f"Running provisioning command: {' '.join(command)} in {provision_dir}")
+        logger.network.info(f"Running provisioning command: {' '.join(command)} in {provision_dir}")
         result = subprocess.run(command, cwd=provision_dir, capture_output=True, text=True, check=True)
-        print(f"Provisioning stdout: {result.stdout}")
-        print(f"Provisioning stderr: {result.stderr}")
+        logger.network.info(f"Provisioning stdout: {result.stdout}")
+        logger.network.error(f"Provisioning stderr: {result.stderr}")
         
-        print(f"Successfully provisioned startup kit in {provision_dir}")
+        logger.network.info(f"Successfully provisioned startup kit in {provision_dir}")
         network.status = 'PROVISIONED'
         network.save()
 
 
 
     except subprocess.CalledProcessError as e:
-        print(f"An exception occurred during provisioning: {e}")
-        print(f"Provisioning stdout: {e.stdout}")
-        print(f"Provisioning stderr: {e.stderr}")
+        logger.network.error(f"An exception occurred during provisioning: {e}")
+        logger.network.error(f"Provisioning stdout: {e.stdout}")
+        logger.network.error(f"Provisioning stderr: {e.stderr}")
         network.status = 'ERROR'
         network.save()
     except Exception as e:
-        print(f"An exception occurred during provisioning: {e}")
+        logger.network.error(f"An exception occurred during provisioning: {e}")
         network.status = 'ERROR'
         network.save()

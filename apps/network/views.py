@@ -11,9 +11,7 @@ import json
 import yaml
 import subprocess
 from django.http import HttpResponse
-import logging
-
-logger = logging.getLogger(__name__)
+from apps.logs.logger import get_logger
 
 @login_required(login_url='/users/signin/')
 def network(request):
@@ -134,12 +132,13 @@ def download_startup_kits(request, network_id):
 @login_required(login_url='/users/signin/')
 def start_swarm_network(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)
+    logger = get_logger(request.user, swarm_network.project)
     project_name = swarm_network.project.title.replace(' ', '_')
     provision_dir = os.path.join('workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
     compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
     compose_file_path = os.path.join(compose_dir, 'compose.yaml')
 
-    logger.info(f"Looking for compose file at: {compose_file_path}")
+    logger.network.info(f"Looking for compose file at: {compose_file_path}")
     if os.path.exists(compose_file_path):
         host_project_path = os.getenv('HOST_PROJECT_PATH')
         if host_project_path:
@@ -154,27 +153,28 @@ def start_swarm_network(request, network_id):
             with open(compose_file_path, 'w') as f:
                 f.write(compose_content)
             
-            logger.info("Modified compose file to use absolute host paths.")
+            logger.network.info("Modified compose file to use absolute host paths.")
 
-        logger.info("Compose file found. Running docker compose build")
+        logger.network.info("Compose file found. Running docker compose build")
         build_result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'build'], cwd=compose_dir, capture_output=True, text=True)
-        logger.info(f"docker compose build stdout: {build_result.stdout}")
-        logger.error(f"docker compose build stderr: {build_result.stderr}")
+        logger.network.info(f"docker compose build stdout: {build_result.stdout}")
+        logger.network.error(f"docker compose build stderr: {build_result.stderr}")
 
-        logger.info("Running docker compose up -d")
+        logger.network.info("Running docker compose up -d")
         up_result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'up', '-d'], cwd=compose_dir, capture_output=True, text=True)
-        logger.info(f"docker compose up stdout: {up_result.stdout}")
-        logger.error(f"docker compose up stderr: {up_result.stderr}")
+        logger.network.info(f"docker compose up stdout: {up_result.stdout}")
+        logger.network.error(f"docker compose up stderr: {up_result.stderr}")
         swarm_network.status = 'RUNNING'
         swarm_network.save()
     else:
-        logger.error(f"Compose file not found at: {compose_file_path}")
+        logger.network.error(f"Compose file not found at: {compose_file_path}")
 
     return redirect('network')
 
 @login_required(login_url='/users/signin/')
 def stop_swarm_network(request, network_id):
     swarm_network = SwarmNetwork.objects.get(identifier=network_id)
+    logger = get_logger(request.user, swarm_network.project)
     project_name = swarm_network.project.title.replace(' ', '_')
     provision_dir = os.path.join('workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
     compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
@@ -194,9 +194,11 @@ def stop_swarm_network(request, network_id):
             with open(compose_file_path, 'w') as f:
                 f.write(compose_content)
 
+        logger.network.info(f"Stopping swarm network {swarm_network.name}")
         subprocess.run(['docker-compose', '-f', 'compose.yaml', 'down'], cwd=compose_dir)
         swarm_network.status = 'STOPPED'
         swarm_network.save()
+        logger.network.info(f"Swarm network {swarm_network.name} stopped successfully")
 
     return redirect('network')
 
