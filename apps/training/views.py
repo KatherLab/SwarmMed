@@ -68,7 +68,7 @@ def start_training(request, network_id):
     if network.participants.filter(role='CLIENT').exists():
         client_names = list(network.participants.filter(role='CLIENT').values_list('participant_id', flat=True))
     else:
-        client_names = ['fl-client']
+        client_names = ['fl-client-1', 'fl-client-2']
 
     meta = {
         "name": f"{project_name}_job",

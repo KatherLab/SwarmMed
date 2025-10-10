@@ -55,7 +55,12 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
             'admin_port': 8003,
         })
         participants.append({
-            'name': 'fl-client',
+            'name': 'fl-client-1',
+            'type': 'client',
+            'org': 'nvidia',
+        })
+        participants.append({
+            'name': 'fl-client-2',
             'type': 'client',
             'org': 'nvidia',
         })
