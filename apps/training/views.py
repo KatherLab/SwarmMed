@@ -212,14 +212,50 @@ def start_training(request, network_id):
     return redirect('training')
 
 @login_required(login_url='/users/signin/')
+def stop_training(request, network_id):
+    network = SwarmNetwork.objects.get(identifier=network_id)
+    project = network.project
+    logger = get_logger(user=request.user, project=project)
+
+    running_job = TrainingJob.objects.filter(network=network, status='RUNNING').order_by('-created_at').first()
+
+    if running_job:
+        job_id = running_job.flare_job_id
+        project_name = project.title.replace(' ', '_')
+        admin_user_dir = os.path.join('/app', 'workspaces', str(project.identifier), str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com')
+
+        try:
+            from nvflare.fuel.flare_api.flare_api import new_secure_session
+            sess = new_secure_session(username='admin@nvidia.com', startup_kit_location=admin_user_dir)
+            rsp = sess.api.do_command(f"abort_job {job_id}")
+            logger.training.info(f"Abort job reply: {rsp}")
+            running_job.status = 'STOPPED'
+            running_job.save()
+        except Exception as e:
+            logger.training.error(f"Failed to abort job via FLARE API: {e}", exc_info=True)
+
+        # Remove job folder
+        job_dir = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
+        if os.path.exists(job_dir):
+            shutil.rmtree(job_dir)
+            logger.training.info(f"Removed job folder: {job_dir}")
+
+    return redirect('training')
+
+@login_required(login_url='/users/signin/')
 def training(request):
     try:
         current_network = UserCurrentNetwork.objects.get(user=request.user).network
     except UserCurrentNetwork.DoesNotExist:
         current_network = None
 
+    is_training_running = False
+    if current_network:
+        is_training_running = TrainingJob.objects.filter(network=current_network, status='RUNNING').exists()
+
     context = {
         'segment': 'training',
         'current_network': current_network,
+        'is_training_running': is_training_running,
     }
     return render(request, "apps/training.html", context)
