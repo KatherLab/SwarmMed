@@ -52,21 +52,6 @@ def start_training(request, network_id):
     os.makedirs(app_client_cfg_dir, exist_ok=True)
     os.makedirs(app_client_custom_dir, exist_ok=True)
 
-    with open(os.path.join(app_client_custom_dir, '__init__.py'), 'w') as f:
-        f.write('')
-
-    with open(os.path.join(app_client_custom_dir, 'min_executor.py'), 'w') as f:
-        f.write(
-            "from nvflare.apis.executor import Executor\n"
-            "from nvflare.apis.dxo import DXO, DataKind\n\n"
-            "class MinExecutor(Executor):\n"
-            "    def __init__(self):\n"
-            "        super().__init__()\n\n"
-            "    def execute(self, task_name, shareable, fl_ctx, abort_signal):\n"
-            "        dxo = DXO(data_kind=DataKind.WEIGHTS, data={})\n"
-            "        return dxo.to_shareable()\n"
-        )
-
     # Move downloaded code under app_client/custom (so BYOC code is inside the app)
     downloaded_custom_dir = os.path.join(job_root, 'custom')
     if os.path.isdir(downloaded_custom_dir):
@@ -98,60 +83,78 @@ def start_training(request, network_id):
     # Create placeholder config files if not present.
     server_custom_dir = os.path.join(app_server_dir, 'custom')
     os.makedirs(server_custom_dir, exist_ok=True)
-    with open(os.path.join(server_custom_dir, '__init__.py'), 'w') as f:
-        f.write('')
-    with open(os.path.join(server_custom_dir, 'min_share_gen.py'), 'w') as f:
-        f.write(
-            "from nvflare.apis.shareable_generator import ShareableGenerator\n"
-            "from nvflare.apis.dxo import DXO, DataKind\n\n"
-            "class MinShareableGenerator(ShareableGenerator):\n"
-            "    def __init__(self):\n"
-            "        super().__init__()\n\n"
-            "    def generate(self, fl_ctx):\n"
-            "        return DXO(data_kind=DataKind.WEIGHTS, data={}).to_shareable()\n"
-        )
 
     server_cfg = {
         "format_version": 2,
-        "components": [
-            {
-                "id": "aggregator",
-                "path": "nvflare.app_common.aggregators.accumulate_model_aggregator.InTimeAccumulateWeightedAggregator",
-                "args": {}
-            },
-            {
-                "id": "share_gen",
-                "path": "custom.min_share_gen.MinShareableGenerator",
-                "args": {}
-            }
-        ],
+        "task_data_filters": [],
+        "task_result_filters": [],
+        "components": [],
         "workflows": [
             {
-                "id": "sg",
-                "path": "nvflare.app_common.workflows.scatter_and_gather.ScatterAndGather",
-                "args": {
-                    "num_rounds": 1,
-                    "min_clients": 1,
-                    "wait_time_after_min_received": 1,
-                    "aggregator_id": "aggregator",
-                    "shareable_generator_id": "share_gen"
-                }
+            "id": "swarm_controller",
+            "path": "nvflare.app_common.ccwf.SwarmServerController",
+            "args": {
+                "num_rounds": 10
+            }
             }
         ]
-    }
+        }
+    
     client_cfg = {
         "format_version": 2,
         "executors": [
             {
-                "tasks": ["train"],
-                "executor": {
-                    "id": "executor",
-                    "path": "app.custom.min_executor.MinExecutor",
-                    "args": {}
+            "tasks": [
+                "train"
+            ],
+            "executor": {
+                "path": "nvflare.app_common.ccwf.comps.np_trainer.NPTrainer",
+                "args": {}
+            }
+            },
+            {
+            "tasks": ["swarm_*"],
+            "executor": {
+                "path": "nvflare.app_common.ccwf.SwarmClientController",
+                "args": {
+                "learn_task_name": "train",
+                "learn_task_timeout": 5.0,
+                "persistor_id": "persistor",
+                "aggregator_id": "aggregator",
+                "shareable_generator_id": "shareable_generator",
+                "min_responses_required": 2,
+                "wait_time_after_min_resps_received": 1
                 }
             }
+            }
+        ],
+        "task_result_filters": [],
+        "task_data_filters": [],
+        "components": [
+            {
+            "id": "persistor",
+            "path": "nvflare.app_common.ccwf.comps.np_file_model_persistor.NPFileModelPersistor",
+            "args": {}
+            },
+            {
+            "id": "shareable_generator",
+            "name": "FullModelShareableGenerator",
+            "args": {}
+            },
+            {
+            "id": "aggregator",
+            "name": "InTimeAccumulateWeightedAggregator",
+            "args": {
+                "expected_data_kind": "WEIGHT_DIFF"
+            }
+            },
+            {
+            "id": "model_selector",
+            "name": "IntimeModelSelector",
+            "args": {}
+            }
         ]
-    }
+        }
     with open(os.path.join(app_server_cfg_dir, 'config_fed_server.json'), 'w') as f:
         json.dump(server_cfg, f, indent=2)
     with open(os.path.join(app_client_cfg_dir, 'config_fed_client.json'), 'w') as f:
