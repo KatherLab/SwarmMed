@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 import os
 import json
 import subprocess
-import logging
+from apps.logs.logger import get_logger
 import shutil
 import boto3
 from botocore.exceptions import ClientError
@@ -15,8 +15,6 @@ from .utils import download_s3_folder
 import time
 
 
-logger = logging.getLogger(__name__)
-
 @login_required(login_url='/users/signin/')
 def start_training(request, network_id):
     """
@@ -24,6 +22,7 @@ def start_training(request, network_id):
     """
     network = SwarmNetwork.objects.get(identifier=network_id)
     project = network.project
+    logger = get_logger(user=request.user, project=project)
 
     # 1. Define paths
     job_dir = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
@@ -38,7 +37,7 @@ def start_training(request, network_id):
     try:
         download_s3_folder(settings.AWS_STORAGE_BUCKET_NAME, source_code_prefix, app_custom_dir)
     except ClientError as e:
-        logger.error(f"Failed to download training code from S3: {e}")
+        logger.training.error(f"Failed to download training code from S3: {e}")
 
     # Build proper NVFLARE job structure:
     job_root = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
@@ -160,15 +159,15 @@ def start_training(request, network_id):
     with open(os.path.join(app_client_cfg_dir, 'config_fed_client.json'), 'w') as f:
         json.dump(client_cfg, f, indent=2)
 
-    logger.info(f"Prepared job at {job_root}")
+    logger.training.info(f"Prepared job at {job_root}")
 
     # Log files in admin_user_dir
     try:
-        logger.info(f"Files in {admin_user_dir}: {os.listdir(admin_user_dir)}")
+        logger.training.info(f"Files in {admin_user_dir}: {os.listdir(admin_user_dir)}")
         with open(os.path.join(admin_user_dir, 'startup', 'fed_admin.json'), 'r') as f:
-            logger.info(f"fed_admin.json content: {f.read()}")
+            logger.training.info(f"fed_admin.json content: {f.read()}")
     except Exception as e:
-        logger.error(f"Could not list files in {admin_user_dir}: {e}")
+        logger.training.error(f"Could not list files in {admin_user_dir}: {e}")
 
     # 3. Submit the job using the FLARE API
     try:
@@ -187,7 +186,7 @@ def start_training(request, network_id):
 
         # Submit job
         rsp = sess.api.do_command(f"submit_job {job_path}") 
-        logger.info(f"submit_job reply: {rsp}")
+        logger.training.info(f"submit_job reply: {rsp}")
         
         job_id = None
         if isinstance(rsp, dict):
@@ -202,7 +201,7 @@ def start_training(request, network_id):
             flare_job_id=job_id or 'unknown'
         )
     except Exception as e:
-        logger.error(f"Submit job via FLARE API failed: {e}", exc_info=True)
+        logger.training.error(f"Submit job via FLARE API failed: {e}", exc_info=True)
         TrainingJob.objects.create(
             project=project, 
             network=network, 

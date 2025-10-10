@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 from datetime import timedelta
 from apps.users.decorators import developer_required
-
+import os
 # Import the get_user_project function from your project app
 try:
     from ..project.models import UserCurrentProject
@@ -43,10 +43,51 @@ def logs_dashboard(request):
         category_display = category_choice[1]  # e.g., 'Data'
         
         # Get recent logs for this category (last 50 entries)
-        recent_logs = LogEntry.objects.filter(
+        recent_logs = list(LogEntry.objects.filter(
             project=project,
             category=category_key
-        ).select_related('user').order_by('-timestamp')[:50]
+        ).select_related('user').order_by('-timestamp')[:50])
+
+        if category_key == 'training':
+            try:
+                from apps.network.models import UserCurrentNetwork
+                import yaml
+                import subprocess
+
+                current_network = UserCurrentNetwork.objects.get(user=request.user).network
+                if current_network:
+                    project_name = project.title.replace(' ', '_')
+                    compose_path = os.path.join('workspaces', str(project.identifier), str(current_network.identifier), 'workspace', project_name, 'prod_00', 'compose.yaml')
+
+                    if os.path.exists(compose_path):
+                        with open(compose_path, 'r') as f:
+                            compose_data = yaml.safe_load(f)
+                        
+                        if compose_data and 'services' in compose_data:
+                            for service_name in compose_data['services']:
+                                container_name = compose_data['services'][service_name].get('container_name', service_name)
+                                try:
+                                    result = subprocess.run(['docker', 'logs', container_name], capture_output=True, text=True, check=False)
+                                    log_output = result.stdout or result.stderr
+                                    for line in log_output.splitlines():
+                                        # Create a mock log entry object
+                                        log_entry = {
+                                            'message': line,
+                                            'source': container_name,
+                                            'timestamp': timezone.now(),
+                                            'level': 'INFO',
+                                            'user': request.user
+                                        }
+                                        class LogEntryObject:
+                                            def __init__(self, **kwargs):
+                                                self.__dict__.update(kwargs)
+                                        recent_logs.insert(0, LogEntryObject(**log_entry))
+                                except Exception as e:
+                                    # Handle exceptions for individual container log fetching
+                                    pass
+            except (UserCurrentNetwork.DoesNotExist, FileNotFoundError):
+                # Handle cases where network or compose file is not found
+                pass
         
         # Get stats
         total_count = LogEntry.objects.filter(
