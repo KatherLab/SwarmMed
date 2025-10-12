@@ -1,3 +1,8 @@
+---
+title: Developer Guide
+description: A guide for developers to write scripts for the MediSwarmCloud platform.
+---
+
 # Developer Guide
 
 This guide provides information for developers who write scripts to be run on the MediSwarm Cloud platform. The platform supports three types of scripts:
@@ -36,7 +41,7 @@ Your validation script has access to a global `validation` object with the follo
     *   `pandas`
 
 ??? example "Example Validation Script"
-    ```python
+    ```python title="validation.py" linenums="1"
     import pandas as pd
 
     # Initialize validation results
@@ -162,7 +167,7 @@ Your visualization script has access to a global `visualization` object with the
     *   `seaborn`
 
 ??? example "Example Visualization Script"
-    ```python
+    ```python title="visualization.py" linenums="1"
     import pandas as pd
     import matplotlib.pyplot as plt
 
@@ -246,7 +251,7 @@ This module provides a set of helper functions to handle the communication with 
     Also make sure to include the `requirements.txt` in your project upload.
 
 ??? example "Example Training Script"
-    ```python
+    ```python title="train.py" linenums="1"
     import torch
     import flare_adapter
 
