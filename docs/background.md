@@ -44,15 +44,7 @@ Swarm learning also enhances the diversity and quality of learning while adaptin
 
 With Swarm Learning, training is done in multiple rounds. In each round, an aggregator client is randomly chosen from all clients, and then all training clients perform the training task on the current global model params. Once completed, all clients send their training results to the designated client for aggregation. The aggregated results are then applied to the current global model, which will become the base for the next round training. This process repeats until the configured number of rounds are completed.[^7]
 
-``` mermaid
-graph TD;
-    A[Start] --> B{Randomly Choose Aggregator Client};
-    B --> C[Send Training Task on Global Model to All Clients];
-    C --> D[Clients Send Training Results to Aggregator];
-    D --> E[Aggregator Updates Global Model];
-    E --> F((Next Round Begins));
-    F --> B;
-```
+![NVIDIA FLARE Swarm Learning](https://github.com/NVIDIA/NVFlare/blob/main/examples/advanced/swarm_learning/figs/swarm_learning.png?raw=true){ .md-image .md-image--centered }
 
 #### _NVIDIA FLARE_ Swarm Learning architecture
 
@@ -147,9 +139,61 @@ sequenceDiagram
 
 [^7]: [https://nvflare.readthedocs.io/en/2.4/programming_guide/controllers/client_controlled_workflows.html#swarm-learning](https://nvflare.readthedocs.io/en/2.4/programming_guide/controllers/client_controlled_workflows.html#swarm-learning)
 
-## _MINIO_ Object Storage
+## _MINIO_[^2] Object Storage
 
-## _DJANGO_ Web Interface
+### What is Minio?
 
-## _TAILSCACLE_ VPN
+Minio is a high-performance, self-hosted object storage server that is fully compatible with the Amazon S3 API. In the context of MediSwarm Cloud, it acts as a central repository for all digital assets associated with a decentralized learning project. This includes the training code, datasets, and the resulting models.
+
+### Why is Minio important for MediSwarmCloud?
+
+Being self-hosted provides complete control over the physical storage of data, which is a critical requirement when dealing with sensitive information. For a platform like MediSwarm Cloud, which is designed to handle sensitive medical data, using a self-hosted object storage solution like Minio is highly advantageous. It allows for complete data sovereignty, ensuring that the data is stored in a controlled and secure environment.
+
+### Key Features
+
+*   **S3 Compatibility:** The S3 compatibility is a major plus, as it allows for seamless integration with a wide range of data science tools and libraries.
+*   **Encryption:** It supports both encryption at rest (server-side encryption) and encryption in transit (using TLS).
+*   **Access Control:** It has a fine-grained access control mechanism with policies that can be defined on a per-user or per-group basis.
+*   **Auditing:** All API calls to the Minio server can be logged, providing a detailed audit trail of all data access and modification operations.
+
+
+
+## _DJANGO_[^3] Web Interface
+
+### What is Django?
+
+Django is a high-level Python web framework that follows the "batteries-included" philosophy. It provides a comprehensive set of tools and libraries for building web applications, including an Object-Relational Mapper (ORM), an authentication system, and a powerful admin interface.
+
+### Why is Django important for MediSwarmCloud?
+
+In MediSwarm Cloud, Django is the backbone of the web-based user interface, which is the primary way users interact with the platform. The choice of Django for MediSwarm Cloud is motivated by its robustness, scalability, and strong security features. For a platform that is exposed to the internet and manages sensitive operations, having a framework that is secure by default is crucial.
+
+### Key Features
+
+*   **Rapid Development:** The "batteries-included" nature of Django also accelerates the development process, allowing the team to focus on the core features of the platform rather than reinventing the wheel for common web development tasks.
+*   **Security:** Django has a strong focus on security and provides built-in protection against many common web vulnerabilities:
+    *   **Cross-Site Scripting (XSS):** Django's template engine automatically escapes variables, which prevents most XSS attacks.
+    *   **Cross-Site Request Forgery (CSRF):** Django has built-in CSRF protection that is easy to enable.
+    *   **SQL Injection:** Django's ORM uses parameterized queries, which prevents SQL injection vulnerabilities.
+
+
+
+## _TAILSCALE_[^4] VPN
+
+### What is Tailscale?
+
+Tailscale is a modern VPN service that makes it easy to create secure networks between computers, servers, and cloud instances. It is built on top of the WireGuard protocol and creates a flat, private network (a "tailnet") where every device can talk to every other device directly.
+
+### Why is Tailscale important for MediSwarmCloud?
+
+In a federated learning scenario, especially in swarm learning where clients communicate in a peer-to-peer fashion, establishing secure and reliable connections between participants is a major challenge. Participants are often located in different geographical locations and behind different firewalls. Tailscale solves this problem elegantly by creating a secure overlay network. This is particularly important for the NVIDIA FLARE's swarm learning feature, which relies on peer-to-peer communication between the clients.
+
+### Key Features
+
+*   **Secure Connectivity:** By using Tailscale, MediSwarmCloud can ensure that the communication between the federated learning participants is always secure and reliable.
+*   **End-to-End Encryption:** All traffic on a Tailscale network is end-to-end encrypted.
+*   **WireGuard:** It uses WireGuard, which is a state-of-the-art VPN protocol known for its simplicity, speed, and security.
+*   **Simplified Firewall Rules:** Tailscale simplifies firewall management. Once a device is on the tailnet, it can communicate with other devices on the same tailnet without the need for complex firewall rules.
+
+
 

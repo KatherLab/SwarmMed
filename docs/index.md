@@ -1,6 +1,6 @@
 # Welcome to MediSwarmCloud
 
-MediSwarmCloud is a secure and scalable platform for decentralized learning on medical data. It allows multiple parties to collaboratively train machine learning models without sharing their sensitive data.
+MediSwarmCloud is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
 
 This documentation provides a comprehensive guide to understanding, setting up, and using the MediSwarmCloud platform.
 
