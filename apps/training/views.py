@@ -200,6 +200,7 @@ def start_training(request, network_id):
             status='RUNNING' if job_id else 'FAILED',
             flare_job_id=job_id or 'unknown'
         )
+        
     except Exception as e:
         logger.training.error(f"Submit job via FLARE API failed: {e}", exc_info=True)
         TrainingJob.objects.create(
@@ -208,8 +209,6 @@ def start_training(request, network_id):
             status='FAILED', 
             flare_job_id='exception'
         )
-
-    return redirect('training')
 
 @login_required(login_url='/users/signin/')
 def stop_training(request, network_id):

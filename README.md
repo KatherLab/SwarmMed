@@ -72,3 +72,10 @@ npx webpack --watch
 tailscale set --accept-dns=false
 systemctl restart tailscaled
 ```
+
+
+## Start Documentation website
+
+```bash
+mkdocs serve
+``` 
