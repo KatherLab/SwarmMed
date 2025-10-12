@@ -1,4 +1,4 @@
-# MediSwarmCLoud
+# MediSwarmCloud
 
 ## Installation
 

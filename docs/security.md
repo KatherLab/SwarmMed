@@ -1,3 +1,8 @@
+---
+title: Security
+description: Security best practices implemented in MediSwarmCloud.
+---
+
 # Security
 
 Security is a foundational aspect of the MediSwarmCloud platform, designed to protect the confidentiality, integrity, and availability of your data and machine learning models. This page outlines the security measures implemented at various layers of the platform.

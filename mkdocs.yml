@@ -9,9 +9,9 @@ nav:
     - Security: security.md
     - Getting Started: getting-started.md
     - Usage: usage.md
-    - Setup: setup.md
+    - Installation: installation.md
     - Developer: developer.md
-    - FAQ: faq.md
+    - Contribution: contribution.md
     - Elements: elements.md
 
 extra:

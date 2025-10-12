@@ -1,3 +1,8 @@
+---
+title: Usage
+description: How to use the MediSwarmCloud platform.
+---
+
 # Usage
 
 This page explains how to use the MediSwarmCloud platform in more detail.
@@ -31,7 +36,7 @@ As an admin, you can manage existing users, including editing their details or d
 ## For Developers
 
 ??? info "Developer Rights"
-    As a developer, you can create and manage federated learning experiments on the MediSwarm Cloud platform.
+    As a developer, you can create and manage swarm learning experiments on the MediSwarm Cloud platform and see logs.
 
 !!! info "Developer Guide"
     A more detailed developer guide can be found [here](/developer).
@@ -76,7 +81,7 @@ A network defines the participants in your federated learning experiment.
     *   **IP Address:** The IP address of the participant's machine (this should be their Tailscale IP if you are using Tailscale).
     *   **Role:** The role of the participant in the federated learning process. This can be either `server` or `client`.
 
-!!! info "Network editing"
+??? warning "Network editing"
     Networks cant be edited in order to the provision of startup kits.
 
 ### 4. Start Training

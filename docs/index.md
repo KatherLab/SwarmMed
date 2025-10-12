@@ -1,4 +1,9 @@
-# Welcome to MediSwarmCloud
+---
+title: MediSwarmCloud Documentation
+description: Installation and setup instructions for the MediSwarmCloud platform.
+---
+
+# Welcome to MediSwarmCloud Documentation
 
 MediSwarmCloud is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
 
@@ -34,7 +39,7 @@ This documentation provides a comprehensive guide to understanding, setting up, 
 
     Scale your decentralized learning experiments from a few to many participants via Docker.
 
-    [:octicons-arrow-right-24: Setup](/setup)
+    [:octicons-arrow-right-24: Installation](/installation)
     
     [:octicons-arrow-right-24: Developer](/developer)
 
@@ -46,6 +51,24 @@ This documentation provides a comprehensive guide to understanding, setting up, 
 
     [:octicons-arrow-right-24: Github](https://github.com/pfeifferis/MediSwarmCloud)
     
-    [:octicons-arrow-right-24: FAQ](/faq)
+    [:octicons-arrow-right-24: Contribution](/contribution)
 
 </div>
+
+## FAQ
+
+### What is MediSwarmCloud?
+
+MediSwarmCloud is a secure and scalable platform for decentralized learning on medical data. It allows multiple parties to collaboratively train machine learning models without sharing sensitive data via a user-friendly web interface.
+
+### How does Swarm Learning work?
+
+Swarm Learning enables decentralized model training by allowing participants to train models on their local data and share only the model updates, rather than the data itself. This approach helps to maintain data privacy and security.
+
+### What are the system requirements for MediSwarmCloud?
+
+MediSwarmCloud requires Docker and Docker Compose for deployment. Additionally, a VPN connection (e.g., Tailscale) is recommended for secure communication between participants.
+
+### How can I contribute to MediSwarmCloud?
+
+We welcome contributions to the MediSwarmCloud project! Please refer to the [Contribution Guide](/contribution) for more information on how to get involved.

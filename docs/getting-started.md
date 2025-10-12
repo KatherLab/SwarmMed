@@ -1,40 +1,23 @@
+---
+title: Getting Started
+description: Getting started with the MediSwarmCloud platform.
+---
+
 # Getting Started
 
-This guide will walk you through the basic steps to get MediSwarm Cloud up and running.
+This guide will help you get started with the MediSwarmCloud platform, including installation and initial setup, usage and code adaptation.
 
-## Prerequisites
+## 1. Installation
 
-*   **Docker and Docker Compose:** You need to have Docker and Docker Compose installed on your system. You can find the installation instructions here: [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
-*   **Git:** You need Git to clone the repository.
+!!! info "Proceed to Usage"
+    If you or your team have already installed the platform and has code adapted, you can skip this section and proceed to the [Usage](/usage) guide.
 
-## Installation
+Follow the instructions in the [Installation](/installation) guide to install and configure the MediSwarmCloud platform.
 
-1.  **Clone the repository:**
+## 2. Code Creation and Adaptation
 
-    ```bash
-    git clone https://github.com/pfeifferis/MediSwarmCloud.git
-    cd MediSwarmCloud
-    ```
+Once the platform is installed, you need to create or adapt your code to work with the MediSwarmCloud platform. Follow the instructions in the [Developer](/developer) guide to prepare your code for data validation, visualization, and model training.
 
-2.  **Build and run the Docker containers:**
+## 3. Usage
 
-    ```bash
-    docker compose build
-    docker compose up
-    ```
-
-3.  **Create a superuser:**
-
-    Open a new terminal and run the following command:
-
-    ```bash
-    docker exec -it mediswarmcloud python manage.py createsuperuser
-    ```
-
-    Follow the prompts to create a superuser account. This account will be used to log in to the web interface.
-
-## Access the Web Interface
-
-Once the containers are running, you can access the web interface at [http://localhost:8000](http://localhost:8000).
-
-Log in with the superuser credentials you just created.
+Once your code is ready, you can start using the MediSwarmCloud platform for federated learning. Follow the instructions in the [Usage](/usage) guide to learn how to create projects, manage data, run training jobs, monitor progress, and evaluate results.

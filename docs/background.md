@@ -3,7 +3,6 @@ title: Background
 description: Background information about MediSwarmCloud and Swarm Learning.
 ---
 
-
 # Background
 
 MediSwarmCloud was developed to address the challenges of applying **secure machine learning** to **large scale sensitive medical data** with **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in the medical field due to privacy concerns and data governance regulations.
@@ -156,8 +155,6 @@ Being self-hosted provides complete control over the physical storage of data, w
 *   **Access Control:** It has a fine-grained access control mechanism with policies that can be defined on a per-user or per-group basis.
 *   **Auditing:** All API calls to the Minio server can be logged, providing a detailed audit trail of all data access and modification operations.
 
-
-
 ## _DJANGO_[^3] Web Interface
 
 ### What is Django?
@@ -175,8 +172,6 @@ In MediSwarm Cloud, Django is the backbone of the web-based user interface, whic
     *   **Cross-Site Scripting (XSS):** Django's template engine automatically escapes variables, which prevents most XSS attacks.
     *   **Cross-Site Request Forgery (CSRF):** Django has built-in CSRF protection that is easy to enable.
     *   **SQL Injection:** Django's ORM uses parameterized queries, which prevents SQL injection vulnerabilities.
-
-
 
 ## _TAILSCALE_[^4] VPN
 
