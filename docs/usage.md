@@ -198,6 +198,7 @@ Before you can start training, you need to select your current network.
 ### 9. Start Network
 
 After creating a network, you need to start it to enable communication between participants.
+
 1.  Navigate to the **Network** page.
 2.  Click on the **Start Network** button.
 
