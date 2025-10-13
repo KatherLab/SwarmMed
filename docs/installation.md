@@ -1,11 +1,11 @@
 ---
-title: Setup
-description: Setup instructions for MediSwarmCloud.
+title: Installation
+description: Installation instructions for MediSwarmCloud.
 ---
 
-# Setup
+# Installation
 
-This page provides detailed instructions for setting up the MediSwarmCloud platform.
+This page provides detailed instructions for installing the MediSwarmCloud platform.
 
 ## Hardware Requirements
 
