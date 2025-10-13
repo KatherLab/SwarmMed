@@ -95,7 +95,10 @@ AWS_S3_REGION_NAME=your-region
 AWS_S3_ENDPOINT_URL=your-s3-endpoint-url
 ```
 
-Please replace the placeholder values with your actual configuration.
+Please replace the placeholder values with your actual configuration. 
+
+!!! tip "Generate Secret Keys"
+    You can generate a secret keys using the following website: [https://randomkeygen.com](https://randomkeygen.com)
 
 ### Build and Run
 
@@ -113,5 +116,5 @@ docker exec -it mediswarmcloud python manage.py createsuperuser
 Follow the prompts to create your superuser account.
 
 !!! info "Superuser"
-    The superuser has full access to all features and settings in the MediSwarmCloud platform like an admin.
+    The `superuser` has full access to all features and settings in the MediSwarmCloud platform like an `admin`.
 

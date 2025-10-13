@@ -69,7 +69,7 @@ Algorithmically, swarm learning is identical to federated averaging with the mai
         - Broadcast the “learn” task to other clients for the new round.
     - If all rounds are completed:
           - Broadcast the last result to all `result_clients`
-          - Check which client has the best result, and ask that client to distribute the best model to all `result_clients`. [^6]
+          - Check which client has the best result, and ask that client to distribute the best model to all `result_clients`.[^7]
   
 ``` mermaid
 sequenceDiagram
@@ -142,7 +142,7 @@ sequenceDiagram
 
 ### What is Minio?
 
-Minio is a high-performance, self-hosted object storage server that is fully compatible with the Amazon S3 API. In the context of MediSwarm Cloud, it acts as a central repository for all digital assets associated with a decentralized learning project. This includes the training code, datasets, and the resulting models.
+Minio is a high-performance, self-hosted object storage server that is fully compatible with the Amazon S3 API. In the context of MediSwarmCloud, it acts as a central repository for all digital assets associated with a decentralized learning project. This includes the training code, datasets, and the resulting models.
 
 ### Why is Minio important for MediSwarmCloud?
 
@@ -163,7 +163,7 @@ Django is a high-level Python web framework that follows the "batteries-included
 
 ### Why is Django important for MediSwarmCloud?
 
-In MediSwarm Cloud, Django is the backbone of the web-based user interface, which is the primary way users interact with the platform. The choice of Django for MediSwarm Cloud is motivated by its robustness, scalability, and strong security features. For a platform that is exposed to the internet and manages sensitive operations, having a framework that is secure by default is crucial.
+In MediSwarmCloud, Django is the backbone of the web-based user interface, which is the primary way users interact with the platform. The choice of Django for MediSwarmCloud is motivated by its robustness, scalability, and strong security features. For a platform that is exposed to the internet and manages sensitive operations, having a framework that is secure by default is crucial.
 
 ### Key Features
 

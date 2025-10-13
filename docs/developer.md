@@ -5,7 +5,7 @@ description: A guide for developers to write scripts for the MediSwarmCloud plat
 
 # Developer Guide
 
-This guide provides information for developers who write scripts to be run on the MediSwarm Cloud platform. The platform supports three types of scripts:
+This guide provides information for developers who write scripts to be run on the MediSwarmCloud platform. The platform supports three types of scripts:
 
 *   Data Validation Scripts
 *   Data Visualization Scripts
@@ -15,6 +15,9 @@ This guide provides information for developers who write scripts to be run on th
 
 !!! tip "Example Code"
     You can find an example scripts [here](https://github.com/pfeifferis/MediSwarmCloud/tree/main/examples).
+
+!!! tip "Testing Locally"
+    You can test your validation and visualization scripts locally selecting `Test in local environment` in the network settings and reviewing the logs on the logs page.
 
 ## Validation Scripts
 
@@ -287,4 +290,9 @@ This module provides a set of helper functions to handle the communication with 
     flare_adapter.send_model(model, metrics={"loss": 0.5})
 
     print("Training round completed.")
+    ```
+
+    ```bash title="requirements.txt"
+    torch
+    scikit-learn
     ```

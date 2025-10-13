@@ -5,7 +5,7 @@ description: Guidelines for contributing to the MediSwarmCloud project.
 
 # Contribution Guide
 
-This guide provides information for developers who want to contribute to the MediSwarm Cloud project.
+This guide provides information for developers who want to contribute to the MediSwarmCloud project.
 
 ## Local Development Setup
 

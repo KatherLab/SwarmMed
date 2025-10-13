@@ -26,7 +26,7 @@ icon: material/emoticon-happy
 !!! tip
 !!! success
 !!! question
-!!! warining
+!!! warning
 !!! failure
 !!! danger
 !!! bug

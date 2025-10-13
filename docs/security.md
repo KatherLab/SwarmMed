@@ -14,17 +14,18 @@ Security is a foundational aspect of the MediSwarmCloud platform, designed to pr
 
 ### Access Control
 
-MediSwarm Cloud implements a robust role-based access control (RBAC) system to ensure that users only have access to the resources and operations that are necessary for their role.
+MediSwarmCloud implements a robust role-based access control (RBAC) system to ensure that users only have access to the resources and operations that are necessary for their role.
 
 *   **Admin:** The admin user has full control over the platform. They can manage users, projects, and system settings.
-*   **Project Owner:** A project owner can create and manage their own projects. They can add members to their projects and assign them roles.
-*   **Member:** A project member can view and interact with the projects they are a member of. Their permissions are determined by the project owner.
+*   **Developer:** A developer can create and manage projects, upload data, run training jobs and view logs.
+*   **Project Creator:** A project creator can create and manage their own projects.
+*   **User:** A user can view and interact with the projects they are a member of.
 
 ### Auditing and Logging
 
 Comprehensive logging and auditing are in place to provide visibility into the activities on the platform.
 
-*   **Audit Trail:** All user actions, such as logins, project creation, data uploads, and training job submissions, are logged. This creates a detailed audit trail that can be used for security analysis and compliance purposes.
+*   **Audit Trail:** All user actions, such as logins, project creation, data edits, and training job submissions, are logged. This creates a detailed audit trail that can be used for security analysis and compliance purposes.
 *   **Log Access:** Audit logs are accessible to administrators and can be exported for analysis in external security information and event management (SIEM) systems.
 
 ### Vulnerability Management

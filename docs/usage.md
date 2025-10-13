@@ -13,7 +13,7 @@ This page explains how to use the MediSwarmCloud platform in more detail.
     As an admin, you have the ability to manage users and oversee the overall operation of the platform.
 
 ### Create Users
-As an admin, you can create new users who can participate in federated learning experiments.
+As an admin, you can create new users who can participate in decentralized learning experiments.
 
 1.  Navigate to the **Users** page from the sidebar.
 2.  Click on the **Add New User** button.
@@ -29,7 +29,7 @@ As an admin, you can create new users who can participate in federated learning 
 ??? example "Image of user page"
     ![User Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
 
-??? example "Image of Create User form"
+??? example "Image of create user form"
     ![Create User](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
 
 ### Manage Users
@@ -44,7 +44,7 @@ As an admin, you can manage existing users, including editing their details or d
 ## For Developers
 
 ??? info "Developer Rights"
-    As a developer, you can create and manage swarm learning experiments on the MediSwarm Cloud platform and see logs.
+    As a developer, you can create and manage swarm learning experiments on the MediSwarmCloud platform and see logs.
 
 !!! info "Developer Guide"
     A more detailed developer guide can be found [here](/developer).
@@ -57,7 +57,7 @@ As a developer, you can view the logs of the training jobs to monitor their prog
 2.  You will see different sections with Project, Data, Network, Training, and Results logs.
 3.  Click on the **Refresh** button to update the logs.
    
-??? example "Image of Logs page"
+??? example "Image of logs page"
     ![Logs Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
 
 ## For All Users
@@ -66,6 +66,9 @@ As a developer, you can view the logs of the training jobs to monitor their prog
     As a user, you can create projects, upload data, set up networks, and start training jobs.
 
 ### 1. Create a Project
+
+??? info "Project creator rights"
+    Only the project creator can **edit**, **finish**, or **delete** the project.
 
 A project is a workspace for your decentralized learning experiment. It contains the code, data, and configuration.
 
@@ -83,9 +86,6 @@ A project is a workspace for your decentralized learning experiment. It contains
 
 !!! warning "All network participants need the same project code"
     All network participants need to have the same project code. Make sure to share the project code with all participants.
-
-??? warning "Project creator rights"
-    Only the project creator can **edit**, **finish**, or **delete** the project.
 
 ??? example "Image of project page"
     ![Project Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
@@ -105,7 +105,7 @@ Before you can upload data or create a network, you need to select your current 
 
 After creating a project, you need to upload the data that will be used for training.
 
-1.  Navigate to the **Data** page.
+1.  Navigate to the **Data** page from the sidebar.
 2.  Click on the **Upload Data** button.
 3.  Select your **Destination folder** where the data will be stored.
 4.  Select the data files from your local machine. The data should be in a format and structure that is compatible with your training code.
@@ -121,8 +121,9 @@ After creating a project, you need to upload the data that will be used for trai
 
 You can view the files you have uploaded to your project.
 
-1.  Navigate to the **Files** page.
-2.  you can **Download**, **Rename**, or **Delete** files you have uploaded.
+1.  Navigate to the **Data** page from the sidebar.
+2.  Click on the **Files** button.
+3.  you can **Download**, **Rename**, or **Delete** files you have uploaded.
 
 ??? info "Folder download"
     In the current version only single file download is supported.
@@ -134,7 +135,7 @@ You can view the files you have uploaded to your project.
 
 If you have uploaded a data validation script, you can run it to ensure that your data is suitable for training.
 
-1.  Navigate to the **Data** page.
+1.  Navigate to the **Data** page from the sidebar.
 2.  Click on the **Start Validation** button.
 3.  Wait for the validation process to complete. You can monitor the progress on the **Logs** page.
 4.  Once the validation is complete, you can view the results on the same **Data** page.
@@ -146,7 +147,7 @@ If you have uploaded a data validation script, you can run it to ensure that you
 
 If you have uploaded a data visualization script, you can run it to visualize your data.
 
-1.  Navigate to the **Data** page.
+1.  Navigate to the **Data** page from the sidebar.
 2.  Click on the **Generate Plots** button.
 3.  Wait for the visualization process to complete. You can monitor the progress on the **Logs** page.
 4.  Once the visualization is complete, you can view the plots on the same **Data** page.
@@ -158,7 +159,7 @@ If you have uploaded a data visualization script, you can run it to visualize yo
 
 A network defines the participants in your decentralized learning experiment.
 
-1.  Navigate to the **Network** page.
+1.  Navigate to the **Network** page from the sidebar.
 2.  Click on the **Add New Network** button.
 3.  Fill in the network details:
     *   **Title:** A descriptive name for your network.
@@ -179,7 +180,7 @@ A network defines the participants in your decentralized learning experiment.
 7. Click on the **Create Network** button to save your network.
 
 ??? warning "Network editing"
-    Networks cant be edited in order to the provision of startup kits.
+    Networks can't be edited in order to the provision of startup kits.
 
 ??? example "Image of network page"
     ![Network Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
@@ -191,7 +192,7 @@ A network defines the participants in your decentralized learning experiment.
 
 Before you can start training, you need to select your current network.
 
-1.  Navigate to the **Networks** page from the sidebar.
+1.  Navigate to the **Network** page from the sidebar.
 2.  Find the network you want to work on in the list.
 3.  Click on the **Set as Current** button next to the network's name.
 
@@ -199,14 +200,15 @@ Before you can start training, you need to select your current network.
 
 After creating a network, you need to start it to enable communication between participants.
 
-1.  Navigate to the **Network** page.
+1.  Navigate to the **Network** page from the sidebar.
 2.  Click on the **Start Network** button.
+3.  Starting the network can take a few minutes. You can monitor the progress on the **Logs** page.
 
 ### 10. Start Training
 
 Once you have set up your project, data, and network, you can start the training process.
 
-1.  Navigate to the **Training** page.
+1.  Navigate to the **Training** page from the sidebar.
 2.  Click on the **Start Training** button.
 3.  You can monitor the progress of the training job on the **Logs** page.
 4.  Once the training job is complete, you can view the results on the **Results** page.
@@ -218,7 +220,7 @@ Once you have set up your project, data, and network, you can start the training
 
 After the training job is complete, you can view the results.
 
-1.  Navigate to the **Results** page
+1.  Navigate to the **Results** page from the sidebar.
 2.  Click on the **Download Model** button, to download the trained model.
 3.  Click on the **Download Stats** button, to download the training stats.
 4.  Click on the **Download Logs** button, to download the training logs.
@@ -230,7 +232,7 @@ After the training job is complete, you can view the results.
 
 If you have uploaded a results visualization script, you can run it to visualize your results.
 
-1.  Navigate to the **Results** page.
+1.  Navigate to the **Results** page from the sidebar.
 2.  Click on the **Generate Plots** button.
 3.  Wait for the visualization process to complete. You can monitor the progress on the **Logs** page.
 4.  Once the visualization is complete, you can view the plots on the same **Results** page.
