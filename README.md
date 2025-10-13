@@ -77,5 +77,5 @@ systemctl restart tailscaled
 ## Start Documentation website
 
 ```bash
-mkdocs serve --dev-addr 127.0.0.1:9999
+mkdocs serve --dev-addr localhost:9999
 ``` 
