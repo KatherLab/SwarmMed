@@ -5,7 +5,7 @@ import os
 import shutil
 from django.conf import settings
 from django.core.files.storage import default_storage
-from .utils import training_code_path, data_validation_path, data_visualization_path, results_visualization_path
+from .utils import training_code_path, requirements_path, data_validation_path, data_visualization_path, results_visualization_path
 
 class Project(models.Model):
     """
@@ -25,6 +25,7 @@ class Project(models.Model):
     
     # File fields
     training_code = models.FileField(upload_to=training_code_path, blank=True, null=True)
+    requirements_file = models.FileField(upload_to=requirements_path, blank=True, null=True)
     data_validation_script = models.FileField(upload_to=data_validation_path, blank=True, null=True)
     data_visualization_script = models.FileField(upload_to=data_visualization_path, blank=True, null=True)
     results_visualization_script = models.FileField(upload_to=results_visualization_path, blank=True, null=True)
@@ -60,6 +61,7 @@ class Project(models.Model):
                 
                 # Handle file replacements for each field
                 replace_file_and_cleanup(old_instance.training_code, self.training_code, 'code/training/')
+                replace_file_and_cleanup(old_instance.requirements_file, self.requirements_file, 'code/requirements/')
                 replace_file_and_cleanup(old_instance.data_validation_script, self.data_validation_script, 'code/data_validation/')
                 replace_file_and_cleanup(old_instance.data_visualization_script, self.data_visualization_script, 'code/data_visualization/')
                 replace_file_and_cleanup(old_instance.results_visualization_script, self.results_visualization_script, 'code/results_visualization/')

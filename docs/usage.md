@@ -78,11 +78,12 @@ A project is a workspace for your decentralized learning experiment. It contains
     *   **Title:** A descriptive name for your project.
     *   **Members:** Add members via the user uuid (the user can find their uuid on the Profile page).
     *   **Description:** A brief description of your project.
-4.  Upload your training code. Select only the files you need containing your Python scripts including main script `train.py` and any other necessary files for training your model as `requirements.txt`.
-5.  Upload your data validation script as `validation.py` (optional).
-6.  Upload your data visualization script as `visualization.py` (optional).
-7.  Upload your results visualization script as `results_visualization.py` (optional).
-8.  Click on the **Save Project** button to save your project.
+4.  Upload your training code. Select only the files you need containing your Python scripts including main script `train.py`.
+5.  Upload your requirements file as `requirements.txt`.
+6.  Upload your data validation script as `validation.py` (optional).
+7.  Upload your data visualization script as `visualization.py` (optional).
+8.  Upload your results visualization script as `results_visualization.py` (optional).
+9.  Click on the **Save Project** button to save your project.
 
 !!! warning "All network participants need the same project code"
     All network participants need to have the same project code. Make sure to share the project code with all participants.

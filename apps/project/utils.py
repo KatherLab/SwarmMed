@@ -16,6 +16,10 @@ def training_code_path(instance, filename):
     """Path for training code files"""
     return get_upload_path(instance, filename, 'code/training')
 
+def requirements_path(instance, filename):
+    """Path for training code files"""
+    return get_upload_path(instance, filename, 'code/requirements')
+
 def data_validation_path(instance, filename):
     """Path for data validation script"""
     return get_upload_path(instance, filename, 'code/data_validation')
