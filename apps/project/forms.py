@@ -15,7 +15,7 @@ class ProjectForm(forms.ModelForm):
         model = Project
         fields = [
             'title', 'description',
-            'training_code', 'data_validation_script', 'data_visualization_script',
+            'training_code', 'requirements_file', 'data_validation_script', 'data_visualization_script',
             'results_visualization_script'
         ]
     
@@ -28,4 +28,3 @@ class ProjectForm(forms.ModelForm):
             member_identifiers = [str(Profile.objects.get(user=member).identifier) 
                                 for member in instance.members.all()]
             self.initial['member_identifiers'] = ', '.join(member_identifiers)
-
