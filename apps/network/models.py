@@ -12,7 +12,9 @@ class SwarmNetwork(models.Model):
     STATUS_CHOICES = [
         ('INITIALIZING', 'Initializing'),
         ('PROVISIONED', 'Provisioned'),
+        ('STARTING', 'Starting'),
         ('RUNNING', 'Running'),
+        ('STOPPING', 'Stopping'),
         ('STOPPED', 'Stopped'),
         ('ERROR', 'Error'),
     ]
