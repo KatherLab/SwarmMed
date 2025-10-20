@@ -13,6 +13,7 @@ from .models import TrainingJob
 from django.shortcuts import render
 from .utils import download_s3_folder
 import time
+from django.contrib import messages
 
 
 @login_required(login_url='/users/signin/')
@@ -200,6 +201,7 @@ def start_training(request, network_id):
             status='RUNNING' if job_id else 'FAILED',
             flare_job_id=job_id or 'unknown'
         )
+        messages.success(request, f"Successfully submitted job {job_id}")
         
     except Exception as e:
         logger.training.error(f"Submit job via FLARE API failed: {e}", exc_info=True)
@@ -209,6 +211,9 @@ def start_training(request, network_id):
             status='FAILED', 
             flare_job_id='exception'
         )
+        messages.error(request, f"Failed to submit job: {e}")
+
+    return redirect('training')
 
 @login_required(login_url='/users/signin/')
 def stop_training(request, network_id):

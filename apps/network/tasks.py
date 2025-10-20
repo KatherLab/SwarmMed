@@ -108,14 +108,11 @@ def start_swarm_network_task(network_id, user_id):
         # Connect the app container to the FLARE network
         try:
             net_name = os.path.basename(compose_dir) + "_default"  # e.g., 'prod_00_default'
-            app_container = os.environ.get("HOSTNAME")
-            if app_container:
-                logger.network.info(f"Connecting app container {app_container} to network {net_name}")
-                connect_result = subprocess.run(['docker', 'network', 'connect', net_name, app_container], capture_output=True, text=True)
-                logger.network.info(f"docker network connect stdout: {connect_result.stdout}")
-                logger.network.error(f"docker network connect stderr: {connect_result.stderr}")
-            else:
-                logger.network.warning("HOSTNAME env var not set, can't connect app container to FLARE network.")
+            app_container_name = "mediswarmcloud"
+            logger.network.info(f"Connecting app container {app_container_name} to network {net_name}")
+            connect_result = subprocess.run(['docker', 'network', 'connect', net_name, app_container_name], capture_output=True, text=True)
+            logger.network.info(f"docker network connect stdout: {connect_result.stdout}")
+            logger.network.error(f"docker network connect stderr: {connect_result.stderr}")
         except Exception as e:
             logger.network.error(f"Failed to connect app container to FLARE network: {e}")
 
