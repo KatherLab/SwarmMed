@@ -204,8 +204,13 @@
         xhr.upload.addEventListener("progress", function(e) {
             if (e.lengthComputable) {
                 var percent = Math.round((e.loaded / e.total) * 100);
-                progressBar.style.width = percent + "%";
-                progressBar.textContent = percent + "%";
+                if (percent < 100) {
+                    progressBar.style.width = percent + "%";
+                    progressBar.textContent = percent + "%";
+                } else {
+                    progressBar.style.width = "99%";
+                    progressBar.textContent = "99%";
+                }
             }
         });
 
@@ -214,7 +219,7 @@
                 submitBtn.disabled = false;
                 if (xhr.status === 200) {
                     progressBar.style.width = "100%";
-                    progressBar.textContent = "100%";
+                    progressBar.textContent = "Upload finished";
                     successMessage.classList.remove("hidden");
                     form.reset();
                     selectedFilesContainer.classList.add("hidden");
