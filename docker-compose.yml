@@ -31,7 +31,6 @@ services:
       context: .
     networks:
       - db_network
-      - flare_network
     volumes:
       - ./:/app
       - /var/run/docker.sock:/var/run/docker.sock

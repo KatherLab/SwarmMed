@@ -70,16 +70,14 @@
                 <input id="upload-package" name="creation_method" type="radio" value="upload" class="w-4 h-4 text-purple-700 bg-gray-100 border-gray-300 focus:ring-purple-600 dark:focus:ring-purple-700 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
                 <label for="upload-package" class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">Upload Startup Package</label>
             </div>
+            <div class="flex items-center">
+                <input id="local-test" name="creation_method" type="radio" value="local_test" class="w-4 h-4 text-purple-700 bg-gray-100 border-gray-300 focus:ring-purple-600 dark:focus:ring-purple-700 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
+                <label for="local-test" class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">Test in local environment</label>
+            </div>
           </div>
 
           <!-- Conditional UI for Create New -->
           <div id="create-new-options" class="space-y-6">
-            <div>
-                <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Test Locally</label>
-                <input type="checkbox" name="local_test" id="local_test_checkbox" class="w-4 h-4 text-purple-700 bg-gray-100 border-gray-300 rounded focus:ring-purple-600 dark:focus:ring-purple-700 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
-                <span class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">Test in a local environment</span>
-            </div>
-
             <div id="add-client-section">
               <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Add Client</label>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
@@ -140,6 +138,7 @@
     document.addEventListener("DOMContentLoaded", function() {
         const createNewRadio = document.getElementById('create-new');
         const uploadPackageRadio = document.getElementById('upload-package');
+        const localTestRadio = document.getElementById('local-test');
         const createNewOptions = document.getElementById('create-new-options');
         const uploadPackageOptions = document.getElementById('upload-package-options');
 
@@ -157,26 +156,10 @@
             }
         });
 
-        const localTestCheckbox = document.getElementById('local_test_checkbox');
-        const addClientSection = document.getElementById('add-client-section');
-        const clientNameInput = document.getElementById('client-name');
-        const clientIpInput = document.getElementById('client-ip');
-        const addClientButton = addClientSection.querySelector('button');
-
-        localTestCheckbox.addEventListener('change', () => {
-            if (localTestCheckbox.checked) {
-                addClientSection.style.display = 'none';
-                clientNameInput.disabled = true;
-                clientIpInput.disabled = true;
-                addClientButton.disabled = true;
-                document.getElementById('client-list').innerHTML = '';
-                const hiddenInputs = document.querySelectorAll('input[name="clients"]');
-                hiddenInputs.forEach(input => input.remove());
-            } else {
-                addClientSection.style.display = 'block';
-                clientNameInput.disabled = false;
-                clientIpInput.disabled = false;
-                addClientButton.disabled = false;
+        localTestRadio.addEventListener('change', () => {
+            if (localTestRadio.checked) {
+                createNewOptions.style.display = 'none';
+                uploadPackageOptions.style.display = 'none';
             }
         });
 

@@ -3,6 +3,11 @@ import docker
 from apps.logs.models import LogEntry, LogCategory, SwarmNetwork
 from apps.project.models import Project
 from apps.logs.logger import get_logger
+import os
+import subprocess
+import yaml
+from django.contrib.auth.models import User
+from django.conf import settings
 
 @shared_task(bind=True)
 def execute_and_log_in_container(self, container_name: str, command: str, network_id: str, project_id: str, user_id: int):
@@ -51,3 +56,110 @@ def execute_and_log_in_container(self, container_name: str, command: str, networ
                 )
         except Exception as log_e:
             logger.network.critical(f"CRITICAL: Failed to log exception to DB. Main error: {e}, Logging error: {log_e}")
+
+@shared_task
+def start_swarm_network_task(network_id, user_id):
+    swarm_network = SwarmNetwork.objects.get(identifier=network_id)
+    user = User.objects.get(id=user_id)
+    logger = get_logger(user=user, project=swarm_network.project)
+    project_name = swarm_network.project.title.replace(' ', '_')
+    provision_dir = os.path.join(settings.BASE_DIR, 'workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
+    compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
+    compose_file_path = os.path.join(compose_dir, 'compose.yaml')
+
+    # Extra logging
+    logger.network.info(f"Checking for files in: {compose_dir}")
+    try:
+        files_in_dir = os.listdir(compose_dir)
+        logger.network.info(f"Files found: {files_in_dir}")
+    except FileNotFoundError:
+        logger.network.error(f"Directory not found: {compose_dir}")
+
+    logger.network.info(f"Looking for compose file at: {compose_file_path}")
+    if os.path.exists(compose_file_path):
+        host_project_path = os.getenv('HOST_PROJECT_PATH')
+        if host_project_path:
+            with open(compose_file_path, 'r') as f:
+                compose_content = f.read()
+
+            relative_compose_dir = os.path.relpath(compose_dir, settings.BASE_DIR)
+            host_compose_dir = os.path.join(host_project_path, relative_compose_dir)
+
+            compose_content = compose_content.replace('build: ./nvflare', f'build: {os.path.join(host_compose_dir, "nvflare")}')
+            compose_content = compose_content.replace('./fl-client', os.path.join(host_compose_dir, 'fl-client'))
+            compose_content = compose_content.replace('./server', os.path.join(host_compose_dir, 'server'))
+            compose_content = compose_content.replace('./overseer', os.path.join(host_compose_dir, 'overseer'))
+
+            with open(compose_file_path, 'w') as f:
+                f.write(compose_content)
+            
+            logger.network.info("Modified compose file to use absolute host paths.")
+
+        logger.network.info("Compose file found. Running docker compose build")
+        build_result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'build'], cwd=compose_dir, capture_output=True, text=True)
+        logger.network.info(f"docker compose build stdout: {build_result.stdout}")
+        logger.network.error(f"docker compose build stderr: {build_result.stderr}")
+
+        logger.network.info("Running docker compose up -d")
+        up_result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'up', '-d'], cwd=compose_dir, capture_output=True, text=True)
+        logger.network.info(f"docker compose up stdout: {up_result.stdout}")
+        logger.network.error(f"docker compose up stderr: {up_result.stderr}")
+
+        # Connect the app container to the FLARE network
+        try:
+            net_name = os.path.basename(compose_dir) + "_default"  # e.g., 'prod_00_default'
+            app_container = os.environ.get("HOSTNAME")
+            if app_container:
+                logger.network.info(f"Connecting app container {app_container} to network {net_name}")
+                connect_result = subprocess.run(['docker', 'network', 'connect', net_name, app_container], capture_output=True, text=True)
+                logger.network.info(f"docker network connect stdout: {connect_result.stdout}")
+                logger.network.error(f"docker network connect stderr: {connect_result.stderr}")
+            else:
+                logger.network.warning("HOSTNAME env var not set, can't connect app container to FLARE network.")
+        except Exception as e:
+            logger.network.error(f"Failed to connect app container to FLARE network: {e}")
+
+        swarm_network.status = 'RUNNING'
+        swarm_network.save()
+    else:
+        logger.network.error(f"Compose file not found at: {compose_file_path}")
+        swarm_network.status = 'ERROR'
+        swarm_network.save()
+
+
+@shared_task
+def stop_swarm_network_task(network_id, user_id):
+    swarm_network = SwarmNetwork.objects.get(identifier=network_id)
+    user = User.objects.get(id=user_id)
+    logger = get_logger(user=user, project=swarm_network.project)
+    project_name = swarm_network.project.title.replace(' ', '_')
+    provision_dir = os.path.join(settings.BASE_DIR, 'workspaces', str(swarm_network.project.identifier), str(swarm_network.identifier))
+    compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
+    compose_file_path = os.path.join(compose_dir, 'compose.yaml')
+
+    if os.path.exists(compose_file_path):
+        host_project_path = os.getenv('HOST_PROJECT_PATH')
+        if host_project_path:
+            with open(compose_file_path, 'r') as f:
+                compose_content = f.read()
+
+            relative_compose_dir = os.path.relpath(compose_dir, settings.BASE_DIR)
+            host_compose_dir = os.path.join(host_project_path, relative_compose_dir)
+
+            compose_content = compose_content.replace('build: ./nvflare', f'build: {os.path.join(host_compose_dir, "nvflare")}')
+            compose_content = compose_content.replace('./fl-client', os.path.join(host_compose_dir, 'fl-client'))
+            compose_content = compose_content.replace('./server', os.path.join(host_compose_dir, 'server'))
+            compose_content = compose_content.replace('./overseer', os.path.join(host_compose_dir, 'overseer'))
+
+            with open(compose_file_path, 'w') as f:
+                f.write(compose_content)
+
+        logger.network.info(f"Stopping swarm network {swarm_network.name}")
+        subprocess.run(['docker-compose', '-f', 'compose.yaml', 'down'], cwd=compose_dir)
+        swarm_network.status = 'STOPPED'
+        swarm_network.save()
+        logger.network.info(f"Swarm network {swarm_network.name} stopped successfully")
+    else:
+        logger.network.error(f"Compose file not found at: {compose_file_path}")
+        swarm_network.status = 'ERROR'
+        swarm_network.save()

@@ -26,7 +26,12 @@
             </li>
           </ol>
         </nav>
-        <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Project Logs</h1>
+        <div class="flex justify-between items-center">
+          <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Project Logs</h1>
+          <a href="#" onclick="location.reload();" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+            Refresh
+          </a>
+        </div>
       </div>
 
       {% for category in categories_list %}

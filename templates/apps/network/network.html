@@ -279,4 +279,34 @@
   </div>
 </main>
 
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const currentNetworkId = "{{ current_network.identifier }}";
+    const statusElement = document.getElementById('vpnStatus');
+    
+    if (currentNetworkId && statusElement) {
+        const currentStatus = statusElement.textContent.trim();
+        
+        if (currentStatus === 'Starting' || currentStatus === 'Stopping') {
+            const interval = setInterval(() => {
+                fetch(`/network/${currentNetworkId}/status/`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status !== 'Starting' && data.status !== 'Stopping') {
+                            clearInterval(interval);
+                            location.reload();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching network status:', error);
+                        clearInterval(interval);
+                    });
+            }, 5000); // Poll every 5 seconds
+        }
+    }
+});
+</script>
+{% endblock extra_js %}
+
 {% endblock content %}
