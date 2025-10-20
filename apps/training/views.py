@@ -14,6 +14,51 @@ from django.shortcuts import render
 from .utils import download_s3_folder
 import time
 from django.contrib import messages
+from apps.project.models import Project, UserCurrentProject
+
+def get_user_project(request):
+    """
+    Get the current user's active project identifier.
+    
+    Args:
+        request: Django request object
+        
+    Returns:
+        tuple: (project_uuid, is_valid)
+            - project_uuid: String UUID of the project or None
+            - is_valid: Boolean indicating if a valid project was found
+    """
+    try:
+        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        if not user_current_project.project:
+            return None, False
+        
+        return str(user_current_project.project.identifier), True
+    except UserCurrentProject.DoesNotExist:
+        return None, False
+
+
+@login_required(login_url='/users/signin/')
+def training(request):
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return render(request, "apps/training/no_project_selected.html", {"segment": "training"})
+    
+    try:
+        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+    except UserCurrentNetwork.DoesNotExist:
+        current_network = None
+
+    is_training_running = False
+    if current_network:
+        is_training_running = TrainingJob.objects.filter(network=current_network, status='RUNNING').exists()
+
+    context = {
+        'segment': 'training',
+        'current_network': current_network,
+        'is_training_running': is_training_running,
+    }
+    return render(request, "apps/training/training.html", context)
 
 
 @login_required(login_url='/users/signin/')
@@ -245,21 +290,3 @@ def stop_training(request, network_id):
             logger.training.info(f"Removed job folder: {job_dir}")
 
     return redirect('training')
-
-@login_required(login_url='/users/signin/')
-def training(request):
-    try:
-        current_network = UserCurrentNetwork.objects.get(user=request.user).network
-    except UserCurrentNetwork.DoesNotExist:
-        current_network = None
-
-    is_training_running = False
-    if current_network:
-        is_training_running = TrainingJob.objects.filter(network=current_network, status='RUNNING').exists()
-
-    context = {
-        'segment': 'training',
-        'current_network': current_network,
-        'is_training_running': is_training_running,
-    }
-    return render(request, "apps/training.html", context)

@@ -4,6 +4,8 @@ from apps.project.models import Project
 import uuid
 import os
 import shutil
+import subprocess
+from django.conf import settings
 
 class SwarmNetwork(models.Model):
     """
@@ -32,6 +34,31 @@ class SwarmNetwork(models.Model):
         return f"{self.name} for Project {self.project.title}"
 
     def delete(self, *args, **kwargs):
+        if self.status == 'RUNNING':
+            project_name = self.project.title.replace(' ', '_')
+            provision_dir = os.path.join(settings.BASE_DIR, 'workspaces', str(self.project.identifier), str(self.identifier))
+            compose_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00')
+            compose_file_path = os.path.join(compose_dir, 'compose.yaml')
+
+            if os.path.exists(compose_file_path):
+                host_project_path = os.getenv('HOST_PROJECT_PATH')
+                if host_project_path:
+                    with open(compose_file_path, 'r') as f:
+                        compose_content = f.read()
+
+                    relative_compose_dir = os.path.relpath(compose_dir, settings.BASE_DIR)
+                    host_compose_dir = os.path.join(host_project_path, relative_compose_dir)
+
+                    compose_content = compose_content.replace('build: ./nvflare', f'build: {os.path.join(host_compose_dir, "nvflare")}')
+                    compose_content = compose_content.replace('./fl-client', os.path.join(host_compose_dir, 'fl-client'))
+                    compose_content = compose_content.replace('./server', os.path.join(host_compose_dir, 'server'))
+                    compose_content = compose_content.replace('./overseer', os.path.join(host_compose_dir, 'overseer'))
+
+                    with open(compose_file_path, 'w') as f:
+                        f.write(compose_content)
+
+                subprocess.run(['docker-compose', '-f', 'compose.yaml', 'down'], cwd=compose_dir)
+
         # Clean up the provisioning directory before deleting the object
         provision_dir = os.path.join('workspaces', str(self.project.identifier), str(self.identifier))
         if os.path.exists(provision_dir):
