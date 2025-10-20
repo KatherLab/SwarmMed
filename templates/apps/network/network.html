@@ -62,6 +62,14 @@
             </svg>
             Stop Network
         </a>
+        {% elif current_network.status == 'STARTING' or current_network.status == 'STOPPING' %}
+        <button disabled class="inline-flex items-center px-3 py-2 text-sm font-medium text-center bg-gray-100 text-gray-400 border border-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:text-gray-400">
+            <svg class="w-6 h-6 mr-2 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            {{ current_network.get_status_display }}...
+        </button>
         {% else %}
         <a href="{% url 'start_swarm_network' current_network.identifier %}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-center bg-green-100 text-green-700 border border-green-100 hover:border-green-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-green-300 dark:text-green-300">
             <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
