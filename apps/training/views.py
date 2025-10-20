@@ -46,8 +46,10 @@ def training(request):
     
     try:
         current_network = UserCurrentNetwork.objects.get(user=request.user).network
+        if not current_network or current_network.status != 'RUNNING':
+            return render(request, "apps/training/no_network_started.html", {"segment": "training"})
     except UserCurrentNetwork.DoesNotExist:
-        current_network = None
+        return render(request, "apps/training/no_network_started.html", {"segment": "training"})
 
     is_training_running = False
     if current_network:
