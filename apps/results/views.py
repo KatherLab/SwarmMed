@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from apps.project.models import Project, UserCurrentProject
+from apps.training.models import TrainingJob
 
 def get_user_project(request):
     """
@@ -32,6 +33,12 @@ def results(request):
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
         return render(request, "apps/results/no_project_selected.html", {"segment": "results"})
+
+    project = Project.objects.get(identifier=current_project_uuid)
+    finished_trainings = TrainingJob.objects.filter(project=project, status='COMPLETED').exists()
+
+    if not finished_trainings:
+        return render(request, "apps/results/no_training_finished.html", {"segment": "results"})
 
     context = {
         'segment': 'results',
