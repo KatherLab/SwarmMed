@@ -4,6 +4,8 @@ from django.utils import timezone
 from datetime import timedelta
 from apps.users.decorators import developer_required
 import os
+from django.http import HttpResponse
+
 # Import the get_user_project function from your project app
 try:
     from ..project.models import UserCurrentProject
@@ -23,6 +25,37 @@ def get_user_project(request):
         return user_current_project.project, True
     except UserCurrentProject.DoesNotExist:
         return None, False
+
+@developer_required
+@login_required(login_url='/users/signin/')
+def download_log_category(request, category_key):
+    """Download all logs for a specific category."""
+    project, is_valid = get_user_project(request)
+    if not is_valid:
+        return HttpResponse("No project selected.", status=404)
+
+    from .models import LogEntry, LogCategory
+
+    # Check if the category_key is valid
+    if category_key not in [choice[0] for choice in LogCategory.choices]:
+        return HttpResponse("Invalid category.", status=404)
+
+    # Get all logs for this category
+    log_entries = LogEntry.objects.filter(
+        project=project,
+        category=category_key
+    ).select_related('user').order_by('timestamp')
+
+    # Format the logs into a string
+    log_content = ""
+    for entry in log_entries:
+        log_content += f"[{entry.timestamp.strftime('%Y-%m-%d %H:%M:%S')}][{entry.user.email}] {entry.level} - [{entry.source}] {entry.message}\n"
+
+    # Create the HttpResponse with the log content
+    response = HttpResponse(log_content, content_type='text/plain')
+    response['Content-Disposition'] = f'attachment; filename="{project.title.replace(" ", "_")}_{category_key}_logs.txt"'
+
+    return response
 
 @developer_required
 @login_required(login_url='/users/signin/')

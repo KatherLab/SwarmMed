@@ -37,8 +37,8 @@ def results(request):
     project = Project.objects.get(identifier=current_project_uuid)
     finished_trainings = TrainingJob.objects.filter(project=project, status='COMPLETED').exists()
 
-    if not finished_trainings:
-        return render(request, "apps/results/no_training_finished.html", {"segment": "results"})
+    #if not finished_trainings:
+    #    return render(request, "apps/results/no_training_finished.html", {"segment": "results"})
 
     context = {
         'segment': 'results',
