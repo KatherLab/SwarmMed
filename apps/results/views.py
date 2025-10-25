@@ -24,10 +24,6 @@ def get_user_project(request):
     except UserCurrentProject.DoesNotExist:
         return None, False
 
-
-
-
-
 @login_required(login_url='/users/signin/')
 def results(request):
     current_project_uuid, is_valid = get_user_project(request)
