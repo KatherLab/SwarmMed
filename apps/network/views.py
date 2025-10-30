@@ -37,12 +37,12 @@ def get_user_project(request):
 
 @login_required(login_url='/users/signin/')
 def network(request):
-    current_project_relation = UserCurrentProject.objects.get(user=request.user)
-    swarm_networks = SwarmNetwork.objects.filter(project=current_project_relation.project)
-    
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
         return render(request, "apps/network/no_project_selected.html", {"segment": "network"})
+
+    current_project_relation = UserCurrentProject.objects.get(user=request.user)
+    swarm_networks = SwarmNetwork.objects.filter(project=current_project_relation.project)
     
     try:
         current_network = UserCurrentNetwork.objects.get(user=request.user).network

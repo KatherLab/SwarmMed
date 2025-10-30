@@ -40,7 +40,7 @@ def index(request):
         current_project = current_project_relation.project
     except UserCurrentProject.DoesNotExist:
         # If no current project set, use the most recent project
-        current_project = user_projects.order_by('-created_at').first()
+        current_project = user_projects.order_by('-creation_date').first()
     
     # Calculate project statistics
     total_projects = user_projects.count()

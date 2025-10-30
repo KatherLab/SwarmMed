@@ -122,6 +122,9 @@
                   Username
                 </th>
                 <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                  UUID
+                </th>
+                <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                   Role
                 </th>
                 <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
@@ -151,6 +154,10 @@
                 </td>
                 <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
                   <div class="text-base font-semibold text-gray-900 dark:text-white">{{ user.username }}</div>
+                </td>
+                <td
+                  class="max-w-sm p-4 overflow-hidden text-base font-normal text-gray-500 truncate xl:max-w-xs dark:text-gray-400">
+                  {{ user.profile.identifier }}
                 </td>
                 <td
                   class="max-w-sm p-4 overflow-hidden text-base font-normal text-gray-500 truncate xl:max-w-xs dark:text-gray-400">

@@ -90,8 +90,8 @@ def user_list(request):
         form = SignupForm(request.POST)
         if form.is_valid():
             user = form.save()
-            profile = Profile(user=user, role=form.cleaned_data['role'])
-            profile.save()
+            user.profile.role = form.cleaned_data['role']
+            user.profile.save()
             return redirect(request.META.get('HTTP_REFERER'))
 
     context = {
