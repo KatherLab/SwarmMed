@@ -47,6 +47,8 @@ def log(level, message, category='project', user=None, project=None, **extra):
     
     # Prepare extra data
     log_extra = extra.copy()
+    exc_info = log_extra.pop('exc_info', None)
+
     if final_user:
         log_extra['user_id'] = final_user.id
     if final_project:
@@ -56,7 +58,7 @@ def log(level, message, category='project', user=None, project=None, **extra):
     log_extra['context_data'] = extra
     
     # Log the message
-    getattr(_logger, level.lower())(message, extra=log_extra)
+    getattr(_logger, level.lower())(message, exc_info=exc_info, extra=log_extra)
 
 class CategoryLogger:
     """Logger for a specific category"""

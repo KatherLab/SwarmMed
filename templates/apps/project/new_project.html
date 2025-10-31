@@ -76,14 +76,7 @@
             >{{ form.member_identifiers.value|default:'' }}</textarea>
           </div>
 
-          <!-- Creation Date -->
-          <div>
-            <label for="id_creation_date" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Creation Date</label>
-            <input type="date" id="id_creation_date" name="creation_date" class="shadow-sm bg-gray-50 border {% if form.creation_date.errors %}border-red-500{% else %}border-gray-300{% endif %} text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" required {% if form.creation_date.value %}value="{{ form.creation_date.value|date:'Y-m-d' }}"{% endif %} />
-            {% if form.creation_date.errors %}
-            <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.creation_date.errors.0 }}</p>
-            {% endif %}
-          </div>
+
           
           <!-- Description -->
           <div>
@@ -127,6 +120,39 @@
                 </div>
               </div>
               <input type="hidden" id="training_code_directories" name="training_code_directories" />
+            </div>
+
+            <!-- requirements.txt (Only requirements.txt file) -->
+            <div>
+              <label for="id_requirements_file" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Requirements File</label>
+              {% if form.instance.requirements_file %}
+                <div class="flex items-center mb-2 gap-2">
+                  <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.requirements_file.name }}</span>
+                  <a href="{{ form.instance.requirements_file.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                </div>
+              {% endif %}
+              <label for="id_requirements_file" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.requirements_file.errors %}border-red-500{% endif %}">
+                <div class="flex flex-col items-center justify-center pt-5 pb-5">
+                  <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                    <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
+                    <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
+                  </svg>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
+                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">requirements.txt only</p>
+                </div>
+                <input id="id_requirements_file" name="requirements_file" type="file" accept=".txt" class="hidden" />
+              </label>
+              {% if form.requirements_file.errors %}
+              <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.requirements_file.errors.0 }}</p>
+              {% endif %}
+              
+              <!-- Selected Files Display for requirements.txt -->
+              <div id="requirements_file_container" class="mt-4 hidden">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-2">Selected requirements file:</h3>
+                <div id="requirements_file_list" class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 max-h-60 overflow-y-auto">
+                  <!-- File info will be inserted here by JavaScript -->
+                </div>
+              </div>
             </div>
           
             <!-- Data Validation Script (Only .py file) -->
@@ -275,6 +301,14 @@
       "results_visualization_files_container", 
       "results_visualization_files_list"
     );
+
+    // Handle file selection display for requirements.txt (single .txt file)
+    setupSingleFileUploadDisplay(
+      "id_requirements_file", 
+      "requirements_file_container", 
+      "requirements_file_list",
+      "requirements.txt"
+    );
   });
 
   function setupMultipleFileUploadDisplay(inputId, containerId, listId, directoriesInputId) {
@@ -346,7 +380,7 @@
     });
   }
   
-  function setupSingleFileUploadDisplay(inputId, containerId, listId) {
+  function setupSingleFileUploadDisplay(inputId, containerId, listId, requiredFileName) {
     const fileInput = document.getElementById(inputId);
     const selectedFilesContainer = document.getElementById(containerId);
     const selectedFilesList = document.getElementById(listId);
@@ -359,6 +393,12 @@
       
       // Display selected file
       if (file) {
+        if (requiredFileName && file.name !== requiredFileName) {
+            alert(`Please select a file named '${requiredFileName}'.`);
+            fileInput.value = ''; // Clear the input
+            return;
+        }
+
         selectedFilesContainer.classList.remove("hidden");
         
         const fileItem = document.createElement('div');

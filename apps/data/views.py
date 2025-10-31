@@ -14,7 +14,8 @@ from .models import ValidationRun, ValidationCheck, VisualizationRun, Visualizat
 from .tasks import run_validation_task, run_visualization_task
 from .utils import (
     list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
-    delete_s3_folder, rename_s3_folder, get_storage_stats, format_size
+    delete_s3_folder, rename_s3_folder, get_storage_stats, format_size,
+    get_column_prefixes
 )
 from apps.logs import logger
 
@@ -109,24 +110,6 @@ def upload_files(request):
     }
     
     return render(request, 'apps/data/upload.html', context)
-
-def get_column_prefixes(path):
-    """
-    Given a path like 'foo/bar/baz/', return ['','foo/','foo/bar/','foo/bar/baz/']
-    
-    Args:
-        path (str): Path string
-        
-    Returns:
-        list: List of path prefixes
-    """
-    if not path:
-        return [""]
-    parts = path.rstrip('/').split('/')
-    prefixes = [""]
-    for i in range(len(parts)):
-        prefixes.append('/'.join(parts[:i+1]) + '/')
-    return prefixes
 
 @login_required(login_url='/users/signin/')
 def list_files(request):

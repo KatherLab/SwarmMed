@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import models
 from apps.project.models import Project, UserCurrentProject
 from apps.data.utils import get_storage_stats, format_size
+from apps.network.models import SwarmNetwork, UserCurrentNetwork, SwarmParticipant
 
 def get_user_project_uuid(request):
     """
@@ -93,11 +94,23 @@ def index(request):
     # Format aggregated storage
     formatted_total_storage_all = format_size(total_storage_all_projects)
     
-    # Mock data for features not yet implemented
-    # Replace these with actual queries when you implement networks, etc.
-    total_networks = 3  # Replace with actual network count
-    current_network = "Saxony Network"  # Replace with actual current network
-    network_partners = 8  # Replace with actual partner count
+    # Network data
+    total_networks = SwarmNetwork.objects.filter(project__in=user_projects).count()
+    current_network_obj = None
+    network_partners = 0
+    
+    try:
+        user_current_network = UserCurrentNetwork.objects.get(user=request.user)
+        if user_current_network.network and user_current_network.network.project in user_projects:
+            current_network_obj = user_current_network.network
+    except UserCurrentNetwork.DoesNotExist:
+        current_network_obj = SwarmNetwork.objects.filter(project__in=user_projects).order_by('-created_at').first()
+
+    if current_network_obj:
+        network_partners = SwarmParticipant.objects.filter(network=current_network_obj).count()
+        current_network_name = current_network_obj.name
+    else:
+        current_network_name = "No active network"
     
     # Training progress (mock data - replace with actual training status)
     training_status = "Running..."
@@ -121,9 +134,9 @@ def index(request):
         'total_storage_all_projects': formatted_total_storage_all,
         'total_folders_all_projects': total_folders_all_projects,
         
-        # Network data (mock for now)
+        # Network data
         'total_networks': total_networks,
-        'current_network': current_network,
+        'current_network': current_network_name,
         'network_partners': network_partners,
         
         # Training data (mock for now)
@@ -132,7 +145,6 @@ def index(request):
     }
     
     return render(request, "dashboard/index.html", context)
-
 
 def starter(request):
     context = {}

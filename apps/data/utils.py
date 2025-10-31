@@ -13,6 +13,18 @@ def get_s3_client():
         endpoint_url=settings.AWS_S3_ENDPOINT_URL
     )
 
+def get_public_s3_client():
+    """
+    Create and return an S3 client using public URL settings.
+    """
+    return boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+        endpoint_url=settings.PUBLIC_URL
+    )
+
 def create_minio_bucket(bucket_name):
     """
     Create a new bucket if it doesn't exist.
@@ -123,20 +135,6 @@ def rename_s3_folder(old_prefix, new_prefix):
             new_key = new_prefix + old_key[len(old_prefix):]
             copy_s3_object(old_key, new_key)
             delete_s3_object(old_key)
-    
-def make_public_presigned_url(url):
-    """
-    Convert internal URLs to public-facing URLs.
-    
-    Args:
-        url (str): Internal URL
-    
-    Returns:
-        str: Public URL
-    """
-    internal = settings.AWS_S3_ENDPOINT_URL
-    public = settings.PUBLIC_URL
-    return url.replace(internal, public)
 
 def get_s3_download_url(key, expires=3600):
     """
@@ -149,13 +147,13 @@ def get_s3_download_url(key, expires=3600):
     Returns:
         str: Presigned download URL
     """
-    s3 = get_s3_client()
+    s3 = get_public_s3_client()
     url = s3.generate_presigned_url(
         'get_object',
         Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': key},
         ExpiresIn=expires
     )
-    return make_public_presigned_url(url)
+    return url
 
 def get_storage_stats(prefix=""):
     """
@@ -227,3 +225,21 @@ def format_size(size_bytes):
         return f"{size:.1f} {units[unit_index]}"
     else:
         return f"{size} {units[unit_index]}"
+
+def get_column_prefixes(path):
+    """
+    Given a path like 'foo/bar/baz/', return ['','foo/','foo/bar/','foo/bar/baz/']
+    
+    Args:
+        path (str): Path string
+        
+    Returns:
+        list: List of path prefixes
+    """
+    if not path:
+        return [""]
+    parts = path.rstrip('/').split('/')
+    prefixes = [""]
+    for i in range(len(parts)):
+        prefixes.append('/'.join(parts[:i+1]) + '/')
+    return prefixes

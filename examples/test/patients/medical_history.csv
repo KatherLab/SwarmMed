@@ -1,0 +1,6 @@
+patient_id,diabetes,hypertension,smoker,bmi
+P001,No,Yes,No,24.5
+P002,Yes,No,Yes,28.3
+P003,No,No,No,22.1
+P004,Yes,Yes,No,31.2
+P005,No,No,Yes,26.7

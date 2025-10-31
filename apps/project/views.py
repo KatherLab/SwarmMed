@@ -7,6 +7,7 @@ from django.db import models
 from django.core.files.storage import default_storage
 from django.conf import settings
 from .models import Project, UserCurrentProject
+from apps.network.models import UserCurrentNetwork
 from .forms import ProjectForm
 from .utils import process_member_identifiers, handle_training_code_upload
 from apps.logs import logger
@@ -26,14 +27,18 @@ def project_list(request):
     except UserCurrentProject.DoesNotExist:
         current_project = None
     
-    # Count of finished projects (assuming a status field or other criteria)
-    finished_projects_count = 0  # Replace with actual query when implemented
+    # Count of finished projects
+    finished_projects_count = user_projects.filter(status='FINISHED').count()
+    total_projects = user_projects.count()
+    projects_to_do_count = total_projects - finished_projects_count
     
     context = {
         'segment': 'project',
         'projects': user_projects,
         'current_project': current_project,
         'finished_projects_count': finished_projects_count,
+        'projects_to_do_count': projects_to_do_count,
+        'total_projects': total_projects,
     }
     
     return render(request, 'apps/project/project.html', context)
@@ -143,4 +148,16 @@ def set_current_project(request, pk):
         defaults={'project': project}
     )
     
+    # Unset the current network
+    UserCurrentNetwork.objects.filter(user=request.user).delete()
+    
+    return redirect('project_list')
+
+@login_required(login_url='/users/signin/')
+def project_finish(request, pk):
+    """Sets a project's status to 'Finished'."""
+    project = get_object_or_404(Project, pk=pk)
+    if request.user == project.author:
+        project.status = 'FINISHED'
+        project.save()
     return redirect('project_list')

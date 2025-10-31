@@ -1,2 +1,4 @@
+workspaces
 postgres_data
 venv
+staticfiles

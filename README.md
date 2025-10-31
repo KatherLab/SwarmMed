@@ -1,4 +1,4 @@
-# MediSwarmCLoud
+# MediSwarmCloud
 
 ## Installation
 
@@ -66,3 +66,16 @@ npm run build
 npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
 npx webpack --watch
 ```
+### Troubleshooting
+#### No Tailscale Connection
+```bash
+tailscale set --accept-dns=false
+systemctl restart tailscaled
+```
+
+
+## Start Documentation website
+
+```bash
+mkdocs serve --dev-addr localhost:9999
+``` 

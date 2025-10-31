@@ -1,0 +1,7 @@
+{
+  "min_patients_per_study": 2,
+  "max_bp_systolic": 200,
+  "max_bp_diastolic": 120,
+  "required_patient_fields": ["patient_id", "age", "gender"],
+  "data_quality_threshold": 0.95
+}

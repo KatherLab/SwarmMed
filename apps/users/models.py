@@ -7,6 +7,7 @@ import uuid
 
 ROLE_CHOICES = (
     ('admin'  , 'Admin'),
+    ('developer', 'Developer'),
     ('user'  , 'User'),
 )
 class Profile(models.Model):
