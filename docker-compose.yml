@@ -9,7 +9,6 @@ services:
     networks:
       - db_network
       - web_network
-      - flare_network
     volumes:
       - ./:/app
       - /var/run/docker.sock:/var/run/docker.sock
@@ -107,8 +106,6 @@ networks:
   db_network:
     driver: bridge
   web_network:
-    driver: bridge
-  flare_network:
     driver: bridge
 
 volumes:
