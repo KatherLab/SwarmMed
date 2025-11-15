@@ -11,10 +11,12 @@ from django.conf import settings
 from apps.network.models import SwarmNetwork, UserCurrentNetwork
 from .models import TrainingJob
 from django.shortcuts import render
-from .utils import download_s3_folder
+from .utils import download_s3_folder, get_s3_client
 import time
 from django.contrib import messages
 from apps.project.models import Project, UserCurrentProject
+from apps.results.models import TrainingResult
+import tempfile
 
 def get_user_project(request):
     """
