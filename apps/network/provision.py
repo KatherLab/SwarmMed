@@ -122,7 +122,7 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
       - path: nvflare.lighter.impl.docker.DockerBuilder
         args:
           base_image: python:3.10-slim
-          #requirements_file: docker_compose_requirements.txt
+          requirements_file: docker_compose_requirements.txt
       - path: nvflare.lighter.impl.static_file.StaticFileBuilder
         args:
             overseer_agent:
@@ -158,6 +158,9 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         logger.network.info(f"Successfully provisioned startup kit in {provision_dir}")
         network.status = 'PROVISIONED'
         network.save()
+        # write docker compose requirements to ensure nvflare and gunicorn installed in images
+        with open(os.path.join(provision_dir, 'docker_compose_requirements.txt'), 'w') as rf:
+            rf.write('nvflare\n')
 
 
 

@@ -227,7 +227,7 @@ def start_training(request, network_id):
         job_path = os.path.join('/app', job_dir)
 
         # Open secure session with the admin startup kit (cert auth)
-        sess = new_secure_session(username='admin@nvidia.com', startup_kit_location=admin_user_dir)
+        sess = new_secure_session(username='admin@nvidia.com', startup_kit_location=admin_user_dir, timeout=60.0)
 
         # Optional: sanity check connectivity
         # sys_info = sess.get_system_info()
