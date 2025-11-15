@@ -223,8 +223,17 @@ def start_training(request, network_id):
         time.sleep(5)
 
         from nvflare.fuel.flare_api.flare_api import new_secure_session
+        import socket
         
         job_path = os.path.join('/app', job_dir)
+
+        # Wait for Overseer to be reachable inside the FLARE network
+        for _ in range(60):
+            try:
+                with socket.create_connection(("overseer", 8443), timeout=2):
+                    break
+            except Exception:
+                time.sleep(1)
 
         # Open secure session with the admin startup kit (cert auth)
         sess = new_secure_session(username='admin@nvidia.com', startup_kit_location=admin_user_dir, timeout=60.0)

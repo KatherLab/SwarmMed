@@ -96,6 +96,29 @@ def start_swarm_network_task(network_id, user_id):
             logger.network.info("Modified compose file to use absolute host paths.")
 
         logger.network.info("Compose file found. Running docker compose build")
+        # Ensure gunicorn & matching nvflare are installed in service image
+        req_path = os.path.join(compose_dir, 'nvflare_compose', 'requirements.txt')
+        try:
+            os.makedirs(os.path.dirname(req_path), exist_ok=True)
+            content = ''
+            if os.path.exists(req_path):
+                with open(req_path, 'r') as rf:
+                    content = rf.read()
+            lines = set(l.strip() for l in content.splitlines() if l.strip())
+            changed = False
+            if not any(l.startswith('nvflare') for l in lines):
+                lines.add('nvflare==2.6.1')
+                changed = True
+            if 'gunicorn' not in lines:
+                lines.add('gunicorn')
+                changed = True
+            if changed:
+                with open(req_path, 'w') as wf:
+                    wf.write('\n'.join(sorted(lines)) + '\n')
+                logger.network.info('Updated nvflare_compose/requirements.txt with nvflare==2.6.1 and gunicorn')
+        except Exception as e:
+            logger.network.error(f'Failed to update nvflare_compose requirements: {e}')
+
         build_result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'build'], cwd=compose_dir, capture_output=True, text=True)
         logger.network.info(f"docker compose build stdout: {build_result.stdout}")
         logger.network.error(f"docker compose build stderr: {build_result.stderr}")
