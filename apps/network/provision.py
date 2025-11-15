@@ -136,6 +136,10 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     with open(project_yml_path, 'w') as f:
         f.write(project_yml_content)
 
+    # ensure DockerBuilder gets a pinned NVFLARE version consistent with app
+    with open(os.path.join(provision_dir, 'docker_compose_requirements.txt'), 'w') as rf:
+        rf.write('nvflare==2.6.1\n')
+
     try:
         logger.network.info("nvflare version used for provisioning:")
         subprocess.run(['python', '-c', 'import nvflare, sys; print(getattr(nvflare, "version", "unknown"), sys.executable)'], cwd=provision_dir)
@@ -158,9 +162,6 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         logger.network.info(f"Successfully provisioned startup kit in {provision_dir}")
         network.status = 'PROVISIONED'
         network.save()
-        # write docker compose requirements to ensure nvflare and gunicorn installed in images
-        with open(os.path.join(provision_dir, 'docker_compose_requirements.txt'), 'w') as rf:
-            rf.write('nvflare\n')
 
 
 
