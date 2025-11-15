@@ -139,6 +139,7 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     # ensure DockerBuilder gets a pinned NVFLARE version consistent with app
     with open(os.path.join(provision_dir, 'docker_compose_requirements.txt'), 'w') as rf:
         rf.write('nvflare==2.6.1\n')
+        rf.write('gunicorn\n')
 
     try:
         logger.network.info("nvflare version used for provisioning:")
