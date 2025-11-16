@@ -161,30 +161,35 @@ def download_result(request, result_id):
 def download_all_results(request, project_id):
     try:
         project = Project.objects.get(identifier=project_id)
-        results = TrainingResult.objects.filter(job__project=project)
+        s3 = get_s3_client()
         job_filter = request.GET.get('job')
-        if job_filter:
-            results = results.filter(file_path__contains=f"/results/{job_filter}/")
-        
-        if not results.exists():
+        prefix = f"{project.identifier}/results/"
+
+        keys = []
+        paginator = s3.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if key.endswith('/'):
+                    continue
+                if job_filter and f"/results/{job_filter}/" not in key:
+                    continue
+                keys.append(key)
+
+        if not keys:
             return render(request, "404.html")
 
-        s3_client = get_s3_client()
-        
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            for result in results:
-                file_path = result.file_path
-                file_name = file_path.split('/')[-1]
-                
-                response = s3_client.get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=file_path)
-                file_content = response['Body'].read()
-                
-                zip_file.writestr(file_name, file_content)
+            for key in keys:
+                rel_name = key[len(prefix):] if key.startswith(prefix) else key
+                obj = s3.get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key)
+                zip_file.writestr(rel_name, obj['Body'].read())
 
         zip_buffer.seek(0)
         response = HttpResponse(zip_buffer, content_type='application/zip')
-        response['Content-Disposition'] = f'attachment; filename="{project.title}_results.zip"'
+        base_name = f"{project.title}_{job_filter}_results.zip" if job_filter else f"{project.title}_results.zip"
+        response['Content-Disposition'] = f'attachment; filename="{base_name}"'
         return response
 
     except Project.DoesNotExist:
