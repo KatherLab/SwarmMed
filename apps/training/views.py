@@ -96,6 +96,24 @@ def training(request):
                                     continue
                     if total_rounds > 0:
                         training_progress = min(100, int(rounds_finished * 100 / total_rounds))
+                # If workflow ended or job executor finished successfully, force 100%
+                    workspace_dir = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier))
+                    ended = False
+                    for root,_,files in os.walk(workspace_dir):
+                        for fname in files:
+                            if fname.startswith('log') and fname.endswith('.txt'):
+                                fpath=os.path.join(root,fname)
+                                try:
+                                    with open(fpath,'r') as lf2:
+                                        data=lf2.read()
+                                        if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
+                                            ended=True
+                                            break
+                                except Exception:
+                                    continue
+                        if ended: break
+                    if ended:
+                        training_progress = 100
                 except Exception:
                     training_progress = 0
             elif training_job.status in ['COMPLETED', 'STOPPED', 'FAILED']:
