@@ -1,9 +1,13 @@
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.db import models
+import os
+import json
+import re as _re
 from apps.project.models import Project, UserCurrentProject
 from apps.data.utils import get_storage_stats, format_size
 from apps.network.models import SwarmNetwork, UserCurrentNetwork, SwarmParticipant
+from apps.training.models import TrainingJob
 
 def get_user_project_uuid(request):
     """
@@ -112,10 +116,69 @@ def index(request):
     else:
         current_network_name = "No active network"
     
-    # Training progress (mock data - replace with actual training status)
-    training_status = "Running..."
-    training_progress = 50  # Percentage
-    
+    # Training status/progress (actual)
+    training_status = "Not started"
+    training_progress = 0
+    try:
+        if current_network_obj:
+            job = TrainingJob.objects.filter(network=current_network_obj).order_by('-created_at').first()
+            if job:
+                training_status = job.status.title()
+                total_rounds = 0
+                # read configured total rounds if available
+                try:
+                    server_cfg_path = os.path.join('workspaces', str(job.project.identifier), str(current_network_obj.identifier), 'job', 'app_server', 'config', 'config_fed_server.json')
+                    if os.path.exists(server_cfg_path):
+                        with open(server_cfg_path) as f:
+                            cfg = json.load(f)
+                            for wf in cfg.get('workflows', []):
+                                if wf.get('id') == 'swarm_controller':
+                                    total_rounds = int(wf.get('args', {}).get('num_rounds', 0))
+                                    break
+                except Exception:
+                    total_rounds = 0
+
+                # derive completed rounds from workspace logs
+                workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network_obj.identifier), 'workspace')
+                rounds_finished = 0
+                ended = False
+                for client in ('fl-client-1', 'fl-client-2'):
+                    base_client = None
+                    for root, dirs, files in os.walk(workspace_root):
+                        if os.path.basename(root) == client:
+                            base_client = root
+                            break
+                    if not base_client or not os.path.isdir(base_client):
+                        continue
+                    runs = [d for d in os.listdir(base_client) if os.path.isdir(os.path.join(base_client, d))]
+                    if not runs:
+                        continue
+                    runs.sort(key=lambda d: os.path.getmtime(os.path.join(base_client, d)), reverse=True)
+                    client_dir = os.path.join(base_client, runs[0])
+                    for fname in ('log_fl.txt', 'log.txt'):
+                        fpath = os.path.join(client_dir, fname)
+                        if os.path.exists(fpath):
+                            try:
+                                with open(fpath, 'r') as lf:
+                                    data = lf.read()
+                                    for m in _re.finditer(r'finished training round (\d+)', data):
+                                        r = int(m.group(1))
+                                        if r > rounds_finished:
+                                            rounds_finished = r
+                                    if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
+                                        ended = True
+                            except Exception:
+                                pass
+                if total_rounds > 0:
+                    training_progress = min(100, int(rounds_finished * 100 / total_rounds))
+                if ended or training_progress >= 100:
+                    training_progress = 100
+                    training_status = 'Completed'
+                elif job.status == 'RUNNING':
+                    training_status = 'Running'
+    except Exception:
+        pass
+
     context = {
         'segment': 'dashboard',
         'user_display_name': user_display_name,

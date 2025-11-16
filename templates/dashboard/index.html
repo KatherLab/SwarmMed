@@ -121,14 +121,14 @@
             </svg>
           </div>
           <div>
-            <h2 class="text-4xl font-bold dark:text-white">{{ training_status }}</h2>
+            <h2 id="DashboardTrainingStatus" class="text-4xl font-bold dark:text-white">{{ training_status }}</h2>
             <p class="text-lg font-medium text-gray-500 dark:text-gray-400">Training</p>
           </div>
         </div>
     
         <div class="w-full bg-gray-50 dark:bg-gray-700 rounded h-10 relative">
-          <div class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: {{ training_progress }}%">
-            {{ training_progress }}%
+          <div id="dashboardProgressBar" class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: {{ training_progress }}%">
+            <span id="dashboardProgressText">{{ training_progress }}%</span>
           </div>
           <p class="text-xs text-right text-gray-500 dark:text-gray-400 absolute bottom-0 right-0 mr-1 mb-1">
             done
@@ -138,6 +138,28 @@
         <a href="/training" class="mt-4 text-sm dark:text-white hover:text-purple-700 dark:hover:text-purple-300">&rarr; Go to Training</a>
       </div>
     
+
+    <script>
+      (function(){
+        function pollDash(){
+          fetch('{% url "training_status_api" %}')
+            .then(r=>r.json()).then(d=>{
+              var sEl=document.getElementById('DashboardTrainingStatus');
+              var bar=document.getElementById('dashboardProgressBar');
+              var pTxt=document.getElementById('dashboardProgressText');
+              if(sEl && d.status){ sEl.textContent = d.status; }
+              if(bar && typeof d.progress==="number"){
+                var pct=Math.max(0, Math.min(100, d.progress));
+                bar.style.width = pct + '%';
+                if(pTxt) pTxt.textContent = pct + '%';
+              }
+            }).catch(()=>{});
+        }
+        setInterval(pollDash, 1500);
+        pollDash();
+      })();
+    </script>
+
     </section>
 
      <section class="bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800 p-6 mt-6">
