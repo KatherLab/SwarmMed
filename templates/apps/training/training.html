@@ -58,7 +58,7 @@
     <!-- Stop Training Button -->
     <div class="flex items-center">
        {% if current_network %}
-                {% if is_training_running %}
+                {% if is_training_running and training_progress < 100 %}
                     <a href="{% url 'stop_training' current_network.identifier %}" class="ml-2 inline-flex items-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700">
                         <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
                             <rect width="12" height="12" x="6" y="6" stroke="currentColor" stroke-linejoin="round" stroke-width="2" rx="1"/>
