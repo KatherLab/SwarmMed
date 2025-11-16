@@ -55,6 +55,7 @@ def results(request):
     s3 = get_s3_client()
     prefix = f"{project.identifier}/results/"
     paginator = s3.get_paginator('list_objects_v2')
+    job_ids_in_s3 = set()
     for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix):
         for obj in page.get('Contents', []):
             key = obj['Key']
@@ -65,6 +66,7 @@ def results(request):
             if len(parts) < 4:
                 continue
             job_id = parts[2]
+            job_ids_in_s3.add(job_id)
             # Resolve job by comparing extracted actual flare_job_id
             job = None
             for j in TrainingJob.objects.filter(project=project):
@@ -103,8 +105,10 @@ def results(request):
 
     # Prepare results for template, converting UUIDs to strings
     prepared_results = []
-    job_options_seen = set()
+    job_options_seen = set(job_ids_in_s3)  # start with S3 job IDs to ensure all appear
     job_options = []
+    for job_id in sorted(job_ids_in_s3):
+        job_options.append({'value': job_id, 'label': job_id[:36]})
     for result in training_results_queryset:
         flare_job_id_raw = result.job.flare_job_id
         
@@ -172,9 +176,6 @@ def results(request):
             'cleaned_flare_job_id_display': cleaned_flare_job_id_display,
         })
 
-        if s3_key_job_identifier_str and s3_key_job_identifier_str not in job_options_seen:
-            job_options_seen.add(s3_key_job_identifier_str)
-            job_options.append({'value': s3_key_job_identifier_str, 'label': cleaned_flare_job_id_display})
 
     context = {
         'segment': 'results',
