@@ -58,13 +58,13 @@
     <div class="items-center sm:flex gap-2">
       <form method="get" action="{% url 'results' %}" class="flex items-center gap-2">
         <label for="job" class="text-sm text-gray-600 dark:text-gray-300">Job:</label>
-        <select id="job" name="job" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm rounded-lg p-2.5 text-gray-900 dark:text-white" onchange="this.form.submit()">
+        <select id="job" name="job" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm rounded-lg p-2.5 text-gray-900 dark:text-white focus:ring-purple-700 focus:border-purple-700 dark:focus:ring-purple-300 dark:focus:border-purple-300" onchange="this.form.submit()">
           <option value="">All jobs</option>
           {% for opt in job_options %}
             <option value="{{ opt.value }}" {% if request.GET.job == opt.value %}selected{% endif %}>{{ opt.label }}</option>
           {% endfor %}
         </select>
-        <button type="submit" formaction="{% url 'download_all_results' project_id=project_identifier %}" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download</button>
+        <button type="submit" formaction="{% url 'download_all_results' project_id=project_identifier %}" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download All</button>
       </form>
     </div>
     {% endif %}
@@ -75,7 +75,7 @@
     {% for result in results %}
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col justify-between h-full">
       <div>
-        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Uploaded: {{ result.uploaded_at|date:"Y-m-d H:i:s" }}</h4>
+        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ result.uploaded_at|date:"Y-m-d H:i:s" }}</h4>
         <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ result.file_path|cut:result.job_project_identifier_str|cut:"/results/"|cut:result.s3_key_job_identifier_str|cut:result.s3_key_job_identifier_app_str|cut:"/" }}</p>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
       </div>
