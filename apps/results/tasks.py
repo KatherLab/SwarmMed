@@ -64,19 +64,35 @@ def sync_project_results(project_identifier):
                     workspace_root = os.path.join(root, actual_job_id)
                     logger.info(f"Found job directory: {workspace_root}")
                     
-                    # Upload everything under the job directory
+                    # Determine existing objects once per job prefix
+                    s3 = get_s3_client()
+                    prefix = f"{project.identifier}/results/{actual_job_id}/"
+                    existing = {}
+                    try:
+                        paginator = s3.get_paginator('list_objects_v2')
+                        for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix):
+                            for obj in page.get('Contents', []) :
+                                existing[obj['Key']] = obj.get('Size', 0)
+                    except Exception as e:
+                        logger.warning(f"Could not list existing objects for prefix {prefix}: {e}")
+
+                    # Upload only missing or different files under the job directory
                     for sub_root, sub_dirs, sub_files in os.walk(workspace_root):
                         if 'startup' in sub_dirs:
                             sub_dirs.remove('startup')
                         for f in sub_files:
                             local_path = os.path.join(sub_root, f)
-                            logger.info(f"Uploading file: {local_path}")
                             rel = os.path.relpath(local_path, workspace_root)
                             key = f"{project.identifier}/results/{actual_job_id}/{rel}"
                             try:
-                                s3 = get_s3_client()
+                                local_size = os.path.getsize(local_path)
+                                if existing.get(key) == local_size:
+                                    logger.info(f"Skipping existing file with same size: s3://{settings.AWS_STORAGE_BUCKET_NAME}/{key}")
+                                    continue
                                 s3.upload_file(local_path, settings.AWS_STORAGE_BUCKET_NAME, key)
                                 uploaded += 1
+                                existing[key] = local_size
+                                logger.info(f"Uploaded file: s3://{settings.AWS_STORAGE_BUCKET_NAME}/{key}")
                             except Exception as e:
                                 logger.error(f"Error uploading file {local_path}: {e}", exc_info=True)
                                 continue

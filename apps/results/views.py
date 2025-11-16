@@ -47,7 +47,7 @@ def results(request):
 
     project = Project.objects.get(identifier=current_project_uuid)
 
-    # Trigger background sync
+    # Trigger background sync; task will skip already-uploaded files
     sync_project_results.delay(current_project_uuid)
     messages.info(request, "Result synchronization has been started in the background. The page will refresh automatically.")
 
