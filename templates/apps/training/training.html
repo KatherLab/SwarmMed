@@ -176,7 +176,7 @@
                   <th scope="col" class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Message</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="logsBody">
                 {% if training_logs %}
                 {% for log in training_logs %}
                 <tr class="border-b dark:border-gray-600" data-level="{{ log.level|lower }}">
@@ -195,9 +195,8 @@
 <script>
 (function(){
   const btn=document.getElementById('dropdownLogLevelButton');
-  const items=document.querySelectorAll('#dropdownLogLevel .log-filter-item');
   function setFilter(level){
-    const rows=document.querySelectorAll('table tbody tr[data-level]');
+    const rows=document.querySelectorAll('#logsBody tr[data-level]');
     rows.forEach(r=>{
       if(level==='all'){ r.classList.remove('hidden'); }
       else { (r.dataset.level===level)? r.classList.remove('hidden') : r.classList.add('hidden'); }
@@ -205,15 +204,26 @@
     if(btn){ btn.firstChild && (btn.firstChild.textContent = (level==='all'?'Filter Level':'Level: '+level.toUpperCase())); }
   }
   document.addEventListener("DOMContentLoaded",function(){
-  const items=document.querySelectorAll("#dropdownLogLevel .log-filter-item");
-  items.forEach(a=>a.addEventListener('click',function(e){ e.preventDefault(); setFilter(this.dataset.level); }));
-  // default select ALL
-  const def=document.querySelector("#dropdownLogLevel .log-filter-item[data-level=all]");
-  if(def){ def.click(); }
-});
+    document.querySelectorAll('#dropdownLogLevel .log-filter-item').forEach(a=>{
+      a.addEventListener('click',function(e){ e.preventDefault(); setFilter(this.dataset.level); });
+    });
+    const def=document.querySelector('#dropdownLogLevel .log-filter-item[data-level=all]');
+    if(def){ def.click(); }
+  });
 })();
-  function pollStatus(){
-    fetch("{% url 'training_status_api' %}")
+  function renderLogs(rows){
+    const body=document.getElementById('logsBody');
+    if(!body) return;
+    if(!rows || !rows.length){ body.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500 dark:text-gray-400">No logs found.</td></tr>'; return; }
+    body.innerHTML = rows.map(l=>`<tr class="border-b dark:border-gray-600" data-level="${(l.level||'').toLowerCase()}">`
+      + `<td class="p-2 whitespace-nowrap text-xs">${l.timestamp||''}</td>`
+      + `<td class="p-2 whitespace-nowrap text-xs">${l.level||''}</td>`
+      + `<td class="p-2 text-xs">${l.message||''}</td>`
+      + `</tr>`).join('');
+  }
+  function poll(){
+    // status/progress + controls
+    fetch('{% url 'training_status_api' %}')
       .then(r=>r.json()).then(d=>{
         const sEl=document.getElementById('TrainingStatus');
         const bar=document.getElementById('progressBar');
@@ -228,18 +238,16 @@
         }
         const running = (d.status||'').toLowerCase()==='running' && d.progress<100;
         if(startBtn && stopBtn){
-          if(running){
-            startBtn.classList.add('hidden');
-            stopBtn.classList.remove('hidden');
-          }else{
-            stopBtn.classList.add('hidden');
-            startBtn.classList.remove('hidden');
-          }
+          if(running){ startBtn.classList.add('hidden'); stopBtn.classList.remove('hidden'); }
+          else{ stopBtn.classList.add('hidden'); startBtn.classList.remove('hidden'); }
         }
       }).catch(()=>{});
+    // logs
+    fetch('{% url 'training_logs_api' %}')
+      .then(r=>r.json()).then(d=>{ renderLogs(d.logs||[]); }).catch(()=>{});
   }
-  setInterval(pollStatus, 1000);
-  pollStatus();
+  setInterval(poll, 1500);
+  poll();
 </script>
 </section>
       

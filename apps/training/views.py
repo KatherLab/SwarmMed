@@ -468,6 +468,8 @@ def training_status_api(request):
                                 ended=True
                     except Exception:
                         pass
+
+
         if total_rounds>0:
             progress=min(100, int(rounds_finished*100/total_rounds))
         if ended or progress>=100:
@@ -478,3 +480,88 @@ def training_status_api(request):
     except Exception:
         pass
     return JsonResponse({"status": status, "progress": progress})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@login_required(login_url='/users/signin/')
+def training_logs_api(request):
+    try:
+        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+    except UserCurrentNetwork.DoesNotExist:
+        return JsonResponse({"logs": []})
+
+    logs = []
+    try:
+        job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
+        if not job:
+            return JsonResponse({"logs": logs})
+        base_workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'workspace')
+        # find latest run under either client
+        latest_log = None
+        latest_mtime = -1
+        for client in ('fl-client-1','fl-client-2'):
+            base_client = None
+            for root, dirs, files in os.walk(base_workspace_root):
+                if os.path.basename(root) == client:
+                    base_client = root
+                    break
+            if not base_client:
+                continue
+            runs=[d for d in os.listdir(base_client) if os.path.isdir(os.path.join(base_client,d))]
+            if not runs:
+                continue
+            runs.sort(key=lambda d: os.path.getmtime(os.path.join(base_client,d)), reverse=True)
+            latest_run=os.path.join(base_client, runs[0])
+            for cand in ('log_fl.txt','log.txt'):
+                log_path=os.path.join(latest_run, cand)
+                if os.path.exists(log_path):
+                    m=os.path.getmtime(log_path)
+                    if m>latest_mtime:
+                        latest_mtime=m
+                        latest_log=log_path
+        if latest_log and os.path.exists(latest_log):
+            with open(latest_log,'r') as lf:
+                lines=lf.readlines()[-100:]
+            for line in lines:
+                parts=line.strip().split(' - ')
+                if len(parts)>=5:
+                    ts=parts[0]; level=parts[2]; msg=' - '.join(parts[4:])
+                else:
+                    ts=''; level=''; msg=line.strip()
+                logs.append({'timestamp':ts,'level':level,'message':msg})
+    except Exception:
+        pass
+    return JsonResponse({"logs": logs})
