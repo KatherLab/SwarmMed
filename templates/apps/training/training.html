@@ -195,20 +195,23 @@
 <script>
 (function(){
   const btn=document.getElementById('dropdownLogLevelButton');
+  let currentLevel = localStorage.getItem('trainingLogLevel') || 'all';
+  window.currentLogLevel = currentLevel;
   function setFilter(level){
+    window.currentLogLevel = level || 'all';
+    localStorage.setItem('trainingLogLevel', window.currentLogLevel);
     const rows=document.querySelectorAll('#logsBody tr[data-level]');
     rows.forEach(r=>{
-      if(level==='all'){ r.classList.remove('hidden'); }
-      else { (r.dataset.level===level)? r.classList.remove('hidden') : r.classList.add('hidden'); }
+      if(window.currentLogLevel==='all'){ r.classList.remove('hidden'); }
+      else { (r.dataset.level===window.currentLogLevel)? r.classList.remove('hidden') : r.classList.add('hidden'); }
     });
-    if(btn){ btn.firstChild && (btn.firstChild.textContent = (level==='all'?'Filter Level':'Level: '+level.toUpperCase())); }
+    if(btn){ btn.firstChild && (btn.firstChild.textContent = (window.currentLogLevel==='all'?'Filter Level':'Level: '+window.currentLogLevel.toUpperCase())); }
   }
   document.addEventListener("DOMContentLoaded",function(){
     document.querySelectorAll('#dropdownLogLevel .log-filter-item').forEach(a=>{
       a.addEventListener('click',function(e){ e.preventDefault(); setFilter(this.dataset.level); });
     });
-    const def=document.querySelector('#dropdownLogLevel .log-filter-item[data-level=all]');
-    if(def){ def.click(); }
+    setFilter(window.currentLogLevel);
   });
 })();
   function renderLogs(rows){
@@ -220,6 +223,15 @@
       + `<td class="p-2 whitespace-nowrap text-xs">${l.level||''}</td>`
       + `<td class="p-2 text-xs">${l.message||''}</td>`
       + `</tr>`).join('');
+    if(window.currentLogLevel){
+      const rowsEls=document.querySelectorAll('#logsBody tr[data-level]');
+      rowsEls.forEach(r=>{
+        if(window.currentLogLevel==='all'){ r.classList.remove('hidden'); }
+        else { (r.dataset.level===window.currentLogLevel)? r.classList.remove('hidden') : r.classList.add('hidden'); }
+      });
+      const btn=document.getElementById('dropdownLogLevelButton');
+      if(btn){ btn.firstChild && (btn.firstChild.textContent = (window.currentLogLevel==='all'?'Filter Level':'Level: '+window.currentLogLevel.toUpperCase())); }
+    }
   }
   function poll(){
     // status/progress + controls
