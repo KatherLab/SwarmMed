@@ -178,9 +178,17 @@
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td colspan="3" class="p-4 text-center text-gray-500 dark:text-gray-400">No logs to display.</td>
+                {% if training_logs %}
+                {% for log in training_logs %}
+                <tr class="border-b dark:border-gray-600">
+                  <td class="p-2 whitespace-nowrap text-xs">{{ log.timestamp }}</td>
+                  <td class="p-2 whitespace-nowrap text-xs">{{ log.level }}</td>
+                  <td class="p-2 text-xs">{{ log.message }}</td>
                 </tr>
+                {% endfor %}
+                {% else %}
+                <tr><td colspan="3" class="p-4 text-center text-gray-500 dark:text-gray-400">No logs found.</td></tr>
+                {% endif %}
               </tbody>
             </table>
           </div>

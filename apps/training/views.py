@@ -119,12 +119,45 @@ def training(request):
             elif training_job.status in ['COMPLETED', 'STOPPED', 'FAILED']:
                 if training_job.status == 'COMPLETED':
                     training_progress = 100
-    context = {
+    
+            # Collect fl-client-1 logs (last 50 lines)
+            training_logs = []
+            try:
+                if training_job:
+                    base_workspace = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'workspace', 'Test', 'prod_00', 'fl-client-1')
+                    if os.path.isdir(base_workspace):
+                        # find latest run folder
+                        runs=[d for d in os.listdir(base_workspace) if os.path.isdir(os.path.join(base_workspace,d))]
+                        if runs:
+                            runs.sort(key=lambda d: os.path.getmtime(os.path.join(base_workspace,d)), reverse=True)
+                            latest_run=os.path.join(base_workspace,runs[0])
+                            # prefer log_fl.txt else log.txt
+                            for cand in ['log_fl.txt','log.txt']:
+                                log_file=os.path.join(latest_run,cand)
+                                if os.path.exists(log_file):
+                                    with open(log_file,'r') as lf:
+                                        lines=lf.readlines()[-50:]
+                                    for line in lines:
+                                        # basic parse
+                                        parts=line.strip().split(' - ')
+                                        if len(parts)>=5:
+                                            ts=parts[0]
+                                            logger=parts[1]
+                                            level=parts[2]
+                                            msg=' - '.join(parts[4:])
+                                        else:
+                                            ts=''; level=''; msg=line.strip(); logger=''
+                                        training_logs.append({'timestamp':ts,'level':level,'message':msg})
+                                    break
+            except Exception:
+                training_logs = []
+context = {
         "segment": "training",
         "current_network": current_network,
         "is_training_running": is_training_running,
         "training_status": training_status,
         "training_progress": training_progress,
+        "training_logs": training_logs,
     }
     return render(request, "apps/training/training.html", context)
 
