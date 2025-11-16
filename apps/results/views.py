@@ -68,7 +68,7 @@ def results(request):
                 continue
             job_id = parts[2]
             job_ids_in_s3.add(job_id)
-            s3_items.append({'key': key, 'size': obj.get('Size', 0)})
+            s3_items.append({'key': key, 'size': obj.get('Size', 0), 'last_modified': obj.get('LastModified')})
             # Also try to upsert into DB when possible (non-blocking display)
             job = None
             for j in TrainingJob.objects.filter(project=project):
@@ -113,12 +113,12 @@ def results(request):
     for item in s3_items:
         key = item['key']
         size = item['size']
+        last_modified = item.get('last_modified')
         parts = key.split('/')
         project_identifier_str = parts[0]
         s3_key_job_identifier_str = parts[2]
         s3_key_job_identifier_app_str = s3_key_job_identifier_str + 'app'
         cleaned_filename = key.replace(project_identifier_str, "").replace("/results/", "").replace(s3_key_job_identifier_str, "").replace(s3_key_job_identifier_app_str, "").replace("/", "")
-        cleaned_flare_job_id_display = s3_key_job_identifier_str[:36] if len(s3_key_job_identifier_str) >= 36 else s3_key_job_identifier_str
         file_type = os.path.splitext(key)[1].lstrip('.').lower() or 'unknown'
         prepared_results.append({
             'id': None,
@@ -129,7 +129,7 @@ def results(request):
             's3_key_job_identifier_str': s3_key_job_identifier_str,
             's3_key_job_identifier_app_str': s3_key_job_identifier_app_str,
             'cleaned_filename': cleaned_filename,
-            'cleaned_flare_job_id_display': cleaned_flare_job_id_display,
+            'uploaded_at': last_modified,
         })
 
 
