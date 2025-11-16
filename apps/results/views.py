@@ -65,13 +65,30 @@ def results(request):
             if len(parts) < 4:
                 continue
             job_id = parts[2]
-            try:
-                job = TrainingJob.objects.get(project=project, flare_job_id__contains=job_id)
-            except TrainingJob.DoesNotExist:
+            # Resolve job by comparing extracted actual flare_job_id
+            job = None
+            for j in TrainingJob.objects.filter(project=project):
+                raw = j.flare_job_id or ""
+                actual = None
+                try:
+                    parsed = ast.literal_eval(raw)
+                    if isinstance(parsed, list):
+                        for it in parsed:
+                            if isinstance(it, dict) and it.get('type') == 'string':
+                                data = it.get('data', '')
+                                if 'Submitted job:' in data:
+                                    actual = data.split(':')[-1].strip()
+                                    break
+                except (ValueError, SyntaxError):
+                    pass
+                if not actual:
+                    actual = raw
+                if actual and actual.strip() == job_id:
+                    job = j
+                    break
+            if not job:
                 continue
-            except TrainingJob.MultipleObjectsReturned:
-                job = TrainingJob.objects.filter(project=project, flare_job_id__contains=job_id).first()
-                
+            
             # Upsert TrainingResult
             tr, created = TrainingResult.objects.get_or_create(
                 job=job,
