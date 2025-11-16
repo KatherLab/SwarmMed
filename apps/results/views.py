@@ -103,6 +103,10 @@ def results(request):
 
     training_results_queryset = TrainingResult.objects.filter(job__project=project).order_by('file_path')
 
+    selected_job = request.GET.get('job')
+    if selected_job:
+        training_results_queryset = training_results_queryset.filter(file_path__contains=f"/results/{selected_job}/")
+
     # Prepare results for template, converting UUIDs to strings
     prepared_results = []
     job_options_seen = set(job_ids_in_s3)  # start with S3 job IDs to ensure all appear
