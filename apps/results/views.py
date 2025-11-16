@@ -82,7 +82,7 @@ def results(request):
                 tr.file_size = obj.get('Size', 0)
                 tr.save(update_fields=['file_size'])
 
-    training_results_queryset = TrainingResult.objects.filter(job__project=project)
+    training_results_queryset = TrainingResult.objects.filter(job__project=project).order_by('file_path')
 
     # Prepare results for template, converting UUIDs to strings
     prepared_results = []
@@ -113,8 +113,10 @@ def results(request):
         
         project_identifier_str = str(result.job.project.identifier)
         
-        # The identifier from the S3 key, which is actual_flare_job_id
-        s3_key_job_identifier_str = actual_flare_job_id
+        # Prefer the job ID from the S3 key path: <project>/results/<job_id>/...
+        path_parts = result.file_path.split('/')
+        job_id_from_path = path_parts[2] if len(path_parts) > 2 else actual_flare_job_id
+        s3_key_job_identifier_str = job_id_from_path
         s3_key_job_identifier_app_str = s3_key_job_identifier_str + "app"
 
         logger.info(f"s3_key_job_identifier_str: {s3_key_job_identifier_str}")
@@ -134,7 +136,7 @@ def results(request):
         if s3_key_job_identifier_str.endswith("_fl-client-2.__nvfl_sig.json"): # Heuristic to check if it's a filename
              cleaned_flare_job_id_display = s3_key_job_identifier_str.replace(s3_key_job_identifier_app_str, "")
         else:
-             cleaned_flare_job_id_display = s3_key_job_identifier_str
+             cleaned_flare_job_id_display = s3_key_job_identifier_str[:36] if len(s3_key_job_identifier_str) >= 36 else s3_key_job_identifier_str
         
         logger.info(f"cleaned_flare_job_id_display: {cleaned_flare_job_id_display}")
 
