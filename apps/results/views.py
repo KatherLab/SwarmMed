@@ -136,10 +136,13 @@ def results(request):
         
         logger.info(f"cleaned_flare_job_id_display: {cleaned_flare_job_id_display}")
 
+        file_type = os.path.splitext(result.file_path)[1].lstrip('.').lower() or 'unknown'
+
         prepared_results.append({
             'id': result.id,
             'file_path': result.file_path,
             'file_size': result.file_size,
+            'file_type': file_type,
             'job_flare_job_id_str': actual_flare_job_id, # This is now the extracted ID or raw string
             'job_project_identifier_str': project_identifier_str,
             's3_key_job_identifier_str': s3_key_job_identifier_str, # New field for template

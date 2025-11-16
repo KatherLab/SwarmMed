@@ -77,7 +77,7 @@
       <div>
         <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ result.cleaned_flare_job_id_display }}</h4>
         <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ result.file_path|cut:result.job_project_identifier_str|cut:"/results/"|cut:result.s3_key_job_identifier_str|cut:result.s3_key_job_identifier_app_str|cut:"/" }}</p>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: {{ result.file_size|filesizeformat }}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
       </div>
       <div class="mt-4">
         <a href="{% url 'download_result' result.id %}" download="{{ result.cleaned_filename }}"
