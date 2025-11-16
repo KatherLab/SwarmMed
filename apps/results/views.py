@@ -113,10 +113,22 @@ def results(request):
     prepared_results = []
     job_options_seen = set(job_ids_in_s3)  # ensure all appear
     job_options = []
+    latest_job_id = None
+    latest_time = None
     for job_id in sorted(job_ids_in_s3):
         lm = job_last_modified.get(job_id)
+        if lm and (latest_time is None or lm > latest_time):
+            latest_time = lm
+            latest_job_id = job_id
         label = lm.strftime('%Y-%m-%d %H:%M:%S') if lm else job_id[:36]
         job_options.append({'value': job_id, 'label': label})
+    # Add special 'latest' option at top
+    if latest_job_id:
+        job_options.insert(0, {'value': latest_job_id, 'label': f"Latest ({latest_time.strftime('%Y-%m-%d %H:%M:%S')})"})
+    # Default selection to latest if none provided
+    if not selected_job and latest_job_id:
+        selected_job = latest_job_id
+        s3_items = [it for it in s3_items if f"/results/{selected_job}/" in it['key']]
     for item in s3_items:
         key = item['key']
         size = item['size']
