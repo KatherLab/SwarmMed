@@ -157,10 +157,10 @@
                 <!-- Dropdown menu -->
                 <div id="dropdownLogLevel" class="z-10 hidden bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700 rounded-lg shadow w-44">
                   <ul class="py-2 text-sm text-gray-700 dark:text-gray-200" aria-labelledby="dropdownLogLevelButton">
-                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">All</a></li>
-                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">Info</a></li>
-                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">Warning</a></li>
-                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700">Error</a></li>
+                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700" class="log-filter-item" data-level="all">All</a></li>
+                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700" class="log-filter-item" data-level="info">Info</a></li>
+                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700" class="log-filter-item" data-level="warning">Warning</a></li>
+                    <li><a href="#" class="block px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700" class="log-filter-item" data-level="error">Error</a></li>
                   </ul>
                 </div>
               </div>
@@ -180,7 +180,7 @@
               <tbody>
                 {% if training_logs %}
                 {% for log in training_logs %}
-                <tr class="border-b dark:border-gray-600">
+                <tr class="border-b dark:border-gray-600" data-level="{{ log.level|lower }}">
                   <td class="p-2 whitespace-nowrap text-xs">{{ log.timestamp }}</td>
                   <td class="p-2 whitespace-nowrap text-xs">{{ log.level }}</td>
                   <td class="p-2 text-xs">{{ log.message }}</td>
@@ -192,7 +192,23 @@
               </tbody>
             </table>
           </div>
-        </section>
+        
+<script>
+(function(){
+  const btn=document.getElementById('dropdownLogLevelButton');
+  const items=document.querySelectorAll('#dropdownLogLevel .log-filter-item');
+  function setFilter(level){
+    const rows=document.querySelectorAll('table tbody tr[data-level]');
+    rows.forEach(r=>{
+      if(level==='all'){ r.classList.remove('hidden'); }
+      else { (r.dataset.level===level)? r.classList.remove('hidden') : r.classList.add('hidden'); }
+    });
+    if(btn){ btn.firstChild && (btn.firstChild.textContent = (level==='all'?'Filter Level':'Level: '+level.toUpperCase())); }
+  }
+  items.forEach(a=>a.addEventListener('click',function(e){ e.preventDefault(); setFilter(this.dataset.level); }));
+})();
+</script>
+</section>
       
  
 
