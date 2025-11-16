@@ -1,5 +1,7 @@
 from django.conf import settings
 import os
+import logging
+import ast # Import the ast module
 
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
@@ -7,10 +9,13 @@ from django.contrib import messages
 from apps.project.models import Project, UserCurrentProject
 from apps.training.models import TrainingJob
 from .models import TrainingResult
+from .tasks import sync_project_results
 from apps.data.utils import get_s3_download_url, get_s3_client
 from django.http import HttpResponse
 import zipfile
 import io
+
+logger = logging.getLogger(__name__)
 
 def get_user_project(request):
     """
@@ -42,6 +47,10 @@ def results(request):
 
     project = Project.objects.get(identifier=current_project_uuid)
 
+    # Trigger background sync
+    sync_project_results.delay(current_project_uuid)
+    messages.info(request, "Result synchronization has been started in the background. The page will refresh automatically.")
+
     # Sync S3 objects under <project>/results/<flare_job_id>/ to DB if missing
     s3 = get_s3_client()
     prefix = f"{project.identifier}/results/"
@@ -57,9 +66,12 @@ def results(request):
                 continue
             job_id = parts[2]
             try:
-                job = TrainingJob.objects.get(project=project, flare_job_id=job_id)
+                job = TrainingJob.objects.get(project=project, flare_job_id__contains=job_id)
             except TrainingJob.DoesNotExist:
                 continue
+            except TrainingJob.MultipleObjectsReturned:
+                job = TrainingJob.objects.filter(project=project, flare_job_id__contains=job_id).first()
+                
             # Upsert TrainingResult
             tr, created = TrainingResult.objects.get_or_create(
                 job=job,
@@ -70,58 +82,78 @@ def results(request):
                 tr.file_size = obj.get('Size', 0)
                 tr.save(update_fields=['file_size'])
 
-    training_results = TrainingResult.objects.filter(job__project=project)
+    training_results_queryset = TrainingResult.objects.filter(job__project=project)
+
+    # Prepare results for template, converting UUIDs to strings
+    prepared_results = []
+    for result in training_results_queryset:
+        flare_job_id_raw = result.job.flare_job_id
+        
+        # Attempt to parse flare_job_id_raw if it's a string representation of a list
+        actual_flare_job_id = ""
+        logger.info(f"flare_job_id_raw: {flare_job_id_raw}")
+        try:
+            parsed_list = ast.literal_eval(flare_job_id_raw)
+            if isinstance(parsed_list, list) and len(parsed_list) > 0:
+                for item in parsed_list:
+                    if isinstance(item, dict) and item.get('type') == 'string' and 'data' in item:
+                        # Extract the UUID from "Submitted job: <UUID>"
+                        data_string = item['data']
+                        if "Submitted job: " in data_string:
+                            actual_flare_job_id = data_string.split("Submitted job: ")[1].strip()
+                            break
+        except (ValueError, SyntaxError) as e:
+            logger.error(f"Error parsing flare_job_id_raw: {e}")
+            # If it's not a parsable list, assume it's the actual ID or filename
+            actual_flare_job_id = flare_job_id_raw
+
+        logger.info(f"actual_flare_job_id: {actual_flare_job_id}")
+        
+        project_identifier_str = str(result.job.project.identifier)
+        
+        # The identifier from the S3 key, which is actual_flare_job_id
+        s3_key_job_identifier_str = actual_flare_job_id
+        s3_key_job_identifier_app_str = s3_key_job_identifier_str + "app"
+
+        logger.info(f"s3_key_job_identifier_str: {s3_key_job_identifier_str}")
+        logger.info(f"s3_key_job_identifier_app_str: {s3_key_job_identifier_app_str}")
+
+        # Calculate the cleaned filename for the download attribute
+        cleaned_filename = result.file_path.replace(project_identifier_str, "")
+        cleaned_filename = cleaned_filename.replace("/results/", "")
+        cleaned_filename = cleaned_filename.replace(s3_key_job_identifier_str, "")
+        cleaned_filename = cleaned_filename.replace(s3_key_job_identifier_app_str, "")
+        cleaned_filename = cleaned_filename.replace("/", "")
+        
+        logger.info(f"cleaned_filename: {cleaned_filename}")
+
+        # Cleaned flare_job_id for display in <h4>
+        # If actual_flare_job_id is the full filename, we need to clean it
+        if s3_key_job_identifier_str.endswith("_fl-client-2.__nvfl_sig.json"): # Heuristic to check if it's a filename
+             cleaned_flare_job_id_display = s3_key_job_identifier_str.replace(s3_key_job_identifier_app_str, "")
+        else:
+             cleaned_flare_job_id_display = s3_key_job_identifier_str
+        
+        logger.info(f"cleaned_flare_job_id_display: {cleaned_flare_job_id_display}")
+
+        prepared_results.append({
+            'id': result.id,
+            'file_path': result.file_path,
+            'file_size': result.file_size,
+            'job_flare_job_id_str': actual_flare_job_id, # This is now the extracted ID or raw string
+            'job_project_identifier_str': project_identifier_str,
+            's3_key_job_identifier_str': s3_key_job_identifier_str, # New field for template
+            's3_key_job_identifier_app_str': s3_key_job_identifier_app_str, # New field for template
+            'cleaned_filename': cleaned_filename,
+            'cleaned_flare_job_id_display': cleaned_flare_job_id_display,
+        })
 
     context = {
         'segment': 'results',
-        'results': training_results,
+        'results': prepared_results, # Pass the prepared list
         'project_identifier': current_project_uuid,
     }
     return render(request, "apps/results/results.html", context)
-
-@login_required(login_url='/users/signin/')
-def sync_results(request):
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(request, "apps/results/no_project_selected.html", {"segment": "results"})
-
-    project = Project.objects.get(identifier=current_project_uuid)
-
-    uploaded = 0
-    # For each job in this project, try to upload local workspace artifacts to S3
-    for job in TrainingJob.objects.filter(project=project):
-        try:
-            project_name = project.title.replace(' ', '_')
-            workspace_root = os.path.join(
-                '/app', 'workspaces', str(project.identifier), str(job.network.identifier),
-                'workspace', project_name, 'prod_00'
-            )
-            if not os.path.isdir(workspace_root):
-                continue
-            # Upload everything under prod_00 except startup directory
-            for root, dirs, files in os.walk(workspace_root):
-                if 'startup' in dirs:
-                    dirs.remove('startup')
-                for f in files:
-                    local_path = os.path.join(root, f)
-                    rel = os.path.relpath(local_path, workspace_root)
-                    key = f"{project.identifier}/results/{job.flare_job_id}/{rel}"
-                    try:
-                        s3 = get_s3_client()
-                        s3.upload_file(local_path, settings.AWS_STORAGE_BUCKET_NAME, key)
-                        uploaded += 1
-                    except Exception:
-                        continue
-        except Exception:
-            continue
-
-    if uploaded:
-        messages.success(request, f"Synced {uploaded} files to Minio.")
-    else:
-        messages.info(request, "No local result files found to sync.")
-
-    return redirect('results')
-
 
 @login_required(login_url='/users/signin/')
 def download_result(request, result_id):
