@@ -88,7 +88,7 @@
 
         Training Status
       </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="TrainingStatus">Not started</p>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="TrainingStatus">{{ training_status }}</p>
     </div>
 
     <!-- Duration  -->
@@ -120,8 +120,8 @@
   <div class="mt-6">
     <label for="progress-bar" class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Training Progress</label>
     <div class="w-full bg-gray-50 dark:bg-gray-700 rounded h-10 relative">
-          <div class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: 0%">
-            0%
+          <div class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: {{ training_progress }}%">
+            {{ training_progress }}%
           </div>
           <p class="text-xs text-right text-gray-500 dark:text-gray-400 absolute bottom-0 right-0 mr-1 mb-1">
             done

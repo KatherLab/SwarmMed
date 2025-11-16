@@ -53,14 +53,60 @@ def training(request):
     except UserCurrentNetwork.DoesNotExist:
         return render(request, "apps/training/no_network_started.html", {"segment": "training"})
 
+    # Determine current training job and progress
     is_training_running = False
+    training_job = None
+    training_progress = 0
+    training_status = 'Not started'
     if current_network:
-        is_training_running = TrainingJob.objects.filter(network=current_network, status='RUNNING').exists()
-
+        training_job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
+        if training_job:
+            training_status = training_job.status.title()
+            if training_job.status == 'RUNNING':
+                is_training_running = True
+                # Derive progress from logs by counting completed rounds vs total rounds (num_rounds in server cfg)
+                try:
+                    total_rounds = 0
+                    server_cfg_path = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'job', 'app_server', 'config', 'config_fed_server.json')
+                    if os.path.exists(server_cfg_path):
+                        import json as _json
+                        with open(server_cfg_path) as _f:
+                            _d = _json.load(_f)
+                            for wf in _d.get('workflows', []):
+                                if wf.get('id') == 'swarm_controller':
+                                    total_rounds = int(wf.get('args', {}).get('num_rounds', 0))
+                                    break
+                    rounds_finished = 0
+                    workspace_dir = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier))
+                    for root, _, files in os.walk(workspace_dir):
+                        for fname in files:
+                            if fname.startswith('log_fl') and fname.endswith('.txt'):
+                                fpath = os.path.join(root, fname)
+                                try:
+                                    with open(fpath, 'r') as lf:
+                                        for line in lf.readlines():
+                                            if 'finished training round' in line:
+                                                import re as _re
+                                                m = _re.search(r'finished training round (\d+)', line)
+                                                if m:
+                                                    rnum = int(m.group(1))
+                                                    if rnum > rounds_finished:
+                                                        rounds_finished = rnum
+                                except Exception:
+                                    continue
+                    if total_rounds > 0:
+                        training_progress = min(100, int(rounds_finished * 100 / total_rounds))
+                except Exception:
+                    training_progress = 0
+            elif training_job.status in ['COMPLETED', 'STOPPED', 'FAILED']:
+                if training_job.status == 'COMPLETED':
+                    training_progress = 100
     context = {
-        'segment': 'training',
-        'current_network': current_network,
-        'is_training_running': is_training_running,
+        "segment": "training",
+        "current_network": current_network,
+        "is_training_running": is_training_running,
+        "training_status": training_status,
+        "training_progress": training_progress,
     }
     return render(request, "apps/training/training.html", context)
 

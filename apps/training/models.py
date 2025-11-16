@@ -13,6 +13,7 @@ class TrainingJob(models.Model):
         ('RUNNING', 'Running'),
         ('COMPLETED', 'Completed'),
         ('FAILED', 'Failed'),
+        ('STOPPED', 'Stopped'),
     ]
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='training_jobs')
