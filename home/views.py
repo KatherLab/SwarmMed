@@ -200,7 +200,7 @@ def index(request):
         # Network data
         'total_networks': total_networks,
         'current_network': current_network_name,
-        'current_network_status': getattr(current_network_obj, 'status', None),
+        'current_network_status': (current_network_obj.get_status_display() if current_network_obj else None),
         'network_partners': network_partners,
         
         # Training data (mock for now)
