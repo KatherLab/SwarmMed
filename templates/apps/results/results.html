@@ -57,16 +57,8 @@
     {% if results %}
     <div class="items-center sm:flex">
     <div class="items-center sm:flex gap-2">
-      <a href="{% url 'sync_results' %}"
-         class="inline-flex items-center justify-center w-1/2 px-3 py-2 text-sm font-medium text-center text-white rounded-lg bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 sm:w-auto dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
-        <svg class="w-5 h-5 mr-2 -ml-1" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 6V3L8 7l4 4V8c2.757 0 5 2.243 5 5 0 .65-.125 1.27-.352 1.838l1.479 1.479A6.97 6.97 0 0 0 19 13c0-3.86-3.14-7-7-7Zm-5 6c0-.65.125-1.27.352-1.838L5.873 8.683A6.97 6.97 0 0 0 5 13c0 3.86 3.14 7 7 7v3l4-4-4-4v3c-2.757 0-5-2.243-5-5Z"/></svg>
-        Sync Results
-      </a>
       {% if results %}
-      <a href="{% url 'download_all_results' project_id=project_identifier %}" class="inline-flex items-center justify-center w-1/2 px-3 py-2 text-sm font-medium text-center text-white rounded-lg bg-purple-700 hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 sm:w-auto dark:bg-purple-600 dark:hover:bg-purple-700 dark:focus:ring-purple-800">
-        <svg class="w-5 h-5 mr-2 -ml-1" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 14h-2.5a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5H20a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2Zm-2.5 4.5V15h1.5a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5h-1.5Z M10 4.5A2.5 2.5 0 0 1 7.5 2H4a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h3.5A2.5 2.5 0 0 1 10 5.5V4.5Zm-2.5 2A.5.5 0 0 1 7 6H4a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5v2ZM4 14h3.5a.5.5 0 0 0 .5-.5v-5a.5.5 0 0 0-.5-.5H4a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2Zm.5-4.5H7a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 1 .5-.5Z M17.5 8a2.5 2.5 0 0 1-2.5-2.5V4.5a2.5 2.5 0 0 1 5 0V5.5A2.5 2.5 0 0 1 17.5 8Zm0-2.5a.5.5 0 0 0 0 1 .5.5 0 0 0 0-1ZM14 17.5a2.5 2.5 0 0 1 2.5-2.5h1a2.5 2.5 0 0 1 2.5 2.5v1a2.5 2.5 0 0 1-2.5 2.5h-1a.5.5 0 0 0-.5-.5v-1Zm2.5 2.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5Z"/></svg>
-        Download All
-      </a>
+
       {% endif %}
     </div>
 
@@ -83,12 +75,12 @@
     {% for result in results %}
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col justify-between h-full">
       <div>
-        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ result.job.flare_job_id }}</h4>
-        <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ result.file_path|cut:result.job.project.identifier|cut:"/results/"|cut:result.job.flare_job_id|cut:"/" }}</p>
+        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ result.cleaned_flare_job_id_display }}</h4>
+        <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ result.file_path|cut:result.job_project_identifier_str|cut:"/results/"|cut:result.s3_key_job_identifier_str|cut:result.s3_key_job_identifier_app_str|cut:"/" }}</p>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: {{ result.file_size|filesizeformat }}</p>
       </div>
       <div class="mt-4">
-        <a href="{% url 'download_result' result.id %}" download
+        <a href="{% url 'download_result' result.id %}" download="{{ result.cleaned_filename }}"
            class="w-full inline-flex items-center bg-orange-100 text-orange-700 border border-orange-100 hover:border-orange-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-900 dark:border-gray-900 dark:hover:border-orange-300 dark:text-orange-300">
           <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg">
