@@ -59,6 +59,8 @@ def training(request):
     training_job = None
     training_progress = 0
     training_status = 'Not started'
+    training_logs = []
+
     if current_network:
         training_job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
         if training_job:
