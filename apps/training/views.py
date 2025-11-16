@@ -151,7 +151,7 @@ def training(request):
                                     break
             except Exception:
                 training_logs = []
-context = {
+    context = {
         "segment": "training",
         "current_network": current_network,
         "is_training_running": is_training_running,
