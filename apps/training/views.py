@@ -114,6 +114,8 @@ def training(request):
                         if ended: break
                     if ended:
                         training_progress = 100
+                        training_status = 'Completed'
+                        is_training_running = False
                 except Exception:
                     training_progress = 0
             elif training_job.status in ['COMPLETED', 'STOPPED', 'FAILED']:
