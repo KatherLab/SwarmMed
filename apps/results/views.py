@@ -125,10 +125,6 @@ def results(request):
     # Add special 'latest' option at top
     if latest_job_id:
         job_options.insert(0, {'value': latest_job_id, 'label': f"Latest ({latest_time.strftime('%Y-%m-%d %H:%M:%S')})"})
-    # Default selection to latest if none provided
-    if not selected_job and latest_job_id:
-        selected_job = latest_job_id
-        s3_items = [it for it in s3_items if f"/results/{selected_job}/" in it['key']]
     for item in s3_items:
         key = item['key']
         size = item['size']
