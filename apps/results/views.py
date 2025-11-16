@@ -56,6 +56,7 @@ def results(request):
     prefix = f"{project.identifier}/results/"
     paginator = s3.get_paginator('list_objects_v2')
     job_ids_in_s3 = set()
+    job_last_modified = {}
     s3_items = []
     for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix):
         for obj in page.get('Contents', []):
@@ -68,7 +69,11 @@ def results(request):
                 continue
             job_id = parts[2]
             job_ids_in_s3.add(job_id)
-            s3_items.append({'key': key, 'size': obj.get('Size', 0), 'last_modified': obj.get('LastModified')})
+            last_modified = obj.get('LastModified')
+            if last_modified:
+                prev = job_last_modified.get(job_id)
+                job_last_modified[job_id] = max(prev, last_modified) if prev else last_modified
+            s3_items.append({'key': key, 'size': obj.get('Size', 0), 'last_modified': last_modified})
             # Also try to upsert into DB when possible (non-blocking display)
             job = None
             for j in TrainingJob.objects.filter(project=project):
@@ -109,7 +114,9 @@ def results(request):
     job_options_seen = set(job_ids_in_s3)  # ensure all appear
     job_options = []
     for job_id in sorted(job_ids_in_s3):
-        job_options.append({'value': job_id, 'label': job_id[:36]})
+        lm = job_last_modified.get(job_id)
+        label = lm.strftime('%Y-%m-%d %H:%M:%S') if lm else job_id[:36]
+        job_options.append({'value': job_id, 'label': label})
     for item in s3_items:
         key = item['key']
         size = item['size']
