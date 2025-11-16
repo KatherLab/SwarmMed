@@ -96,22 +96,21 @@
             </svg>
           </div>
           <div>
-            <h2 class="text-4xl font-bold dark:text-white">{{ total_networks }}</h2>
-            <p class="text-lg font-medium text-gray-500 dark:text-gray-400">Networks</p>
+            <h2 class="text-4xl font-bold dark:text-white"><span id="DashboardNetworkStatus">{{ current_network_status|default:"N/A" }}</span></h2>
+            <p class="text-lg font-medium text-gray-500 dark:text-gray-400">Network</p>
           </div>
         </div>
     
         <a href="/network" class="block cursor-pointer">
           <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded">
-            <p class="text-sm dark:text-white">{{ network_partners }} Partners</p>
             <p class="text-sm font-medium dark:text-white">{{ current_network }}</p>
-            <p class="text-xs text-gray-500 dark:text-gray-400">Current network</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Current network with {{ network_partners }} partners</p>
           </div>
         </a>
     
         <a href="/network" class="mt-4 text-sm dark:text-white hover:text-purple-700 dark:hover:text-purple-300">&rarr; Go to Network</a>
       </div>
-    
+
       <!-- Training Block -->
       <div class="p-6 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800 flex flex-col justify-between">
         <div class="flex items-start gap-4 mb-2">
@@ -154,6 +153,9 @@
                 if(pTxt) pTxt.textContent = pct + '%';
               }
             }).catch(()=>{});
+          // network status text (context rendered once per load)
+          var nsEl=document.getElementById('DashboardNetworkStatus');
+          if(nsEl && nsEl.textContent && nsEl.textContent.trim().length===0){ nsEl.textContent = 'N/A'; }
         }
         setInterval(pollDash, 1500);
         pollDash();
