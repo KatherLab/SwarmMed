@@ -86,6 +86,8 @@ def results(request):
 
     # Prepare results for template, converting UUIDs to strings
     prepared_results = []
+    job_options_seen = set()
+    job_options = []
     for result in training_results_queryset:
         flare_job_id_raw = result.job.flare_job_id
         
@@ -151,10 +153,15 @@ def results(request):
             'cleaned_flare_job_id_display': cleaned_flare_job_id_display,
         })
 
+        if s3_key_job_identifier_str and s3_key_job_identifier_str not in job_options_seen:
+            job_options_seen.add(s3_key_job_identifier_str)
+            job_options.append({'value': s3_key_job_identifier_str, 'label': cleaned_flare_job_id_display})
+
     context = {
         'segment': 'results',
         'results': prepared_results, # Pass the prepared list
         'project_identifier': current_project_uuid,
+        'job_options': job_options,
     }
     return render(request, "apps/results/results.html", context)
 
@@ -172,6 +179,9 @@ def download_all_results(request, project_id):
     try:
         project = Project.objects.get(identifier=project_id)
         results = TrainingResult.objects.filter(job__project=project)
+        job_filter = request.GET.get('job')
+        if job_filter:
+            results = results.filter(file_path__contains=f"/results/{job_filter}/")
         
         if not results.exists():
             return render(request, "404.html")
