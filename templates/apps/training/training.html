@@ -120,8 +120,8 @@
   <div class="mt-6">
     <label for="progress-bar" class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Training Progress</label>
     <div class="w-full bg-gray-50 dark:bg-gray-700 rounded h-10 relative">
-          <div class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: {{ training_progress }}%">
-            {{ training_progress }}%
+          <div id="progressBar" class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: {{ training_progress }}%">
+            <span id="progressText">{{ training_progress }}%</span>
           </div>
           <p class="text-xs text-right text-gray-500 dark:text-gray-400 absolute bottom-0 right-0 mr-1 mb-1">
             done
@@ -213,6 +213,21 @@
   if(def){ def.click(); }
 });
 })();
+  function pollStatus(){
+    fetch("{% url "training_status_api" %}")
+      .then(r=>r.json()).then(d=>{
+        const sEl=document.getElementById("TrainingStatus");
+        const bar=document.getElementById("progressBar");
+        const pTxt=document.getElementById("progressText");
+        if(sEl && d.status){ sEl.textContent = d.status; }
+        if(bar && typeof d.progress==="number"){
+          bar.style.width = Math.max(0, Math.min(100, d.progress)) + "%";
+          if(pTxt) pTxt.textContent = d.progress + "%";
+        }
+      }).catch(()=>{});
+  }
+  setInterval(pollStatus, 3000);
+  pollStatus();
 </script>
 </section>
       

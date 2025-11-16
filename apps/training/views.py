@@ -11,6 +11,7 @@ from django.conf import settings
 from apps.network.models import SwarmNetwork, UserCurrentNetwork
 from .models import TrainingJob
 from django.shortcuts import render
+from django.http import JsonResponse
 from .utils import download_s3_folder, get_s3_client
 import time
 from django.contrib import messages
@@ -402,3 +403,76 @@ def stop_training(request, network_id):
             logger.training.info(f"Removed job folder: {job_dir}")
 
     return redirect('training')
+
+
+@login_required(login_url='/users/signin/')
+def training_status_api(request):
+    try:
+        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+    except UserCurrentNetwork.DoesNotExist:
+        return JsonResponse({"status": "No network", "progress": 0})
+
+    status = 'Not started'
+    progress = 0
+    try:
+        job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
+        if not job:
+            return JsonResponse({"status": status, "progress": progress})
+
+        status = job.status.title()
+        total_rounds = 0
+        try:
+            server_cfg_path = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'job', 'app_server', 'config', 'config_fed_server.json')
+            if os.path.exists(server_cfg_path):
+                with open(server_cfg_path) as f:
+                    cfg = json.load(f)
+                    for wf in cfg.get('workflows', []):
+                        if wf.get('id') == 'swarm_controller':
+                            total_rounds = int(wf.get('args', {}).get('num_rounds', 0))
+                            break
+        except Exception:
+            total_rounds = 0
+
+        workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'workspace')
+        rounds_finished = 0
+        ended = False
+        for client in ('fl-client-1', 'fl-client-2'):
+            client_dir = None
+            # find latest run dir under this client
+            base_client = None
+            for root, dirs, files in os.walk(workspace_root):
+                if os.path.basename(root) == client:
+                    base_client = root
+                    break
+            if base_client and os.path.isdir(base_client):
+                runs=[d for d in os.listdir(base_client) if os.path.isdir(os.path.join(base_client,d))]
+                if runs:
+                    runs.sort(key=lambda d: os.path.getmtime(os.path.join(base_client,d)), reverse=True)
+                    client_dir = os.path.join(base_client, runs[0])
+            if not client_dir:
+                continue
+            for fname in ('log_fl.txt','log.txt'):
+                fpath=os.path.join(client_dir,fname)
+                if os.path.exists(fpath):
+                    try:
+                        with open(fpath,'r') as lf:
+                            data=lf.read()
+                            import re as _re
+                            for m in _re.finditer(r'finished training round (\d+)', data):
+                                r=int(m.group(1))
+                                if r>rounds_finished:
+                                    rounds_finished=r
+                            if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
+                                ended=True
+                    except Exception:
+                        pass
+        if total_rounds>0:
+            progress=min(100, int(rounds_finished*100/total_rounds))
+        if ended or progress>=100:
+            progress=100
+            status='Completed'
+        elif job.status=='RUNNING':
+            status='Running'
+    except Exception:
+        pass
+    return JsonResponse({"status": status, "progress": progress})
