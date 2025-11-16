@@ -80,7 +80,7 @@
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
       </div>
       <div class="mt-4">
-        <a href="{% url 'download_result' result.id %}" download="{{ result.cleaned_filename }}"
+        <a href="{% if result.id %}{% url 'download_result' result.id %}{% else %}{% url 'download_result_by_key' %}?key={{ result.file_path }}{% endif %}" download="{{ result.cleaned_filename }}"
            class="w-full inline-flex items-center bg-orange-100 text-orange-700 border border-orange-100 hover:border-orange-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-900 dark:border-gray-900 dark:hover:border-orange-300 dark:text-orange-300">
           <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg">
