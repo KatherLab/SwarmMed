@@ -78,4 +78,5 @@ systemctl restart tailscaled
 
 ```bash
 mkdocs serve --dev-addr localhost:9999
+mkdocs serve --dev-addr 0.0.0.0:9999
 ``` 
