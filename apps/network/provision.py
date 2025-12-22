@@ -6,6 +6,12 @@ import json
 from pathlib import Path
 from .models import SwarmNetwork
 from apps.logs.logger import get_logger
+import boto3
+from botocore.client import Config
+from django.conf import settings
+from apps.data.utils import get_s3_client
+from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError
 
 
 def generate_flare_startup_kit(network_id: str, local_test: bool = False, clients: list = []):
@@ -140,6 +146,28 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     with open(os.path.join(provision_dir, 'docker_compose_requirements.txt'), 'w') as rf:
         rf.write('nvflare==2.6.1\n')
         rf.write('gunicorn\n')
+        
+        # Fetch requirements.txt from Minio if it exists for the project
+        if network.project.requirements_file:
+            try:
+                s3_client = get_s3_client()
+                bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+                requirements_key = network.project.requirements_file.name
+                
+                logger.network.info(f"Fetching requirements file from {requirements_key}")
+
+                requirements_obj = s3_client.get_object(Bucket=bucket_name, Key=requirements_key)
+                requirements_content = requirements_obj['Body'].read().decode('utf-8')
+                rf.write(requirements_content)
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'NoSuchKey':
+                    logger.network.warning(f"Requirements file '{requirements_key}' not found in Minio, continuing without it.")
+                else:
+                    logger.network.error(f"Error fetching requirements file '{requirements_key}' from Minio: {e}")
+                    raise
+            except Exception as e:
+                logger.network.error(f"An unexpected error occurred when fetching requirements file from Minio: {e}")
+                raise
 
     try:
         logger.network.info("nvflare version used for provisioning:")
@@ -176,3 +204,4 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
         logger.network.error(f"An exception occurred during provisioning: {e}")
         network.status = 'ERROR'
         network.save()
+        

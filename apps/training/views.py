@@ -1,3 +1,4 @@
+import textwrap
 from django.shortcuts import redirect
 from django.contrib.auth.decorators import login_required
 import os
@@ -214,6 +215,15 @@ def start_training(request, network_id):
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.move(src, dst)
         shutil.rmtree(downloaded_custom_dir, ignore_errors=True)
+        
+    # Copy flare_adapter.py to app_client/custom
+    # This ensures flare_adapter is available for direct import in training.py
+    flare_adapter_src = os.path.join(settings.BASE_DIR, 'apps', 'training', 'flare_adapter.py')
+    flare_adapter_dst = os.path.join(app_client_custom_dir, 'flare_adapter.py')
+    if os.path.exists(flare_adapter_src):
+        shutil.copyfile(flare_adapter_src, flare_adapter_dst)
+    else:
+        logger.training.error(f"flare_adapter.py not found at {flare_adapter_src}")
 
     # Build meta.json based on current network participants
     if network.participants.filter(role='CLIENT').exists():
@@ -255,13 +265,13 @@ def start_training(request, network_id):
         "format_version": 2,
         "executors": [
             {
-            "tasks": [
-                "train"
-            ],
-            "executor": {
-                "path": "nvflare.app_common.ccwf.comps.np_trainer.NPTrainer",
-                "args": {}
-            }
+                "tasks": ["train"],
+                "executor": {
+                    "path": "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor",
+                    "args": {
+                        "task_script_path": "custom/training.py"
+                    }
+                }
             },
             {
             "tasks": ["swarm_*"],
@@ -269,7 +279,7 @@ def start_training(request, network_id):
                 "path": "nvflare.app_common.ccwf.SwarmClientController",
                 "args": {
                 "learn_task_name": "train",
-                "learn_task_timeout": 5.0,
+                "learn_task_timeout": 60.0,
                 "persistor_id": "persistor",
                 "aggregator_id": "aggregator",
                 "shareable_generator_id": "shareable_generator",
@@ -284,7 +294,7 @@ def start_training(request, network_id):
         "components": [
             {
             "id": "persistor",
-            "path": "nvflare.app_common.ccwf.comps.np_file_model_persistor.NPFileModelPersistor",
+            "path": "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor",
             "args": {}
             },
             {
@@ -296,7 +306,7 @@ def start_training(request, network_id):
             "id": "aggregator",
             "name": "InTimeAccumulateWeightedAggregator",
             "args": {
-                "expected_data_kind": "WEIGHT_DIFF"
+                "expected_data_kind": "WEIGHTS"
             }
             },
             {
@@ -469,7 +479,6 @@ def training_status_api(request):
                     except Exception:
                         pass
 
-
         if total_rounds>0:
             progress=min(100, int(rounds_finished*100/total_rounds))
         if ended or progress>=100:
@@ -480,41 +489,6 @@ def training_status_api(request):
     except Exception:
         pass
     return JsonResponse({"status": status, "progress": progress})
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 @login_required(login_url='/users/signin/')
 def training_logs_api(request):
