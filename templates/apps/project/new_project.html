@@ -42,16 +42,6 @@
 
       <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
         <h2 class="mb-4 text-xl font-semibold dark:text-white">{% if edit %}Edit{% else %}Create New{% endif %} Project</h2>
-      
-        {% if messages %}
-        <div class="mb-4">
-          {% for message in messages %}
-          <div class="p-4 mb-4 text-sm {% if message.tags == 'success' %}text-green-800 bg-green-100{% elif message.tags == 'error' %}text-red-800 bg-red-100{% else %}text-blue-800 bg-blue-100{% endif %} rounded-lg dark:bg-gray-700 dark:text-{% if message.tags == 'success' %}green{% elif message.tags == 'error' %}red{% else %}blue{% endif %}-300" role="alert">
-            {{ message }}
-          </div>
-          {% endfor %}
-        </div>
-        {% endif %}
 
         <form class="space-y-6" method="POST" action="{% if edit %}{% url 'project_edit' form.instance.id %}{% else %}{% url 'project_create' %}{% endif %}" enctype="multipart/form-data">
           {% csrf_token %}
