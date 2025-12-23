@@ -1,7 +1,0 @@
-{
-  "P001": {"email": "patient1@example.com", "phone": "555-0001"},
-  "P002": {"email": "patient2@example.com", "phone": "555-0002"},
-  "P003": {"email": "patient3@example.com", "phone": "555-0003"},
-  "P004": {"email": "patient4@example.com", "phone": "555-0004"},
-  "P005": {"email": "patient5@example.com", "phone": "555-0005"}
-}

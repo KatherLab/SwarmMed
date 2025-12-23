@@ -1,12 +1,104 @@
 import os
-import torch
-from torch.utils.data import DataLoader, TensorDataset
+import tempfile
+import shutil
+import boto3
 import nvflare.client as flare
 
-# In a real implementation, you might use boto3 and environment variables 
-# to connect to your Minio instance.
-# import boto3
+class FlareDataFileSystem:
+    """
+    A self-contained virtual filesystem for NVFlare jobs.
 
+    Provides a file-like interface to data stored in an S3-compatible service (MinIO).
+    It works by creating a temporary local directory and downloading files from S3
+    on-demand, allowing training scripts to use standard file I/O operations.
+    """
+    
+    def __init__(self, project_uuid: str):
+        self.project_uuid = project_uuid
+        self.root_prefix = f"{project_uuid}/data/"
+        self.temp_dir = tempfile.mkdtemp(prefix=f"flare_{project_uuid}_")
+        self._downloaded_files = {}
+        self._s3_client = self._create_s3_client()
+        self.bucket_name = os.getenv('AWS_STORAGE_BUCKET_NAME')
+        print(f"FlareDataFileSystem: Initialized. Temp dir: {self.temp_dir}")
+
+    def _create_s3_client(self):
+        """Initializes and returns a boto3 S3 client."""
+        try:
+            s3_endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
+            if s3_endpoint and 'minio' in s3_endpoint:
+                s3_endpoint = 'http://host.docker.internal:9000'
+                print(f"FlareDataFileSystem: Overriding S3 endpoint to {s3_endpoint}")
+
+            s3_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+            s3_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+            if not all([s3_endpoint, s3_access_key, s3_secret_key]):
+                raise ValueError("One or more S3 environment variables are not set for MinIO connection.")
+
+            return boto3.client(
+                's3',
+                endpoint_url=s3_endpoint,
+                aws_access_key_id=s3_access_key,
+                aws_secret_access_key=s3_secret_key
+            )
+        except Exception as e:
+            print(f"FlareDataFileSystem: ERROR - Failed to create S3 client: {e}")
+            raise
+
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            print(f"FlareDataFileSystem: Exiting context with error: {exc_val}")
+        self.cleanup()
+
+    def cleanup(self):
+        """Cleans up the temporary directory."""
+        print(f"FlareDataFileSystem: Cleaning up temporary directory {self.temp_dir}")
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    def _download_s3_path(self, s3_prefix: str):
+        """Downloads all files from a given S3 prefix to the temp directory."""
+        paginator = self._s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=self.bucket_name, Prefix=s3_prefix)
+
+        file_count = 0
+        for page in pages:
+            if 'Contents' not in page:
+                continue
+            for obj in page['Contents']:
+                key = obj['Key']
+                if not key.endswith('/'):
+                    # Create a local path that mirrors the S3 structure
+                    relative_path = os.path.relpath(key, self.root_prefix)
+                    local_path = os.path.join(self.temp_dir, relative_path)
+                    
+                    if local_path not in self._downloaded_files.values():
+                        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                        print(f"FlareDataFileSystem: Downloading {key} to {local_path}...")
+                        self._s3_client.download_file(self.bucket_name, key, local_path)
+                        self._downloaded_files[relative_path] = local_path
+                        file_count += 1
+        
+        if file_count == 0:
+            print(f"FlareDataFileSystem: WARNING - No files found in bucket '{self.bucket_name}' with prefix '{s3_prefix}'.")
+        else:
+            print(f"FlareDataFileSystem: Successfully downloaded {file_count} files.")
+
+    def get_data_path(self) -> str:
+        """
+        Ensures all data for the project is downloaded and returns the root
+        local path to this data.
+        """
+        self._download_s3_path(self.root_prefix)
+        return self.temp_dir
+
+# =================================================================================
+# Public Adapter Functions
+# =================================================================================
 
 def init_flare():
     """
@@ -15,64 +107,40 @@ def init_flare():
     flare.init()
     print("flare_adapter: NVIDIA FLARE client initialized.")
 
-def get_data(dataset_path: str = None):
+def get_data_filesystem(project_id: str) -> FlareDataFileSystem:
     """
-    Gets the training data for the client.
-
-    In a real-world scenario, this function would use the dataset_path
-    to download the correct data from Minio/S3 storage.
-
-    Args:
-        dataset_path (str, optional): The path to the dataset in storage. Defaults to None.
-
-    Returns:
-        A PyTorch DataLoader.
+    Returns a FlareDataFileSystem instance for the given project.
+    This provides a virtual filesystem that lazily downloads data from S3
+    while providing a simple, local file-path-like interface.
     """
-    # --- Placeholder for Minio/S3 data loading ---
-    # For this example, we will generate dummy data. 
-    # In your real code, you would replace this section.
-    # Example of what it might look like:
-    #
-    # s3_client = boto3.client('s3', endpoint_url=os.getenv('AWS_S3_ENDPOINT_URL'))
-    # project_id = os.getenv('FLARE_PROJECT_ID') # You would set this env var
-    # file_key = f"{project_id}/data/{dataset_path}"
-    # s3_client.download_file(os.getenv('AWS_STORAGE_BUCKET_NAME'), file_key, 'local_data.csv')
-    # 
-    # # Now load your local_data.csv into a DataLoader
-    # print(f"flare_adapter: Successfully downloaded data from {dataset_path}")
-    # --- End of placeholder ---
+    return FlareDataFileSystem(project_uuid=project_id)
 
-    print("flare_adapter: Generating dummy data for demonstration.")
-    X_train = torch.randn(100, 10)
-    y_train = torch.randn(100, 1)
-    dataset = TensorDataset(X_train, y_train)
-    train_loader = DataLoader(dataset, batch_size=10, shuffle=True)
-    return train_loader
-
-def receive_model(model: torch.nn.Module):
+def receive_model():
     """
-    Receives the global model from the FLARE server and loads it into the local model.
-
-    Args:
-        model (torch.nn.Module): The local PyTorch model instance.
+    Receives the global model from the FLARE server.
+    This function is framework-agnostic; it returns the received FLModel object.
     """
     print("flare_adapter: Receiving global model from server...")
-    input_model = flare.receive()
-    model.load_state_dict(input_model.params)
-    print("flare_adapter: Global model weights loaded.")
-    return input_model # Return the model in case you need metadata
+    try:
+        input_model = flare.receive()
+        if input_model:
+            print(f"flare_adapter: Global model received for round {input_model.current_round}.")
+            return input_model
+        else:
+            print("flare_adapter: No model received from server.")
+            return None
+    except Exception as e:
+        print(f"flare_adapter: Exception during model reception: {e}")
+        return None
 
-def send_model(model: torch.nn.Module, metrics: dict = None):
+def send_model(params: dict, metrics: dict = None):
     """
-    Packages the local model weights and metrics into an FLModel and sends it to the server.
-
-    Args:
-        model (torch.nn.Module): The trained local PyTorch model instance.
-        metrics (dict, optional): A dictionary of metrics (e.g., {"loss": 0.5}). Defaults to None.
+    Packages the model parameters and metrics into an FLModel and sends it to the server.
+    This function is framework-agnostic; it accepts a dictionary of parameters.
     """
     print("flare_adapter: Sending updated model to server...")
     output_model = flare.FLModel(
-        params=model.state_dict(),
+        params=params,
         metrics=metrics if metrics is not None else {},
     )
     flare.send(output_model)

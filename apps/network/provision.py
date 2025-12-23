@@ -2,12 +2,9 @@ import os
 import shutil
 import subprocess
 import textwrap
-import json
 from pathlib import Path
 from .models import SwarmNetwork
 from apps.logs.logger import get_logger
-import boto3
-from botocore.client import Config
 from django.conf import settings
 from apps.data.utils import get_s3_client
 from botocore.exceptions import ClientError
@@ -146,6 +143,8 @@ def generate_flare_startup_kit(network_id: str, local_test: bool = False, client
     with open(os.path.join(provision_dir, 'docker_compose_requirements.txt'), 'w') as rf:
         rf.write('nvflare==2.6.1\n')
         rf.write('gunicorn\n')
+        rf.write('boto3\n')
+        rf.write('python-dotenv\n')
         
         # Fetch requirements.txt from Minio if it exists for the project
         if network.project.requirements_file:

@@ -1,6 +1,0 @@
-patient_id,age,gender,enrollment_date,study_group
-P001,45,M,2024-01-15,treatment
-P002,52,F,2024-01-16,control
-P003,38,M,2024-01-17,treatment
-P004,61,F,2024-01-18,control
-P005,29,F,2024-01-19,treatment

@@ -225,6 +225,36 @@ def start_training(request, network_id):
     else:
         logger.training.error(f"flare_adapter.py not found at {flare_adapter_src}")
 
+    # Copy .env file to app_client/custom for the job
+    env_file_path = os.path.join(settings.BASE_DIR, '.env')
+    if os.path.exists(env_file_path):
+        shutil.copy(env_file_path, os.path.join(app_client_custom_dir, '.env'))
+        logger.training.info("Copied .env file to job's custom directory.")
+    else:
+        logger.training.warning(f".env file not found at {env_file_path}, skipping copy to job directory.")
+
+    # Inject the project_id into the training.py script
+    training_py_path = os.path.join(app_client_custom_dir, 'training.py')
+    if os.path.exists(training_py_path):
+        with open(training_py_path, 'r') as f:
+            training_script_content = f.read()
+        
+        # Replace the placeholder main() call with one that includes the project_id
+        placeholder_main = 'main(project_id="default_project")'
+        actual_main = f'main(project_id="{str(project.identifier)}")'
+        
+        if placeholder_main in training_script_content:
+            training_script_content = training_script_content.replace(placeholder_main, actual_main)
+            
+            with open(training_py_path, 'w') as f:
+                f.write(training_script_content)
+            
+            logger.training.info(f"Injected project_id '{str(project.identifier)}' into training.py")
+        else:
+            logger.training.warning(f"Could not find placeholder '{placeholder_main}' in training.py to inject project_id.")
+    else:
+        logger.training.warning(f"training.py not found at {training_py_path}, cannot inject project_id.")
+
     # Build meta.json based on current network participants
     if network.participants.filter(role='CLIENT').exists():
         client_names = list(network.participants.filter(role='CLIENT').values_list('participant_id', flat=True))
