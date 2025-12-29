@@ -54,8 +54,7 @@
         </span>
       </div>
     </div>
-    {% if results %}
-    <div class="items-center sm:flex gap-2">
+    <div class="items-center sm:flex gap-2 mt-4 lg:mt-0">
       <form method="get" action="{% url 'results' %}" class="flex items-center gap-2">
         <label for="job" class="text-sm text-gray-600 dark:text-gray-300">Job:</label>
         <select id="job" name="job" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm rounded-lg p-2.5 text-gray-900 dark:text-white focus:ring-purple-700 focus:border-purple-700 dark:focus:ring-purple-300 dark:focus:border-purple-300" onchange="this.form.submit()">
@@ -64,11 +63,12 @@
             <option value="{{ opt.value }}" {% if selected_job_id == opt.value %}selected{% endif %}>{{ opt.label }}</option>
           {% endfor %}
         </select>
-        <button type="submit" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Sync Results</button>
+        <button id="sync-results-btn" type="button" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Sync Results</button>
+        {% if results %}
         <button type="submit" formaction="{% url 'download_all_results' project_id=project_identifier %}" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download All</button>
+        {% endif %}
       </form>
     </div>
-    {% endif %}
   </div>
 
   <!-- Downloads Grid -->
@@ -397,6 +397,39 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial poll
     pollStatus();
     {% endif %}
+
+    // ======================
+    // SYNC RESULTS CODE
+    // ======================
+    const syncBtn = document.getElementById('sync-results-btn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Show loading state
+            syncBtn.disabled = true;
+            syncBtn.classList.remove('bg-purple-100', 'text-purple-700', 'hover:border-purple-700');
+            syncBtn.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+            syncBtn.innerHTML = `
+                <svg class="w-4 h-4 mr-2 animate-spin inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg> Syncing...`;
+            
+            // Trigger the sync (the view handles the .delay() on GET)
+            fetch(window.location.href)
+                .then(() => {
+                    // Give the backend background task 5 seconds to complete
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 5000);
+                })
+                .catch(err => {
+                    console.error('Sync request failed:', err);
+                    window.location.reload();
+                });
+        });
+    }
 });
 </script>
   {%endblock content%}

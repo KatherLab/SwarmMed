@@ -40,6 +40,12 @@ def sync_project_results(project_uuid):
                 key = obj['Key']
                 if key.endswith('/'):
                     continue
+                
+                # Skip hidden files and .py files
+                filename = os.path.basename(key)
+                if filename.startswith('.') or filename.endswith('.py') or filename.endswith('.pyc'):
+                    continue
+                    
                 # Expect keys like <project_uuid>/results/<job_id>/<filename>
                 parts = key.split('/')
                 if len(parts) < 4:
