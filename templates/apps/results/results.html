@@ -54,20 +54,21 @@
         </span>
       </div>
     </div>
-    {% if results %}
-    <div class="items-center sm:flex gap-2">
+    <div class="items-center sm:flex gap-2 mt-4 lg:mt-0">
       <form method="get" action="{% url 'results' %}" class="flex items-center gap-2">
         <label for="job" class="text-sm text-gray-600 dark:text-gray-300">Job:</label>
         <select id="job" name="job" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm rounded-lg p-2.5 text-gray-900 dark:text-white focus:ring-purple-700 focus:border-purple-700 dark:focus:ring-purple-300 dark:focus:border-purple-300" onchange="this.form.submit()">
-          <option value="">All jobs</option>
+          <option value="" {% if selected_job_id == "" %}selected{% endif %}>All jobs</option>
           {% for opt in job_options %}
-            <option value="{{ opt.value }}" {% if request.GET.job == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            <option value="{{ opt.value }}" {% if selected_job_id == opt.value %}selected{% endif %}>{{ opt.label }}</option>
           {% endfor %}
         </select>
+        <button id="sync-results-btn" type="button" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Sync Results</button>
+        {% if results %}
         <button type="submit" formaction="{% url 'download_all_results' project_id=project_identifier %}" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download All</button>
+        {% endif %}
       </form>
     </div>
-    {% endif %}
   </div>
 
   <!-- Downloads Grid -->
@@ -76,8 +77,8 @@
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col justify-between h-full">
       <div>
         <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ result.uploaded_at|date:"Y-m-d H:i:s" }}</h4>
-        <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ result.file_path|cut:result.job_project_identifier_str|cut:"/results/"|cut:result.s3_key_job_identifier_str|cut:result.s3_key_job_identifier_app_str|cut:"/" }}</p>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
+        <p class="text-lg font-semibold text-gray-900 dark:text-white" title="{{ result.cleaned_filename }}">{{ result.cleaned_filename }}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Client: {{ result.client_name }} • Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
       </div>
       <div class="mt-4">
         <a href="{% if result.id %}{% url 'download_result' result.id %}{% else %}{% url 'download_result_by_key' %}?key={{ result.file_path }}{% endif %}" download="{{ result.cleaned_filename }}"
@@ -98,54 +99,339 @@
 
 
     
-      <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+      {% if selected_job_details %}
+      <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800" id="visualization">
         <!-- Header -->
-        <div class="items-center justify-between lg:flex">
+        <div class="items-center justify-between lg:flex mb-4">
           <div class="mb-4 lg:mb-0">
             <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Visualization</h3>
             <span class="text-base font-normal text-gray-500 dark:text-gray-400">Analyze your model's performance</span>
           </div>
+          <div class="flex items-center space-x-2">
+              <button id="run-visualization-btn" class="inline-flex items-center justify-center whitespace-nowrap min-w-max bg-green-100 text-green-700 border border-green-100 hover:border-green-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-green-300 dark:text-green-300">
+                  <svg class="w-6 h-6 mr-2 flex-shrink-0 inline-block" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 18V6l8 6-8 6Z"/>
+                  </svg>
+                  Run Visualization
+              </button>
+              <button id="stop-visualization-btn" class="hidden inline-flex items-center justify-center whitespace-nowrap min-w-max bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
+                  <svg class="w-6 h-6 mr-2 flex-shrink-0 inline-block" style="vertical-align: middle;" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                    <rect width="12" height="12" x="6" y="6" stroke="currentColor" stroke-linejoin="round" stroke-width="2" rx="1"/>
+                  </svg>
+                  Stop Visualization
+              </button>
+          </div>
         </div>
 
-      
-        <div class="grid grid-cols-1 mt-5 md:grid-cols-2 gap-6">
+        <div id="visualization-status-container" class="mb-4">
+             <div class="text-center py-8">
+              <p class="text-gray-500 dark:text-gray-400">Click "Run Visualization" to generate plots.</p>
+            </div>
+        </div>
+        
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 mt-5 md:grid-cols-2 gap-6" id="chartsGrid">
           
-          <!-- Chart Placeholder 1 -->
-          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+          <!-- Chart 1 -->
+          <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="1">
+            <div class="placeholder-content">
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 1</p>
               <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
+            <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 1" />
+            <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
           </div>
       
-          <!-- Chart Placeholder 2 -->
-          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+          <!-- Chart 2 -->
+          <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="2">
+            <div class="placeholder-content">
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 2</p>
               <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
+            <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 2" />
+            <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
           </div>
       
-          <!-- Chart Placeholder 3 -->
-          <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+          <!-- Chart 3 -->
+          <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="3">
+            <div class="placeholder-content">
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 3</p>
               <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
+            <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 3" />
+            <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
           </div>
       
-            <!-- Chart Placeholder 4 -->
-            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg h-64 flex items-center justify-center text-center">
-            <div>
-              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder</p>
+          <!-- Chart 4 -->
+          <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="4">
+            <div class="placeholder-content">
+              <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 4</p>
               <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
             </div>
+            <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 4" />
+            <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
           </div>
       
         </div>
       </section>
+      {% endif %}
 
     </main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    {% if selected_job_details %}
+    const jobId = "{{ selected_job_details.identifier }}";
+    const runBtn = document.getElementById('run-visualization-btn');
+    const stopBtn = document.getElementById('stop-visualization-btn');
+    const statusContainer = document.getElementById('visualization-status-container');
+    
+    // Helper to toggle placeholders/images
+    function showPlaceholders() {
+        const containers = document.querySelectorAll('.chart-container');
+        containers.forEach(container => {
+            const placeholder = container.querySelector('.placeholder-content');
+            const image = container.querySelector('.plot-image');
+            const title = container.querySelector('.plot-title');
+            
+            if (placeholder) placeholder.style.display = 'block';
+            if (image) {
+                image.style.display = 'none';
+                image.classList.add('hidden');
+            }
+            if (title) {
+                title.style.display = 'none';
+                title.classList.add('hidden');
+            }
+        });
+    }
+
+    let pollInterval;
+    let currentRunId = null;
+
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    const csrftoken = getCookie('csrftoken');
+
+    function setStatus(status, message, isError = false) {
+        // Customize status message display to match data page style
+        let html = '<div class="space-y-4">';
+        
+        if (status === 'running' || status === 'pending') {
+             html += `<button disabled class="inline-flex items-center px-3 py-2 text-sm font-medium text-center bg-gray-100 text-gray-400 border border-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:text-gray-400">
+                          <svg class="w-6 h-6 mr-2 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>${message}</button>`;
+        } else if (status === 'completed') {
+             // html += `<div class="p-4 mb-4 text-sm text-green-800 bg-green-50 dark:bg-gray-800 dark:text-green-400" role="alert"><strong>Completed:</strong> ${message}</div>`;
+        } else if (status === 'failed' || isError) {
+             html += `<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>${message}</span></div>`;
+        } else if (status === 'stopped' || status === 'cancelled') {
+             html += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Visualization was cancelled</span></div>';
+        } else {
+             html += `<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">${message}</p></div>`;
+        }
+        
+        html += '</div>';
+        statusContainer.innerHTML = html;
+    }
+
+    function updateUIForState(state) {
+        if (state === 'running' || state === 'pending') {
+            runBtn.classList.add('hidden');
+            stopBtn.classList.remove('hidden');
+            if (!pollInterval) {
+                pollInterval = setInterval(pollStatus, 3000);
+            }
+        } else {
+            runBtn.classList.remove('hidden');
+            stopBtn.classList.add('hidden');
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+    }
+
+    function renderPlots(plots) {
+        // Clear all containers first (show placeholders)
+        showPlaceholders();
+        
+        if (plots && plots.length > 0) {
+            plots.forEach(plot => {
+                const container = document.querySelector(`[data-plot="${plot.plot_number}"]`);
+                if (container) {
+                    const placeholder = container.querySelector('.placeholder-content');
+                    const image = container.querySelector('.plot-image');
+                    const title = container.querySelector('.plot-title');
+                    
+                    // Hide placeholder
+                    if (placeholder) placeholder.style.display = 'none';
+                    
+                    // Show image
+                    if (image) {
+                        image.src = `data:image/png;base64,${plot.image_data}`;
+                        image.style.display = 'block';
+                        image.classList.remove('hidden');
+                    }
+                    
+                    // Show title
+                    if (title) {
+                        title.textContent = plot.title;
+                        title.style.display = 'block';
+                        title.classList.remove('hidden');
+                    }
+                }
+            });
+        }
+    }
+
+    async function pollStatus() {
+        if (!jobId) return;
+        const response = await fetch(`/results/visualize/status/${jobId}/`);
+        const data = await response.json();
+
+        currentRunId = data.run_id;
+        updateUIForState(data.status);
+        
+        if (data.status === 'completed') {
+            setStatus('completed', data.output || 'Visualization finished successfully.');
+            renderPlots(data.plots);
+        } else if (data.status === 'failed') {
+            setStatus('failed', data.error_message || 'An unknown error occurred.', true);
+            showPlaceholders();
+        } else if (data.status === 'running' || data.status === 'pending') {
+            setStatus(data.status, 'Visualization is in progress...');
+        } else if (data.status === 'none') {
+             // setStatus('none', 'Click "Run Visualization" to generate plots.');
+             // showPlaceholders();
+        } else if (data.status === 'cancelled') {
+             setStatus('cancelled', 'Visualization was cancelled.');
+             showPlaceholders();
+        }
+        
+        if (currentRunId) {
+             stopBtn.dataset.runId = currentRunId;
+        }
+    }
+
+    runBtn.addEventListener('click', async () => {
+        setStatus('pending', 'Starting visualization...');
+        updateUIForState('pending');
+
+        try {
+            const response = await fetch(`/results/visualize/start/${jobId}/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrftoken }
+            });
+            
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                 throw new Error("Server returned non-JSON response. Check server logs.");
+            }
+
+            const data = await response.json();
+
+            if (data.success) {
+                currentRunId = data.visualization_run_id;
+                pollStatus();
+            } else {
+                setStatus('failed', data.error || 'Failed to start visualization.', true);
+                updateUIForState('failed');
+            }
+        } catch (error) {
+            console.error('Error starting visualization:', error);
+            setStatus('failed', 'An error occurred while starting the visualization: ' + error.message, true);
+            updateUIForState('failed');
+        }
+    });
+
+    stopBtn.addEventListener('click', async () => {
+        const runIdToStop = stopBtn.dataset.runId;
+        if (!runIdToStop) return;
+
+        setStatus('pending', 'Stopping visualization...');
+        
+        try {
+            const formData = new FormData();
+            formData.append('run_id', runIdToStop);
+
+            const response = await fetch(`/results/visualize/stop/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrftoken },
+                body: formData
+            });
+
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                 throw new Error("Server returned non-JSON response.");
+            }
+
+            const data = await response.json();
+
+            if (data.success) {
+                setStatus('stopped', 'Visualization was cancelled by the user.');
+                updateUIForState('stopped');
+            } else {
+                setStatus('failed', data.error || 'Failed to stop visualization.', true);
+            }
+        } catch (error) {
+            console.error('Error stopping visualization:', error);
+            setStatus('failed', 'An error occurred: ' + error.message, true);
+        }
+    });
+
+    // Initial poll
+    pollStatus();
+    {% endif %}
+
+    // ======================
+    // SYNC RESULTS CODE
+    // ======================
+    const syncBtn = document.getElementById('sync-results-btn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Show loading state
+            syncBtn.disabled = true;
+            syncBtn.classList.remove('bg-purple-100', 'text-purple-700', 'hover:border-purple-700');
+            syncBtn.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+            syncBtn.innerHTML = `
+                <svg class="w-4 h-4 mr-2 animate-spin inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg> Syncing...`;
+            
+            // Trigger the sync (the view handles the .delay() on GET)
+            fetch(window.location.href)
+                .then(() => {
+                    // Give the backend background task 5 seconds to complete
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 5000);
+                })
+                .catch(err => {
+                    console.error('Sync request failed:', err);
+                    window.location.reload();
+                });
+        });
+    }
+});
+</script>
   {%endblock content%}
 
 

@@ -50,9 +50,16 @@ def upload_file_to_s3(bucket_name: str, key: str, local_path: str):
 
 
 def upload_folder_to_s3(bucket_name: str, local_dir: str, prefix: str):
-    """Upload all files under local_dir to S3 at prefix."""
-    for root, _, files in os.walk(local_dir):
+    """Upload all files under local_dir to S3 at prefix, excluding hidden folders/files and .py files."""
+    for root, dirs, files in os.walk(local_dir):
+        # Skip hidden directories (modify in-place to affect walk)
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        
         for f in files:
+            # Skip hidden files and .py files
+            if f.startswith('.') or f.endswith('.py') or f.endswith('.pyc'):
+                continue
+                
             full_path = os.path.join(root, f)
             rel_path = os.path.relpath(full_path, local_dir)
             s3_key = f"{prefix.rstrip('/')}/{rel_path}"

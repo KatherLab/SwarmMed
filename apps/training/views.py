@@ -15,6 +15,7 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from .utils import download_s3_folder, get_s3_client
 import time
+from django.utils import timezone
 from django.contrib import messages
 from apps.project.models import Project, UserCurrentProject
 from apps.results.models import TrainingResult
@@ -514,6 +515,11 @@ def training_status_api(request):
         if ended or progress>=100:
             progress=100
             status='Completed'
+            # Update the database status if it's not already COMPLETED
+            if job.status != 'COMPLETED':
+                job.status = 'COMPLETED'
+                job.completed_at = timezone.now()
+                job.save()
         elif job.status=='RUNNING':
             status='Running'
     except Exception:
