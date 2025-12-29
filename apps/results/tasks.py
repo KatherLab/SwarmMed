@@ -121,8 +121,12 @@ def run_results_visualization_task(self, run_id, job_id):
         run.celery_task_id = self.request.id
         run.save()
 
-        script_key = f"{project.identifier}/code/results_visualization/visualization.py"
+        script_prefix = f"{project.identifier}/code/results_visualization/"
+        log.results.info(f"Searching for visualization scripts with prefix: {script_prefix}")
+        print(f"DEBUG: Searching for visualization scripts with prefix: {script_prefix}")
+        
         script_content = ""
+        script_key = None
         try:
             s3 = boto3.client(
                 's3',
@@ -130,11 +134,38 @@ def run_results_visualization_task(self, run_id, job_id):
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
             )
+            
+            # List objects to find any .py file
+            response = s3.list_objects_v2(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=script_prefix)
+            contents = response.get('Contents', [])
+            log.results.info(f"Found {len(contents)} objects in visualization folder")
+            print(f"DEBUG: Found {len(contents)} objects in visualization folder")
+            
+            py_scripts = [obj['Key'] for obj in contents if obj['Key'].endswith('.py')]
+            log.results.info(f"Found .py scripts: {py_scripts}")
+            print(f"DEBUG: Found .py scripts: {py_scripts}")
+
+            if not py_scripts:
+                error_msg = f"No results visualization scripts (.py) found at {script_prefix}. Found keys: {[o['Key'] for obj in contents]}"
+                log.results.error(error_msg)
+                print(f"DEBUG ERROR: {error_msg}")
+                raise Exception(error_msg)
+            
+            # Use the first .py script found
+            script_key = py_scripts[0]
+            log.results.info(f"Downloading visualization script: {script_key}")
+            print(f"DEBUG: Downloading visualization script: {script_key}")
+            
             response = s3.get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=script_key)
             script_content = response['Body'].read().decode('utf-8')
+            log.results.info(f"Successfully downloaded script content ({len(script_content)} bytes)")
+            print(f"DEBUG: Successfully downloaded script content ({len(script_content)} bytes)")
+            
         except Exception as e:
-            log.results.error(f"Could not find or download results visualization script from {script_key}: {e}")
-            raise Exception(f"Could not find or download results visualization script from {script_key}")
+            error_detail = f"Error finding or downloading visualization script: {str(e)}"
+            log.results.error(error_detail)
+            print(f"DEBUG ERROR: {error_detail}")
+            raise Exception(error_detail)
 
         with ResultsVisualizationContext(str(project.identifier), job_id, str(run.id)) as context:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_file:
@@ -178,16 +209,30 @@ visualization = ResultsVisualizationContext(context)
                 script_file.write(script_with_context)
                 script_file.flush()
 
+                import sys
+                import io
+                from contextlib import redirect_stdout, redirect_stderr
+
+                f = io.StringIO()
                 try:
-                    exec(compile(script_with_context, script_file.name, 'exec'), {'context': context})
+                    with redirect_stdout(f), redirect_stderr(f):
+                        # Important: Set __name__ to __main__ so the script's entry point runs
+                        exec_globals = {
+                            'context': context,
+                            '__name__': '__main__',
+                            '__file__': script_file.name
+                        }
+                        exec(compile(script_with_context, script_file.name, 'exec'), exec_globals)
 
                     run.success = True
-                    run.output = f"Visualization completed successfully. Generated {len(context.plots)} plots."
+                    script_output = f.getvalue()
+                    run.output = f"Visualization completed successfully.\\n\\nScript Output:\\n{script_output}\\n\\nGenerated {len(context.plots)} plots."
 
                 except Exception as e:
                     run.success = False
+                    script_output = f.getvalue()
                     run.error_message = str(e)
-                    run.output = traceback.format_exc()
+                    run.output = f"Script Output before failure:\\n{script_output}\\n\\nError:\\n{traceback.format_exc()}"
                     log.results.error(f"Results visualization script execution failed: {str(e)}", error=str(e), traceback=traceback.format_exc())
 
                 finally:

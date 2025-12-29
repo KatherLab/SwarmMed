@@ -4,7 +4,7 @@ import base64
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
-#import torch
+import torch
 from apps.data.filesystem import DataFileSystem
 from apps.logs import logger
 from apps.training.models import TrainingJob
@@ -24,12 +24,15 @@ class ResultsVisualizationContext:
         self.job = TrainingJob.objects.get(identifier=job_identifier)
 
     def __enter__(self):
+        self.log.results.info(f"Entering ResultsVisualizationContext for project={self.project_uuid}, job={self.job_identifier}")
         self.filesystem.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
             self.log.results.error(f"Results visualization context exited with error: {str(exc_val)}")
+        else:
+            self.log.results.info("Results visualization context exited successfully")
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
 
     def save_plot(self, title="Untitled Plot"):

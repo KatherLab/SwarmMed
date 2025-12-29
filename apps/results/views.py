@@ -149,14 +149,15 @@ def start_results_visualization(request, job_id):
         project = Project.objects.get(identifier=current_project_uuid)
         job = TrainingJob.objects.get(identifier=job_id)
 
-        # Basic check for script existence
-        script_key = f"{project.identifier}/code/results_visualization/visualization.py"
+        # Basic check for script existence - look for any .py file in the folder
+        script_prefix = f"{project.identifier}/code/results_visualization/"
         s3 = get_s3_client()
-        try:
-            s3.head_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=script_key)
-        except Exception as e:
-            return JsonResponse({'error': f'Results visualization script not found at {script_key}. Please upload it on the project page.'}, status=400)
+        response = s3.list_objects_v2(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=script_prefix)
+        py_scripts = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'].endswith('.py')]
         
+        if not py_scripts:
+            return JsonResponse({'error': f'No results visualization scripts (.py) found at {script_prefix}. Please upload one on the project page.'}, status=400)
+                
         # Cancel any running visualization for this project
         running_visualizations = ResultsVisualizationRun.objects.filter(
             project=project,
@@ -204,7 +205,7 @@ def stop_results_visualization(request):
         
         visualization_run.status = 'cancelled'
         visualization_run.completed_at = timezone.now()
-        visualization_.save()
+        visualization_run.save()
         
         return JsonResponse({'success': True})
         
