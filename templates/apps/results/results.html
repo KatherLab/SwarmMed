@@ -78,7 +78,7 @@
       <div>
         <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ result.uploaded_at|date:"Y-m-d H:i:s" }}</h4>
         <p class="text-lg font-semibold text-gray-900 dark:text-white" title="{{ result.cleaned_filename }}">{{ result.cleaned_filename }}</p>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Client: {{ result.client_name }} • Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
       </div>
       <div class="mt-4">
         <a href="{% if result.id %}{% url 'download_result' result.id %}{% else %}{% url 'download_result_by_key' %}?key={{ result.file_path }}{% endif %}" download="{{ result.cleaned_filename }}"

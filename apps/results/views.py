@@ -113,12 +113,18 @@ def results(request):
         last_modified = item.get('last_modified')
         cleaned_filename = os.path.basename(key)
         file_type = os.path.splitext(key)[1].lstrip('.').lower() or 'unknown'
+        
+        # Extract client name from path: <project>/results/<job>/<client>/<file>
+        parts = key.split('/')
+        client_name = parts[3] if len(parts) > 3 else 'unknown'
+        
         prepared_results.append({
             'file_path': key,
             'file_size': size,
             'file_type': file_type,
             'cleaned_filename': cleaned_filename,
             'uploaded_at': last_modified,
+            'client_name': client_name,
         })
     
     selected_job_details = None
