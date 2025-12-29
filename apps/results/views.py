@@ -87,12 +87,28 @@ def results(request):
     # Build job options
     job_options = []
     for job_id in list(job_ids_in_s3):
+        # Try to find the matching job in the database to get its real timestamp
+        db_job = TrainingJob.objects.filter(project=project, flare_job_id__icontains=job_id).first()
+        
         lm = job_last_modified.get(job_id)
-        label = lm.strftime('%Y-%m-%d %H:%M:%S') if lm else job_id
-        job_options.append({'value': job_id, 'label': label, 'last_modified': lm})
+        
+        if db_job:
+            # Use the actual job creation time from DB for the label
+            label = db_job.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            sort_time = db_job.created_at
+        else:
+            # Fallback to S3 upload time if no DB record matches
+            label = lm.strftime('%Y-%m-%d %H:%M:%S') if lm else job_id
+            sort_time = lm if lm else timezone.now()
+            
+        job_options.append({
+            'value': job_id, 
+            'label': label, 
+            'last_modified': sort_time
+        })
     
-    # Sort job options by timestamp descending (newest first)
-    job_options.sort(key=lambda x: x['last_modified'] if x['last_modified'] else timezone.now(), reverse=True)
+    # Sort job options by actual job time descending (newest first)
+    job_options.sort(key=lambda x: x['last_modified'], reverse=True)
     
     # Get selection from GET parameter
     selected_job_id = request.GET.get('job')
