@@ -60,34 +60,101 @@ class ResultsVisualizationContext:
             self.log.results.error(f"Failed to save plot '{title}': {str(e)}")
             raise
 
-    def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
+    def get_model(self, client_name=None, model_filename=None):
         """
         Load and return the trained model.
-        Assumes PyTorch model saved with torch.save().
+        Tries to find the model in S3 results first, then local workspace.
         """
+        import ast
+        from django.core.files.storage import default_storage
+        import tempfile
+        import shutil
+
+        # 1. Parse clean flare_job_id
+        flare_id = self.job.flare_job_id
         try:
-            workspace_path = os.path.join(
-                'workspaces',
-                self.project_uuid,
-                str(self.job.network.identifier),
-                'workspace',
-                self.job.flare_job_id,
-                client_name,
-                "models",
-                model_filename
-            )
+            parsed = ast.literal_eval(flare_id)
+            if isinstance(parsed, list):
+                for it in parsed:
+                    if isinstance(it, dict) and it.get('type') == 'string' and 'Submitted job:' in it.get('data', ''):
+                        flare_id = it.get('data', '').split(':')[-1].strip()
+                        break
+        except:
+            pass
+        
+        # 2. Define search candidates
+        search_paths = []
+        
+        # If user provided specific names, prioritize them
+        if client_name and model_filename:
+            # S3 Result path
+            search_paths.append(f"{self.project_uuid}/results/{flare_id}/{client_name}/{model_filename}")
+            # Local workspace path
+            search_paths.append(os.path.join('workspaces', self.project_uuid, str(self.job.network.identifier), 'workspace', flare_id, client_name, "models", model_filename))
 
-            if not os.path.exists(workspace_path):
-                self.log.results.error(f"Model file not found at: {workspace_path}")
-                raise FileNotFoundError(f"Model file not found at: {workspace_path}")
+        # Default candidates based on common naming patterns mentioned by user
+        candidates = [
+            # Pattern: results/<job_id>/app_<client>/FL_global_model.pt
+            f"{self.project_uuid}/results/{flare_id}/app_fl-client-2/FL_global_model.pt",
+            f"{self.project_uuid}/results/{flare_id}/app_fl-client-1/FL_global_model.pt",
+            f"{self.project_uuid}/results/{flare_id}/app_fl-client-2/model.pt",
+            # Pattern: results/<job_id>/<client>/model.pt
+            f"{self.project_uuid}/results/{flare_id}/fl-client-1/model.pt",
+            f"{self.project_uuid}/results/{flare_id}/fl-client-2/model.pt",
+        ]
+        
+        for path in candidates:
+            if path not in search_paths:
+                search_paths.append(path)
 
-            # Assuming the model was saved with torch.save()
-            model = torch.load(workspace_path)
-            self.log.results.info(f"Successfully loaded model from {workspace_path}")
-            return model
-        except Exception as e:
-            self.log.results.error(f"Failed to load model: {str(e)}")
-            raise
+        # 3. Try to find and load
+        for path in search_paths:
+            try:
+                if path.startswith(self.project_uuid): # S3 path
+                    if default_storage.exists(path):
+                        self.log.results.info(f"Found model in S3: {path}")
+                        with default_storage.open(path, 'rb') as s3_file:
+                            with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
+                                shutil.copyfileobj(s3_file, tmp)
+                                tmp_path = tmp.name
+                        try:
+                            model = torch.load(tmp_path, map_location=torch.device('cpu'))
+                            os.unlink(tmp_path)
+                            return model
+                        except Exception as load_err:
+                            if os.path.exists(tmp_path): os.unlink(tmp_path)
+                            self.log.results.warning(f"Failed to load model from {path}: {load_err}")
+                            continue
+                else: # Local path
+                    if os.path.exists(path):
+                        self.log.results.info(f"Found model locally: {path}")
+                        return torch.load(path, map_location=torch.device('cpu'))
+            except Exception as e:
+                continue
+
+        # 4. Final attempt: Scan the results directory for ANY .pt file
+        try:
+            from apps.data.utils import get_s3_client
+            from django.conf import settings
+            s3 = get_s3_client()
+            results_prefix = f"{self.project_uuid}/results/{flare_id}/"
+            paginator = s3.get_paginator('list_objects_v2')
+            for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=results_prefix):
+                for obj in page.get('Contents', []):
+                    key = obj['Key']
+                    if key.endswith('.pt'):
+                        self.log.results.info(f"Found .pt file by scanning S3 results: {key}")
+                        with default_storage.open(key, 'rb') as s3_file:
+                            with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
+                                shutil.copyfileobj(s3_file, tmp)
+                                tmp_path = tmp.name
+                        model = torch.load(tmp_path, map_location=torch.device('cpu'))
+                        os.unlink(tmp_path)
+                        return model
+        except Exception as scan_err:
+            self.log.results.error(f"Error scanning results folder for models: {scan_err}")
+
+        raise FileNotFoundError(f"Could not find model file for job {flare_id} in results or workspace.")
 
     def open(self, relative_path: str, mode: str = 'r', **kwargs):
         """Open a file from the project's data directory."""
