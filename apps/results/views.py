@@ -84,26 +84,29 @@ def results(request):
                     tr.file_size = obj.get('Size', 0)
                     tr.save(update_fields=['file_size'])
 
-    selected_job_id = request.GET.get('job')
-    if selected_job_id:
-        s3_items = [it for it in s3_items if f"/results/{selected_job_id}/" in it['key']]
-
-    prepared_results = []
+    # Build job options
     job_options = []
-    for job_id in sorted(list(job_ids_in_s3)):
+    for job_id in list(job_ids_in_s3):
         lm = job_last_modified.get(job_id)
         label = lm.strftime('%Y-%m-%d %H:%M:%S') if lm else job_id
-        job_options.append({'value': job_id, 'label': label})
+        job_options.append({'value': job_id, 'label': label, 'last_modified': lm})
     
-    latest_job_id = None
-    if job_options:
-        latest_job_id = max(job_last_modified, key=job_last_modified.get) if job_last_modified else job_options[-1]['value']
-
-    if not selected_job_id and latest_job_id:
-        selected_job_id = latest_job_id
+    # Sort job options by timestamp descending (newest first)
+    job_options.sort(key=lambda x: x['last_modified'] if x['last_modified'] else timezone.now(), reverse=True)
+    
+    # Get selection from GET parameter
+    selected_job_id = request.GET.get('job')
+    
+    # Default to latest job if no 'job' parameter is provided at all
+    if 'job' not in request.GET and job_options:
+        selected_job_id = job_options[0]['value']
+    
+    # If a specific job is selected (not empty), filter items
+    if selected_job_id:
         s3_items = [it for it in s3_items if f"/results/{selected_job_id}/" in it['key']]
+    # If selected_job_id is an empty string (from "All jobs"), we don't filter, showing everything.
 
-
+    prepared_results = []
     for item in s3_items:
         key = item['key']
         size = item['size']

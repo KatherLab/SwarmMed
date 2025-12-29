@@ -96,9 +96,8 @@ class ResultsVisualizationContext:
         #! update these patterns as needed
         candidates = [
             # Pattern: results/<job_id>/app_<client>/FL_global_model.pt
-            f"{self.project_uuid}/results/{flare_id}/app_fl-client-2/FL_global_model.pt",
-            f"{self.project_uuid}/results/{flare_id}/app_fl-client-1/FL_global_model.pt",
-            f"{self.project_uuid}/results/{flare_id}/app_fl-client-2/model.pt",
+            f"{self.project_uuid}/results/{flare_id}/fl-client-2/app_fl-client-2/FL_global_model.pt",
+            f"{self.project_uuid}/results/{flare_id}/fl-client-1/app_fl-client-1/FL_global_model.pt",
             # Pattern: results/<job_id>/<client>/model.pt
             f"{self.project_uuid}/results/{flare_id}/fl-client-1/model.pt",
             f"{self.project_uuid}/results/{flare_id}/fl-client-2/model.pt",

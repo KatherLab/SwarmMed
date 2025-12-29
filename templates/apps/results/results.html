@@ -59,11 +59,12 @@
       <form method="get" action="{% url 'results' %}" class="flex items-center gap-2">
         <label for="job" class="text-sm text-gray-600 dark:text-gray-300">Job:</label>
         <select id="job" name="job" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm rounded-lg p-2.5 text-gray-900 dark:text-white focus:ring-purple-700 focus:border-purple-700 dark:focus:ring-purple-300 dark:focus:border-purple-300" onchange="this.form.submit()">
-          <option value="">All jobs</option>
+          <option value="" {% if selected_job_id == "" %}selected{% endif %}>All jobs</option>
           {% for opt in job_options %}
             <option value="{{ opt.value }}" {% if selected_job_id == opt.value %}selected{% endif %}>{{ opt.label }}</option>
           {% endfor %}
         </select>
+        <button type="submit" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Sync Results</button>
         <button type="submit" formaction="{% url 'download_all_results' project_id=project_identifier %}" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download All</button>
       </form>
     </div>

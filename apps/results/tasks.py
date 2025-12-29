@@ -20,8 +20,14 @@ def sync_project_results(project_uuid):
     """
     Syncs results from S3 for a given project into the database.
     """
+    from apps.training.tasks import monitor_training_jobs
+    
     log = logger.get_logger()
     try:
+        # First, ensure all finished local jobs are uploaded to S3
+        log.results.info(f"Running monitor_training_jobs before sync for project {project_uuid}")
+        monitor_training_jobs()
+        
         project = Project.objects.get(identifier=project_uuid)
         log.results.info(f"Starting results sync for project {project_uuid}")
 
