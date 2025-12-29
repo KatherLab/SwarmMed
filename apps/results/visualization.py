@@ -93,6 +93,7 @@ class ResultsVisualizationContext:
             search_paths.append(os.path.join('workspaces', self.project_uuid, str(self.job.network.identifier), 'workspace', flare_id, client_name, "models", model_filename))
 
         # Default candidates based on common naming patterns mentioned by user
+        #! update these patterns as needed
         candidates = [
             # Pattern: results/<job_id>/app_<client>/FL_global_model.pt
             f"{self.project_uuid}/results/{flare_id}/app_fl-client-2/FL_global_model.pt",
