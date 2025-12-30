@@ -85,7 +85,7 @@ def project_edit(request, pk):
     """Edit an existing project."""
     log = logger.get_logger()
     project = get_object_or_404(Project, pk=pk)
-    if request.user != project.author and request.user not in project.members.all():
+    if request.user != project.author:
         return redirect('project_list')
     
     if request.method == 'POST':
