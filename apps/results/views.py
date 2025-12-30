@@ -254,7 +254,7 @@ def results_visualization_status(request, job_id):
         
         plots = list(ResultsVisualizationPlot.objects.filter(
             visualization_run=latest_visualization
-        ).values('title', 'plot_number', 'image_data'))
+        ).values('title', 'plot_number', 'image_data', 'svg_data'))
         
         return JsonResponse({
             'run_id': latest_visualization.id,

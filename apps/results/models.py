@@ -53,7 +53,8 @@ class ResultsVisualizationPlot(models.Model):
     visualization_run = models.ForeignKey(ResultsVisualizationRun, on_delete=models.CASCADE, related_name='plots')
     title = models.CharField(max_length=255)
     plot_number = models.IntegerField()  # 1-4
-    image_data = models.TextField()  # Base64 encoded image
+    image_data = models.TextField()  # Base64 encoded image (PNG)
+    svg_data = models.TextField(blank=True, null=True)  # SVG string
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

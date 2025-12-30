@@ -555,7 +555,7 @@ def visualization_status(request):
         # Get visualization plots
         plots = list(VisualizationPlot.objects.filter(
             visualization_run=latest_visualization
-        ).values('title', 'plot_number', 'image_data'))
+        ).values('title', 'plot_number', 'image_data', 'svg_data'))
         
         return JsonResponse({
             'status': latest_visualization.status,

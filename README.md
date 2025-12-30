@@ -80,3 +80,8 @@ systemctl restart tailscaled
 mkdocs serve --dev-addr localhost:9999
 mkdocs serve --dev-addr 0.0.0.0:9999
 ``` 
+
+## when changing tasks
+```bash
+docker compose restart celery_worker
+```

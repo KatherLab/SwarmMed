@@ -3,6 +3,7 @@ import os
 import base64
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
+matplotlib.rcParams['svg.fonttype'] = 'none'  # Save text as text, not paths
 import matplotlib.pyplot as plt
 import torch
 from apps.data.filesystem import DataFileSystem
@@ -36,7 +37,7 @@ class ResultsVisualizationContext:
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
 
     def save_plot(self, title="Untitled Plot"):
-        """Save the current matplotlib plot."""
+        """Save the current matplotlib plot in PNG and SVG formats."""
         if self.current_plot_number >= 4:
             self.log.results.warning(f"Maximum of 4 plots allowed. Plot '{title}' will be ignored.")
             return
@@ -44,18 +45,26 @@ class ResultsVisualizationContext:
         self.current_plot_number += 1
 
         try:
-            buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', transparent=True)
-            buffer.seek(0)
-            image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            # PNG
+            png_buffer = io.BytesIO()
+            plt.savefig(png_buffer, format='png', dpi=100, bbox_inches='tight', transparent=True)
+            png_buffer.seek(0)
+            png_base64 = base64.b64encode(png_buffer.getvalue()).decode('utf-8')
+
+            # SVG
+            svg_buffer = io.BytesIO()
+            plt.savefig(svg_buffer, format='svg', bbox_inches='tight', transparent=True)
+            svg_buffer.seek(0)
+            svg_base64 = base64.b64encode(svg_buffer.getvalue()).decode('utf-8')
 
             self.plots.append({
                 'title': title,
                 'plot_number': self.current_plot_number,
-                'image_data': image_base64
+                'image_data': png_base64,
+                'svg_data': svg_base64
             })
             plt.clf()
-            self.log.results.info(f"Plot {self.current_plot_number}: '{title}' saved successfully")
+            self.log.results.info(f"Plot {self.current_plot_number}: '{title}' saved successfully (PNG + SVG)")
         except Exception as e:
             self.log.results.error(f"Failed to save plot '{title}': {str(e)}")
             raise
