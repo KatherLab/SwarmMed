@@ -142,19 +142,40 @@ def training(request):
                             for cand in ['log_fl.txt','log.txt']:
                                 log_file=os.path.join(latest_run,cand)
                                 if os.path.exists(log_file):
+                                    import re
                                     with open(log_file,'r') as lf:
                                         lines=lf.readlines()[-50:]
                                     for line in lines:
-                                        # basic parse
-                                        parts=line.strip().split(' - ')
-                                        if len(parts)>=5:
-                                            ts=parts[0]
-                                            logger=parts[1]
-                                            level=parts[2]
-                                            msg=' - '.join(parts[4:])
-                                        else:
-                                            ts=''; level=''; msg=line.strip(); logger=''
-                                        training_logs.append({'timestamp':ts,'level':level,'message':msg})
+                                        line = line.strip()
+                                        if not line: continue
+                                        
+                                        ts = ''; level = ''; msg = line; logger_name = ''
+                                        ts_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', line)
+                                        if ts_match:
+                                            ts = ts_match.group(1)
+                                            remaining = line[len(ts):].strip()
+                                            dash_parts = remaining.split(' - ')
+                                            if len(dash_parts) >= 3:
+                                                logger_name = dash_parts[0].strip(' -')
+                                                level = dash_parts[1].strip()
+                                                msg = ' - '.join(dash_parts[2:])
+                                            elif '\t' in remaining:
+                                                tab_parts = remaining.split('\t')
+                                                level = tab_parts[0].strip()
+                                                msg = '\t'.join(tab_parts[1:])
+                                            else:
+                                                msg = remaining.strip(' -')
+
+                                        if level:
+                                            msg = re.sub(rf'^\s*-?\s*{level}\s*-?\s*', '', msg, flags=re.IGNORECASE)
+                                        msg = re.sub(r'^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s*', '', msg)
+                                        
+                                        training_logs.append({
+                                            'timestamp': ts,
+                                            'level': level,
+                                            'message': msg.strip(),
+                                            'logger': logger_name
+                                        })
                                     break
             except Exception:
                 training_logs = []
@@ -563,15 +584,54 @@ def training_logs_api(request):
                         latest_mtime=m
                         latest_log=log_path
         if latest_log and os.path.exists(latest_log):
+            import re
             with open(latest_log,'r') as lf:
                 lines=lf.readlines()[-100:]
             for line in lines:
-                parts=line.strip().split(' - ')
-                if len(parts)>=5:
-                    ts=parts[0]; level=parts[2]; msg=' - '.join(parts[4:])
-                else:
-                    ts=''; level=''; msg=line.strip()
-                logs.append({'timestamp':ts,'level':level,'message':msg})
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Try to parse different formats
+                # Format 1: 2025-12-30 11:43:53,610 - LoggerName - LEVEL - Message
+                # Format 2: 2025-12-30 11:43:53,612\tLEVEL\tMessage
+                
+                ts = ''; level = ''; msg = line; logger_name = ''
+                
+                # Match timestamp at the beginning: 2025-12-30 11:43:53,610
+                ts_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', line)
+                if ts_match:
+                    ts = ts_match.group(1)
+                    remaining = line[len(ts):].strip()
+                    
+                    # Check for " - LoggerName - LEVEL - Message"
+                    dash_parts = remaining.split(' - ')
+                    if len(dash_parts) >= 3:
+                        logger_name = dash_parts[0].strip(' -')
+                        level = dash_parts[1].strip()
+                        msg = ' - '.join(dash_parts[2:])
+                    # Check for "\tLEVEL\tMessage"
+                    elif '\t' in remaining:
+                        tab_parts = remaining.split('\t')
+                        level = tab_parts[0].strip()
+                        msg = '\t'.join(tab_parts[1:])
+                    else:
+                        msg = remaining.strip(' -')
+
+                # Clean up message: sometimes it starts with another level/timestamp
+                # e.g. "INFO - Message" or "LEVEL Message"
+                if level:
+                    msg = re.sub(rf'^\s*-?\s*{level}\s*-?\s*', '', msg, flags=re.IGNORECASE)
+                
+                # Final clean for redundant timestamps in msg
+                msg = re.sub(r'^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s*', '', msg)
+                
+                logs.append({
+                    'timestamp': ts,
+                    'level': level,
+                    'message': msg.strip(),
+                    'logger': logger_name
+                })
     except Exception:
         pass
     return JsonResponse({"logs": logs})
