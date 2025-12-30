@@ -67,9 +67,17 @@ def training(request):
         training_job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
         if training_job:
             training_status = training_job.status.title()
+            
+            # Extract clean UUID from flare_job_id
+            import re
+            job_uuid = str(training_job.flare_job_id)
+            match = re.search(r'Submitted job:\s*([0-9a-f-]+)', job_uuid)
+            if match:
+                job_uuid = match.group(1)
+
             if training_job.status == 'RUNNING':
                 is_training_running = True
-                # Derive progress from logs by counting completed rounds vs total rounds (num_rounds in server cfg)
+                # Derive progress from logs by counting completed rounds vs total rounds
                 try:
                     total_rounds = 0
                     server_cfg_path = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'job', 'app_server', 'config', 'config_fed_server.json')
@@ -81,102 +89,112 @@ def training(request):
                                 if wf.get('id') == 'swarm_controller':
                                     total_rounds = int(wf.get('args', {}).get('num_rounds', 0))
                                     break
+                    
                     rounds_finished = 0
-                    workspace_dir = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier))
+                    # Look for logs specifically for THIS job UUID
+                    workspace_dir = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'workspace')
                     for root, _, files in os.walk(workspace_dir):
-                        for fname in files:
-                            if fname.startswith('log_fl') and fname.endswith('.txt'):
-                                fpath = os.path.join(root, fname)
-                                try:
-                                    with open(fpath, 'r') as lf:
-                                        for line in lf.readlines():
-                                            if 'finished training round' in line:
-                                                import re as _re
-                                                m = _re.search(r'finished training round (\d+)', line)
-                                                if m:
-                                                    rnum = int(m.group(1))
-                                                    if rnum > rounds_finished:
-                                                        rounds_finished = rnum
-                                except Exception:
-                                    continue
+                        if job_uuid in root:
+                            for fname in files:
+                                if fname.startswith('log_fl') and fname.endswith('.txt'):
+                                    fpath = os.path.join(root, fname)
+                                    try:
+                                        with open(fpath, 'r') as lf:
+                                            for line in lf.readlines():
+                                                if 'finished training round' in line:
+                                                    import re as _re
+                                                    m = _re.search(r'finished training round (\d+)', line)
+                                                    if m:
+                                                        rnum = int(m.group(1))
+                                                        if rnum > rounds_finished:
+                                                            rounds_finished = rnum
+                                    except Exception:
+                                        continue
                     if total_rounds > 0:
                         training_progress = min(100, int(rounds_finished * 100 / total_rounds))
-                # If workflow ended or job executor finished successfully, force 100%
-                    workspace_dir = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier))
+
+                    # Check for completion
                     ended = False
                     for root,_,files in os.walk(workspace_dir):
-                        for fname in files:
-                            if fname.startswith('log') and fname.endswith('.txt'):
-                                fpath=os.path.join(root,fname)
-                                try:
-                                    with open(fpath,'r') as lf2:
-                                        data=lf2.read()
-                                        if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
-                                            ended=True
-                                            break
-                                except Exception:
-                                    continue
-                        if ended: break
+                        if job_uuid in root:
+                            for fname in files:
+                                if fname.startswith('log') and fname.endswith('.txt'):
+                                    fpath=os.path.join(root,fname)
+                                    try:
+                                        with open(fpath,'r') as lf2:
+                                            data=lf2.read()
+                                            if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
+                                                ended=True
+                                                break
+                                    except Exception:
+                                        continue
+                            if ended: break
+                    
                     if ended:
                         training_progress = 100
                         training_status = 'Completed'
                         is_training_running = False
+                        # Update DB if needed
+                        if training_job.status != 'COMPLETED':
+                            training_job.status = 'COMPLETED'
+                            training_job.completed_at = timezone.now()
+                            training_job.save()
                 except Exception:
                     training_progress = 0
             elif training_job.status in ['COMPLETED', 'STOPPED', 'FAILED']:
                 if training_job.status == 'COMPLETED':
                     training_progress = 100
     
-            # Collect fl-client-1 logs (last 50 lines)
+            # Collect logs (last 50 lines) for the current job
             training_logs = []
             try:
                 if training_job:
-                    base_workspace = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'workspace', 'Test', 'prod_00', 'fl-client-1')
-                    if os.path.isdir(base_workspace):
-                        # find latest run folder
-                        runs=[d for d in os.listdir(base_workspace) if os.path.isdir(os.path.join(base_workspace,d))]
-                        if runs:
-                            runs.sort(key=lambda d: os.path.getmtime(os.path.join(base_workspace,d)), reverse=True)
-                            latest_run=os.path.join(base_workspace,runs[0])
-                            # prefer log_fl.txt else log.txt
+                    workspace_root = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'workspace')
+                    latest_log = None
+                    # Find any log file that belongs to this job ID
+                    for root, _, files in os.walk(workspace_root):
+                        if job_uuid in root:
                             for cand in ['log_fl.txt','log.txt']:
-                                log_file=os.path.join(latest_run,cand)
-                                if os.path.exists(log_file):
-                                    import re
-                                    with open(log_file,'r') as lf:
-                                        lines=lf.readlines()[-50:]
-                                    for line in lines:
-                                        line = line.strip()
-                                        if not line: continue
-                                        
-                                        ts = ''; level = ''; msg = line; logger_name = ''
-                                        ts_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', line)
-                                        if ts_match:
-                                            ts = ts_match.group(1)
-                                            remaining = line[len(ts):].strip()
-                                            dash_parts = remaining.split(' - ')
-                                            if len(dash_parts) >= 3:
-                                                logger_name = dash_parts[0].strip(' -')
-                                                level = dash_parts[1].strip()
-                                                msg = ' - '.join(dash_parts[2:])
-                                            elif '\t' in remaining:
-                                                tab_parts = remaining.split('\t')
-                                                level = tab_parts[0].strip()
-                                                msg = '\t'.join(tab_parts[1:])
-                                            else:
-                                                msg = remaining.strip(' -')
-
-                                        if level:
-                                            msg = re.sub(rf'^\s*-?\s*{level}\s*-?\s*', '', msg, flags=re.IGNORECASE)
-                                        msg = re.sub(r'^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s*', '', msg)
-                                        
-                                        training_logs.append({
-                                            'timestamp': ts,
-                                            'level': level,
-                                            'message': msg.strip(),
-                                            'logger': logger_name
-                                        })
+                                if cand in files:
+                                    latest_log = os.path.join(root, cand)
                                     break
+                        if latest_log: break
+                    
+                    if latest_log and os.path.exists(latest_log):
+                        import re
+                        with open(latest_log,'r') as lf:
+                            lines=lf.readlines()[-50:]
+                        for line in lines:
+                            line = line.strip()
+                            if not line: continue
+                            
+                            ts = ''; level = ''; msg = line; logger_name = ''
+                            ts_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', line)
+                            if ts_match:
+                                ts = ts_match.group(1)
+                                remaining = line[len(ts):].strip()
+                                dash_parts = remaining.split(' - ')
+                                if len(dash_parts) >= 3:
+                                    logger_name = dash_parts[0].strip(' -')
+                                    level = dash_parts[1].strip()
+                                    msg = ' - '.join(dash_parts[2:])
+                                elif '\t' in remaining:
+                                    tab_parts = remaining.split('\t')
+                                    level = tab_parts[0].strip()
+                                    msg = '\t'.join(tab_parts[1:])
+                                else:
+                                    msg = remaining.strip(' -')
+
+                            if level:
+                                msg = re.sub(rf'^\s*-?\s*{level}\s*-?\s*', '', msg, flags=re.IGNORECASE)
+                            msg = re.sub(r'^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s*', '', msg)
+                            
+                            training_logs.append({
+                                'timestamp': ts,
+                                'level': level,
+                                'message': msg.strip(),
+                                'logger': logger_name
+                            })
             except Exception:
                 training_logs = []
     context = {
@@ -517,6 +535,14 @@ def training_status_api(request):
             return JsonResponse({"status": status, "progress": progress})
 
         status = job.status.title()
+        
+        # Extract clean UUID from flare_job_id
+        import re
+        job_uuid = str(job.flare_job_id)
+        match = re.search(r'Submitted job:\s*([0-9a-f-]+)', job_uuid)
+        if match:
+            job_uuid = match.group(1)
+
         total_rounds = 0
         try:
             server_cfg_path = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'job', 'app_server', 'config', 'config_fed_server.json')
@@ -533,36 +559,25 @@ def training_status_api(request):
         workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'workspace')
         rounds_finished = 0
         ended = False
-        for client in ('fl-client-1', 'fl-client-2'):
-            client_dir = None
-            # find latest run dir under this client
-            base_client = None
-            for root, dirs, files in os.walk(workspace_root):
-                if os.path.basename(root) == client:
-                    base_client = root
-                    break
-            if base_client and os.path.isdir(base_client):
-                runs=[d for d in os.listdir(base_client) if os.path.isdir(os.path.join(base_client,d))]
-                if runs:
-                    runs.sort(key=lambda d: os.path.getmtime(os.path.join(base_client,d)), reverse=True)
-                    client_dir = os.path.join(base_client, runs[0])
-            if not client_dir:
-                continue
-            for fname in ('log_fl.txt','log.txt'):
-                fpath=os.path.join(client_dir,fname)
-                if os.path.exists(fpath):
-                    try:
-                        with open(fpath,'r') as lf:
-                            data=lf.read()
-                            import re as _re
-                            for m in _re.finditer(r'finished training round (\d+)', data):
-                                r=int(m.group(1))
-                                if r>rounds_finished:
-                                    rounds_finished=r
-                            if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
-                                ended=True
-                    except Exception:
-                        pass
+        
+        # Look specifically in the folder for THIS job
+        for root, dirs, files in os.walk(workspace_root):
+            if job_uuid in root:
+                for fname in ('log_fl.txt','log.txt'):
+                    if fname in files:
+                        fpath = os.path.join(root, fname)
+                        try:
+                            with open(fpath,'r') as lf:
+                                data=lf.read()
+                                import re as _re
+                                for m in _re.finditer(r'finished training round (\d+)', data):
+                                    r=int(m.group(1))
+                                    if r>rounds_finished:
+                                        rounds_finished=r
+                                if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
+                                    ended=True
+                        except Exception:
+                            pass
 
         if total_rounds>0:
             progress=min(100, int(rounds_finished*100/total_rounds))
@@ -592,30 +607,29 @@ def training_logs_api(request):
         job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
         if not job:
             return JsonResponse({"logs": logs})
-        base_workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'workspace')
-        # find latest run under either client
+        
+        # Extract clean UUID from flare_job_id
+        import re
+        job_uuid = str(job.flare_job_id)
+        match = re.search(r'Submitted job:\s*([0-9a-f-]+)', job_uuid)
+        if match:
+            job_uuid = match.group(1)
+
+        workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'workspace')
         latest_log = None
         latest_mtime = -1
-        for client in ('fl-client-1','fl-client-2'):
-            base_client = None
-            for root, dirs, files in os.walk(base_workspace_root):
-                if os.path.basename(root) == client:
-                    base_client = root
-                    break
-            if not base_client:
-                continue
-            runs=[d for d in os.listdir(base_client) if os.path.isdir(os.path.join(base_client,d))]
-            if not runs:
-                continue
-            runs.sort(key=lambda d: os.path.getmtime(os.path.join(base_client,d)), reverse=True)
-            latest_run=os.path.join(base_client, runs[0])
-            for cand in ('log_fl.txt','log.txt'):
-                log_path=os.path.join(latest_run, cand)
-                if os.path.exists(log_path):
-                    m=os.path.getmtime(log_path)
-                    if m>latest_mtime:
-                        latest_mtime=m
-                        latest_log=log_path
+        
+        # Find logs belonging specifically to this job
+        for root, _, files in os.walk(workspace_root):
+            if job_uuid in root:
+                for cand in ('log_fl.txt','log.txt'):
+                    if cand in files:
+                        log_path = os.path.join(root, cand)
+                        m = os.path.getmtime(log_path)
+                        if m > latest_mtime:
+                            latest_mtime = m
+                            latest_log = log_path
+        
         if latest_log and os.path.exists(latest_log):
             import re
             with open(latest_log,'r') as lf:
@@ -625,25 +639,16 @@ def training_logs_api(request):
                 if not line:
                     continue
                 
-                # Try to parse different formats
-                # Format 1: 2025-12-30 11:43:53,610 - LoggerName - LEVEL - Message
-                # Format 2: 2025-12-30 11:43:53,612\tLEVEL\tMessage
-                
                 ts = ''; level = ''; msg = line; logger_name = ''
-                
-                # Match timestamp at the beginning: 2025-12-30 11:43:53,610
                 ts_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', line)
                 if ts_match:
                     ts = ts_match.group(1)
                     remaining = line[len(ts):].strip()
-                    
-                    # Check for " - LoggerName - LEVEL - Message"
                     dash_parts = remaining.split(' - ')
                     if len(dash_parts) >= 3:
                         logger_name = dash_parts[0].strip(' -')
                         level = dash_parts[1].strip()
                         msg = ' - '.join(dash_parts[2:])
-                    # Check for "\tLEVEL\tMessage"
                     elif '\t' in remaining:
                         tab_parts = remaining.split('\t')
                         level = tab_parts[0].strip()
@@ -651,12 +656,8 @@ def training_logs_api(request):
                     else:
                         msg = remaining.strip(' -')
 
-                # Clean up message: sometimes it starts with another level/timestamp
-                # e.g. "INFO - Message" or "LEVEL Message"
                 if level:
                     msg = re.sub(rf'^\s*-?\s*{level}\s*-?\s*', '', msg, flags=re.IGNORECASE)
-                
-                # Final clean for redundant timestamps in msg
                 msg = re.sub(r'^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s*', '', msg)
                 
                 logs.append({
