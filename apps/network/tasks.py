@@ -141,10 +141,81 @@ def start_swarm_network_task(network_id, user_id):
 
         swarm_network.status = 'RUNNING'
         swarm_network.save()
+
+        # Run Preflight Check
+        run_nvflare_preflight_check.delay(network_id, user_id)
     else:
         logger.network.error(f"Compose file not found at: {compose_file_path}")
         swarm_network.status = 'ERROR'
         swarm_network.save()
+
+
+@shared_task
+def run_nvflare_preflight_check(network_id, user_id):
+    """
+    Runs NVFlare preflight check using the admin startup kit.
+    """
+    try:
+        swarm_network = SwarmNetwork.objects.get(identifier=network_id)
+        project = swarm_network.project
+        user = User.objects.get(id=user_id)
+        logger = get_logger(user=user, project=project)
+        
+        project_name = project.title.replace(' ', '_')
+        provision_dir = os.path.join(settings.BASE_DIR, 'workspaces', str(project.identifier), str(swarm_network.identifier))
+        # NVFlare provision typically creates workspace/<project_name>/prod_00/
+        admin_startup_dir = os.path.join(provision_dir, 'workspace', project_name, 'prod_00', 'admin@nvidia.com', 'startup')
+        
+        if not os.path.exists(admin_startup_dir):
+            logger.network.error(f"Preflight check failed: Admin startup directory not found at {admin_startup_dir}")
+            return
+
+        logger.network.info("Starting NVFlare Preflight Check...")
+        
+        # We need to run this from the admin startup directory
+        # The command is: python3 -m nvflare.tool.preflight_check -p .
+        command = ['python3', '-m', 'nvflare.tool.preflight_check', '-p', admin_startup_dir]
+        
+        result = subprocess.run(command, capture_output=True, text=True)
+        
+        # Log the results
+        if result.stdout:
+            for line in result.stdout.splitlines():
+                if line.strip():
+                    LogEntry.objects.create(
+                        user=user,
+                        project=project,
+                        swarm_network=swarm_network,
+                        category=LogCategory.NETWORK,
+                        source='preflight-check',
+                        level='INFO',
+                        message=line.strip()
+                    )
+        
+        if result.stderr:
+            for line in result.stderr.splitlines():
+                if line.strip():
+                    LogEntry.objects.create(
+                        user=user,
+                        project=project,
+                        swarm_network=swarm_network,
+                        category=LogCategory.NETWORK,
+                        source='preflight-check',
+                        level='ERROR',
+                        message=line.strip()
+                    )
+
+        if result.returncode == 0:
+            logger.network.info("NVFlare Preflight Check completed successfully.")
+        else:
+            logger.network.warning(f"NVFlare Preflight Check finished with issues (exit code {result.returncode}). Check logs for details.")
+
+    except Exception as e:
+        import traceback
+        error_msg = f"Exception during NVFlare Preflight Check: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        if 'logger' in locals():
+            logger.network.error(error_msg)
 
 
 @shared_task
