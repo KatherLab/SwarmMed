@@ -50,6 +50,9 @@ def data(request):
     if not is_valid:
         return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
     
+    from ..project.models import Project
+    project = get_object_or_404(Project, identifier=current_project_uuid)
+
     # Set the root path for the project's data directory
     root_path = f"{current_project_uuid}/data/"
     
@@ -59,6 +62,7 @@ def data(request):
     
     context = {
         'segment': 'data',
+        'project': project,
         'folder_count': folder_count,
         'file_count': file_count,
         'space_used': formatted_size,

@@ -42,7 +42,8 @@ def network(request):
         return render(request, "apps/network/no_project_selected.html", {"segment": "network"})
 
     current_project_relation = UserCurrentProject.objects.get(user=request.user)
-    swarm_networks = SwarmNetwork.objects.filter(project=current_project_relation.project)
+    project = current_project_relation.project
+    swarm_networks = SwarmNetwork.objects.filter(project=project)
     
     try:
         current_network = UserCurrentNetwork.objects.get(user=request.user).network
@@ -65,6 +66,7 @@ def network(request):
 
     context = {
         'segment': 'network',
+        'project': project,
         'tailscale_status': is_tailscale_connected(),
         'tailscale_ip': get_tailscale_ip(),
         'hostname': get_hostname(),

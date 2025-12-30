@@ -153,6 +153,7 @@ def results(request):
 
     context = {
         'segment': 'results',
+        'project': project,
         'results': prepared_results,
         'project_identifier': current_project_uuid,
         'job_options': job_options,
