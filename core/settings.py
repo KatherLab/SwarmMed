@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "apps.training",
     "apps.results",
     "apps.logs",
+    "apps.communication",
 
     "debug_toolbar",
     'storages',
@@ -90,6 +91,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.communication.context_processors.unread_messages",
             ],
         },
     },

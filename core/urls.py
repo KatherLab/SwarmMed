@@ -14,6 +14,7 @@ urlpatterns = [
     path("training/", include("apps.training.urls")),
     path("results/", include("apps.results.urls")),
     path("logs/", include("apps.logs.urls")),
+    path("communication/", include("apps.communication.urls")),
     
     path("__debug__/", include("debug_toolbar.urls")),
 

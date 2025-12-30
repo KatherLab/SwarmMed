@@ -1,0 +1,88 @@
+{% extends "layouts/base.html" %}
+{% load static %}
+
+{% block content %}
+<main>
+    <div class="px-4 pt-6">
+        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+            <!-- Header -->
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold leading-none text-gray-900 dark:text-white">
+                    {% if view_type == 'inbox' %}Inbox{% else %}Sent Messages{% endif %}
+                </h3>
+                <div class="flex space-x-2">
+                    <a href="{% url 'communication:inbox' %}" class="px-3 py-2 text-sm font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
+                        Inbox
+                    </a>
+                    <a href="{% url 'communication:sent_box' %}" class="px-3 py-2 text-sm font-medium text-center text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 focus:ring-4 focus:ring-blue-300 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-700 dark:focus:ring-gray-700">
+                        Sent
+                    </a>
+                    <a href="{% url 'communication:compose_message' %}" class="px-3 py-2 text-sm font-medium text-center text-white bg-green-600 rounded-lg hover:bg-green-700 focus:ring-4 focus:ring-green-300 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                        Compose
+                    </a>
+                </div>
+            </div>
+
+            <!-- Messages Table -->
+            <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+                <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" class="px-6 py-3">
+                                {% if view_type == 'inbox' %}Sender{% else %}Recipient{% endif %}
+                            </th>
+                            <th scope="col" class="px-6 py-3">
+                                Subject
+                            </th>
+                            <th scope="col" class="px-6 py-3">
+                                Date
+                            </th>
+                            <th scope="col" class="px-6 py-3">
+                                Status
+                            </th>
+                            <th scope="col" class="px-6 py-3">
+                                Action
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for msg in messages %}
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                            <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white">
+                                {% if view_type == 'inbox' %}{{ msg.sender.username }}{% else %}{{ msg.recipient.username }}{% endif %}
+                            </td>
+                            <td class="px-6 py-4">
+                                {{ msg.subject }}
+                            </td>
+                            <td class="px-6 py-4">
+                                {{ msg.timestamp|date:"M d, Y H:i" }}
+                            </td>
+                            <td class="px-6 py-4">
+                                {% if view_type == 'inbox' %}
+                                    {% if msg.is_read %}
+                                    <span class="bg-gray-100 text-gray-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">Read</span>
+                                    {% else %}
+                                    <span class="bg-blue-100 text-blue-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">New</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="bg-gray-100 text-gray-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">Sent</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4">
+                                <a href="{% url 'communication:message_detail' msg.id %}" class="font-medium text-blue-600 dark:text-blue-500 hover:underline">View</a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="px-6 py-4 text-center">
+                                No messages found.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}

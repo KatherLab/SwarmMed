@@ -1,0 +1,33 @@
+{% extends "layouts/base.html" %}
+{% load static %}
+
+{% block content %}
+<main>
+    <div class="px-4 pt-6">
+        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800 max-w-2xl mx-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-xl font-bold leading-none text-gray-900 dark:text-white">{{ message.subject }}</h3>
+                <a href="{% url 'communication:inbox' %}" class="text-sm text-gray-500 hover:underline">Back to Inbox</a>
+            </div>
+            
+            <div class="mb-6 border-b border-gray-200 dark:border-gray-700 pb-4">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">From: <span class="font-medium text-gray-900 dark:text-white">{{ message.sender.username }}</span></p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">To: <span class="font-medium text-gray-900 dark:text-white">{{ message.recipient.username }}</span></p>
+                    </div>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">{{ message.timestamp|date:"M d, Y H:i" }}</span>
+                </div>
+            </div>
+            
+            <div class="prose dark:prose-invert max-w-none text-gray-900 dark:text-white mb-6">
+                {{ message.body|linebreaks }}
+            </div>
+            
+            <div class="flex justify-end">
+                <a href="{% url 'communication:compose_message' %}?recipient={{ message.sender.id }}&subject=Re: {{ message.subject }}" class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">Reply</a>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}

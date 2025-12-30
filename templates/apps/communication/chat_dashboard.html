@@ -1,0 +1,198 @@
+{% extends "layouts/base.html" %}
+{% load static %}
+
+{% block content %}
+<main>
+    <div class="p-4 block sm:flex items-center justify-between lg:mt-1.5">
+        <div class="w-full mb-1">
+            <div class="mb-4">
+                <nav class="flex mb-5" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1 text-sm font-medium md:space-x-2">
+                        <li class="inline-flex items-center">
+                            <a href="/" class="inline-flex items-center text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">
+                                <svg class="w-5 h-5 mr-2.5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M15 4H9v16h6V4Zm2 16h3a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3v16ZM4 4h3v16H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+                                </svg>
+                                Dashboard
+                            </a>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                                </svg>
+                                <span class="ml-1 text-gray-400 md:ml-2 dark:text-gray-500" aria-current="page">Communication</span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+                <div class="sm:flex justify-between items-center">
+                    <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Communication Hub</h1>
+                    <button data-modal-target="new-chat-modal" data-modal-toggle="new-chat-modal" 
+                        class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300 mt-4 sm:mt-0">
+                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
+                        </svg>
+                        Start New Chat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="px-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <!-- Left Column: Direct Messages -->
+            <div class="bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 dark:bg-gray-800 flex flex-col">
+                <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-700/50">
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-purple-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"></path>
+                            <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"></path>
+                        </svg>
+                        Direct Messages
+                    </h3>
+                </div>
+                
+                <div class="flex-1 max-h-[600px] overflow-y-auto">
+                    <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+                        {% for contact in contacts %}
+                        <li>
+                            <a href="{% url 'communication:chat_room' contact.user.id %}" class="block p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition duration-150">
+                                <div class="flex items-center space-x-4">
+                                    <div class="flex-shrink-0">
+                                        <div class="w-12 h-12 rounded-full bg-purple-500 flex items-center justify-center text-white font-bold text-xl shadow-inner">
+                                            {{ contact.user.username|first|upper }}
+                                        </div>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex justify-between items-baseline">
+                                            <p class="text-sm font-semibold text-gray-900 truncate dark:text-white">
+                                                {{ contact.user.username }}
+                                            </p>
+                                            <span class="text-xs text-gray-400">
+                                                {{ contact.last_message.timestamp|date:"M d" }}
+                                            </span>
+                                        </div>
+                                        <p class="text-sm text-gray-500 truncate dark:text-gray-400 mt-1">
+                                            {% if contact.last_message.sender == request.user %}
+                                                <span class="text-purple-400">You:</span>
+                                            {% endif %}
+                                            {{ contact.last_message.body|truncatechars:45 }}
+                                        </p>
+                                    </div>
+                                    {% if contact.unread_count > 0 %}
+                                    <div class="flex-shrink-0">
+                                        <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-red-500 rounded-full">
+                                            {{ contact.unread_count }}
+                                        </span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </a>
+                        </li>
+                        {% empty %}
+                        <li class="p-8 text-center text-gray-500 dark:text-gray-400">
+                            <svg class="mx-auto h-12 w-12 text-gray-300 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            No conversations yet.
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Right Column: Project Boards -->
+            <div class="bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 dark:bg-gray-800 flex flex-col">
+                <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-700/50">
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-fuchsia-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"></path>
+                        </svg>
+                        Project Boards
+                    </h3>
+                </div>
+                
+                <div class="flex-1 max-h-[600px] overflow-y-auto">
+                    <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+                        {% for item in project_boards %}
+                        <li>
+                            <a href="{% url 'communication:project_board' item.project.id %}" class="block p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition duration-150">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-sm font-semibold text-gray-900 truncate dark:text-white">
+                                            {{ item.project.title }}
+                                        </p>
+                                        <div class="flex items-center mt-1">
+                                            <span class="text-xs font-medium px-2 py-0.5 rounded bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900 dark:text-fuchsia-300 mr-2">
+                                                Board
+                                            </span>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                                {% if item.last_post %}
+                                                    <span class="italic">"{{ item.last_post.content|truncatechars:30 }}"</span>
+                                                {% else %}
+                                                    No posts yet
+                                                {% endif %}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col items-end ml-4">
+                                        {% if item.last_post %}
+                                            <span class="text-[10px] text-gray-400 mb-1">{{ item.last_post.timestamp|date:"H:i" }}</span>
+                                        {% endif %}
+                                        {% if item.unread_count > 0 %}
+                                            <span class="inline-flex items-center justify-center px-2 py-1 text-[10px] font-bold leading-none text-white bg-fuchsia-600 rounded-full">
+                                                {{ item.unread_count }} NEW
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </a>
+                        </li>
+                        {% empty %}
+                        <li class="p-8 text-center text-gray-500 dark:text-gray-400">
+                            No projects with boards found.
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- New Chat Modal (Matches theme) -->
+    <div id="new-chat-modal" tabindex="-1" aria-hidden="true" class="fixed top-0 left-0 right-0 z-50 hidden w-full p-4 overflow-x-hidden overflow-y-auto md:inset-0 h-[calc(100%-1rem)] max-h-full">
+        <div class="relative w-full max-w-md max-h-full">
+            <div class="relative bg-white rounded-lg shadow dark:bg-gray-700 border dark:border-gray-600">
+                <div class="flex items-center justify-between p-4 border-b rounded-t dark:border-gray-600">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Start a New Chat</h3>
+                    <button type="button" class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm p-1.5 ml-auto inline-flex items-center dark:hover:bg-gray-600 dark:hover:text-white" data-modal-hide="new-chat-modal">
+                        <svg aria-hidden="true" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
+                    </button>
+                </div>
+                <div class="p-6">
+                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">Select a team member to message:</p>
+                    <ul class="space-y-3 max-h-60 overflow-y-auto pr-1">
+                        {% for user in available_users %}
+                        <li>
+                            <a href="{% url 'communication:chat_room' user.id %}" class="flex items-center p-3 text-base font-bold text-gray-900 rounded-lg bg-gray-50 hover:bg-gray-100 group hover:shadow-md dark:bg-gray-600 dark:hover:bg-gray-500 dark:text-white transition">
+                                <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mr-3">
+                                    {{ user.username|first|upper }}
+                                </div>
+                                <span class="flex-1 whitespace-nowrap">{{ user.username }}</span>
+                                <svg class="w-4 h-4 ml-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
+                            </a>
+                        </li>
+                        {% empty %}
+                        <li class="text-sm text-gray-500 dark:text-gray-400">No project members found.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}
