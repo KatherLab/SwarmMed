@@ -184,9 +184,10 @@ def start_results_visualization(request, job_id):
         if not py_scripts:
             return JsonResponse({'error': f'No results visualization scripts (.py) found at {script_prefix}. Please upload one on the project page.'}, status=400)
                 
-        # Cancel any running visualization for this project
+        # Cancel any running visualization for this project AND job
         running_visualizations = ResultsVisualizationRun.objects.filter(
             project=project,
+            job=job,
             status__in=['pending', 'running']
         )
         for viz in running_visualizations:
@@ -198,6 +199,7 @@ def start_results_visualization(request, job_id):
             
         visualization_run = ResultsVisualizationRun.objects.create(
             project=project,
+            job=job,
             user=request.user
         )
         
@@ -246,8 +248,8 @@ def results_visualization_status(request, job_id):
     """Get the current results visualization status for a job."""
     try:
         job = TrainingJob.objects.get(identifier=job_id)
-        # Get latest visualization run for this job's project
-        latest_visualization = ResultsVisualizationRun.objects.filter(project=job.project).first()
+        # Get latest visualization run for this specific job
+        latest_visualization = ResultsVisualizationRun.objects.filter(project=job.project, job=job).first()
         
         if not latest_visualization:
             return JsonResponse({'status': 'none', 'plots': []})

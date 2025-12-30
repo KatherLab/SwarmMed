@@ -195,11 +195,17 @@ class ResultsVisualizationContext:
     def __init__(self, context):
         self._context = context
 
+    def load_weights(self, model):
+        return self._context.load_weights(model)
+
     def save_plot(self, title="Untitled Plot"):
         self._context.save_plot(title)
 
     def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
         return self._context.get_model(client_name, model_filename)
+
+    def get_model_path(self, client_name="fl-client-1", model_filename="model.pt"):
+        return self._context.get_model_path(client_name, model_filename)
 
     def open(self, relative_path, mode='r', **kwargs):
         return self._context.open(relative_path, mode, **kwargs)

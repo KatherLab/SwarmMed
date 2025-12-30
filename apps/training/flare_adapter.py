@@ -3,6 +3,7 @@ import tempfile
 import shutil
 import boto3
 import nvflare.client as flare
+import numpy as np
 
 class FlareDataFileSystem:
     """
@@ -27,6 +28,7 @@ class FlareDataFileSystem:
         try:
             s3_endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
             if s3_endpoint and 'minio' in s3_endpoint:
+                # Use internal docker network address for MinIO when running in NVFlare container
                 s3_endpoint = 'http://host.docker.internal:9000'
                 print(f"FlareDataFileSystem: Overriding S3 endpoint to {s3_endpoint}")
 
@@ -103,6 +105,7 @@ class FlareDataFileSystem:
 def init_flare():
     """
     Initializes the FLARE client and prints a confirmation message.
+    Should be called at the start of the training script.
     """
     flare.init()
     print("flare_adapter: NVIDIA FLARE client initialized.")
@@ -110,15 +113,17 @@ def init_flare():
 def get_data_filesystem(project_id: str) -> FlareDataFileSystem:
     """
     Returns a FlareDataFileSystem instance for the given project.
-    This provides a virtual filesystem that lazily downloads data from S3
-    while providing a simple, local file-path-like interface.
+    This provides a virtual filesystem that lazily downloads data from S3.
     """
     return FlareDataFileSystem(project_uuid=project_id)
 
 def receive_model():
     """
     Receives the global model from the FLARE server.
-    This function is framework-agnostic; it returns the received FLModel object.
+    
+    Returns:
+        flare.FLModel: The received model object, or None if training is finished.
+        The 'params' attribute contains the global weights.
     """
     print("flare_adapter: Receiving global model from server...")
     try:
@@ -127,7 +132,7 @@ def receive_model():
             print(f"flare_adapter: Global model received for round {input_model.current_round}.")
             return input_model
         else:
-            print("flare_adapter: No model received from server.")
+            print("flare_adapter: No model received from server. This usually means training is complete.")
             return None
     except Exception as e:
         print(f"flare_adapter: Exception during model reception: {e}")
@@ -135,13 +140,62 @@ def receive_model():
 
 def send_model(params: dict, metrics: dict = None):
     """
-    Packages the model parameters and metrics into an FLModel and sends it to the server.
-    This function is framework-agnostic; it accepts a dictionary of parameters.
+    Packages the model parameters and metrics and sends them to the server.
+    
+    Args:
+        params (dict): The model parameters (weights). 
+            - PyTorch: model.state_dict()
+            - TensorFlow/Keras: {str(i): w for i, w in enumerate(model.get_weights())}
+            - Scikit-learn: {"coef": model.coef_, "intercept": model.intercept_}
+        metrics (dict, optional): Training metrics like {"loss": 0.5}.
     """
     print("flare_adapter: Sending updated model to server...")
+    # Ensure all values are correctly formatted for transport
+    params = _ensure_transportable(params)
+    
     output_model = flare.FLModel(
         params=params,
         metrics=metrics if metrics is not None else {},
     )
     flare.send(output_model)
-    print("flare_adapter: Model sent.")
+    print("flare_adapter: Model successfully sent to server.")
+
+# =================================================================================
+# Helper functions for framework-specific conversions
+# =================================================================================
+
+def get_weights_list(params: dict):
+    """
+    Convert a dictionary of parameters back to a sorted list of numpy arrays.
+    Useful for Keras/TensorFlow model.set_weights().
+    """
+    # Assuming keys are string indices "0", "1", "2"...
+    try:
+        sorted_keys = sorted(params.keys(), key=lambda x: int(x))
+        return [np.array(params[k]) for k in sorted_keys]
+    except (ValueError, AttributeError):
+        # Fallback if keys are not integers
+        return [np.array(v) for k, v in sorted(params.items())]
+
+def get_pytorch_state_dict(params: dict):
+    """
+    Convert a dictionary of parameters (which may be numpy arrays) to PyTorch tensors.
+    Useful for PyTorch model.load_state_dict().
+    """
+    import torch
+    return {k: torch.as_tensor(v) for k, v in params.items()}
+
+def _ensure_transportable(params: dict):
+    """
+    Utility to ensure all parameters are in a format NVFlare can handle.
+    Converts tensors to numpy arrays if needed.
+    """
+    converted = {}
+    for k, v in params.items():
+        if hasattr(v, "cpu"): # PyTorch tensor
+            converted[k] = v.cpu().numpy()
+        elif hasattr(v, "numpy"): # TensorFlow/Keras tensor
+            converted[k] = v.numpy()
+        else:
+            converted[k] = np.array(v)
+    return converted

@@ -293,6 +293,24 @@ def start_training(request, network_id):
     with open(os.path.join(job_root, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=2)
 
+    # Framework detection logic
+    framework = 'pt' # Default to PyTorch
+    if os.path.exists(training_py_path):
+        try:
+            with open(training_py_path, 'r') as f:
+                content = f.read()
+                # Check for explicit framework usage
+                if 'import torch' in content or 'from torch' in content:
+                    framework = 'pt'
+                elif 'import tensorflow' in content or 'from tensorflow' in content:
+                    framework = 'tf'
+                elif 'import keras' in content or 'from keras' in content:
+                    framework = 'tf'
+                elif 'import sklearn' in content or 'from sklearn' in content:
+                    framework = 'np'
+        except Exception as e:
+            logger.training.warning(f"Error detecting framework: {e}. Defaulting to PyTorch.")
+
     # Create placeholder config files if not present.
     server_custom_dir = os.path.join(app_server_dir, 'custom')
     os.makedirs(server_custom_dir, exist_ok=True)
@@ -313,13 +331,28 @@ def start_training(request, network_id):
         ]
         }
     
+    # Configure executor based on framework
+    if framework == 'tf':
+        # Using TF executor for TensorFlow/Keras Client API support
+        executor_path = "nvflare.app_opt.tf.in_process_client_api_executor.TFInProcessClientAPIExecutor"
+    elif framework == 'np':
+        # Generic executor for Scikit-learn/Numpy
+        executor_path = "nvflare.app_common.executors.in_process_client_api_executor.InProcessClientAPIExecutor"
+    else:
+        executor_path = "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor"
+
+    # Use PTFileModelPersistor for ALL frameworks. 
+    # It uses torch.save which is the most flexible at pickling arbitrary weight dictionaries 
+    # (including numpy arrays) without requiring specific keys like 'numpy_key'.
+    persistor_path = "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor"
+
     client_cfg = {
         "format_version": 2,
         "executors": [
             {
                 "tasks": ["train"],
                 "executor": {
-                    "path": "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor",
+                    "path": executor_path,
                     "args": {
                         "task_script_path": "custom/training.py"
                     }
@@ -346,7 +379,7 @@ def start_training(request, network_id):
         "components": [
             {
             "id": "persistor",
-            "path": "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor",
+            "path": persistor_path,
             "args": {}
             },
             {

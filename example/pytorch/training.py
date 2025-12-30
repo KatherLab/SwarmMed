@@ -107,7 +107,9 @@ def main(project_id: str):
             
             # Manually load parameters into the local model
             if input_model.params:
-                model.load_state_dict(input_model.params)
+                # Use helper to convert dict back to Tensors (handles received NumPy arrays)
+                state_dict = flare_adapter.get_pytorch_state_dict(input_model.params)
+                model.load_state_dict(state_dict)
                 print(f"Received and loaded global model for round: {input_model.current_round}")
             else:
                 print(f"Starting training from scratch for round: {input_model.current_round}")

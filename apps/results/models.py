@@ -30,6 +30,7 @@ class ResultsVisualizationRun(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='results_visualization_runs')
+    job = models.ForeignKey(TrainingJob, on_delete=models.CASCADE, related_name='results_visualization_runs', null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     

@@ -297,9 +297,21 @@ document.addEventListener('DOMContentLoaded', function() {
                           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>${message}</button>`;
         } else if (status === 'completed') {
-             // html += `<div class="p-4 mb-4 text-sm text-green-800 bg-green-50 dark:bg-gray-800 dark:text-green-400" role="alert"><strong>Completed:</strong> ${message}</div>`;
+             // Success - show nothing
+             statusContainer.innerHTML = '';
+             return;
         } else if (status === 'failed' || isError) {
-             html += `<div class="flex items-center justify-center py-4 text-red-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg><span>${message}</span></div>`;
+             html += `<div class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-800 dark:text-red-400 border border-red-100 dark:border-800" role="alert">
+                        <div class="flex items-center">
+                            <svg class="flex-shrink-0 inline w-4 h-4 mr-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
+                            </svg>
+                            <div>
+                                <span class="font-medium">Visualization failed:</span> ${message}
+                                <div class="mt-2">Please check the <a href="/logs/" class="font-bold underline hover:no-underline">Logs page</a> for the full technical error output.</div>
+                            </div>
+                        </div>
+                      </div>`;
         } else if (status === 'stopped' || status === 'cancelled') {
              html += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Visualization was cancelled</span></div>';
         } else {
@@ -395,8 +407,13 @@ document.addEventListener('DOMContentLoaded', function() {
         updateUIForState(data.status);
         
         if (data.status === 'completed') {
-            setStatus('completed', data.output || 'Visualization finished successfully.');
-            renderPlots(data.plots);
+            if (data.success) {
+                setStatus('completed', 'Visualization generated successfully.');
+                renderPlots(data.plots);
+            } else {
+                setStatus('failed', data.error_message || 'Visualization script execution failed.', true);
+                showPlaceholders();
+            }
         } else if (data.status === 'failed') {
             setStatus('failed', data.error_message || 'An unknown error occurred.', true);
             showPlaceholders();
@@ -520,8 +537,3 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
   {%endblock content%}
-
-
-
-
-
