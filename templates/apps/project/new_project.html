@@ -64,6 +64,13 @@
               class="form-control shadow-sm bg-gray-50 border {% if form.member_identifiers.errors %}border-red-500{% else %}border-gray-300{% endif %} text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300"
               placeholder="Enter UUIDs separated by commas or new lines"
             >{{ form.member_identifiers.value|default:'' }}</textarea>
+            
+            <!-- Member Emails Display -->
+            <div id="member_emails_container" class="mt-3 hidden">
+              <div id="member_emails_list" class="space-y-2">
+                <!-- Emails will be inserted here -->
+              </div>
+            </div>
           </div>
 
 
@@ -299,7 +306,69 @@
       "requirements_file_list",
       "requirements.txt"
     );
+
+    // Handle Member UUIDs to Emails display
+    setupMemberEmailsDisplay();
   });
+
+  function setupMemberEmailsDisplay() {
+    const memberInput = document.getElementById('id_member_identifiers');
+    const emailsContainer = document.getElementById('member_emails_container');
+    const emailsList = document.getElementById('member_emails_list');
+    const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    let timeout = null;
+
+    function updateEmails() {
+      const identifiers = memberInput.value.trim();
+      
+      if (!identifiers) {
+        emailsContainer.classList.add('hidden');
+        emailsList.innerHTML = '';
+        return;
+      }
+
+      fetch('{% url "get_user_emails" %}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrftoken
+        },
+        body: JSON.stringify({ identifiers: identifiers })
+      })
+      .then(response => response.json())
+      .then(data => {
+        emailsList.innerHTML = '';
+        if (data.emails && data.emails.length > 0) {
+          emailsContainer.classList.remove('hidden');
+          data.emails.forEach(item => {
+            const div = document.createElement('div');
+            div.className = `flex items-center p-2 text-sm rounded-lg ${item.found ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`;
+            
+            const statusIcon = item.found 
+              ? '<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>'
+              : '<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>';
+            
+            div.innerHTML = `${statusIcon} <span><strong>${item.email}</strong> <span class="text-xs opacity-75">(${item.uuid})</span></span>`;
+            emailsList.appendChild(div);
+          });
+        } else {
+          emailsContainer.classList.add('hidden');
+        }
+      })
+      .catch(error => {
+        console.error('Error fetching user emails:', error);
+      });
+    }
+
+    memberInput.addEventListener('input', function() {
+      clearTimeout(timeout);
+      timeout = setTimeout(updateEmails, 500);
+    });
+
+    // Initial check
+    updateEmails();
+  }
 
   function setupMultipleFileUploadDisplay(inputId, containerId, listId, directoriesInputId) {
     const fileInput = document.getElementById(inputId);

@@ -1289,6 +1289,10 @@ input:checked + .toggle-bg {
   margin-top: 0.5rem;
 }
 
+.mt-3 {
+  margin-top: 0.75rem;
+}
+
 .mt-4 {
   margin-top: 1rem;
 }
@@ -3347,6 +3351,10 @@ input:checked + .toggle-bg {
   background-color: rgb(1 71 55 / var(--tw-bg-opacity, 1));
 }
 
+.dark\:bg-green-900\/30:is(.dark *) {
+  background-color: rgb(1 71 55 / 0.3);
+}
+
 .dark\:bg-indigo-900:is(.dark *) {
   --tw-bg-opacity: 1;
   background-color: rgb(54 47 120 / var(--tw-bg-opacity, 1));
@@ -3365,6 +3373,10 @@ input:checked + .toggle-bg {
 .dark\:bg-red-900:is(.dark *) {
   --tw-bg-opacity: 1;
   background-color: rgb(119 29 29 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-red-900\/30:is(.dark *) {
+  background-color: rgb(119 29 29 / 0.3);
 }
 
 .dark\:bg-sky-900:is(.dark *) {

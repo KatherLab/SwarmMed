@@ -2,7 +2,9 @@ import json
 import os
 import shutil
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse
 from django.db import models 
 from django.core.files.storage import default_storage
 from django.conf import settings
@@ -161,3 +163,39 @@ def project_finish(request, pk):
         project.status = 'FINISHED'
         project.save()
     return redirect('project_list')
+
+@login_required(login_url='/users/signin/')
+@require_POST
+def get_user_emails(request):
+    """API endpoint to get user emails from a list of profile UUIDs."""
+    import uuid
+    import re
+    from apps.users.models import Profile
+    
+    data = json.loads(request.body)
+    member_identifiers = data.get('identifiers', '')
+    
+    emails = []
+    if member_identifiers:
+        # Split by comma or newline
+        identifiers = re.split(r'[,\n\s]+', member_identifiers)
+        for identifier_str in identifiers:
+            identifier_str = identifier_str.strip()
+            if not identifier_str:
+                continue
+            try:
+                profile_uuid = uuid.UUID(identifier_str)
+                profile = Profile.objects.get(identifier=profile_uuid)
+                emails.append({
+                    'uuid': identifier_str,
+                    'email': profile.user.email,
+                    'found': True
+                })
+            except (ValueError, Profile.DoesNotExist):
+                emails.append({
+                    'uuid': identifier_str,
+                    'email': 'Not found',
+                    'found': False
+                })
+    
+    return JsonResponse({'emails': emails})
