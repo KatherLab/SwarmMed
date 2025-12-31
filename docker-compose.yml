@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   app:
-    container_name: mediswarmcloud
+    container_name: swarmcloud
     command: python manage.py runserver 0.0.0.0:8000
     restart: always
     build:

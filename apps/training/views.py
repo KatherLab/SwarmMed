@@ -1,202 +1,295 @@
-import textwrap
-from django.shortcuts import redirect
-from django.contrib.auth.decorators import login_required
-import os
+"""
+View functions for the training application.
+Handles the training dashboard, job submission via NVIDIA FLARE API,
+status polling, and log streaming.
+"""
+
 import json
-import subprocess
-from apps.logs.logger import get_logger
+import os
+import re
 import shutil
-import boto3
-from botocore.exceptions import ClientError
-from django.conf import settings
-from apps.network.models import SwarmNetwork, UserCurrentNetwork
-from .models import TrainingJob
-from django.shortcuts import render
-from django.http import JsonResponse
-from .utils import download_s3_folder, get_s3_client
+import socket
 import time
-from django.utils import timezone
+
+from django.conf import settings
 from django.contrib import messages
-from apps.project.models import Project, UserCurrentProject
-from apps.results.models import TrainingResult
-import tempfile
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+from django.utils import timezone
+
+from apps.logs.logger import get_logger
+from apps.network.models import SwarmNetwork, UserCurrentNetwork
+from apps.project.models import UserCurrentProject
+
+from .models import TrainingJob
+from .utils import download_s3_folder
+
 
 def get_user_project(request):
     """
-    Get the current user's active project identifier.
+    Helper function to retrieve the user's currently active project.
     
-    Args:
-        request: Django request object
-        
+    This checks the UserCurrentProject model to see which project the 
+    logged-in user has selected in their session.
+
     Returns:
-        tuple: (project_uuid, is_valid)
-            - project_uuid: String UUID of the project or None
-            - is_valid: Boolean indicating if a valid project was found
+        (str or None, bool): (Project UUID string, Success flag)
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        # Look up the unique record linking the user to their selected project
+        user_current_project = UserCurrentProject.objects.get(
+            user=request.user)
+        
+        # Ensure a project is actually linked to that record
         if not user_current_project.project:
             return None, False
-        
+            
+        # Return the unique identifier (UUID) as a string
         return str(user_current_project.project.identifier), True
     except UserCurrentProject.DoesNotExist:
+        # If the user hasn't selected a project yet, return False
         return None, False
+
+
+def format_duration(seconds):
+    """
+    Helper to convert seconds into a human-readable string like '2m 15s'.
+    """
+    if seconds < 0:
+        return "0s"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
 
 
 @login_required(login_url='/users/signin/')
 def training(request):
+    """
+    Main training dashboard view.
+    Displays current job status, progress bars, and real-time logs.
+    
+    Logic flow:
+    1. Verify the user has a project selected.
+    2. Verify the user has a running network (infrastructure).
+    3. Fetch the latest training job for that network.
+    4. If a job is running, parse local log files to calculate progress.
+    5. Render the training template with all collected data.
+    """
+    
+    # 1. Validation: Project check
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
-        return render(request, "apps/training/no_project_selected.html", {"segment": "training"})
-    
-    try:
-        current_network = UserCurrentNetwork.objects.get(user=request.user).network
-        if not current_network or current_network.status != 'RUNNING':
-            return render(request, "apps/training/no_network_started.html", {"segment": "training"})
-    except UserCurrentNetwork.DoesNotExist:
-        return render(request, "apps/training/no_network_started.html", {"segment": "training"})
+        return render(
+            request,
+            "apps/training/no_project_selected.html",
+            {"segment": "training"}
+        )
 
-    # Determine current training job and progress
+    # 2. Validation: Network check
+    # Training requires a "RUNNING" infrastructure (SwarmNetwork) to execute on.
+    try:
+        current_network = UserCurrentNetwork.objects.get(
+            user=request.user).network
+        if not current_network or current_network.status != 'RUNNING':
+            return render(
+                request,
+                "apps/training/no_network_started.html",
+                {"segment": "training"}
+            )
+    except UserCurrentNetwork.DoesNotExist:
+        return render(
+            request,
+            "apps/training/no_network_started.html",
+            {"segment": "training"}
+        )
+
+    # Initialize default UI states for the template context
     is_training_running = False
     training_job = None
     training_progress = 0
     training_status = 'Not started'
     training_logs = []
+    duration_str = "-"
+    eta_str = "-"
 
+    # 3. Job Detection
     if current_network:
-        training_job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
+        # Get the most recently created job for this specific network
+        training_job = TrainingJob.objects.filter(
+            network=current_network
+        ).order_by('-created_at').first()
+
         if training_job:
+            # Format status for display (e.g., "RUNNING" -> "Running")
             training_status = training_job.status.title()
-            
-            # Extract clean UUID from flare_job_id
-            import re
+
+            # Clean the NVFlare job ID. It often comes as "Submitted job: <UUID>"
             job_uuid = str(training_job.flare_job_id)
             match = re.search(r'Submitted job:\s*([0-9a-f-]+)', job_uuid)
             if match:
                 job_uuid = match.group(1)
 
+            # 4. Progress Calculation (parsing logs)
             if training_job.status == 'RUNNING':
                 is_training_running = True
-                # Derive progress from logs by counting completed rounds vs total rounds
                 try:
-                    total_rounds = 0
-                    server_cfg_path = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'job', 'app_server', 'config', 'config_fed_server.json')
+                    # STEP A: Find out how many rounds the user configured.
+                    # We look into the job's server config file.
+                    total_rounds = 10  # Default fallback
+                    server_cfg_path = os.path.join(
+                        'workspaces', str(training_job.project.identifier),
+                        str(current_network.identifier), 'job', 'app_server',
+                        'config', 'config_fed_server.json'
+                    )
                     if os.path.exists(server_cfg_path):
-                        import json as _json
-                        with open(server_cfg_path) as _f:
-                            _d = _json.load(_f)
-                            for wf in _d.get('workflows', []):
-                                if wf.get('id') == 'swarm_controller':
-                                    total_rounds = int(wf.get('args', {}).get('num_rounds', 0))
+                        with open(server_cfg_path) as f:
+                            cfg = json.load(f)
+                            # Find the swarm workflow args to get 'num_rounds'
+                            for workflow in cfg.get('workflows', []):
+                                if workflow.get('id') == 'swarm_controller':
+                                    total_rounds = int(
+                                        workflow.get(
+                                            'args', {}).get(
+                                            'num_rounds', 10))
                                     break
-                    
-                    rounds_finished = 0
-                    # Look for logs specifically for THIS job UUID
-                    workspace_dir = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'workspace')
-                    for root, _, files in os.walk(workspace_dir):
-                        if job_uuid in root:
-                            for fname in files:
-                                if fname.startswith('log_fl') and fname.endswith('.txt'):
-                                    fpath = os.path.join(root, fname)
-                                    try:
-                                        with open(fpath, 'r') as lf:
-                                            for line in lf.readlines():
-                                                if 'finished training round' in line:
-                                                    import re as _re
-                                                    m = _re.search(r'finished training round (\d+)', line)
-                                                    if m:
-                                                        rnum = int(m.group(1))
-                                                        if rnum > rounds_finished:
-                                                            rounds_finished = rnum
-                                    except Exception:
-                                        continue
-                    if total_rounds > 0:
-                        training_progress = min(100, int(rounds_finished * 100 / total_rounds))
 
-                    # Check for completion
+                    # STEP B: Count how many rounds have actually finished.
+                    # Participant logs contain "finished training round X".
+                    rounds_finished = 0
+                    workspace_dir = os.path.join(
+                        'workspaces', str(training_job.project.identifier),
+                        str(current_network.identifier), 'workspace'
+                    )
                     ended = False
-                    for root,_,files in os.walk(workspace_dir):
+                    # Walk through the workspace directory to find log files
+                    for root, _, files in os.walk(workspace_dir):
+                        # Only look in folders belonging to this specific job
                         if job_uuid in root:
                             for fname in files:
                                 if fname.startswith('log') and fname.endswith('.txt'):
-                                    fpath=os.path.join(root,fname)
+                                    fpath = os.path.join(root, fname)
                                     try:
-                                        with open(fpath,'r') as lf2:
-                                            data=lf2.read()
-                                            if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
-                                                ended=True
-                                                break
-                                    except Exception:
+                                        with open(fpath, 'r') as lf:
+                                            data = lf.read()
+                                            # Stricter check for completion markers
+                                            if ('ending workflow' in data and 'swarm_controller' in data) or \
+                                               ('child worker process finished with RC 0' in data):
+                                                ended = True
+                                            
+                                            # Parse "finished training round (\d+)" to track progress
+                                            for m in re.finditer(r'finished training round (\d+)', data):
+                                                rnum = int(m.group(1))
+                                                if rnum > rounds_finished:
+                                                    rounds_finished = rnum
+                                    except OSError:
                                         continue
-                            if ended: break
-                    
+
+                    # Update status if logs indicate completion
                     if ended:
                         training_progress = 100
                         training_status = 'Completed'
                         is_training_running = False
-                        # Update DB if needed
                         if training_job.status != 'COMPLETED':
                             training_job.status = 'COMPLETED'
                             training_job.completed_at = timezone.now()
                             training_job.save()
+                    elif total_rounds > 0:
+                        # Cap at 99% until the 'ended' marker is found
+                        training_progress = min(99, int(rounds_finished * 100 / total_rounds))
                 except Exception:
                     training_progress = 0
-            elif training_job.status in ['COMPLETED', 'STOPPED', 'FAILED']:
-                if training_job.status == 'COMPLETED':
-                    training_progress = 100
-    
-            # Collect logs (last 50 lines) for the current job
+
+            elif training_job.status == 'COMPLETED':
+                training_progress = 100
+
+            # 5. Time Calculation
+            now = timezone.now()
+            start_time = training_job.created_at
+            
+            if training_job.status == 'RUNNING':
+                elapsed = (now - start_time).total_seconds()
+                duration_str = format_duration(elapsed)
+                
+                # Estimate remaining time if some progress exists
+                if training_progress > 0:
+                    total_est = elapsed / (training_progress / 100.0)
+                    remaining = total_est - elapsed
+                    eta_str = format_duration(remaining)
+                else:
+                    eta_str = "Calculating..."
+            
+            elif training_job.completed_at:
+                # Finished job duration
+                elapsed = (training_job.completed_at - start_time).total_seconds()
+                duration_str = format_duration(elapsed)
+                eta_str = "Finished"
+
+            # 6. Log Collection
+            # Fetch the last 50 lines of the latest log file for the UI table.
             training_logs = []
             try:
-                if training_job:
-                    workspace_root = os.path.join('workspaces', str(training_job.project.identifier), str(current_network.identifier), 'workspace')
-                    latest_log = None
-                    # Find any log file that belongs to this job ID
-                    for root, _, files in os.walk(workspace_root):
-                        if job_uuid in root:
-                            for cand in ['log_fl.txt','log.txt']:
-                                if cand in files:
-                                    latest_log = os.path.join(root, cand)
-                                    break
-                        if latest_log: break
-                    
-                    if latest_log and os.path.exists(latest_log):
-                        import re
-                        with open(latest_log,'r') as lf:
-                            lines=lf.readlines()[-50:]
-                        for line in lines:
-                            line = line.strip()
-                            if not line: continue
-                            
-                            ts = ''; level = ''; msg = line; logger_name = ''
-                            ts_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', line)
-                            if ts_match:
-                                ts = ts_match.group(1)
-                                remaining = line[len(ts):].strip()
-                                dash_parts = remaining.split(' - ')
-                                if len(dash_parts) >= 3:
-                                    logger_name = dash_parts[0].strip(' -')
-                                    level = dash_parts[1].strip()
-                                    msg = ' - '.join(dash_parts[2:])
-                                elif '\t' in remaining:
-                                    tab_parts = remaining.split('\t')
-                                    level = tab_parts[0].strip()
-                                    msg = '\t'.join(tab_parts[1:])
-                                else:
-                                    msg = remaining.strip(' -')
+                workspace_root = os.path.join(
+                    'workspaces', str(training_job.project.identifier),
+                    str(current_network.identifier), 'workspace'
+                )
+                latest_log = None
+                # Locate the specific log file for this job.
+                for root, _, files in os.walk(workspace_root):
+                    if job_uuid in root:
+                        for cand in ['log_fl.txt', 'log.txt']:
+                            if cand in files:
+                                latest_log = os.path.join(root, cand)
+                                break
+                    if latest_log:
+                        break
 
-                            if level:
-                                msg = re.sub(rf'^\s*-?\s*{level}\s*-?\s*', '', msg, flags=re.IGNORECASE)
-                            msg = re.sub(r'^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s*', '', msg)
-                            
-                            training_logs.append({
-                                'timestamp': ts,
-                                'level': level,
-                                'message': msg.strip(),
-                                'logger': logger_name
-                            })
+                if latest_log and os.path.exists(latest_log):
+                    with open(latest_log, 'r') as lf:
+                        lines = lf.readlines()[-50:]
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # Parse NVFlare's standard log format:
+                        # YYYY-MM-DD HH:MM:SS,mmm - LOGGER - LEVEL - MESSAGE
+                        ts = ''
+                        level = ''
+                        msg = line
+                        logger_name = ''
+                        
+                        # Extract Timestamp
+                        ts_match = re.match(
+                            r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})',
+                            line
+                        )
+                        if ts_match:
+                            ts = ts_match.group(1)
+                            remaining = line[len(ts):].strip()
+                            # Split by dashes to find level
+                            dash_parts = remaining.split(' - ')
+                            if len(dash_parts) >= 3:
+                                logger_name = dash_parts[0].strip(' -')
+                                level = dash_parts[1].strip()
+                                msg = ' - '.join(dash_parts[2:])
+                            else:
+                                msg = remaining.strip(' -')
+
+                        training_logs.append({
+                            'timestamp': ts,
+                            'level': level,
+                            'message': msg.strip(),
+                            'logger': logger_name
+                        })
             except Exception:
                 training_logs = []
+
+    # Final context for the template
     context = {
         "segment": "training",
         "current_network": current_network,
@@ -204,6 +297,8 @@ def training(request):
         "training_status": training_status,
         "training_progress": training_progress,
         "training_logs": training_logs,
+        "duration_str": duration_str,
+        "eta_str": eta_str,
     }
     return render(request, "apps/training/training.html", context)
 
@@ -211,94 +306,100 @@ def training(request):
 @login_required(login_url='/users/signin/')
 def start_training(request, network_id):
     """
-    Prepares a FLARE app with the user's code and submits it as a job.
+    Submit a Job to NVFlare.
+    
+    1. Prepares a Job folder structure inside the project workspace.
+    2. Downloads user's training code from S3.
+    3. Injects adapter and credentials (.env).
+    4. Generates meta.json and framework-specific config files.
+    5. Uses NVFlare Admin API to submit the job.
     """
+    # Fetch database records
     network = SwarmNetwork.objects.get(identifier=network_id)
     project = network.project
-    logger = get_logger(user=request.user, project=project)
+    log = get_logger(user=request.user, project=project)
 
     # 1. Define paths
-    job_dir = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
-    app_custom_dir = os.path.join(job_dir, 'custom')
-    source_code_prefix = f"{project.identifier}/code/training/"
-
+    # job_dir: where we build the package to upload
+    job_dir = os.path.join(
+        'workspaces', str(project.identifier), str(network.identifier), 'job'
+    )
+    # project_name used for internal NVFlare folder naming
     project_name = project.title.replace(' ', '_')
-    admin_user_dir = os.path.join('/app', 'workspaces', str(project.identifier), str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com') 
+    # admin_user_dir: location of certificates for NVFlare authentication
+    admin_user_dir = os.path.join(
+        '/app', 'workspaces', str(project.identifier),
+        str(network.identifier), 'workspace', project_name,
+        'prod_00', 'admin@nvidia.com'
+    )
 
-    # 2. Create app structure and download files
-    os.makedirs(app_custom_dir, exist_ok=True)
-    try:
-        download_s3_folder(settings.AWS_STORAGE_BUCKET_NAME, source_code_prefix, app_custom_dir)
-    except ClientError as e:
-        logger.training.error(f"Failed to download training code from S3: {e}")
-
-    # Build proper NVFLARE job structure:
-    job_root = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
-    app_server_dir = os.path.join(job_root, 'app_server')
-    app_client_dir = os.path.join(job_root, 'app_client')
-    app_server_cfg_dir = os.path.join(app_server_dir, 'config')
-    app_client_cfg_dir = os.path.join(app_client_dir, 'config')
+    # 2. Prepare Folder Structure
+    # NVFlare jobs require app_server and app_client folders
+    app_server_dir = os.path.join(job_dir, 'app_server')
+    app_client_dir = os.path.join(job_dir, 'app_client')
     app_client_custom_dir = os.path.join(app_client_dir, 'custom')
 
-    os.makedirs(app_server_cfg_dir, exist_ok=True)
-    os.makedirs(app_client_cfg_dir, exist_ok=True)
+    os.makedirs(os.path.join(app_server_dir, 'config'), exist_ok=True)
+    os.makedirs(os.path.join(app_client_dir, 'config'), exist_ok=True)
     os.makedirs(app_client_custom_dir, exist_ok=True)
 
-    # Move downloaded code under app_client/custom (so BYOC code is inside the app)
-    downloaded_custom_dir = os.path.join(job_root, 'custom')
-    if os.path.isdir(downloaded_custom_dir):
-        for root, _, files in os.walk(downloaded_custom_dir):
-            for f in files:
-                src = os.path.join(root, f)
-                rel = os.path.relpath(src, downloaded_custom_dir)
-                dst = os.path.join(app_client_custom_dir, rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.move(src, dst)
-        shutil.rmtree(downloaded_custom_dir, ignore_errors=True)
-        
-    # Copy flare_adapter.py to app_client/custom
-    # This ensures flare_adapter is available for direct import in training.py
-    flare_adapter_src = os.path.join(settings.BASE_DIR, 'apps', 'training', 'flare_adapter.py')
-    flare_adapter_dst = os.path.join(app_client_custom_dir, 'flare_adapter.py')
-    if os.path.exists(flare_adapter_src):
-        shutil.copyfile(flare_adapter_src, flare_adapter_dst)
-    else:
-        logger.training.error(f"flare_adapter.py not found at {flare_adapter_src}")
+    # Download training code from S3 bucket into the 'custom' folder
+    source_code_prefix = f"{project.identifier}/code/training/"
+    try:
+        download_s3_folder(
+            settings.AWS_STORAGE_BUCKET_NAME,
+            source_code_prefix,
+            app_client_custom_dir
+        )
+    except Exception as e:
+        log.training.error(f"Failed to download training code: {e}")
 
-    # Copy .env file to app_client/custom for the job
-    env_file_path = os.path.join(settings.BASE_DIR, '.env')
-    if os.path.exists(env_file_path):
-        shutil.copy(env_file_path, os.path.join(app_client_custom_dir, '.env'))
-        logger.training.info("Copied .env file to job's custom directory.")
-    else:
-        logger.training.warning(f".env file not found at {env_file_path}, skipping copy to job directory.")
+    # Inject 'flare_adapter.py' - this is our library that makes training easy
+    flare_adapter_src = os.path.join(
+        settings.BASE_DIR, 'apps', 'training', 'flare_adapter.py'
+    )
+    shutil.copyfile(
+        flare_adapter_src,
+        os.path.join(app_client_custom_dir, 'flare_adapter.py')
+    )
 
-    # Inject the project_id into the training.py script
+    # Create a minimal .env file inside the job package.
+    # This allows the worker containers to access S3 data during training.
+    job_env_path = os.path.join(app_client_custom_dir, '.env')
+    try:
+        with open(job_env_path, 'w') as f:
+            f.write(f"AWS_ACCESS_KEY_ID={settings.AWS_ACCESS_KEY_ID}\n")
+            f.write(f"AWS_SECRET_ACCESS_KEY={settings.AWS_SECRET_ACCESS_KEY}\n")
+            f.write(f"AWS_S3_ENDPOINT_URL={settings.AWS_S3_ENDPOINT_URL}\n")
+            f.write(f"AWS_STORAGE_BUCKET_NAME={settings.AWS_STORAGE_BUCKET_NAME}\n")
+            f.write(f"AWS_S3_REGION_NAME={settings.AWS_S3_REGION_NAME}\n")
+        log.training.info("Created minimal .env for the training job.")
+    except Exception as e:
+        log.training.error(f"Failed to create .env for the job: {e}")
+
+    # Inject the project UUID into 'training.py' to enable dynamic data paths.
     training_py_path = os.path.join(app_client_custom_dir, 'training.py')
     if os.path.exists(training_py_path):
         with open(training_py_path, 'r') as f:
-            training_script_content = f.read()
-        
-        # Replace the placeholder main() call with one that includes the project_id
-        placeholder_main = 'main(project_id="default_project")'
-        actual_main = f'main(project_id="{str(project.identifier)}")'
-        
-        if placeholder_main in training_script_content:
-            training_script_content = training_script_content.replace(placeholder_main, actual_main)
-            
-            with open(training_py_path, 'w') as f:
-                f.write(training_script_content)
-            
-            logger.training.info(f"Injected project_id '{str(project.identifier)}' into training.py")
-        else:
-            logger.training.warning(f"Could not find placeholder '{placeholder_main}' in training.py to inject project_id.")
-    else:
-        logger.training.warning(f"training.py not found at {training_py_path}, cannot inject project_id.")
+            content = f.read()
 
-    # Build meta.json based on current network participants
-    if network.participants.filter(role='CLIENT').exists():
-        client_names = list(network.participants.filter(role='CLIENT').values_list('participant_id', flat=True))
-    else:
+        placeholder = 'main(project_id="default_project")'
+        replacement = f'main(project_id="{str(project.identifier)}")'
+
+        if placeholder in content:
+            content = content.replace(placeholder, replacement)
+            with open(training_py_path, 'w') as f:
+                f.write(content)
+            log.training.info("Injected project_id into training.py")
+
+    # 3. Create 'meta.json'
+    # This tells NVFlare which app goes to which participant.
+    client_names = list(network.participants.filter(
+        role='CLIENT'
+    ).values_list('participant_id', flat=True))
+
+    if not client_names:
+        # Fallback for local development/testing
         client_names = ['fl-client-1', 'fl-client-2']
 
     meta = {
@@ -308,166 +409,94 @@ def start_training(request, network_id):
             "app_client": client_names,
         }
     }
-    with open(os.path.join(job_root, 'meta.json'), 'w') as f:
+    with open(os.path.join(job_dir, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=2)
 
-    # Framework detection logic
+    # 4. Framework Detection & Config Generation
     framework = 'pt' # Default to PyTorch
     if os.path.exists(training_py_path):
-        try:
-            with open(training_py_path, 'r') as f:
-                content = f.read()
-                # Check for explicit framework usage
-                if 'import torch' in content or 'from torch' in content:
-                    framework = 'pt'
-                elif 'import tensorflow' in content or 'from tensorflow' in content:
-                    framework = 'tf'
-                elif 'import keras' in content or 'from keras' in content:
-                    framework = 'tf'
-                elif 'import sklearn' in content or 'from sklearn' in content:
-                    framework = 'np'
-        except Exception as e:
-            logger.training.warning(f"Error detecting framework: {e}. Defaulting to PyTorch.")
+        with open(training_py_path, 'r') as f:
+            script_text = f.read()
+            if 'import tensorflow' in script_text or 'import keras' in script_text:
+                framework = 'tf'
+            elif 'import sklearn' in script_text:
+                framework = 'np'
 
-    # Create placeholder config files if not present.
-    server_custom_dir = os.path.join(app_server_dir, 'custom')
-    os.makedirs(server_custom_dir, exist_ok=True)
-
-    server_cfg = {
-        "format_version": 2,
-        "task_data_filters": [],
-        "task_result_filters": [],
-        "components": [],
-        "workflows": [
-            {
-            "id": "swarm_controller",
-            "path": "nvflare.app_common.ccwf.SwarmServerController",
-            "args": {
-                "num_rounds": 10
-            }
-            }
-        ]
-        }
-    
-    # Configure executor based on framework
+    # Select the correct NVFlare executor based on the detected framework
     if framework == 'tf':
-        # Using TF executor for TensorFlow/Keras Client API support
         executor_path = "nvflare.app_opt.tf.in_process_client_api_executor.TFInProcessClientAPIExecutor"
     elif framework == 'np':
-        # Generic executor for Scikit-learn/Numpy
         executor_path = "nvflare.app_common.executors.in_process_client_api_executor.InProcessClientAPIExecutor"
     else:
         executor_path = "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor"
 
-    # Use PTFileModelPersistor for ALL frameworks. 
-    # It uses torch.save which is the most flexible at pickling arbitrary weight dictionaries 
-    # (including numpy arrays) without requiring specific keys like 'numpy_key'.
-    persistor_path = "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor"
-
-    client_cfg = {
+    # Server-side workflow config (defines the Swarm controller)
+    server_cfg = {
         "format_version": 2,
-        "executors": [
-            {
-                "tasks": ["train"],
-                "executor": {
-                    "path": executor_path,
-                    "args": {
-                        "task_script_path": "custom/training.py"
-                    }
-                }
-            },
-            {
-            "tasks": ["swarm_*"],
-            "executor": {
-                "path": "nvflare.app_common.ccwf.SwarmClientController",
-                "args": {
-                "learn_task_name": "train",
-                "learn_task_timeout": 60.0,
-                "persistor_id": "persistor",
-                "aggregator_id": "aggregator",
-                "shareable_generator_id": "shareable_generator",
-                "min_responses_required": 2,
-                "wait_time_after_min_resps_received": 1
-                }
-            }
-            }
-        ],
-        "task_result_filters": [],
-        "task_data_filters": [],
-        "components": [
-            {
-            "id": "persistor",
-            "path": persistor_path,
-            "args": {}
-            },
-            {
-            "id": "shareable_generator",
-            "name": "FullModelShareableGenerator",
-            "args": {}
-            },
-            {
-            "id": "aggregator",
-            "name": "InTimeAccumulateWeightedAggregator",
-            "args": {
-                "expected_data_kind": "WEIGHTS"
-            }
-            },
-            {
-            "id": "model_selector",
-            "name": "IntimeModelSelector",
-            "args": {}
-            }
-        ]
-        }
-    with open(os.path.join(app_server_cfg_dir, 'config_fed_server.json'), 'w') as f:
+        "workflows": [{
+            "id": "swarm_controller",
+            "path": "nvflare.app_common.ccwf.SwarmServerController",
+            "args": {"num_rounds": 10}
+        }]
+    }
+
+    # Client-side component config
+    client_cfg = {"format_version": 2,
+                  "executors": [{"tasks": ["train"],
+                                 "executor": {"path": executor_path,
+                                "args": {"task_script_path": "custom/training.py"}}}, 
+                                {"tasks": ["swarm_*"],
+                                 "executor": {"path": "nvflare.app_common.ccwf.SwarmClientController",
+                                              "args": {"learn_task_name": "train",
+                                                       "persistor_id": "persistor",
+                                                       "aggregator_id": "aggregator",
+                                                       "shareable_generator_id": "shareable_generator",
+                                                       "min_responses_required": len(client_names)}}}],
+                  "components": [{"id": "persistor",
+                                  "path": "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor"},
+                                 {"id": "shareable_generator",
+                                  "name": "FullModelShareableGenerator"},
+                                 {"id": "aggregator",
+                                  "name": "InTimeAccumulateWeightedAggregator",
+                                  "args": {"expected_data_kind": "WEIGHTS"}}]}
+
+    # Write configs to files
+    with open(os.path.join(app_server_dir, 'config', 'config_fed_server.json'), 'w') as f:
         json.dump(server_cfg, f, indent=2)
-    with open(os.path.join(app_client_cfg_dir, 'config_fed_client.json'), 'w') as f:
+    with open(os.path.join(app_client_dir, 'config', 'config_fed_client.json'), 'w') as f:
         json.dump(client_cfg, f, indent=2)
 
-    logger.training.info(f"Prepared job at {job_root}")
-
-    # Log files in admin_user_dir
+    # 5. Job Submission via API
     try:
-        logger.training.info(f"Files in {admin_user_dir}: {os.listdir(admin_user_dir)}")
-        with open(os.path.join(admin_user_dir, 'startup', 'fed_admin.json'), 'r') as f:
-            logger.training.info(f"fed_admin.json content: {f.read()}")
-    except Exception as e:
-        logger.training.error(f"Could not list files in {admin_user_dir}: {e}")
-
-    # 3. Submit the job using the FLARE API
-    try:
-        # Add a small delay if needed
-        time.sleep(5)
-
         from nvflare.fuel.flare_api.flare_api import new_secure_session
-        import socket
-        
-        job_path = os.path.join('/app', job_dir)
 
-        # Wait for Overseer to be reachable inside the FLARE network
-        for _ in range(60):
+        # Ensure the Overseer container is reachable before attempting auth
+        for _ in range(30):
             try:
-                with socket.create_connection(("overseer", 8443), timeout=2):
-                    break
-            except Exception:
+                socket.create_connection(("overseer", 8443), timeout=2)
+                break
+            except OSError:
                 time.sleep(1)
 
-        # Open secure session with the admin startup kit (cert auth)
-        sess = new_secure_session(username='admin@nvidia.com', startup_kit_location=admin_user_dir, timeout=60.0)
+        # Start secure session with NVFlare Admin
+        sess = new_secure_session(
+            username='admin@nvidia.com',
+            startup_kit_location=admin_user_dir
+        )
 
-        # Optional: sanity check connectivity
-        # sys_info = sess.get_system_info()
+        # Submit the job folder we just built
+        job_path_absolute = os.path.join('/app', job_dir)
+        response = sess.api.do_command(f"submit_job {job_path_absolute}")
 
-        # Submit job
-        rsp = sess.api.do_command(f"submit_job {job_path}") 
-        logger.training.info(f"submit_job reply: {rsp}")
-        
+        # Extract Job ID from API response
         job_id = None
-        if isinstance(rsp, dict):
-            job_id = rsp.get('job_id') or rsp.get('data') or str(rsp)
+        if isinstance(response, dict):
+            job_id = response.get('job_id') or response.get(
+                'data') or str(response)
         else:
-            job_id = getattr(rsp, 'job_id', None) or str(rsp)
+            job_id = getattr(response, 'job_id', None) or str(response)
 
+        # Record the job in the local Django database
         TrainingJob.objects.create(
             project=project,
             network=network,
@@ -475,197 +504,263 @@ def start_training(request, network_id):
             flare_job_id=job_id or 'unknown'
         )
         messages.success(request, f"Successfully submitted job {job_id}")
-        
+
     except Exception as e:
-        logger.training.error(f"Submit job via FLARE API failed: {e}", exc_info=True)
+        log.training.error(f"Submit job via FLARE API failed: {e}")
         TrainingJob.objects.create(
-            project=project, 
-            network=network, 
-            status='FAILED', 
-            flare_job_id='exception'
+            project=project, network=network,
+            status='FAILED', flare_job_id='error'
         )
         messages.error(request, f"Failed to submit job: {e}")
 
-    return redirect('training')
+    return redirect('training:training')
+
 
 @login_required(login_url='/users/signin/')
 def stop_training(request, network_id):
+    """
+    Aborts the currently running job.
+    Uses the NVFlare Admin API to send an 'abort_job' signal.
+    """
     network = SwarmNetwork.objects.get(identifier=network_id)
     project = network.project
-    logger = get_logger(user=request.user, project=project)
+    log = get_logger(user=request.user, project=project)
 
-    running_job = TrainingJob.objects.filter(network=network, status='RUNNING').order_by('-created_at').first()
+    # Find the active job for this network
+    running_job = TrainingJob.objects.filter(
+        network=network, status='RUNNING'
+    ).order_by('-created_at').first()
 
     if running_job:
         job_id = running_job.flare_job_id
         project_name = project.title.replace(' ', '_')
-        admin_user_dir = os.path.join('/app', 'workspaces', str(project.identifier), str(network.identifier), 'workspace', project_name, 'prod_00', 'admin@nvidia.com')
+        admin_user_dir = os.path.join(
+            '/app', 'workspaces', str(project.identifier),
+            str(network.identifier), 'workspace', project_name,
+            'prod_00', 'admin@nvidia.com'
+        )
 
         try:
+            # Connect to API and issue abort command
             from nvflare.fuel.flare_api.flare_api import new_secure_session
-            sess = new_secure_session(username='admin@nvidia.com', startup_kit_location=admin_user_dir)
-            rsp = sess.api.do_command(f"abort_job {job_id}")
-            logger.training.info(f"Abort job reply: {rsp}")
+            sess = new_secure_session(
+                username='admin@nvidia.com',
+                startup_kit_location=admin_user_dir
+            )
+            sess.api.do_command(f"abort_job {job_id}")
+            # Update local DB record
             running_job.status = 'STOPPED'
             running_job.save()
         except Exception as e:
-            logger.training.error(f"Failed to abort job via FLARE API: {e}", exc_info=True)
+            log.training.error(f"Failed to abort job: {e}")
 
-        # Remove job folder
-        job_dir = os.path.join('workspaces', str(project.identifier), str(network.identifier), 'job')
-        if os.path.exists(job_dir):
-            shutil.rmtree(job_dir)
-            logger.training.info(f"Removed job folder: {job_dir}")
-
-    return redirect('training')
+    return redirect('training:training')
 
 
 @login_required(login_url='/users/signin/')
 def training_status_api(request):
+    """
+    AJAX endpoint for real-time dashboard updates.
+    Returns status string and progress percentage.
+    
+    This function logic mirrors 'training' view but is optimized 
+    to return pure JSON data for JavaScript consumption.
+    """
     try:
-        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+        current_network = UserCurrentNetwork.objects.get(
+            user=request.user).network
     except UserCurrentNetwork.DoesNotExist:
         return JsonResponse({"status": "No network", "progress": 0})
 
     status = 'Not started'
     progress = 0
+    duration_str = "-"
+    eta_str = "-"
+    
     try:
-        job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
+        job = TrainingJob.objects.filter(
+            network=current_network
+        ).order_by('-created_at').first()
+
         if not job:
-            return JsonResponse({"status": status, "progress": progress})
+            return JsonResponse({"status": status, "progress": progress, "duration": duration_str, "eta": eta_str})
 
         status = job.status.title()
-        
-        # Extract clean UUID from flare_job_id
-        import re
         job_uuid = str(job.flare_job_id)
         match = re.search(r'Submitted job:\s*([0-9a-f-]+)', job_uuid)
         if match:
             job_uuid = match.group(1)
 
-        total_rounds = 0
-        try:
-            server_cfg_path = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'job', 'app_server', 'config', 'config_fed_server.json')
-            if os.path.exists(server_cfg_path):
+        # 1. Fetch total rounds from config
+        total_rounds = 10 
+        server_cfg_path = os.path.join(
+            'workspaces', str(job.project.identifier),
+            str(current_network.identifier), 'job', 'app_server',
+            'config', 'config_fed_server.json'
+        )
+        if os.path.exists(server_cfg_path):
+            try:
                 with open(server_cfg_path) as f:
                     cfg = json.load(f)
-                    for wf in cfg.get('workflows', []):
-                        if wf.get('id') == 'swarm_controller':
-                            total_rounds = int(wf.get('args', {}).get('num_rounds', 0))
+                    for workflow in cfg.get('workflows', []):
+                        if workflow.get('id') == 'swarm_controller':
+                            total_rounds = int(workflow.get('args', {}).get('num_rounds', 10))
                             break
-        except Exception:
-            total_rounds = 0
+            except Exception:
+                pass
 
-        workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'workspace')
+        # 2. Check logs for progress
         rounds_finished = 0
         ended = False
-        
-        # Look specifically in the folder for THIS job
-        for root, dirs, files in os.walk(workspace_root):
+        workspace_root = os.path.join(
+            'workspaces', str(job.project.identifier),
+            str(current_network.identifier), 'workspace'
+        )
+
+        for root, _, files in os.walk(workspace_root):
             if job_uuid in root:
-                for fname in ('log_fl.txt','log.txt'):
+                for fname in ('log_fl.txt', 'log.txt'):
                     if fname in files:
-                        fpath = os.path.join(root, fname)
                         try:
-                            with open(fpath,'r') as lf:
-                                data=lf.read()
-                                import re as _re
-                                for m in _re.finditer(r'finished training round (\d+)', data):
-                                    r=int(m.group(1))
-                                    if r>rounds_finished:
-                                        rounds_finished=r
-                                if 'ending workflow swarm_controller' in data or 'child worker process finished with RC 0' in data:
-                                    ended=True
-                        except Exception:
+                            with open(os.path.join(root, fname), 'r') as lf:
+                                data = lf.read()
+                                # Completion check
+                                if ('ending workflow' in data and 'swarm_controller' in data) or \
+                                   ('child worker process finished with RC 0' in data):
+                                    ended = True
+                                # Round tracking
+                                for m in re.finditer(r'finished training round (\d+)', data):
+                                    r = int(m.group(1))
+                                    if r > rounds_finished:
+                                        rounds_finished = r
+                        except OSError:
                             pass
 
-        if total_rounds>0:
-            progress=min(100, int(rounds_finished*100/total_rounds))
-        if ended or progress>=100:
-            progress=100
-            status='Completed'
-            # Update the database status if it's not already COMPLETED
+        # 3. Determine final progress percentage
+        if ended:
+            progress = 100
+            status = 'Completed'
             if job.status != 'COMPLETED':
                 job.status = 'COMPLETED'
                 job.completed_at = timezone.now()
                 job.save()
-        elif job.status=='RUNNING':
-            status='Running'
+        elif job.status == 'RUNNING':
+            status = 'Running'
+            if total_rounds > 0:
+                progress = min(99, int(rounds_finished * 100 / total_rounds))
+        elif job.status == 'COMPLETED':
+            progress = 100
+            status = 'Completed'
+
+        # 4. Time Calculation
+        now = timezone.now()
+        start_time = job.created_at
+        
+        if job.status == 'RUNNING':
+            elapsed = (now - start_time).total_seconds()
+            duration_str = format_duration(elapsed)
+            if progress > 0:
+                total_est = elapsed / (progress / 100.0)
+                remaining = total_est - elapsed
+                eta_str = format_duration(remaining)
+            else:
+                eta_str = "Calculating..."
+        elif job.completed_at:
+            elapsed = (job.completed_at - start_time).total_seconds()
+            duration_str = format_duration(elapsed)
+            eta_str = "Finished"
+
     except Exception:
         pass
-    return JsonResponse({"status": status, "progress": progress})
+
+    return JsonResponse({
+        "status": status, 
+        "progress": progress,
+        "duration": duration_str,
+        "eta": eta_str
+    })
+
 
 @login_required(login_url='/users/signin/')
 def training_logs_api(request):
+    """
+    AJAX endpoint returning the last 100 log lines as a JSON list.
+    
+    Parses logs into structured objects:
+    [{"timestamp": "...", "level": "INFO", "message": "..."}, ...]
+    """
     try:
-        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+        current_network = UserCurrentNetwork.objects.get(
+            user=request.user).network
     except UserCurrentNetwork.DoesNotExist:
         return JsonResponse({"logs": []})
 
     logs = []
     try:
-        job = TrainingJob.objects.filter(network=current_network).order_by('-created_at').first()
+        job = TrainingJob.objects.filter(
+            network=current_network
+        ).order_by('-created_at').first()
         if not job:
             return JsonResponse({"logs": logs})
-        
-        # Extract clean UUID from flare_job_id
-        import re
+
         job_uuid = str(job.flare_job_id)
         match = re.search(r'Submitted job:\s*([0-9a-f-]+)', job_uuid)
         if match:
             job_uuid = match.group(1)
 
-        workspace_root = os.path.join('workspaces', str(job.project.identifier), str(current_network.identifier), 'workspace')
+        workspace_root = os.path.join(
+            'workspaces', str(job.project.identifier),
+            str(current_network.identifier), 'workspace'
+        )
         latest_log = None
-        latest_mtime = -1
-        
-        # Find logs belonging specifically to this job
+
+        # Find the latest log file for this job
         for root, _, files in os.walk(workspace_root):
             if job_uuid in root:
-                for cand in ('log_fl.txt','log.txt'):
+                for cand in ('log_fl.txt', 'log.txt'):
                     if cand in files:
-                        log_path = os.path.join(root, cand)
-                        m = os.path.getmtime(log_path)
-                        if m > latest_mtime:
-                            latest_mtime = m
-                            latest_log = log_path
-        
+                        latest_log = os.path.join(root, cand)
+                        break
+                if latest_log:
+                    break
+
         if latest_log and os.path.exists(latest_log):
-            import re
-            with open(latest_log,'r') as lf:
-                lines=lf.readlines()[-100:]
+            with open(latest_log, 'r') as lf:
+                lines = lf.readlines()[-100:]
+
             for line in lines:
                 line = line.strip()
                 if not line:
                     continue
-                
-                ts = ''; level = ''; msg = line; logger_name = ''
+
+                # Standard NVFlare log format parsing
+                ts = ""
+                level = "INFO"
+                msg = line
+
+                # Regex for YYYY-MM-DD HH:MM:SS,mmm
                 ts_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', line)
                 if ts_match:
                     ts = ts_match.group(1)
-                    remaining = line[len(ts):].strip()
-                    dash_parts = remaining.split(' - ')
-                    if len(dash_parts) >= 3:
-                        logger_name = dash_parts[0].strip(' -')
-                        level = dash_parts[1].strip()
-                        msg = ' - '.join(dash_parts[2:])
-                    elif '\t' in remaining:
-                        tab_parts = remaining.split('\t')
-                        level = tab_parts[0].strip()
-                        msg = '\t'.join(tab_parts[1:])
-                    else:
-                        msg = remaining.strip(' -')
+                    remaining = line[len(ts):].strip(' -')
+                    
+                    parts = remaining.split(' - ')
+                    if len(parts) >= 2:
+                        # Extract standard severity levels
+                        if parts[1] in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+                            level = parts[1]
+                            msg = ' - '.join(parts[2:])
+                        elif parts[0] in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+                            level = parts[0]
+                            msg = ' - '.join(parts[1:])
 
-                if level:
-                    msg = re.sub(rf'^\s*-?\s*{level}\s*-?\s*', '', msg, flags=re.IGNORECASE)
-                msg = re.sub(r'^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s*', '', msg)
-                
                 logs.append({
                     'timestamp': ts,
                     'level': level,
-                    'message': msg.strip(),
-                    'logger': logger_name
+                    'message': msg
                 })
+
     except Exception:
         pass
+
     return JsonResponse({"logs": logs})

@@ -28,7 +28,7 @@
                     d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
                     clip-rule="evenodd"></path>
                 </svg>
-                <a href="/users"
+                <a href="{% url 'users:user_list' %}"
                   class="ml-1 text-gray-700 hover:text-primary-600 md:ml-2 dark:text-gray-300 dark:hover:text-white">Users</a>
               </div>
             </li>
@@ -202,7 +202,7 @@
                         d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>
                     <h3 class="mb-6 text-lg text-gray-500 dark:text-gray-400">Are you sure you want to delete this product?</h3>
-                    <a href="{% url "delete_user" user.id %}"
+                    <a href="{% url "users:delete_user" user.id %}"
                       class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm inline-flex items-center px-3 py-2.5 text-center mr-2 dark:focus:ring-red-900">
                       Yes, I'm sure
                     </a>
@@ -232,7 +232,7 @@
                       </svg>
                       <span class="sr-only">Close menu</span>
                     </button>
-                    <form method="post" action="{% url "update_user" user.id %}">
+                    <form method="post" action="{% url "users:update_user" user.id %}">
                       {% csrf_token %}
 
                       <div class="space-y-4">
@@ -277,7 +277,7 @@
                           Update
                         </button>
                         <a 
-                          href="{% url "delete_user" user.id %}"
+                          href="{% url "users:delete_user" user.id %}"
                           class="w-full inline-flex justify-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700">
                           <svg aria-hidden="true" class="w-5 h-5 mr-1 -ml-1" fill="currentColor" viewBox="0 0 20 20"
                             xmlns="http://www.w3.org/2000/svg">
@@ -311,7 +311,7 @@
                       </svg>
                       <span class="sr-only">Close menu</span>
                     </button>
-                    <form method="post" action="{% url "user_change_password" user.id %}">
+                    <form method="post" action="{% url "users:user_change_password" user.id %}">
                       {% csrf_token %}
 
                       <div class="space-y-4">

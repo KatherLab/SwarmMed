@@ -1,11 +1,11 @@
 ---
 title: Developer Guide
-description: A guide for developers to write scripts for the MediSwarmCloud platform.
+description: A guide for developers to write scripts for the SwarmCloud platform.
 ---
 
 # Developer Guide
 
-This guide provides information for developers who write scripts to be run on the MediSwarmCloud platform. The platform supports three types of scripts:
+This guide provides information for developers who write scripts to be run on the SwarmCloud platform. The platform supports three types of scripts:
 
 *   Data Validation Scripts
 *   Data Visualization Scripts
@@ -14,7 +14,7 @@ This guide provides information for developers who write scripts to be run on th
 
 
 !!! tip "Example Code"
-    You can find an example scripts [here](https://github.com/pfeifferis/MediSwarmCloud/tree/main/examples).
+    You can find an example scripts [here](https://github.com/pfeifferis/SwarmCloud/tree/main/examples).
 
 !!! tip "Testing Locally"
     You can test your validation and visualization scripts locally selecting `Test in local environment` in the network settings and reviewing the logs on the logs page.

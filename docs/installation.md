@@ -1,11 +1,11 @@
 ---
 title: Installation
-description: Installation instructions for MediSwarmCloud.
+description: Installation instructions for SwarmCloud.
 ---
 
 # Installation
 
-This page provides detailed instructions for installing the MediSwarmCloud platform.
+This page provides detailed instructions for installing the SwarmCloud platform.
 
 ## Hardware Requirements
 
@@ -65,13 +65,13 @@ tailscale set --accept-dns=false
 systemctl restart tailscaled
 ```
 
-## 3. MediSwarmCloud
+## 3. SwarmCloud
 
 ### Clone the Repository
 
 ``` bash
-git clone https://github.com/pfeifferis/MediSwarmCloud.git
-cd MediSwarmCloud
+git clone https://github.com/pfeifferis/SwarmCloud.git
+cd SwarmCloud
 ```
 
 ### Environment Variables
@@ -82,9 +82,9 @@ Create a `.env` file in the root of the project and add the following variables:
 SECRET_KEY=your-secret-key
 DEBUG=True
 
-POSTGRES_DB=mediswarm
-POSTGRES_USER=mediswarm
-POSTGRES_PASSWORD=mediswarm
+POSTGRES_DB=swarmcloud
+POSTGRES_USER=swarmcloud
+POSTGRES_PASSWORD=swarmcloud
 POSTGRES_HOST=db
 POSTGRES_PORT=5432
 
@@ -110,11 +110,11 @@ docker compose up -d
 ## 4. Create Superuser
 
 ``` bash
-docker exec -it mediswarmcloud python manage.py createsuperuser
+docker exec -it swarmcloud python manage.py createsuperuser
 ```
 
 Follow the prompts to create your superuser account.
 
 !!! info "Superuser"
-    The `superuser` has full access to all features and settings in the MediSwarmCloud platform like an `admin`.
+    The `superuser` has full access to all features and settings in the SwarmCloud platform like an `admin`.
 

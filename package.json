@@ -1,5 +1,5 @@
 {
-  "name": "mediswarmcloud",
+  "name": "swarmcloud",
   "version": "0.1.0",
   "description": "decentralized medical data storage and training platform",
   "main": "index.js",

@@ -76,7 +76,7 @@
         </div>
         <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
             <h3 class="mb-4 text-xl font-semibold dark:text-white">Password information</h3>
-            <form method="post" action="{% url "change_password" %}">
+            <form method="post" action="{% url "users:change_password" %}">
                 {% csrf_token %}
 
                 <div class="grid grid-cols-6 gap-6">

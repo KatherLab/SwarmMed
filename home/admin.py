@@ -1,3 +1,6 @@
-from django.contrib import admin
+"""
+Admin configuration for the home application.
+Since the home app has no models, no registration is required here.
+"""
 
-# Register your models here.
+# No models to register.

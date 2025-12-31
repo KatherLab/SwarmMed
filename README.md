@@ -1,4 +1,4 @@
-# MediSwarmCloud
+# SwarmCloud
 
 ## Installation
 
@@ -27,10 +27,10 @@ Test connectivity:
 tailscale ip -4 
 ```
 
-### 3. MediSwarmCloud
+### 3. SwarmCloud
 
 ```bash
-git clone https://github.com/pfeifferis/MediSwarmCloud.git
+git clone https://github.com/pfeifferis/SwarmCloud.git
 ```
 ```bash
 docker compose build
@@ -39,7 +39,7 @@ docker compose up
 
 ### 4. Create Superuser
 ```bash
-docker exec -it mediswarmcloud python manage.py createsuperuser
+docker exec -it swarmcloud python manage.py createsuperuser
 ```
 
 
@@ -80,6 +80,10 @@ systemctl restart tailscaled
 mkdocs serve --dev-addr localhost:9999
 mkdocs serve --dev-addr 0.0.0.0:9999
 ``` 
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started, our coding standards (PEP 8), and the project architecture.
 
 ## when changing tasks
 ```bash

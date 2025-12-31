@@ -1,20 +1,20 @@
 ---
 title: Security
-description: Security best practices implemented in MediSwarmCloud.
+description: Security best practices implemented in SwarmCloud.
 ---
 
 # Security
 
-Security is a foundational aspect of the MediSwarmCloud platform, designed to protect the confidentiality, integrity, and availability of your data and machine learning models. This page outlines the security measures implemented at various layers of the platform.
+Security is a foundational aspect of the SwarmCloud platform, designed to protect the confidentiality, integrity, and availability of your data and machine learning models. This page outlines the security measures implemented at various layers of the platform.
 
 !!! warning "Shared Responsibility"
-    While MediSwarmCloud provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
+    While SwarmCloud provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
 
 ## Application Security
 
 ### Access Control
 
-MediSwarmCloud implements a robust role-based access control (RBAC) system to ensure that users only have access to the resources and operations that are necessary for their role.
+SwarmCloud implements a robust role-based access control (RBAC) system to ensure that users only have access to the resources and operations that are necessary for their role.
 
 *   **Admin:** The admin user has full control over the platform. They can manage users, projects, and system settings.
 *   **Developer:** A developer can create and manage projects, upload data, run training jobs and view logs.
@@ -37,7 +37,7 @@ We are committed to ensuring the security of our platform and its dependencies.
 
 ### _DJANGO_[^1]
 
-The web interface of MediSwarmCloud is built on the Django framework, which has a strong focus on security and provides built-in protection against many common web vulnerabilities.
+The web interface of SwarmCloud is built on the Django framework, which has a strong focus on security and provides built-in protection against many common web vulnerabilities.
 
 *   **Cross-Site Scripting (XSS):** Django's template engine automatically escapes variables, which prevents most XSS attacks.
 *   **Cross-Site Request Forgery (CSRF):** Django has built-in CSRF protection that is enabled by default.
@@ -62,7 +62,7 @@ All project-related data, including datasets and models, is stored in a self-hos
 
 ### _TAILSCALE_[^3]
 
-MediSwarmCloud leverages Tailscale to create a secure and private network for the participants in a decentralized learning experiment. This is especially important for swarm learning, which relies on peer-to-peer communication.
+SwarmCloud leverages Tailscale to create a secure and private network for the participants in a decentralized learning experiment. This is especially important for swarm learning, which relies on peer-to-peer communication.
 
 *   **End-to-End Encryption:** All traffic on a Tailscale network is end-to-end encrypted using WireGuard.
 *   **Zero-Config VPN:** Tailscale is a zero-config VPN, which means that it is easy to set up and does not require complex firewall rules.
@@ -72,13 +72,13 @@ MediSwarmCloud leverages Tailscale to create a secure and private network for th
 
 ### HTTPS
 
-All communication with the MediSwarmCloud web interface is encrypted using HTTPS. This ensures that your data is protected from eavesdropping and man-in-the-middle attacks.
+All communication with the SwarmCloud web interface is encrypted using HTTPS. This ensures that your data is protected from eavesdropping and man-in-the-middle attacks.
 
 ## Decentralized Learning Security
 
 ### _NVIDIA FLARE_[^4]
 
-The federated learning capabilities of MediSwarmCloud are powered by NVIDIA FLARE. The swarm learning paradigm implemented in FLARE has a unique security model.
+The federated learning capabilities of SwarmCloud are powered by NVIDIA FLARE. The swarm learning paradigm implemented in FLARE has a unique security model.
 
 *   **No Raw Data Exchange:** In a swarm learning setup, the raw data never leaves the participant's infrastructure. Only model updates are exchanged between the participants.
 *   **Identity Security:** FLARE ensures the authentication and authorization of all communicating parties.

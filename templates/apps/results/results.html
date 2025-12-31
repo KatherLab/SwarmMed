@@ -55,7 +55,7 @@
       </div>
     </div>
     <div class="items-center sm:flex gap-2 mt-4 lg:mt-0">
-      <form method="get" action="{% url 'results' %}" class="flex items-center gap-2">
+      <form method="get" action="{% url 'results:results' %}" class="flex items-center gap-2">
         <label for="job" class="text-sm text-gray-600 dark:text-gray-300">Job:</label>
         <select id="job" name="job" class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm rounded-lg p-2.5 text-gray-900 dark:text-white focus:ring-purple-700 focus:border-purple-700 dark:focus:ring-purple-300 dark:focus:border-purple-300" onchange="this.form.submit()">
           <option value="" {% if selected_job_id == "" %}selected{% endif %}>All jobs</option>
@@ -65,7 +65,7 @@
         </select>
         <button id="sync-results-btn" type="button" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Sync Results</button>
         {% if results %}
-        <button type="submit" formaction="{% url 'download_all_results' project_id=project_identifier %}" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download All</button>
+        <button type="submit" formaction="{% url 'results:download_all_results' project_id=project_identifier %}" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download All</button>
         {% endif %}
       </form>
     </div>
@@ -81,7 +81,7 @@
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Client: {{ result.client_name }} • Size: {{ result.file_size|filesizeformat }} • Type: {{ result.file_type }}</p>
       </div>
       <div class="mt-4">
-        <a href="{% if result.id %}{% url 'download_result' result.id %}{% else %}{% url 'download_result_by_key' %}?key={{ result.file_path }}{% endif %}" download="{{ result.cleaned_filename }}"
+        <a href="{% if result.id %}{% url 'results:download_result' result.id %}{% else %}{% url 'results:download_result_by_key' %}?key={{ result.file_path }}{% endif %}" download="{{ result.cleaned_filename }}"
            class="w-full inline-flex items-center bg-orange-100 text-orange-700 border border-orange-100 hover:border-orange-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-900 dark:border-gray-900 dark:hover:border-orange-300 dark:text-orange-300">
           <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg">
@@ -134,7 +134,7 @@
                 </svg>
                 <span class="sr-only">Info</span>
                 <div>
-                  <span class="font-medium">No results visualization script!</span> To visualize your training results, please <a href="{% url 'project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a results visualization script</a> in the project settings.
+                  <span class="font-medium">No results visualization script!</span> To visualize your training results, please <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a results visualization script</a> in the project settings.
                 </div>
               </div>
             </div>
