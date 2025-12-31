@@ -26,25 +26,13 @@
                         </li>
                     </ol>
                 </nav>
-                <div class="sm:flex justify-between items-center">
-                    <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Communication Hub</h1>
-                    <button data-modal-target="new-chat-modal" data-modal-toggle="new-chat-modal" 
-                        class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-4 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300 mt-4 sm:mt-0">
-                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-                            <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
-                        </svg>
-                        Start New Chat
-                    </button>
-                </div>
+                <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Communication Hub</h1>
             </div>
-        </div>
-    </div>
 
-    <div class="px-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            <!-- Left Column: Direct Messages -->
-            <div class="bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 dark:bg-gray-800 flex flex-col">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                
+                <!-- Left Column: Direct Messages -->
+                <div class="bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 dark:bg-gray-800 flex flex-col">
                 <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-700/50">
                     <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center">
                         <svg class="w-5 h-5 mr-2 text-purple-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
@@ -53,6 +41,13 @@
                         </svg>
                         Direct Messages
                     </h3>
+                    <button data-modal-target="new-chat-modal" data-modal-toggle="new-chat-modal" 
+                        class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-3 py-1.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
+                        </svg>
+                        New Chat
+                    </button>
                 </div>
                 
                 <div class="flex-1 max-h-[600px] overflow-y-auto">
