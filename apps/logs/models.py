@@ -10,8 +10,6 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from apps.network.models import SwarmNetwork
-
 
 class LogCategory(models.TextChoices):
     """
@@ -52,7 +50,7 @@ class LogEntry(models.Model):
 
     # Optional link to a specific swarm network
     swarm_network = models.ForeignKey(
-        SwarmNetwork,
+        'network.SwarmNetwork',
         on_delete=models.CASCADE,
         related_name='log_entries',
         null=True,

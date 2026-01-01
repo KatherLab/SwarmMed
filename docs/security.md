@@ -33,6 +33,7 @@ Comprehensive logging and auditing are in place to provide visibility into the a
 We are committed to ensuring the security of our platform and its dependencies.
 
 *   **Open Source Components:** We use well-maintained and reputable open-source components. We continuously monitor these components for security vulnerabilities.
+*   **Snyk Testing:** Our codebase is regularly scanned and tested via Snyk to identify and mitigate known vulnerabilities, ensuring the platform remains secure.
 *   **Patch Management:** We have a process in place for promptly applying security patches to our platform and its dependencies.
 
 ### _DJANGO_[^1]

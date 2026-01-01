@@ -5,6 +5,8 @@ Defines a handler that writes log records directly into the Django database.
 
 import logging
 
+_internal_logger = logging.getLogger('app')
+
 
 class DatabaseLogHandler(logging.Handler):
     """
@@ -53,7 +55,8 @@ class DatabaseLogHandler(logging.Handler):
                 context_data=getattr(record, 'context_data', {})
             )
 
-        except Exception:
+        except Exception as e:
             # CRITICAL: A failure in logging should NEVER crash the main application.
-            # We catch all exceptions and fail silently.
-            pass
+            # We catch all exceptions and fail gracefully, logging the error
+            # to the internal console logger.
+            _internal_logger.debug(f"Database logging failed: {e}")

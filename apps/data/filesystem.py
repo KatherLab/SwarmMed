@@ -25,11 +25,15 @@ class DataFileSystem:
         """
         Initialize the filesystem for a specific project.
         """
+        from django.conf import settings
         self.project_uuid = project_uuid
         # The base path in S3 for this project's data
         self.root_path = f"{project_uuid}/data/"
-        # A local temporary directory for downloaded files
-        self.temp_dir = tempfile.mkdtemp(prefix=f"validation_{project_uuid}_")
+        # Use a project-local temporary directory so it can be mounted by Docker
+        self.temp_dir = tempfile.mkdtemp(
+            prefix=f"validation_{project_uuid}_",
+            dir=settings.PROJECT_TEMP_DIR
+        )
         # Cache of files already downloaded to avoid redundant network calls
         self._downloaded_files: Dict[str, str] = {}
         self.log = logger.get_logger()
@@ -58,17 +62,25 @@ class DataFileSystem:
         Checks if a file exists locally; if not, downloads it from S3.
         Returns the absolute local path to the file.
         """
-        if relative_path in self._downloaded_files:
-            return self._downloaded_files[relative_path]
+        # Security: Sanitize path to prevent traversal
+        # 1. Remove leading slashes and redundant dots
+        clean_rel_path = os.path.normpath(relative_path).lstrip(os.path.sep + (os.path.altsep or ""))
+        
+        # 2. Prevent escaping the temp directory
+        if clean_rel_path.startswith("..") or os.path.isabs(clean_rel_path):
+            self.log.data.warning(f"Blocked path traversal attempt in DataFileSystem: {relative_path}")
+            raise ValueError(f"Invalid relative path: {relative_path}")
+
+        if clean_rel_path in self._downloaded_files:
+            return self._downloaded_files[clean_rel_path]
 
         # The full key in S3
-        s3_key = f"{self.root_path}{relative_path}"
+        s3_key = f"{self.root_path}{clean_rel_path}"
 
         # The full path on the local machine
-        local_path = os.path.join(self.temp_dir, relative_path)
+        local_path = os.path.join(self.temp_dir, clean_rel_path)
 
-        # Ensure the local subdirectories exist (e.g., if path is
-        # 'raw/data.csv')
+        # Ensure the local subdirectories exist
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
         # Download the file from S3 to the local path
@@ -77,14 +89,14 @@ class DataFileSystem:
                 with open(local_path, 'wb') as local_file:
                     shutil.copyfileobj(s3_file, local_file)
 
-            self._downloaded_files[relative_path] = local_path
+            self._downloaded_files[clean_rel_path] = local_path
             return local_path
         except Exception as e:
             self.log.data.error(
-                f"Failed to download file {relative_path}: {str(e)}"
+                f"Failed to download file {clean_rel_path}: {str(e)}"
             )
             raise FileNotFoundError(
-                f"Could not download file {relative_path}: {str(e)}"
+                f"Could not download file {clean_rel_path}: {str(e)}"
             )
 
     def open(self, relative_path: str, mode: str = 'r', **kwargs):
@@ -135,6 +147,41 @@ class DataFileSystem:
         Forces a download if the file isn't local yet.
         """
         return self._ensure_file_downloaded(relative_path)
+
+    def download_all(self):
+        """
+        Recursively downloads ALL files from the project's S3 data directory
+        to the local temporary directory.
+        """
+        from django.conf import settings
+        from .utils import get_s3_client
+
+        s3 = get_s3_client()
+        paginator = s3.get_paginator('list_objects_v2')
+
+        self.log.data.info(f"Starting full data download for project {self.project_uuid}...")
+
+        count = 0
+        for page in paginator.paginate(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Prefix=self.root_path
+        ):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if key.endswith('/'):
+                    continue
+
+                # Calculate relative path within the data directory
+                rel_path = key[len(self.root_path):]
+                
+                # Use the internal download mechanism to populate cache and temp_dir
+                try:
+                    self._ensure_file_downloaded(rel_path)
+                    count += 1
+                except Exception as e:
+                    self.log.data.warning(f"Failed to download {rel_path} during sync: {e}")
+
+        self.log.data.info(f"Full download complete. Synced {count} files.")
 
 
 class ValidationContext:

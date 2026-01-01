@@ -6,6 +6,7 @@ historical logs and real-time container logs.
 
 import os
 import subprocess
+import shutil
 from datetime import timedelta
 
 import yaml
@@ -16,6 +17,9 @@ from django.http import HttpResponse
 
 from apps.users.decorators import developer_required
 from .models import LogEntry, LogCategory
+from apps.logs.logger import get_logger
+
+logger = get_logger()
 
 # Attempt to import current project tracking
 try:
@@ -148,9 +152,10 @@ def logs_dashboard(request):
                                     'container_name', service_name)
 
                                 # Execute 'docker logs' to get live output
+                                docker_path = shutil.which('docker') or 'docker'
                                 try:
                                     result = subprocess.run(
-                                        ['docker', 'logs', '--tail', '100', container_name],
+                                        [docker_path, 'logs', '--tail', '100', container_name],
                                         capture_output=True,
                                         text=True,
                                         check=False
@@ -176,11 +181,11 @@ def logs_dashboard(request):
 
                                         recent_logs.insert(
                                             0, LogMock(**mock_entry))
-                                except Exception:
-                                    # Fail silently if Docker command fails
-                                    pass
-            except (UserCurrentNetwork.DoesNotExist, FileNotFoundError):
-                pass
+                                except Exception as e:
+                                    # Log if Docker command fails
+                                    logger.project.warning(f"Failed to fetch live logs for {container_name}: {e}")
+            except (UserCurrentNetwork.DoesNotExist, FileNotFoundError) as e:
+                logger.project.debug(f"Could not fetch live logs: {e}")
 
         # 3. Calculate statistics for the UI
         total_count = LogEntry.objects.filter(

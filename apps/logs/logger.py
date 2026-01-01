@@ -41,10 +41,10 @@ def _setup_logger():
         # DEBUG logs
         db_handler.setLevel(logging.INFO)
         _logger.addHandler(db_handler)
-    except Exception:
+    except Exception as e:
         # Fallback if database logging is not available (e.g., during
         # migration)
-        pass
+        _logger.debug(f"Database logging handler could not be initialized: {e}")
 
     # Disable propagation to the root logger to avoid duplicate entries in
     # some setups

@@ -6,16 +6,43 @@ preflight checks, and real-time log streaming.
 
 import os
 import subprocess
+import shutil
+import yaml
 
 import docker
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.utils.text import slugify
 
 from apps.logs.logger import get_logger
 from apps.logs.models import LogCategory, LogEntry
 from apps.project.models import Project
 from .models import SwarmNetwork
+
+
+def run_and_log_subprocess(command, cwd, env, logger):
+    """
+    Executes a subprocess and streams its output to the provided logger.
+    """
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
+
+    for line in process.stdout:
+        line = line.strip()
+        if line:
+            # Use the network category for these logs
+            logger.network.info(line)
+
+    process.wait()
+    return process.returncode
 
 
 @shared_task(bind=True)
@@ -36,8 +63,9 @@ def execute_and_log_in_container(
         project = Project.objects.get(identifier=project_id)
         logger = get_logger(project=project)
 
-        # Connect to local Docker daemon
-        client = docker.from_env()
+        # Connect via DOCKER_HOST if provided (e.g. for the proxy), else use local socket
+        docker_host = os.environ.get("DOCKER_HOST", None)
+        client = docker.from_env() if not docker_host else docker.DockerClient(base_url=docker_host)
         container = client.containers.get(container_name)
 
         logger.network.info(f"Executing in {container_name}: {command}")
@@ -68,17 +96,14 @@ def execute_and_log_in_container(
 def start_swarm_network_task(network_id, user_id):
     """
     Deploys a swarm network using docker-compose.
-    1. Prepares the compose file with correct paths.
-    2. Builds the required Docker images.
-    3. Starts the containers in detached mode.
-    4. Connects the main app container to the new network.
     """
     try:
         swarm_network = SwarmNetwork.objects.get(identifier=network_id)
         user = User.objects.get(id=user_id)
         logger = get_logger(user=user, project=swarm_network.project)
 
-        project_name = swarm_network.project.title.replace(' ', '_')
+        # Sanitize project name to prevent path traversal
+        project_name = slugify(swarm_network.project.title).replace('-', '_')
         provision_dir = os.path.join(
             settings.BASE_DIR,
             'workspaces',
@@ -97,7 +122,15 @@ def start_swarm_network_task(network_id, user_id):
             raise FileNotFoundError(
                 f"Compose file missing: {compose_file_path}")
 
-        # 1. Modify compose file for host-path mapping (if applicable)
+        # 1. Modify compose file for host-path mapping and platform enforcement
+        with open(compose_file_path, 'r') as f:
+            compose_content = yaml.safe_load(f)
+        
+        # Write back YAML structure first
+        with open(compose_file_path, 'w') as f:
+            yaml.safe_dump(compose_content, f, default_flow_style=False)
+            
+        # Then perform text-based host path replacement if needed
         host_project_path = os.getenv('HOST_PROJECT_PATH')
         if host_project_path:
             with open(compose_file_path, 'r') as f:
@@ -106,8 +139,6 @@ def start_swarm_network_task(network_id, user_id):
             rel_dir = os.path.relpath(compose_dir, settings.BASE_DIR)
             host_dir = os.path.join(host_project_path, rel_dir)
 
-            # Replace relative paths with host-absolute paths for volume
-            # mounting
             mappings = {
                 'build: ./nvflare': f'build: {os.path.join(host_dir, "nvflare")}',
                 './fl-client': os.path.join(host_dir, 'fl-client'),
@@ -119,37 +150,59 @@ def start_swarm_network_task(network_id, user_id):
 
             with open(compose_file_path, 'w') as f:
                 f.write(content)
-            logger.network.info("Updated compose file with host paths.")
+            logger.network.info("Updated compose file with host paths and platform enforcement.")
 
-        # 2. Build Docker images
+        # 2. Build Docker images with live logging
         logger.network.info("Building Docker images for the network...")
-        subprocess.run(
-            ['docker', 'compose', '-f', 'compose.yaml', 'build'],
-            cwd=compose_dir,
-            check=True
-        )
+        docker_path = shutil.which('docker') or 'docker'
+        env = os.environ.copy()
+        
+        # Use BuildKit for better compatibility and efficiency
+        env["DOCKER_BUILDKIT"] = "1"
+        env["COMPOSE_DOCKER_CLI_BUILD"] = "1"
 
-        # 3. Start containers
-        logger.network.info("Starting Docker containers (detached)...")
-        subprocess.run(
-            ['docker', 'compose', '-f', 'compose.yaml', 'up', '-d'],
+        ret = run_and_log_subprocess(
+            [docker_path, 'compose', '-f', 'compose.yaml', 'build'],
             cwd=compose_dir,
-            check=True
+            env=env,
+            logger=logger
         )
+        if ret != 0:
+            raise subprocess.CalledProcessError(ret, "docker compose build")
+
+        # 3. Start containers with live logging
+        logger.network.info("Starting Docker containers (detached)...")
+        ret = run_and_log_subprocess(
+            [docker_path, 'compose', '-f', 'compose.yaml', 'up', '-d'],
+            cwd=compose_dir,
+            env=env,
+            logger=logger
+        )
+        if ret != 0:
+            raise subprocess.CalledProcessError(ret, "docker compose up")
 
         # 4. Network connection
-        # Connect the 'swarmcloud' app container to the newly created network
-        # so it can communicate with the FLARE overseer/server.
         try:
-            # Docker Compose creates network named <dir>_default
             net_name = os.path.basename(compose_dir) + "_default"
+            logger.network.info(f"Connecting app and storage to network: {net_name}")
+            
+            # Connect the main web app
             subprocess.run(
-                ['docker', 'network', 'connect', net_name, 'swarmcloud'],
-                capture_output=True
+                [docker_path, 'network', 'connect', net_name, 'swarmcloud'],
+                capture_output=True,
+                env=env,
+                check=False # Might already be connected
+            )
+            
+            # Connect the MinIO storage container
+            subprocess.run(
+                [docker_path, 'network', 'connect', net_name, 'minio'],
+                capture_output=True,
+                env=env,
+                check=False # Might already be connected
             )
         except Exception as e:
-            logger.network.warning(
-                f"Could not connect app to flare network: {e}")
+            logger.network.warning(f"Could not connect containers to flare network: {e}")
 
         # Mark as running and trigger preflight check
         swarm_network.status = 'RUNNING'
@@ -160,21 +213,24 @@ def start_swarm_network_task(network_id, user_id):
         if 'swarm_network' in locals():
             swarm_network.status = 'ERROR'
             swarm_network.save()
-        print(f"Failed to start network: {e}")
+        
+        # Ensure the error is logged to the database so the user sees it
+        internal_logger = get_logger(user=User.objects.get(id=user_id), 
+                                     project=swarm_network.project if 'swarm_network' in locals() else None)
+        internal_logger.network.error(f"Failed to start network: {str(e)}")
 
 
 @shared_task
 def run_nvflare_preflight_check(network_id, user_id):
     """
     Executes the NVFlare preflight check utility using the admin startup kit.
-    This verifies that overseer and server are reachable and certificates are valid.
     """
     try:
         network = SwarmNetwork.objects.get(identifier=network_id)
         user = User.objects.get(id=user_id)
         logger = get_logger(user=user, project=network.project)
 
-        project_name = network.project.title.replace(' ', '_')
+        project_name = slugify(network.project.title).replace('-', '_')
         provision_dir = os.path.join(
             settings.BASE_DIR,
             'workspaces',
@@ -191,20 +247,20 @@ def run_nvflare_preflight_check(network_id, user_id):
         )
 
         if not os.path.exists(admin_startup_dir):
-            logger.network.error(
-                "Preflight failed: Admin startup kit not found.")
+            logger.network.error("Preflight failed: Admin startup kit not found.")
             return
 
         logger.network.info("Running NVFlare Preflight Check...")
 
-        # Run the preflight check tool
+        python_path = shutil.which('python3') or 'python3'
         command = [
-            'python3', '-m', 'nvflare.tool.preflight_check',
+            python_path, '-m', 'nvflare.tool.preflight_check',
             '-p', admin_startup_dir
         ]
-        result = subprocess.run(command, capture_output=True, text=True)
+        
+        env = os.environ.copy()
+        result = subprocess.run(command, capture_output=True, text=True, env=env)
 
-        # Save output to database logs
         for output in [result.stdout, result.stderr]:
             for line in output.splitlines():
                 if line.strip():
@@ -237,7 +293,7 @@ def stop_swarm_network_task(network_id, user_id):
         user = User.objects.get(id=user_id)
         logger = get_logger(user=user, project=network.project)
 
-        project_name = network.project.title.replace(' ', '_')
+        project_name = slugify(network.project.title).replace('-', '_')
         provision_dir = os.path.join(
             settings.BASE_DIR,
             'workspaces',
@@ -253,13 +309,22 @@ def stop_swarm_network_task(network_id, user_id):
 
         if os.path.exists(os.path.join(compose_dir, 'compose.yaml')):
             logger.network.info(f"Stopping network: {network.name}")
-            subprocess.run(
-                ['docker-compose', '-f', 'compose.yaml', 'down'],
-                cwd=compose_dir
+            docker_path = shutil.which('docker') or 'docker'
+            
+            env = os.environ.copy()
+            ret = run_and_log_subprocess(
+                [docker_path, 'compose', '-f', 'compose.yaml', 'down'],
+                cwd=compose_dir,
+                env=env,
+                logger=logger
             )
-            network.status = 'STOPPED'
-            network.save()
-            logger.network.info("Network stopped successfully.")
+            if ret == 0:
+                network.status = 'STOPPED'
+                network.save()
+                logger.network.info("Network stopped successfully.")
+            else:
+                network.status = 'ERROR'
+                network.save()
         else:
             network.status = 'ERROR'
             network.save()

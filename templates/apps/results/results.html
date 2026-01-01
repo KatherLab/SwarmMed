@@ -4,6 +4,7 @@
 
 {% block content %}
 
+{% csrf_token %}
 <main>
   <div class="p-4 block sm:flex items-center justify-between lg:mt-1.5">
     <div class="w-full mb-1">
@@ -270,21 +271,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let pollInterval;
     let currentRunId = null;
 
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
-                }
-            }
-        }
-        return cookieValue;
-    }
-    const csrftoken = getCookie('csrftoken');
+    const getCsrfToken = () => document.querySelector('[name=csrfmiddlewaretoken]').value;
 
     function setStatus(status, message, isError = false) {
         // Customize status message display to match data page style
@@ -439,7 +426,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const response = await fetch(`/results/visualize/start/${jobId}/`, {
                 method: 'POST',
-                headers: { 'X-CSRFToken': csrftoken }
+                headers: { 'X-CSRFToken': getCsrfToken() }
             });
             
             const contentType = response.headers.get("content-type");
@@ -475,7 +462,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const response = await fetch(`/results/visualize/stop/`, {
                 method: 'POST',
-                headers: { 'X-CSRFToken': csrftoken },
+                headers: { 'X-CSRFToken': getCsrfToken() },
                 body: formData
             });
 

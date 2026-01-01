@@ -15,7 +15,6 @@ echo "Redis started"
 # Apply database migrations
 echo "Applying database migrations..."
 python manage.py collectstatic --no-input
-python manage.py makemigrations
 python manage.py migrate
 
 # Start server

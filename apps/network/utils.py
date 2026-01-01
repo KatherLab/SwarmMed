@@ -9,8 +9,10 @@ import os
 import socket
 import subprocess
 import zipfile
+import shutil
 
 from django.core.cache import cache
+from django.utils.text import slugify
 
 
 def get_tailscale_ip():
@@ -18,22 +20,23 @@ def get_tailscale_ip():
     Retrieves the current machine's Tailscale IPv4 address using the
     tailscale CLI. The result is cached for 5 minutes to improve performance.
     """
-    cached_ip = cache.get('tailscale_ip')
+    cached_ip = cache.get("tailscale_ip")
     if cached_ip:
         return cached_ip
 
     try:
         # Run 'tailscale ip --4' to get the local Tailscale IPv4 address
+        tailscale_path = shutil.which("tailscale") or "tailscale"
         result = subprocess.run(
-            ['tailscale', 'ip', '--4'],
+            [tailscale_path, "ip", "--4"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         ip = result.stdout.strip()
 
         # Store in cache (300 seconds = 5 minutes)
-        cache.set('tailscale_ip', ip, 300)
+        cache.set("tailscale_ip", ip, 300)
         return ip
 
     except PermissionError:
@@ -47,34 +50,34 @@ def is_tailscale_connected():
     Checks if Tailscale is currently connected by inspecting the status output.
     Returns a string: "connected", "disconnected", or "Permission Denied".
     """
-    cached_state = cache.get('tailscale_connected')
+    cached_state = cache.get("tailscale_connected")
     if cached_state is not None:
         return cached_state
 
     try:
         # 'tailscale status' returns information about the node and its peers
+        tailscale_path = shutil.which("tailscale") or "tailscale"
         result = subprocess.run(
-            ['tailscale', 'status'],
-            capture_output=True,
-            text=True,
-            check=True
+            [tailscale_path, "status"], capture_output=True, text=True, check=True
         )
 
         # Logic: If status is not empty and we are not in a restricted
         # 'peerapi' state
-        is_connected = (bool(result.stdout.strip()) and
-                        'peerapi' not in result.stdout.lower())
+        is_connected = (
+            bool(result.stdout.strip())
+            and "peerapi" not in result.stdout.lower()
+        )
 
         status = "connected" if is_connected else "disconnected"
         # Short cache for status as it can change frequently
-        cache.set('tailscale_connected', status, 30)
+        cache.set("tailscale_connected", status, 30)
         return status
 
     except PermissionError:
-        cache.set('tailscale_connected', "Permission Denied", 10)
+        cache.set("tailscale_connected", "Permission Denied", 10)
         return "Permission Denied"
     except (subprocess.CalledProcessError, FileNotFoundError):
-        cache.set('tailscale_connected', "disconnected", 10)
+        cache.set("tailscale_connected", "disconnected", 10)
         return "disconnected"
 
 
@@ -97,45 +100,62 @@ def create_startup_kits_zip(swarm_network):
     Returns:
         io.BytesIO: A buffer containing the zip file data.
     """
-    project_name = swarm_network.project.title.replace(' ', '_')
+    # Sanitize project name to prevent path traversal
+    project_name = slugify(swarm_network.project.title).replace("-", "_")
     # The path where NVFlare 'provision' command saves its outputs
     base_prod_path = os.path.join(
-        '/app',
-        'workspaces',
+        "/app",
+        "workspaces",
         str(swarm_network.project.identifier),
         str(swarm_network.identifier),
-        'workspace',
+        "workspace",
         project_name,
-        'prod_00'
+        "prod_00",
     )
 
     zip_buffer = io.BytesIO()
 
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as main_zip:
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # NVFlare creates a directory for each participant
         if not os.path.exists(base_prod_path):
             return zip_buffer
 
+        abs_base_prod_path = os.path.abspath(base_prod_path)
+        
         for item in os.scandir(base_prod_path):
             # We only want to package client kits (not server or admin)
-            if item.is_dir() and item.name != 'server' and 'admin' not in item.name:
+            if (
+                item.is_dir()
+                and item.name != "server"
+                and "admin" not in item.name
+            ):
                 client_dir_path = item.path
+
+                # Security check: Ensure client_dir_path is within base_prod_path
+                # Use os.path.join with empty string to ensure trailing slash for directory comparison
+                if not os.path.abspath(client_dir_path).startswith(
+                    os.path.join(abs_base_prod_path, "")
+                ):
+                    continue
 
                 # Create an internal zip for this specific client
                 client_zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(client_zip_buffer, 'w', zipfile.ZIP_DEFLATED) as client_zip:
-                    for root, _, files in os.walk(client_dir_path):
+                with zipfile.ZipFile(
+                    client_zip_buffer, "w", zipfile.ZIP_DEFLATED
+                ) as client_zip:
+                    for root, _, files in os.walk(client_dir_path, followlinks=False):
                         for file in files:
                             file_full_path = os.path.join(root, file)
                             # Relative path inside the client-specific zip
                             arcname = os.path.relpath(
-                                file_full_path, client_dir_path)
+                                file_full_path, client_dir_path
+                            )
                             client_zip.write(file_full_path, arcname)
 
                 # Add the client's zip file into the main zip buffer
                 main_zip.writestr(
-                    f"{item.name}.zip",
-                    client_zip_buffer.getvalue())
+                    f"{item.name}.zip", client_zip_buffer.getvalue()
+                )
 
     zip_buffer.seek(0)
     return zip_buffer

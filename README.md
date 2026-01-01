@@ -88,4 +88,14 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ## when changing tasks
 ```bash
 docker compose restart celery_worker
+
+snyk code test --json > snyk_code_report.json
+```
+
+## security scans
+```bash
+snyk code test --json > snyk_code_report.json
+snyk test --json > snyk_report.json
+ ./venv/bin/python -m bandit -r apps core home manage.py -f json -o bandit_report_final.json    
+safety scan
 ```

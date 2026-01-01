@@ -6,9 +6,11 @@ without passing objects through every function call.
 """
 
 import threading
+import logging
 
 # Thread-local storage to keep track of context within a single request/thread
 _thread_locals = threading.local()
+_internal_logger = logging.getLogger('app')
 
 
 def set_context(user=None, project=None):
@@ -51,10 +53,10 @@ def get_context():
                         project = user_current_project.project
                     except UserCurrentProject.DoesNotExist:
                         pass
-        except Exception:
-            # We fail silently here to ensure logging never crashes the
-            # application
-            pass
+        except Exception as e:
+            # We fail gracefully here to ensure logging never crashes the
+            # application, but we record the failure in the internal log.
+            _internal_logger.debug(f"Failed to auto-detect logging context: {e}")
 
     return user, project
 

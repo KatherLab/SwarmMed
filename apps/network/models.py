@@ -14,6 +14,9 @@ from django.contrib.auth.models import User
 from django.db import models
 
 from apps.project.models import Project
+from apps.logs.logger import get_logger
+
+logger = get_logger()
 
 
 class SwarmNetwork(models.Model):
@@ -129,10 +132,15 @@ class SwarmNetwork(models.Model):
                         f.write(compose_content)
 
                 # Stop and remove containers via docker-compose
-                subprocess.run(
-                    ['docker-compose', '-f', 'compose.yaml', 'down'],
-                    cwd=compose_dir
-                )
+                docker_compose_path = shutil.which('docker-compose') or 'docker-compose'
+                try:
+                    subprocess.run(
+                        [docker_compose_path, '-f', 'compose.yaml', 'down'],
+                        cwd=compose_dir,
+                        check=False
+                    )
+                except Exception as e:
+                    logger.network.error(f"Failed to stop Docker containers for network {self.name}: {e}")
 
         # 2. Clean up the provisioning directory on the filesystem
         provision_dir = os.path.join(

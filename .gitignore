@@ -4,3 +4,4 @@ venv
 staticfiles
 nvflare_swarm_learning
 .env
+node_modules

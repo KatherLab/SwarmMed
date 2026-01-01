@@ -257,7 +257,8 @@ class ResultsVisualizationContext:
                     model_data = None
                     if local_path.endswith('.pt'):
                         # Load PyTorch weights.
-                        model_data = torch.load(local_path, map_location='cpu')
+                        model_data = torch.load(
+                            local_path, map_location='cpu', weights_only=True)
                         # Unwrap common wrappers.
                         if isinstance(model_data, dict):
                             if 'weights' in model_data:
@@ -272,7 +273,7 @@ class ResultsVisualizationContext:
 
                     elif local_path.endswith('.npy'):
                         # Load Numpy weights.
-                        model_data = np.load(local_path, allow_pickle=True)
+                        model_data = np.load(local_path, allow_pickle=False)
                         if isinstance(
                                 model_data,
                                 np.ndarray) and model_data.dtype == object:
@@ -288,7 +289,7 @@ class ResultsVisualizationContext:
 
                     elif local_path.endswith('.npz'):
                         # Load Numpy compressed weights.
-                        model_data = np.load(local_path, allow_pickle=True)
+                        model_data = np.load(local_path, allow_pickle=False)
                         model_data = model_data.get(
                             'params',
                             model_data.get('weights', model_data)

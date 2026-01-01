@@ -20,6 +20,9 @@ from apps.network.models import (
 )
 from apps.project.models import Project, UserCurrentProject
 from apps.training.models import TrainingJob
+from apps.logs.logger import get_logger
+
+logger = get_logger()
 
 
 def get_user_project_uuid(request):
@@ -95,9 +98,9 @@ def index(request):
             total_storage = format_size(total_size_bytes)
             total_folders = folder_count
         except Exception as e:
-            # Silently log errors and default to zero to avoid crashing the
+            # Log errors and default to zero to avoid crashing the
             # dashboard.
-            print(f"Error getting storage stats: {e}")
+            logger.project.warning(f"Error getting storage stats: {e}")
 
     # 3. Aggregated Storage Statistics (All Projects)
     total_files_all_projects = 0
@@ -112,7 +115,8 @@ def index(request):
             total_files_all_projects += file_count
             total_storage_all_projects += size_bytes
             total_folders_all_projects += folder_count
-        except Exception:
+        except Exception as e:
+            logger.project.debug(f"Could not aggregate storage stats for project {project.identifier}: {e}")
             continue
 
     formatted_total_storage_all = format_size(total_storage_all_projects)
@@ -248,10 +252,10 @@ def index(request):
                     training_status = 'Completed'
                 elif job.status == 'RUNNING':
                     training_status = 'Running'
-    except Exception:
+    except Exception as e:
         # Training tracking is secondary; if it fails, we just show "Not
-        # started".
-        pass
+        # started" and log the error for debugging.
+        logger.project.debug(f"Error tracking training progress on dashboard: {e}")
 
     # 6. Assemble the Context for the template.
     context = {

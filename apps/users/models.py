@@ -5,7 +5,7 @@ with additional fields like role and contact information.
 """
 
 import uuid
-import random
+import secrets
 
 from django.contrib.auth.models import User
 from django.db import models
@@ -87,6 +87,6 @@ class Profile(models.Model):
         Saves the choice to ensure persistence.
         """
         if not self.color:
-            self.color = random.choice(AVATAR_COLORS)
+            self.color = secrets.choice(AVATAR_COLORS)
             self.save(update_fields=['color'])
         return self.color

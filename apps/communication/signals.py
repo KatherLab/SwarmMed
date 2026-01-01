@@ -9,6 +9,9 @@ from django.dispatch import receiver
 from django.core.mail import send_mail
 from django.conf import settings
 from .models import Message, ProjectPost
+from apps.logs.logger import get_logger
+
+logger = get_logger()
 
 
 @receiver(post_save, sender=Message)
@@ -39,10 +42,10 @@ def send_message_notification(sender, instance, created, **kwargs):
                 [instance.recipient.email],
                 fail_silently=True,
             )
-        except Exception:
-            # If email sending fails (e.g., bad config), we ignore it silently
+        except Exception as e:
+            # If email sending fails (e.g., bad config), we log it
             # to prevent the application from crashing.
-            pass
+            logger.project.error(f"Failed to send message notification email: {e}")
 
 
 @receiver(post_save, sender=ProjectPost)
@@ -96,6 +99,6 @@ def send_project_post_notification(sender, instance, created, **kwargs):
                     [recipient.email],
                     fail_silently=True,
                 )
-            except Exception:
-                # Silently catch errors during email delivery
-                pass
+            except Exception as e:
+                # Catch and log errors during email delivery
+                logger.project.error(f"Failed to send project post notification email to {recipient.email}: {e}")

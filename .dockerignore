@@ -1,0 +1,31 @@
+# Ignore virtual environments
+venv/
+.venv/
+env/
+
+# Ignore database data
+postgres_data/
+minio_data/
+
+# Ignore user uploads and temporary files
+media/
+staticfiles/
+.gemini/
+tmp/
+
+# Ignore git and logs
+.git/
+*.log
+bandit_report_final.json
+
+# Ignore node modules
+node_modules/
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/

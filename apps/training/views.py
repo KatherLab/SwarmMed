@@ -17,6 +17,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.text import slugify
 
 from apps.logs.logger import get_logger
 from apps.network.models import SwarmNetwork, UserCurrentNetwork
@@ -24,6 +25,8 @@ from apps.project.models import UserCurrentProject
 
 from .models import TrainingJob
 from .utils import download_s3_folder
+
+logger = get_logger()
 
 
 def get_user_project(request):
@@ -201,7 +204,8 @@ def training(request):
                     elif total_rounds > 0:
                         # Cap at 99% until the 'ended' marker is found
                         training_progress = min(99, int(rounds_finished * 100 / total_rounds))
-                except Exception:
+                except Exception as e:
+                    logger.training.debug(f"Failed to calculate training progress: {e}")
                     training_progress = 0
 
             elif training_job.status == 'COMPLETED':
@@ -286,7 +290,8 @@ def training(request):
                             'message': msg.strip(),
                             'logger': logger_name
                         })
-            except Exception:
+            except Exception as e:
+                logger.training.debug(f"Failed to collect training logs: {e}")
                 training_logs = []
 
     # Final context for the template
@@ -363,19 +368,33 @@ def start_training(request, network_id):
         os.path.join(app_client_custom_dir, 'flare_adapter.py')
     )
 
-    # Create a minimal .env file inside the job package.
-    # This allows the worker containers to access S3 data during training.
-    job_env_path = os.path.join(app_client_custom_dir, '.env')
-    try:
-        with open(job_env_path, 'w') as f:
-            f.write(f"AWS_ACCESS_KEY_ID={settings.AWS_ACCESS_KEY_ID}\n")
-            f.write(f"AWS_SECRET_ACCESS_KEY={settings.AWS_SECRET_ACCESS_KEY}\n")
-            f.write(f"AWS_S3_ENDPOINT_URL={settings.AWS_S3_ENDPOINT_URL}\n")
-            f.write(f"AWS_STORAGE_BUCKET_NAME={settings.AWS_STORAGE_BUCKET_NAME}\n")
-            f.write(f"AWS_S3_REGION_NAME={settings.AWS_S3_REGION_NAME}\n")
-        log.training.info("Created minimal .env for the training job.")
-    except Exception as e:
-        log.training.error(f"Failed to create .env for the job: {e}")
+    # SECURITY FIX: Generate a data manifest with presigned URLs for each file.
+    # This allows workers to download data SECURELY without needing root S3 credentials.
+    from apps.data.utils import get_internal_s3_download_url, list_s3_folder
+    
+    def get_all_files(prefix):
+        folders, files = list_s3_folder(prefix)
+        all_files = files
+        for folder in folders:
+            all_files.extend(get_all_files(folder))
+        return all_files
+
+    root_data_prefix = f"{project.identifier}/data/"
+    project_files = get_all_files(root_data_prefix)
+    
+    # Manifest maps relative_path -> presigned_url
+    data_manifest = {}
+    for file_key in project_files:
+        rel_path = os.path.relpath(file_key, root_data_prefix)
+        # Presign for 24 hours (86400 seconds) - enough for most training jobs
+        data_manifest[rel_path] = get_internal_s3_download_url(file_key, expires=86400)
+
+    manifest_path = os.path.join(app_client_custom_dir, 'data_manifest.json')
+    with open(manifest_path, 'w') as f:
+        json.dump(data_manifest, f, indent=2)
+
+    # SECURITY MITIGATION: Root S3 credentials are NOT injected.
+    log.training.info("Generated data_manifest.json with presigned URLs for secure access.")
 
     # Inject the project UUID into 'training.py' to enable dynamic data paths.
     training_py_path = os.path.join(app_client_custom_dir, 'training.py')
@@ -384,13 +403,17 @@ def start_training(request, network_id):
             content = f.read()
 
         placeholder = 'main(project_id="default_project")'
+        placeholder_2 = "main(project_id='default_project')"
         replacement = f'main(project_id="{str(project.identifier)}")'
 
         if placeholder in content:
             content = content.replace(placeholder, replacement)
-            with open(training_py_path, 'w') as f:
-                f.write(content)
-            log.training.info("Injected project_id into training.py")
+        elif placeholder_2 in content:
+            content = content.replace(placeholder_2, replacement)
+            
+        with open(training_py_path, 'w') as f:
+            f.write(content)
+        log.training.info("Injected project_id into training.py")
 
     # 3. Create 'meta.json'
     # This tells NVFlare which app goes to which participant.
@@ -606,8 +629,8 @@ def training_status_api(request):
                         if workflow.get('id') == 'swarm_controller':
                             total_rounds = int(workflow.get('args', {}).get('num_rounds', 10))
                             break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.training.debug(f"Failed to load server config: {e}")
 
         # 2. Check logs for progress
         rounds_finished = 0
@@ -670,8 +693,8 @@ def training_status_api(request):
             duration_str = format_duration(elapsed)
             eta_str = "Finished"
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.training.debug(f"Error in training_status_api: {e}")
 
     return JsonResponse({
         "status": status, 
@@ -760,7 +783,7 @@ def training_logs_api(request):
                     'message': msg
                 })
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.training.debug(f"Error in training_logs_api: {e}")
 
     return JsonResponse({"logs": logs})

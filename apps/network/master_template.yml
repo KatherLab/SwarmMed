@@ -992,7 +992,7 @@ azure_start_svr_sh: |
   VM_SIZE=Standard_B2ms
   NSG_NAME=nvflare_nsgs
   ADMIN_USERNAME=nvflare
-  PASSWORD="NVFl@r3_P@88"$RANDOM"w0rd"
+  PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
   DEST_FOLDER=/var/tmp/cloud
   NIC_NAME=${VM_NAME}VMNic
   SERVER_NAME={~~server_name~~}
@@ -1236,7 +1236,7 @@ azure_start_cln_sh: |
   VM_SIZE=Standard_B2ms
   NSG_NAME=nvflare_nsgc
   ADMIN_USERNAME=nvflare
-  PASSWORD="NVFl@r3_P@88"$RANDOM"w0rd"
+  PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
   DEST_FOLDER=/var/tmp/cloud
   LOCATION=westus2
   NIC_NAME=${VM_NAME}VMNic
@@ -1412,7 +1412,7 @@ azure_start_dsb_sh: |
   VM_SIZE=Standard_B2ms
   NSG_NAME=nvflare_nsgc
   ADMIN_USERNAME=nvflare
-  PASSWORD="NVFl@r3_P@88"$RANDOM"w0rd"
+  PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
   DEST_FOLDER=/var/tmp/cloud
   LOCATION=westus2
   NIC_NAME=${VM_NAME}VMNic

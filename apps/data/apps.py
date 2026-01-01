@@ -24,12 +24,20 @@ class DataConfig(AppConfig):
         """
         # We import here to avoid circular dependencies during startup
         from .utils import create_minio_bucket
+        from apps.logs.logger import get_logger
+        from django.conf import settings
 
-        # Ensure the default bucket 'swarmcloud' exists in S3/Minio
+        logger = get_logger()
+
+        # Ensure the default bucket exists in S3/Minio
         # This is where all project data and scripts will be stored.
+        bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'swarmcloud')
+        if not bucket_name:
+            bucket_name = 'swarmcloud'
+
         try:
-            create_minio_bucket('swarmcloud')
-        except Exception:
-            # We fail silently or log during startup if the service is not yet up,
+            create_minio_bucket(bucket_name)
+        except Exception as e:
+            # We log during startup if the service is not yet up,
             # as it might be starting up in a docker-compose environment.
-            pass
+            logger.data.warning(f"Could not ensure '{bucket_name}' bucket during startup: {e}")

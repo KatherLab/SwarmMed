@@ -166,6 +166,28 @@ def get_s3_download_url(key, expires=3600):
     return url
 
 
+def get_internal_s3_download_url(key, expires=3600):
+    """
+    Generates a temporary presigned URL for internal use within the Docker network.
+    Ensures that the host in the URL is reachable from other containers (uses 'minio').
+    """
+    s3 = get_s3_client()
+    url = s3.generate_presigned_url(
+        'get_object',
+        Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': key},
+        ExpiresIn=expires
+    )
+    
+    # If the URL contains localhost or 127.0.0.1, other containers won't be able
+    # to reach it. We replace it with the internal service name 'minio'.
+    if "localhost" in url:
+        url = url.replace("localhost", "minio")
+    elif "127.0.0.1" in url:
+        url = url.replace("127.0.0.1", "minio")
+        
+    return url
+
+
 def get_storage_stats(prefix=""):
     """
     Calculates total size, file count, and folder count for a given S3 prefix.

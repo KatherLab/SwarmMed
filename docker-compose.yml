@@ -1,8 +1,7 @@
-version: "3.8"
 services:
   app:
     container_name: swarmcloud
-    command: python manage.py runserver 0.0.0.0:8000
+    command: gunicorn --bind 0.0.0.0:8000 core.wsgi:application
     restart: always
     build:
       context: .
@@ -11,16 +10,18 @@ services:
       - web_network
     volumes:
       - ./:/app
-      - /var/run/docker.sock:/var/run/docker.sock
       - /var/run/tailscale:/var/run/tailscale:ro
       - /usr/bin/tailscale:/usr/bin/tailscale:ro
     depends_on:
       - postgres
       - redis
+      - docker-proxy
     ports:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      - DOCKER_HOST=tcp://docker-proxy:2375
 
   celery_worker:
     container_name: celery_worker
@@ -32,46 +33,57 @@ services:
       - db_network
     volumes:
       - ./:/app
-      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - postgres
       - redis
+      - docker-proxy
     env_file:
       - .env
     environment:
-      - C_FORCE_ROOT=1  # Allow Celery to run as root in Docker
+      - DOCKER_HOST=tcp://docker-proxy:2375
 
-  nginx:
-    container_name: nginx
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy
+    container_name: docker-proxy
     restart: always
-    image: "nginx:latest"
-    ports:
-      - "5085:5085"
-    volumes:
-      - ./nginx:/etc/nginx/conf.d
     networks:
-      - web_network
-    depends_on:
-      - app
+      - db_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - NETWORKS=1
+      - VOLUMES=1
+      - BUILD=1
+      - VERSION=1
+      - AUTH=1
+      - SECRETS=0
+      - POST=1
+      - EXEC=1
+    # Only allow internal access from the project containers
+    expose:
+      - "2375"
 
   redis:
     image: redis:7.0.12
     container_name: redis
-    command: ["redis-server", "--port", "6379", "--slave-read-only", "no"]
+    command: ["redis-server", "--port", "6379", "--requirepass", "${REDIS_PASSWORD}", "--slave-read-only", "no"]
     restart: always
     ports:
-      - 6379:6379
+      - "127.0.0.1:6379:6379"
     networks:
       - db_network
 
+
   postgres:
-    image: postgres:13
+    image: postgres:15
     container_name: postgres
     restart: always
     volumes:
       - ./postgres_data:/var/lib/postgresql/data/
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     env_file:
       - .env
     networks:
@@ -83,24 +95,13 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     env_file:
       - .env
     command: server /data --console-address ":9001"
     networks:
       - db_network
-  
-  adminer:
-    image: adminer:latest
-    container_name: adminer
-    restart: always
-    ports:
-      - "8080:8080"
-    networks:
-      - db_network
-    depends_on:
-      - postgres
 
 networks:
   db_network:
