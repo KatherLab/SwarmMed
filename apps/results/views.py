@@ -8,14 +8,19 @@ import io
 import logging
 import os
 import zipfile
+from urllib.parse import urlparse
 
 from celery import current_app
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse, JsonResponse, HttpResponseForbidden
-from django.shortcuts import redirect, render, get_object_or_404
-from apps.users.utils import get_safe_referer
+from django.http import (
+    HttpResponse,
+    JsonResponse,
+    HttpResponseForbidden,
+    HttpResponseRedirect,
+)
+from django.shortcuts import render, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
@@ -77,7 +82,7 @@ def results(request):
         )
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
-    
+
     # Security Check: Membership
     if not is_project_member(request.user, project):
         return HttpResponseForbidden("You are not a member of this project.")
@@ -356,7 +361,7 @@ def results_visualization_status(request, job_id):
     """
     try:
         job = get_object_or_404(TrainingJob, identifier=job_id)
-        
+
         # Security Check: Membership
         if not is_project_member(request.user, job.project):
             return JsonResponse({"error": "Forbidden"}, status=403)
@@ -400,13 +405,26 @@ def download_result(request, result_id):
     """
     try:
         result = get_object_or_404(TrainingResult, id=result_id)
-        
+
         # Security Check: Membership
         if not is_project_member(request.user, result.job.project):
             return HttpResponseForbidden("Forbidden")
 
         download_url = get_s3_download_url(result.file_path)
-        return redirect(get_safe_referer(request, download_url))
+
+        # Security: Validate the redirect URL host
+        parsed_url = urlparse(download_url)
+        allowed_host = urlparse(settings.AWS_S3_ENDPOINT_URL).netloc
+
+        # Allow configured S3 host or standard AWS S3 domains
+        if parsed_url.netloc != allowed_host and not parsed_url.netloc.endswith("amazonaws.com"):
+            return HttpResponseForbidden("External URL forbidden")
+
+        # If there is a safe referer, we prefer to stay in the app and open the
+        # link (e.g. in a new tab if the frontend does that), but usually, we just
+        # want to go to the download URL.
+        # We use HttpResponseRedirect directly for the external URL to be explicit.
+        return HttpResponseRedirect(download_url)
     except TrainingResult.DoesNotExist:
         return render(request, "404.html")
 
@@ -418,7 +436,7 @@ def download_all_results(request, project_id):
     """
     try:
         project = get_object_or_404(Project, identifier=project_id)
-        
+
         # Security Check: Membership
         if not is_project_member(request.user, project):
             return HttpResponseForbidden("Forbidden")
@@ -453,7 +471,7 @@ def download_all_results(request, project_id):
                 # Remove project prefix from paths inside the ZIP for cleaner
                 # structure.
                 rel_name = (
-                    key[len(prefix) : -1] if key.startswith(prefix) else key
+                    key[len(prefix) :] if key.startswith(prefix) else key
                 )
                 obj = s3.get_object(
                     Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key
@@ -490,7 +508,7 @@ def download_result_by_key(request):
         )
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
-    
+
     # Security Check: Membership
     if not is_project_member(request.user, project):
         return HttpResponseForbidden("Forbidden")
@@ -502,4 +520,14 @@ def download_result_by_key(request):
         return render(request, "404.html")
 
     download_url = get_s3_download_url(key)
-    return redirect(get_safe_referer(request, download_url))
+
+    # Security: Validate the redirect URL host
+    parsed_url = urlparse(download_url)
+    allowed_host = urlparse(settings.AWS_S3_ENDPOINT_URL).netloc
+
+    # Allow configured S3 host or standard AWS S3 domains
+    if parsed_url.netloc != allowed_host and not parsed_url.netloc.endswith("amazonaws.com"):
+        return HttpResponseForbidden("External URL forbidden")
+
+    # Use HttpResponseRedirect directly for the external S3 URL.
+    return HttpResponseRedirect(download_url)

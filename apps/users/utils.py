@@ -51,25 +51,27 @@ def get_safe_referer(request, default="/"):
     )
 
     if is_safe:
-        # Extract path and query to ensure we stay on the same domain
-        parsed = urlparse(referer)
-        safe_url = parsed.path
+        # Extract path and query to ensure we stay on the same domain.
+        # This is a secondary layer of defense.
+        try:
+            parsed = urlparse(referer)
+            # We only return the path and query to be 100% sure we stay on-domain
+            path = parsed.path
 
-        # Sanitization: Ensure path starts with / but not // (protocol relative)
-        if not safe_url.startswith("/"):
-            safe_url = "/" + safe_url
-        
-        # Explicitly prevent // at start which could be interpreted as
-        # protocol-relative URL by some browsers/libraries
-        while safe_url.startswith("//"):
-            safe_url = safe_url[1:]
+            # Ensure path starts with / but not // (protocol relative)
+            if not path.startswith("/"):
+                path = "/" + path
 
-        # Strip control characters to prevent header injection
-        safe_url = safe_url.replace("\r", "").replace("\n", "")
+            # Explicitly prevent // at start
+            while path.startswith("//"):
+                path = path[1:]
 
-        if parsed.query:
-            safe_url += f"?{parsed.query}"
-        
-        return safe_url
+            safe_url = path
+            if parsed.query:
+                safe_url += f"?{parsed.query}"
+
+            return safe_url
+        except Exception:
+            return default
 
     return default

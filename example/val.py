@@ -1,5 +1,15 @@
 import pandas as pd
 
+# --- Linter Fallback ---
+# 'validation' is injected by the SwarmCloud sandbox.
+# We define a dummy here to avoid F821 linting errors.
+if 'validation' not in globals():
+    class DummyValidation:
+        def add_check(self, *args, **kwargs): pass
+        def listdir(self, *args, **kwargs): return []
+        def open(self, *args, **kwargs): pass
+    validation = DummyValidation()
+
 # Initialize counters for the summary
 validation_results = {
     'critical_errors': 0,

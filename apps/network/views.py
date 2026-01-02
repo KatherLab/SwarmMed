@@ -10,6 +10,7 @@ import zipfile
 
 import yaml
 from django.shortcuts import render, redirect, get_object_or_404
+from django.utils.text import slugify
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.http import HttpResponse, JsonResponse
@@ -87,10 +88,10 @@ def network(request):
             str(current_network.identifier),
             "project.yml",
         ))
-        
+
         # Security check: Ensure path is within workspaces directory
         if project_yml_path.startswith(os.path.join(base_workspace, "")):
-             if os.path.exists(project_yml_path):
+            if os.path.exists(project_yml_path):
                 with open(project_yml_path, "r") as f:
                     project_yml = yaml.safe_load(f)
                     # Parse the list of participants defined in NVFlare lighter
@@ -150,7 +151,18 @@ def new_network(request):
         if creation_method == "create":
             # Extract client JSON data from the dynamic form fields
             clients_json = request.POST.getlist("clients")
-            clients = [json.loads(c) for c in clients_json]
+            clients = []
+            for c_json in clients_json:
+                try:
+                    c_data = json.loads(c_json)
+                    # Sanitize client name immediately
+                    safe_name = slugify(c_data.get("name", "client")).replace("-", "_")
+                    clients.append({
+                        "name": safe_name,
+                        "ip": c_data.get("ip", "")
+                    })
+                except (json.JSONDecodeError, TypeError):
+                    continue
 
             # Register participants in the database for tracking
             SwarmParticipant.objects.create(
@@ -191,11 +203,19 @@ def new_network(request):
                     abs_provision_dir = os.path.abspath(provision_dir)
                     for member in zip_ref.infolist():
                         # Determine the absolute target path for the member
+                        # We use normpath and check if it's within the intended directory
+                        member_path = os.path.normpath(member.filename)
+                        if member_path.startswith("/") or member_path.startswith(".."):
+                             # Skip absolute paths or path traversal attempts in filename
+                             continue
+
                         target_path = os.path.abspath(
-                            os.path.join(abs_provision_dir, member.filename)
+                            os.path.join(abs_provision_dir, member_path)
                         )
-                        # Ensure the target path is within the intended directory
-                        if not target_path.startswith(abs_provision_dir):
+                        # Ensure the target path is strictly within the intended directory
+                        # We append a trailing slash to the prefix to prevent 'partial match'
+                        # bypasses (e.g. /tmp/foo matching /tmp/foo-bar)
+                        if not target_path.startswith(os.path.join(abs_provision_dir, "")):
                             # Skip potentially malicious paths (Zip Slip)
                             continue
                         zip_ref.extract(member, provision_dir)

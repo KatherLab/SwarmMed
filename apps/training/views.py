@@ -17,7 +17,6 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
-from django.utils.text import slugify
 
 from apps.logs.logger import get_logger
 from apps.network.models import SwarmNetwork, UserCurrentNetwork
@@ -32,8 +31,8 @@ logger = get_logger()
 def get_user_project(request):
     """
     Helper function to retrieve the user's currently active project.
-    
-    This checks the UserCurrentProject model to see which project the 
+
+    This checks the UserCurrentProject model to see which project the
     logged-in user has selected in their session.
 
     Returns:
@@ -43,11 +42,11 @@ def get_user_project(request):
         # Look up the unique record linking the user to their selected project
         user_current_project = UserCurrentProject.objects.get(
             user=request.user)
-        
+
         # Ensure a project is actually linked to that record
         if not user_current_project.project:
             return None, False
-            
+
         # Return the unique identifier (UUID) as a string
         return str(user_current_project.project.identifier), True
     except UserCurrentProject.DoesNotExist:
@@ -75,7 +74,7 @@ def training(request):
     """
     Main training dashboard view.
     Displays current job status, progress bars, and real-time logs.
-    
+
     Logic flow:
     1. Verify the user has a project selected.
     2. Verify the user has a running network (infrastructure).
@@ -83,7 +82,7 @@ def training(request):
     4. If a job is running, parse local log files to calculate progress.
     5. Render the training template with all collected data.
     """
-    
+
     # 1. Validation: Project check
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -183,7 +182,7 @@ def training(request):
                                             if ('ending workflow' in data and 'swarm_controller' in data) or \
                                                ('child worker process finished with RC 0' in data):
                                                 ended = True
-                                            
+
                                             # Parse "finished training round (\d+)" to track progress
                                             for m in re.finditer(r'finished training round (\d+)', data):
                                                 rnum = int(m.group(1))
@@ -214,11 +213,11 @@ def training(request):
             # 5. Time Calculation
             now = timezone.now()
             start_time = training_job.created_at
-            
+
             if training_job.status == 'RUNNING':
                 elapsed = (now - start_time).total_seconds()
                 duration_str = format_duration(elapsed)
-                
+
                 # Estimate remaining time if some progress exists
                 if training_progress > 0:
                     total_est = elapsed / (training_progress / 100.0)
@@ -226,7 +225,7 @@ def training(request):
                     eta_str = format_duration(remaining)
                 else:
                     eta_str = "Calculating..."
-            
+
             elif training_job.completed_at:
                 # Finished job duration
                 elapsed = (training_job.completed_at - start_time).total_seconds()
@@ -266,7 +265,7 @@ def training(request):
                         level = ''
                         msg = line
                         logger_name = ''
-                        
+
                         # Extract Timestamp
                         ts_match = re.match(
                             r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})',
@@ -312,7 +311,7 @@ def training(request):
 def start_training(request, network_id):
     """
     Submit a Job to NVFlare.
-    
+
     1. Prepares a Job folder structure inside the project workspace.
     2. Downloads user's training code from S3.
     3. Injects adapter and credentials (.env).
@@ -371,7 +370,7 @@ def start_training(request, network_id):
     # SECURITY FIX: Generate a data manifest with presigned URLs for each file.
     # This allows workers to download data SECURELY without needing root S3 credentials.
     from apps.data.utils import get_internal_s3_download_url, list_s3_folder
-    
+
     def get_all_files(prefix):
         folders, files = list_s3_folder(prefix)
         all_files = files
@@ -381,7 +380,7 @@ def start_training(request, network_id):
 
     root_data_prefix = f"{project.identifier}/data/"
     project_files = get_all_files(root_data_prefix)
-    
+
     # Manifest maps relative_path -> presigned_url
     data_manifest = {}
     for file_key in project_files:
@@ -410,7 +409,7 @@ def start_training(request, network_id):
             content = content.replace(placeholder, replacement)
         elif placeholder_2 in content:
             content = content.replace(placeholder_2, replacement)
-            
+
         with open(training_py_path, 'w') as f:
             f.write(content)
         log.training.info("Injected project_id into training.py")
@@ -467,7 +466,7 @@ def start_training(request, network_id):
     client_cfg = {"format_version": 2,
                   "executors": [{"tasks": ["train"],
                                  "executor": {"path": executor_path,
-                                "args": {"task_script_path": "custom/training.py"}}}, 
+                                "args": {"task_script_path": "custom/training.py"}}},
                                 {"tasks": ["swarm_*"],
                                  "executor": {"path": "nvflare.app_common.ccwf.SwarmClientController",
                                               "args": {"learn_task_name": "train",
@@ -585,8 +584,8 @@ def training_status_api(request):
     """
     AJAX endpoint for real-time dashboard updates.
     Returns status string and progress percentage.
-    
-    This function logic mirrors 'training' view but is optimized 
+
+    This function logic mirrors 'training' view but is optimized
     to return pure JSON data for JavaScript consumption.
     """
     try:
@@ -599,7 +598,7 @@ def training_status_api(request):
     progress = 0
     duration_str = "-"
     eta_str = "-"
-    
+
     try:
         job = TrainingJob.objects.filter(
             network=current_network
@@ -615,7 +614,7 @@ def training_status_api(request):
             job_uuid = match.group(1)
 
         # 1. Fetch total rounds from config
-        total_rounds = 10 
+        total_rounds = 10
         server_cfg_path = os.path.join(
             'workspaces', str(job.project.identifier),
             str(current_network.identifier), 'job', 'app_server',
@@ -678,7 +677,7 @@ def training_status_api(request):
         # 4. Time Calculation
         now = timezone.now()
         start_time = job.created_at
-        
+
         if job.status == 'RUNNING':
             elapsed = (now - start_time).total_seconds()
             duration_str = format_duration(elapsed)
@@ -697,7 +696,7 @@ def training_status_api(request):
         logger.training.debug(f"Error in training_status_api: {e}")
 
     return JsonResponse({
-        "status": status, 
+        "status": status,
         "progress": progress,
         "duration": duration_str,
         "eta": eta_str
@@ -708,7 +707,7 @@ def training_status_api(request):
 def training_logs_api(request):
     """
     AJAX endpoint returning the last 100 log lines as a JSON list.
-    
+
     Parses logs into structured objects:
     [{"timestamp": "...", "level": "INFO", "message": "..."}, ...]
     """
@@ -766,7 +765,7 @@ def training_logs_api(request):
                 if ts_match:
                     ts = ts_match.group(1)
                     remaining = line[len(ts):].strip(' -')
-                    
+
                     parts = remaining.split(' - ')
                     if len(parts) >= 2:
                         # Extract standard severity levels

@@ -177,14 +177,14 @@ def get_internal_s3_download_url(key, expires=3600):
         Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': key},
         ExpiresIn=expires
     )
-    
+
     # If the URL contains localhost or 127.0.0.1, other containers won't be able
     # to reach it. We replace it with the internal service name 'minio'.
     if "localhost" in url:
         url = url.replace("localhost", "minio")
     elif "127.0.0.1" in url:
         url = url.replace("127.0.0.1", "minio")
-        
+
     return url
 
 

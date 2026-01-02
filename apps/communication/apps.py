@@ -22,4 +22,4 @@ class CommunicationConfig(AppConfig):
         We use it to import and connect any signal handlers.
         """
         # Import the signals module to ensure they are registered
-        import apps.communication.signals
+        import apps.communication.signals  # noqa: F401

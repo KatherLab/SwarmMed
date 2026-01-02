@@ -23,18 +23,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Security Settings ---
 
+# DEBUG mode should be True for development and False for production.
+DEBUG = str2bool(os.environ.get("DEBUG", "False"))
+
 # The SECRET_KEY is used for cryptographic signing.
 # In production, this MUST be set in the environment.
 SECRET_KEY = os.environ.get("SECRET_KEY")
-if not SECRET_KEY and DEBUG:
-    # Only generate a random key if we are in DEBUG mode.
-    alphabet = string.ascii_letters + string.digits
-    SECRET_KEY = "".join(secrets.choice(alphabet) for _ in range(50))
-elif not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is not set and DEBUG is False.")
-
-# DEBUG mode should be True for development and False for production.
-DEBUG = str2bool(os.environ.get("DEBUG", "False"))
+if not SECRET_KEY:
+    if DEBUG:
+        # Only generate a random key if we are in DEBUG mode.
+        alphabet = string.ascii_letters + string.digits
+        SECRET_KEY = "".join(secrets.choice(alphabet) for _ in range(50))
+    else:
+        raise ValueError("SECRET_KEY environment variable is not set and DEBUG is False.")
 
 # ALLOWED_HOSTS defines which domain names can access this server.
 # It should be restricted to your production domains.
@@ -42,14 +43,10 @@ ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").sp
 
 # CSRF_TRUSTED_ORIGINS is required for cross-site request forgery protection
 # when running on specific domains or ports.
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:8000",
-    "http://localhost:5085",
-    "http://127.0.0.1:8000",
-    "http://127.0.0.1:5085",
-    "https://rocket-django.onrender.com",
-    "http://192.168.33.105:8000",
-]
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    "http://localhost:8000,http://localhost:5085,http://127.0.0.1:8000,http://127.0.0.1:5085",
+).split(",")
 
 # IPs allowed to see the Django Debug Toolbar.
 INTERNAL_IPS = ["127.0.0.1"]
@@ -76,7 +73,6 @@ INSTALLED_APPS = [
     "apps.logs",
     "apps.communication",
     # Third-party extensions.
-    "debug_toolbar",
     "storages",
 ]
 
@@ -90,9 +86,15 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "debug_toolbar.middleware.DebugToolbarMiddleware",
     "apps.logs.context.RequestContextMiddleware",  # Custom context logging.
 ]
+
+if DEBUG:
+    INSTALLED_APPS.append("debug_toolbar")
+    MIDDLEWARE.insert(
+        MIDDLEWARE.index("django.middleware.common.CommonMiddleware") + 1,
+        "debug_toolbar.middleware.DebugToolbarMiddleware",
+    )
 
 # The main URL configuration for the project.
 ROOT_URLCONF = "core.urls"
@@ -178,7 +180,7 @@ LOGIN_REDIRECT_URL = "/"
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.environ.get("EMAIL_HOST")
 EMAIL_PORT = os.environ.get("EMAIL_PORT")
-EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS")
+EMAIL_USE_TLS = str2bool(os.environ.get("EMAIL_USE_TLS", "False"))
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 
@@ -209,8 +211,15 @@ MESSAGE_TAGS = {
 # --- S3 Storage Configuration ---
 
 # Uses django-storages and boto3 to store files in S3 (MinIO).
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "minioadmin")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "minioadmin")
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
+
+if not DEBUG and (not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY):
+    raise ValueError("AWS credentials MUST be set in environment when DEBUG is False.")
+
+# Fallback for development if not provided
+AWS_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID or "minioadmin"
+AWS_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY or "minioadmin"
 AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "swarmcloud")
 AWS_S3_ENDPOINT_URL = os.environ.get("AWS_S3_ENDPOINT_URL", "http://localhost:9000")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", AWS_S3_ENDPOINT_URL)
@@ -251,7 +260,13 @@ DATA_UPLOAD_MAX_NUMBER_FILES = 1000
 # --- Celery Configuration ---
 
 # Configures Celery to use Redis as the message broker and result backend.
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
+if not REDIS_PASSWORD and not DEBUG:
+    raise ValueError("REDIS_PASSWORD MUST be set in environment when DEBUG is False.")
+
+# Default for development if not provided
+REDIS_PASSWORD = REDIS_PASSWORD or ""
+
 REDIS_HOST = "redis"
 REDIS_PORT = 6379
 CELERY_BROKER_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"

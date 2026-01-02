@@ -1,6 +1,6 @@
 ---
 title: Contribution Guide
-description: Detailed guidelines for contributing to SwarmCloud.
+description: Detailed guidelines for contributing SwarmCloud.
 ---
 
 # Contribution Guide
@@ -9,10 +9,9 @@ Welcome to the **SwarmCloud** developer community! This document provides detail
 
 ## 🏗 System Overview
 
-SwarmCloud is a modular Django-based platform designed for decentralized medical data management and Swarm Learning. 
-
+SwarmCloud is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
 ### Core Technology Stack
-- **Backend:** Django 4.2, Celery, Redis.
+- **Backend:** Django 6.0, Celery, Redis.
 - **AI/ML:** NVIDIA FLARE (NVFlare) for Swarm Learning.
 - **Storage:** S3-compatible storage (MinIO for local dev).
 - **Frontend:** Tailwind CSS, Flowbite, Webpack.
@@ -35,22 +34,49 @@ pip install -r requirements.txt
 ```
 
 ### 2. Frontend Assets
-Install Node.js dependencies and start the asset watchers:
+Install Node.js dependencies:
 ```bash
 npm install
-npm run dev
+```
+
+To change CSS files locally and see changes in real-time, run these commands in a new terminal:
+```bash
+npm run build
+npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
+npx webpack --watch
 ```
 
 ### 3. Services (Docker)
 The project relies on Redis, PostgreSQL, and MinIO. Use the provided `docker-compose.yml` to start these services:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 4. Django Initialization
 ```bash
 python manage.py migrate
 python manage.py runserver
+```
+
+---
+
+## 💻 Development Workflow
+
+### Docker Configuration
+When working locally with Docker, you often use volumes for live code updates. However, for production, these should be removed:
+```yaml
+# Remove these in production within docker-compose.yml:
+volumes:
+  - ./:/app
+ports:
+  - "8000:8000"
+command: python manage.py runserver 0.0.0.0:8000
+```
+
+### When Changing Tasks
+If you modify any Celery tasks in `tasks.py`, you **must** restart the worker to apply the changes:
+```bash
+docker compose restart celery_worker
 ```
 
 ---
@@ -63,6 +89,20 @@ We strictly adhere to **PEP 8**. Your code should be clean, readable, and well-c
 - Provide type hints where possible.
 - **Crucial:** Every function and class must have a docstring.
 - Add detailed comments for logic involving background tasks (Celery) or infrastructure (NVFlare).
+
+### Security Scans
+We prioritize security. Please run these scans before submitting a Pull Request:
+
+**Snyk (Dependency & Code Vulnerabilities):**
+```bash
+snyk test --json-file-output=snyk_report.json
+snyk code test --json-file-output=snyk_code_report.json
+```
+
+**Bandit (Common Python Security Issues):**
+```bash
+bandit -r apps core home manage.py -f json -o bandit_report.json    
+```
 
 ### Frontend Standards
 - Use **Tailwind CSS** utility classes for styling.
@@ -90,4 +130,4 @@ We strictly adhere to **PEP 8**. Your code should be clean, readable, and well-c
 
 ---
 
-For a quick reference, see the [CONTRIBUTING.md](https://github.com/your-repo/SwarmCloud/blob/main/CONTRIBUTING.md) file in the root directory.
+For a quick reference, see the [CONTRIBUTING.md](https://github.com/pfeifferis/SwarmCloud/blob/main/CONTRIBUTING.md) file in the root directory.

@@ -6,7 +6,6 @@ visualization scripts in an isolated environment.
 
 import ast
 import os
-import tempfile
 import traceback
 
 import boto3
@@ -111,7 +110,7 @@ def sync_project_results(project_uuid):
                                             actual_job_id = item.get(
                                                 'data', '').split(':')[-1].strip()
                                             break
-                            except (ValueError, SyntaxError):
+                            except (ValueError, SyntaxError, TypeError):
                                 pass
 
                             if not actual_job_id:
@@ -122,9 +121,9 @@ def sync_project_results(project_uuid):
                                 job = potential_job
                                 break
 
-                except TrainingJob.DoesNotExist:
+                except (TrainingJob.DoesNotExist, Exception) as e:
                     log.results.warning(
-                        f"TrainingJob not found for: {job_id_from_s3_key}")
+                        f"TrainingJob search error for {job_id_from_s3_key}: {e}")
                     job = None
 
                 if job:
@@ -216,13 +215,12 @@ def run_results_visualization_task(self, run_id, job_id):
         with ResultsVisualizationContext(str(project.identifier),
                                          job_id,
                                          str(run.id)) as context:
-            
+
             # Populate data filesystem so files are visible in sandbox
             context.filesystem.download_all()
-            
+
             # Also download the model weights to the temp directory so they are available in the sandbox
             try:
-                model_file = None
                 # Try to get the path to the model weights
                 # We reuse the logic from get_model but just for the path
                 flare_id = context.job.flare_job_id
@@ -236,18 +234,17 @@ def run_results_visualization_task(self, run_id, job_id):
                                     'Submitted job:' in item.get('data', '')):
                                 flare_id = item.get('data', '').split(':')[-1].strip()
                                 break
-                except:
+                except (ValueError, SyntaxError, TypeError):
                     pass
-                
-                # Check S3 for the most likely model file
+                                # Check S3 for the most likely model file
                 from apps.data.utils import get_s3_client
                 from django.core.files.storage import default_storage
                 import shutil
-                
+
                 s3 = get_s3_client()
                 results_prefix = f"{project.identifier}/results/{flare_id}/"
                 paginator = s3.get_paginator('list_objects_v2')
-                
+
                 found_key = None
                 for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=results_prefix):
                     for obj in page.get('Contents', []):
@@ -255,8 +252,9 @@ def run_results_visualization_task(self, run_id, job_id):
                         if key.endswith(('.pt', '.npy', '.npz')):
                             found_key = key
                             break
-                    if found_key: break
-                
+                    if found_key:
+                        break
+
                 if found_key:
                     sandbox_model_path = os.path.join(context.filesystem.temp_dir, "model_weights" + os.path.splitext(found_key)[1])
                     with default_storage.open(found_key, 'rb') as s3_file:
@@ -292,7 +290,7 @@ class ResultsVisualizationHelper:
             if os.path.exists(potential_path):
                 weights_path = potential_path
                 break
-        
+
         if not weights_path:
             # Fallback: look for ANY model-like file
             import glob
@@ -301,11 +299,11 @@ class ResultsVisualizationHelper:
                 if files:
                     weights_path = files[0]
                     break
-        
+
         if not weights_path:
             print("No model weights file found in sandbox data directory.")
             return False
-            
+
         try:
             if weights_path.endswith('.pt'):
                 weights = torch.load(weights_path, map_location='cpu', weights_only=True)
@@ -313,11 +311,11 @@ class ResultsVisualizationHelper:
                     if isinstance(weights, dict):
                         if 'weights' in weights: weights = weights['weights']
                         elif 'model' in weights: weights = weights['model']
-                    
+
                     # Basic DXO unwrapping
                     if isinstance(weights, dict) and 'numpy_key' in weights:
                         weights = weights['numpy_key']
-                    
+
                     # Ensure tensors
                     state_dict = {{k: torch.as_tensor(v) for k, v in weights.items()}}
                     model.load_state_dict(state_dict, strict=False)
@@ -330,7 +328,7 @@ class ResultsVisualizationHelper:
                     weights = data.get('params', data.get('weights', data))
                 else:
                     weights = data
-                
+
                 if hasattr(model, "set_weights"):
                     # Keras/TF
                     if isinstance(weights, dict):
@@ -352,32 +350,32 @@ class ResultsVisualizationHelper:
                     return True
         except Exception as e:
             print(f"Error loading weights in sandbox: {{e}}")
-        
+
         return False
 
     def save_plot(self, title="Untitled Plot"):
         if self.plot_count >= 4:
             return
         self.plot_count += 1
-        
+
         png_buf = io.BytesIO()
         plt.savefig(png_buf, format='png', dpi=100, bbox_inches='tight', transparent=True)
         png_data = base64.b64encode(png_buf.getvalue()).decode('utf-8')
-        
+
         svg_buf = io.BytesIO()
         plt.savefig(svg_buf, format='svg', bbox_inches='tight', transparent=True)
         svg_data = base64.b64encode(svg_buf.getvalue()).decode('utf-8')
-        
+
         plot_data = {{
             'title': title,
             'plot_number': self.plot_count,
             'image_data': png_data,
             'svg_data': svg_data
         }}
-        
+
         with open(os.path.join(self.plots_dir, f'plot_{{self.plot_count}}.json'), 'w') as f:
             json.dump(plot_data, f)
-            
+
         plt.clf()
 
     def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
@@ -412,7 +410,7 @@ visualization = ResultsVisualizationHelper('/home/sandboxuser/data', 'plots')
 
             run.success = result['success']
             run.output = result['output']
-            
+
             if not result['success'] and 'error' in result:
                 run.error_message = result['error']
 

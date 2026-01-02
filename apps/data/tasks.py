@@ -4,13 +4,9 @@ Handles background execution of data validation and visualization scripts
 to keep the web interface responsive during long-running computations.
 """
 
-import os
 import traceback
-import tempfile
-import json
 from celery import shared_task
 from django.utils import timezone
-from django.conf import settings
 
 from .models import (
     ValidationRun,
@@ -102,15 +98,15 @@ validation = ValidationHelper('/home/sandboxuser/data', 'results.json')
 
             # Run in sandbox
             result = run_script_in_sandbox(
-                script_wrapper, 
-                fs.temp_dir, 
+                script_wrapper,
+                fs.temp_dir,
                 str(project.identifier),
                 run_type="validation"
             )
 
             validation_run.success = result['success']
             validation_run.output = result['output']
-            
+
             if not result['success'] and 'error' in result:
                 validation_run.error_message = result['error']
 
@@ -198,27 +194,27 @@ class VisualizationHelper:
         if self.plot_count >= 4:
             return
         self.plot_count += 1
-        
+
         # Save PNG
         png_buf = io.BytesIO()
         plt.savefig(png_buf, format='png', dpi=100, bbox_inches='tight', transparent=True)
         png_data = base64.b64encode(png_buf.getvalue()).decode('utf-8')
-        
+
         # Save SVG
         svg_buf = io.BytesIO()
         plt.savefig(svg_buf, format='svg', bbox_inches='tight', transparent=True)
         svg_data = base64.b64encode(svg_buf.getvalue()).decode('utf-8')
-        
+
         plot_data = {{
             'title': title,
             'plot_number': self.plot_count,
             'image_data': png_data,
             'svg_data': svg_data
         }}
-        
+
         with open(os.path.join(self.plots_dir, f'plot_{{self.plot_count}}.json'), 'w') as f:
             json.dump(plot_data, f)
-            
+
         plt.clf()
 
     def get_data_path(self, relative_path=""):
@@ -249,7 +245,7 @@ visualization = VisualizationHelper('/home/sandboxuser/data', 'plots')
 
             visualization_run.success = result['success']
             visualization_run.output = result['output']
-            
+
             if not result['success'] and 'error' in result:
                 visualization_run.error_message = result['error']
 

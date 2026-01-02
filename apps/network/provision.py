@@ -6,7 +6,7 @@ to create secure startup kits for federated learning participants.
 
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import yaml
 import re
 from pathlib import Path
@@ -52,13 +52,20 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
         return
 
     # Define paths for the specific project and network
-    project_dir = os.path.join("workspaces", str(network.project.identifier))
-    provision_dir = os.path.join(project_dir, str(network.identifier))
+    workspaces_root = os.path.join(settings.BASE_DIR, "workspaces")
+    project_dir = os.path.abspath(os.path.join(workspaces_root, str(network.project.identifier)))
+    provision_dir = os.path.abspath(os.path.join(project_dir, str(network.identifier)))
+
+    # Security check: Ensure provision_dir is strictly within workspaces_root
+    # This prevents any potential path traversal if identifiers are malicious
+    if not provision_dir.startswith(os.path.join(workspaces_root, "")):
+        logger.network.error(f"Security Error: Invalid provision directory: {provision_dir}")
+        return
 
     # Clean start: remove any existing provisioning directory for this ID
     if os.path.exists(provision_dir):
         shutil.rmtree(provision_dir)
-    os.makedirs(provision_dir)
+    os.makedirs(provision_dir, exist_ok=True)
 
     # 1. Setup Template and Filesystem
     # Copy the master_template.yml from the app directory to the workspace
@@ -196,7 +203,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
                 )
                 response = s3_client.get_object(Bucket=bucket, Key=key)
                 custom_reqs = response["Body"].read().decode("utf-8")
-                
+
                 # Basic Sanitization: Only allow alphanumeric, underscores, hyphens, and version specifiers
                 safe_lines = []
                 for line in custom_reqs.splitlines():
@@ -231,7 +238,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
         ]
 
         # Execute the lighter tool to generate certificates and startup kits
-        subprocess.run(
+        subprocess.run(  # nosec B603
             command,
             cwd=provision_dir,
             capture_output=True,

@@ -6,7 +6,7 @@ and tracking active networks for users.
 
 import os
 import shutil
-import subprocess
+import subprocess  # nosec
 import uuid
 
 from django.conf import settings
@@ -134,7 +134,7 @@ class SwarmNetwork(models.Model):
                 # Stop and remove containers via docker-compose
                 docker_compose_path = shutil.which('docker-compose') or 'docker-compose'
                 try:
-                    subprocess.run(
+                    subprocess.run(  # nosec B603
                         [docker_compose_path, '-f', 'compose.yaml', 'down'],
                         cwd=compose_dir,
                         check=False

@@ -24,4 +24,4 @@ class ProjectConfig(AppConfig):
         when the server starts.
         """
         # Import signals to make sure @receiver decorators are executed.
-        import apps.project.signals
+        import apps.project.signals  # noqa: F401

@@ -139,6 +139,7 @@ def change_password(request):
             messages.error(request, "Current password doesn't match!")
 
     # Redirect back to the page the user came from (securely).
+    # We use get_safe_referer which ensures the URL is safe and on-domain.
     return redirect(get_safe_referer(request))
 
 
@@ -217,10 +218,10 @@ def user_change_password(request, id):
                 validate_password(new_password, user_to_change)
                 user_to_change.set_password(new_password)
                 user_to_change.save()
-                
+
                 # Log this administrative action
                 log.users.info(f"ADMIN {request.user.username} FORCE-RESET PASSWORD for user {user_to_change.username}")
-                
+
                 messages.success(
                     request, f"Password updated for {user_to_change.username}"
                 )
@@ -228,4 +229,5 @@ def user_change_password(request, id):
                 for error in e.messages:
                     messages.error(request, error)
 
+    # Return redirect with referer check
     return redirect(get_safe_referer(request))

@@ -1,3 +1,12 @@
+# Stage 1: Build static assets
+FROM node:20-slim AS static-builder
+WORKDIR /app
+COPY package.json package-lock.json postcss.config.js tailwind.config.js webpack.config.js ./
+COPY static ./static
+COPY templates ./templates
+RUN npm i && npm run build
+
+# Stage 2: Final image
 FROM python:3.12-slim-bookworm
 
 # set environment variables
@@ -19,12 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     netcat-openbsd \
     docker-ce-cli \
     docker-compose-plugin \
-    docker-buildx-plugin \
-    nodejs \
-    npm \
-    build-essential \
     libpq-dev \
-    libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -33,10 +37,8 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-
-# Install Modules, Webpack and Tailwind set up
-RUN npm i
-RUN npm run build
+# Copy built assets from Stage 1
+COPY --from=static-builder /app/static/dist ./static/dist
 
 # Create a non-root user and set permissions
 RUN useradd -m appuser && chown -R appuser:appuser /app

@@ -5,7 +5,7 @@ preflight checks, and real-time log streaming.
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404
 import shutil
 import yaml
 
@@ -25,7 +25,7 @@ def run_and_log_subprocess(command, cwd, env, logger):
     """
     Executes a subprocess and streams its output to the provided logger.
     """
-    process = subprocess.Popen(
+    process = subprocess.Popen(  # nosec B603
         command,
         cwd=cwd,
         env=env,
@@ -125,11 +125,35 @@ def start_swarm_network_task(network_id, user_id):
         # 1. Modify compose file for host-path mapping and platform enforcement
         with open(compose_file_path, 'r') as f:
             compose_content = yaml.safe_load(f)
-        
+
+        # Security Validation: Prevent unauthorized host-bind mounts and privileged mode
+        if 'services' in compose_content:
+            for service_name, service_config in compose_content['services'].items():
+                if service_config.get('privileged'):
+                    raise ValueError(f"Security error: Privileged mode is not allowed for service '{service_name}'")
+
+                volumes = service_config.get('volumes', [])
+                for volume in volumes:
+                    if isinstance(volume, str):
+                        # Short syntax: host:container
+                        if ':' in volume:
+                            host_path = volume.split(':')[0]
+                            # Allow relative paths starting with ./ or just file names
+                            # Deny absolute paths and paths going up too far
+                            if host_path.startswith('/') or '..' in host_path:
+                                if not any(host_path.startswith(allowed) for allowed in ['./fl-client', './server', './overseer', './nvflare']):
+                                    raise ValueError(f"Security error: Unauthorized host-bind mount '{host_path}' in service '{service_name}'")
+                    elif isinstance(volume, dict):
+                        # Long syntax
+                        if volume.get('type') == 'bind':
+                            source = volume.get('source', '')
+                            if source.startswith('/') or '..' in source:
+                                raise ValueError(f"Security error: Unauthorized host-bind mount '{source}' in service '{service_name}'")
+
         # Write back YAML structure first
         with open(compose_file_path, 'w') as f:
             yaml.safe_dump(compose_content, f, default_flow_style=False)
-            
+
         # Then perform text-based host path replacement if needed
         host_project_path = os.getenv('HOST_PROJECT_PATH')
         if host_project_path:
@@ -156,7 +180,7 @@ def start_swarm_network_task(network_id, user_id):
         logger.network.info("Building Docker images for the network...")
         docker_path = shutil.which('docker') or 'docker'
         env = os.environ.copy()
-        
+
         # Use BuildKit for better compatibility and efficiency
         env["DOCKER_BUILDKIT"] = "1"
         env["COMPOSE_DOCKER_CLI_BUILD"] = "1"
@@ -185,22 +209,29 @@ def start_swarm_network_task(network_id, user_id):
         try:
             net_name = os.path.basename(compose_dir) + "_default"
             logger.network.info(f"Connecting app and storage to network: {net_name}")
-            
-            # Connect the main web app
-            subprocess.run(
-                [docker_path, 'network', 'connect', net_name, 'swarmcloud'],
-                capture_output=True,
-                env=env,
-                check=False # Might already be connected
-            )
-            
-            # Connect the MinIO storage container
-            subprocess.run(
-                [docker_path, 'network', 'connect', net_name, 'minio'],
-                capture_output=True,
-                env=env,
-                check=False # Might already be connected
-            )
+
+            # Connect via DOCKER_HOST if provided (e.g. for the proxy), else use local socket
+            docker_host = os.environ.get("DOCKER_HOST", None)
+            client = docker.from_env() if not docker_host else docker.DockerClient(base_url=docker_host)
+
+            try:
+                network = client.networks.get(net_name)
+
+                # Connect the main web app
+                try:
+                    network.connect("swarmcloud")
+                except Exception:
+                    pass # Might already be connected
+
+                # Connect the MinIO storage container
+                try:
+                    network.connect("minio")
+                except Exception:
+                    pass # Might already be connected
+
+            except docker.errors.NotFound:
+                logger.network.warning(f"Network {net_name} not found.")
+
         except Exception as e:
             logger.network.warning(f"Could not connect containers to flare network: {e}")
 
@@ -213,9 +244,9 @@ def start_swarm_network_task(network_id, user_id):
         if 'swarm_network' in locals():
             swarm_network.status = 'ERROR'
             swarm_network.save()
-        
+
         # Ensure the error is logged to the database so the user sees it
-        internal_logger = get_logger(user=User.objects.get(id=user_id), 
+        internal_logger = get_logger(user=User.objects.get(id=user_id),
                                      project=swarm_network.project if 'swarm_network' in locals() else None)
         internal_logger.network.error(f"Failed to start network: {str(e)}")
 
@@ -257,9 +288,9 @@ def run_nvflare_preflight_check(network_id, user_id):
             python_path, '-m', 'nvflare.tool.preflight_check',
             '-p', admin_startup_dir
         ]
-        
+
         env = os.environ.copy()
-        result = subprocess.run(command, capture_output=True, text=True, env=env)
+        result = subprocess.run(command, capture_output=True, text=True, env=env)  # nosec B603
 
         for output in [result.stdout, result.stderr]:
             for line in output.splitlines():
@@ -310,7 +341,7 @@ def stop_swarm_network_task(network_id, user_id):
         if os.path.exists(os.path.join(compose_dir, 'compose.yaml')):
             logger.network.info(f"Stopping network: {network.name}")
             docker_path = shutil.which('docker') or 'docker'
-            
+
             env = os.environ.copy()
             ret = run_and_log_subprocess(
                 [docker_path, 'compose', '-f', 'compose.yaml', 'down'],

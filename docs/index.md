@@ -42,11 +42,11 @@ This documentation provides a comprehensive guide to understanding, setting up, 
     
     [:octicons-arrow-right-24: Developer](/developer)
 
--   :material-scale-balance:{ .lg .middle } __Open Source, MIT__
+-   :material-scale-balance:{ .lg .middle } __Non-Commercial License__
 
     ---
 
-    SwarmCloud is licensed under MIT and available on GitHub.
+    SwarmCloud is licensed under PolyForm Noncommercial 1.0.0 and available on GitHub.
 
     [:octicons-arrow-right-24: Github](https://github.com/pfeifferis/SwarmCloud)
     

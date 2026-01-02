@@ -7,9 +7,10 @@ and packaging startup kits into zip files.
 import io
 import os
 import socket
-import subprocess
+import subprocess  # nosec B404
 import zipfile
 import shutil
+from pathlib import Path
 
 from django.core.cache import cache
 from django.utils.text import slugify
@@ -27,7 +28,7 @@ def get_tailscale_ip():
     try:
         # Run 'tailscale ip --4' to get the local Tailscale IPv4 address
         tailscale_path = shutil.which("tailscale") or "tailscale"
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             [tailscale_path, "ip", "--4"],
             capture_output=True,
             text=True,
@@ -57,7 +58,7 @@ def is_tailscale_connected():
     try:
         # 'tailscale status' returns information about the node and its peers
         tailscale_path = shutil.which("tailscale") or "tailscale"
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             [tailscale_path, "status"], capture_output=True, text=True, check=True
         )
 
@@ -102,40 +103,37 @@ def create_startup_kits_zip(swarm_network):
     """
     # Sanitize project name to prevent path traversal
     project_name = slugify(swarm_network.project.title).replace("-", "_")
+
     # The path where NVFlare 'provision' command saves its outputs
-    base_prod_path = os.path.join(
-        "/app",
-        "workspaces",
-        str(swarm_network.project.identifier),
-        str(swarm_network.identifier),
-        "workspace",
-        project_name,
-        "prod_00",
+    # We use Path for more robust path handling
+    workspaces_root = Path(os.getcwd()) / "workspaces"
+    base_prod_path = (
+        workspaces_root /
+        str(swarm_network.project.identifier) /
+        str(swarm_network.identifier) /
+        "workspace" / project_name / "prod_00"
     )
 
     zip_buffer = io.BytesIO()
 
+    if not base_prod_path.exists():
+        return zip_buffer
+
+    # Resolve to absolute path for strict boundary checking
+    abs_base_prod_path = base_prod_path.resolve()
+
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # NVFlare creates a directory for each participant
-        if not os.path.exists(base_prod_path):
-            return zip_buffer
-
-        abs_base_prod_path = os.path.abspath(base_prod_path)
-        
-        for item in os.scandir(base_prod_path):
+        for item in os.scandir(str(abs_base_prod_path)):
             # We only want to package client kits (not server or admin)
             if (
                 item.is_dir()
                 and item.name != "server"
                 and "admin" not in item.name
             ):
-                client_dir_path = item.path
-
-                # Security check: Ensure client_dir_path is within base_prod_path
-                # Use os.path.join with empty string to ensure trailing slash for directory comparison
-                if not os.path.abspath(client_dir_path).startswith(
-                    os.path.join(abs_base_prod_path, "")
-                ):
+                # Ensure client_dir_path is strictly within base_prod_path
+                client_dir = Path(item.path).resolve()
+                if not client_dir.is_relative_to(abs_base_prod_path):
                     continue
 
                 # Create an internal zip for this specific client
@@ -143,14 +141,17 @@ def create_startup_kits_zip(swarm_network):
                 with zipfile.ZipFile(
                     client_zip_buffer, "w", zipfile.ZIP_DEFLATED
                 ) as client_zip:
-                    for root, _, files in os.walk(client_dir_path, followlinks=False):
+                    # os.walk is safe here as client_dir is validated
+                    for root, _, files in os.walk(str(client_dir), followlinks=False):
                         for file in files:
-                            file_full_path = os.path.join(root, file)
+                            file_path = Path(root) / file
+                            # Ensure individual files are also within the client directory
+                            if not file_path.resolve().is_relative_to(client_dir):
+                                continue
+
                             # Relative path inside the client-specific zip
-                            arcname = os.path.relpath(
-                                file_full_path, client_dir_path
-                            )
-                            client_zip.write(file_full_path, arcname)
+                            arcname = file_path.relative_to(client_dir)
+                            client_zip.write(str(file_path), str(arcname))
 
                 # Add the client's zip file into the main zip buffer
                 main_zip.writestr(

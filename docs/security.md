@@ -30,11 +30,28 @@ Comprehensive logging and auditing are in place to provide visibility into the a
 
 ### Vulnerability Management
 
-We are committed to ensuring the security of our platform and its dependencies.
+We are committed to ensuring the security of SwarmCloud and its dependencies.
 
 *   **Open Source Components:** We use well-maintained and reputable open-source components. We continuously monitor these components for security vulnerabilities.
-*   **Snyk Testing:** Our codebase is regularly scanned and tested via Snyk to identify and mitigate known vulnerabilities, ensuring the platform remains secure.
+*   **Security Scanning:** We utilize automated security scanning tools to maintain the integrity of our codebase.
 *   **Patch Management:** We have a process in place for promptly applying security patches to our platform and its dependencies.
+
+## Security Scans
+
+You can run these security scans locally to identify potential vulnerabilities in the codebase or dependencies:
+
+### Dependency & Vulnerability Scanning (Snyk)
+Snyk identifies known vulnerabilities in dependencies and provides security analysis for the source code.
+```bash
+snyk test --json-file-output=snyk_report.json
+snyk code test --json-file-output=snyk_code_report.json
+```
+
+### Python Static Analysis (Bandit)
+Bandit is used to find common security issues in Python code.
+```bash
+bandit -r apps core home manage.py -f json -o bandit_report.json    
+```
 
 ### _DJANGO_[^1]
 

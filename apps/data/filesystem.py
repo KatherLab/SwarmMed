@@ -65,7 +65,7 @@ class DataFileSystem:
         # Security: Sanitize path to prevent traversal
         # 1. Remove leading slashes and redundant dots
         clean_rel_path = os.path.normpath(relative_path).lstrip(os.path.sep + (os.path.altsep or ""))
-        
+
         # 2. Prevent escaping the temp directory
         if clean_rel_path.startswith("..") or os.path.isabs(clean_rel_path):
             self.log.data.warning(f"Blocked path traversal attempt in DataFileSystem: {relative_path}")
@@ -173,7 +173,7 @@ class DataFileSystem:
 
                 # Calculate relative path within the data directory
                 rel_path = key[len(self.root_path):]
-                
+
                 # Use the internal download mechanism to populate cache and temp_dir
                 try:
                     self._ensure_file_downloaded(rel_path)

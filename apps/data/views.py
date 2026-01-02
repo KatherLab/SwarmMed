@@ -112,7 +112,7 @@ def upload_files(request):
 
         # User can specify a specific folder to upload into
         destination_folder = request.POST.get("destination_folder", "")
-        
+
         # Security: Sanitize destination_folder
         destination_folder = os.path.normpath(destination_folder).lstrip(os.path.sep + (os.path.altsep or ""))
         if destination_folder == "." or not destination_folder:
@@ -269,6 +269,8 @@ def delete_file(request):
     except Exception as e:
         log.data.error(f"Error deleting {key}: {e}")
 
+    # Redirect back to the page the user came from, or to the file list.
+    # We use get_safe_referer to prevent Open Redirect attacks.
     return redirect(get_safe_referer(request, reverse("data:list_files")))
 
 

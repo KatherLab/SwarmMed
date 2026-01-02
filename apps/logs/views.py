@@ -5,7 +5,7 @@ historical logs and real-time container logs.
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404
 import shutil
 from datetime import timedelta
 
@@ -154,7 +154,7 @@ def logs_dashboard(request):
                                 # Execute 'docker logs' to get live output
                                 docker_path = shutil.which('docker') or 'docker'
                                 try:
-                                    result = subprocess.run(
+                                    result = subprocess.run(  # nosec B603
                                         [docker_path, 'logs', '--tail', '100', container_name],
                                         capture_output=True,
                                         text=True,

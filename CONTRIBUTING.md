@@ -1,6 +1,6 @@
 # Contributing to SwarmCloud
 
-Welcome! We are thrilled that you are interested in contributing to SwarmCloud. This project is a decentralized medical data storage and collaborative training platform leveraging Swarm Learning (NVIDIA FLARE).
+Welcome! We are thrilled that you are interested in contributing to SwarmCloud. This project is a decentralized bio data storage and collaborative training platform leveraging Swarm Learning (NVIDIA FLARE).
 
 This guide will help you get onboarded and explain how to contribute effectively.
 
@@ -11,7 +11,7 @@ This guide will help you get onboarded and explain how to contribute effectively
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/your-username/MSwarmCloud.git
+    git clone https://github.com/your-username/SwarmCloud.git
     cd SwarmCloud
     ```
 3.  **Set up your environment**:
@@ -27,6 +27,46 @@ This guide will help you get onboarded and explain how to contribute effectively
 
 ---
 
+## 🛠 Development Workflow
+
+### During Development
+
+When working locally, ensure your virtual environment is active:
+```bash
+source venv/bin/activate
+# To exit:
+deactivate
+```
+
+If you are using Docker for development, note the differences in `docker-compose.yml`. For production, you should **remove** these development-specific settings:
+```yaml
+# Remove these in production within docker-compose.yml:
+volumes:
+  - ./:/app
+ports:
+  - "8000:8000"
+command: python manage.py runserver 0.0.0.0:8000
+```
+
+### Frontend Development (CSS & JS)
+
+To change CSS files locally and see changes in real-time, run these commands in a new terminal:
+```bash
+npm i
+npm run build
+npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
+npx webpack --watch
+```
+
+### When Changing Tasks
+
+If you modify any Celery tasks in `tasks.py`, you **must** restart the worker to apply the changes:
+```bash
+docker compose restart celery_worker
+```
+
+---
+
 ## 🏗 App Structure
 
 The project follows a modular Django architecture. Each specific functionality is encapsulated in an app within the `apps/` directory:
@@ -37,28 +77,12 @@ The project follows a modular Django architecture. Each specific functionality i
 | **`home`** | Main dashboard, statistics aggregation, and overview cards. |
 | **`apps.users`** | User authentication, profiles, and role-based access control (Admin, Developer, User). |
 | **`apps.project`** | Collaborative project management and code/requirement script uploads. |
-| **`apps.data`** | Management of medical datasets, S3 storage integration, and data validation. |
+| **`apps.data`** | Management of datasets, S3 storage integration, and data validation. |
 | **`apps.network`** | Infrastructure provisioning for Swarm networks using Docker. |
 | **`apps.training`** | Job submission to NVIDIA FLARE, status tracking, and real-time log streaming. |
 | **`apps.results`** | Synchronization of training results from S3 and automated visualization runs. |
 | **`apps.logs`** | Centralized, project-specific logging stored in the database. |
 | **`apps.communication`**| Internal messaging system for project participants. |
-
----
-
-## 🛠 Tech Stack & Dependencies
-
-### Backend
-- **Framework:** [Django 4.2](https://www.djangoproject.com/)
-- **Task Queue:** [Celery](https://docs.celeryq.dev/) with **Redis** as the broker.
-- **Collaborative Learning:** [NVIDIA FLARE (NVFlare)](https://nvidia.github.io/NVFlare/) for Swarm/Federated learning.
-- **Storage:** [S3 / MinIO](https://min.io/) via `boto3` and `django-storages`.
-- **Database:** PostgreSQL.
-
-### Frontend
-- **Styling:** [Tailwind CSS](https://tailwindcss.com/) & [Flowbite](https://flowbite.com/) (Material Design principles).
-- **Bundler:** Webpack.
-- **Charts:** ApexCharts.
 
 ---
 
@@ -82,15 +106,28 @@ All Python code must adhere to [PEP 8](https://peps.python.org/pep-0008/) standa
   python -m flake8 . --exclude=venv,node_modules,migrations,postgres_data,staticfiles,staticfiles_build,nvflare_swarm_learning,workspaces,example --max-line-length=120 --statistics --count
   ```
 
-*Note: While standard PEP 8 suggests 79-88 characters, this project allows up to **120 characters** for better readability. All top-level definitions should be separated by two blank lines.*
+*Note: While standard PEP 8 suggests 79-88 characters, this project allows up to **120 characters** for better readability.*
 
-### 2. Beginner-Friendly Documentation
+### 2. Security Scans
+We prioritize security. Please run these scans before submitting a Pull Request:
+
+- **Snyk** (Dependency & Code Vulnerabilities):
+  ```bash
+  snyk test --json-file-output=snyk_report.json
+  snyk code test --json-file-output=snyk_code_report.json
+  ```
+- **Bandit** (Common Python Security Issues):
+  ```bash
+  bandit -r apps core home manage.py -f json -o bandit_report.json    
+  ```
+
+### 3. Documentation & Style
 We prioritize a "soft onboarding" experience. 
 - **Docstrings:** Every module, class, and function must have a clear docstring explaining its purpose.
 - **Comments:** Add detailed inline comments explaining the *logic* (the "why"), especially for complex infrastructure code (S3, NVFlare, Celery).
 - **Simplicity:** Prefer readable, explicit code over "clever" one-liners.
 
-### 3. Testing
+### 4. Testing
 Proactively add unit tests in the respective `tests.py` files of the app you are modifying. Ensure all existing tests pass before submitting a Pull Request.
 
 ---

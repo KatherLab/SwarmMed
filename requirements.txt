@@ -17,11 +17,11 @@ whitenoise==6.5.0
 gunicorn==23.0.0
 
 # DB Layer
-psycopg2-binary
+psycopg2-binary==2.9.9
 
 # S3 Database
-django-storages 
-boto3
+django-storages==1.14.4
+boto3==1.34.100
 
 # for data validation add custom libarys as necessary
 pandas==2.3.3
@@ -35,5 +35,5 @@ keras==3.13.0
 
 # Nvidia Flare
 nvflare==2.6.1
-docker
+docker==7.1.0
 cryptography>=44.0.0

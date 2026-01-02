@@ -8,10 +8,10 @@ import os
 import json
 import shutil
 import tempfile
-import subprocess
 import docker
 from django.conf import settings
 from apps.logs import logger
+
 
 def get_docker_client():
     """
@@ -22,6 +22,7 @@ def get_docker_client():
     if docker_host:
         return docker.DockerClient(base_url=docker_host)
     return docker.from_env()
+
 
 def get_host_path(container_path):
     """
@@ -35,6 +36,7 @@ def get_host_path(container_path):
     # Ensure forward slashes for cross-platform compatibility
     return host_path.replace('\\', '/')
 
+
 def ensure_sandbox_image():
     """
     Checks if the 'swarmcloud-sandbox' image exists locally.
@@ -42,16 +44,21 @@ def ensure_sandbox_image():
     """
     log = logger.get_logger()
     client = get_docker_client()
-    
+
     try:
         client.images.get("swarmcloud-sandbox")
     except docker.errors.ImageNotFound:
-        log.data.info("Sandbox image not found. Building 'swarmcloud-sandbox' automatically (this may take a few minutes)...")
+        log.data.info(
+            "Sandbox image not found. Building 'swarmcloud-sandbox' "
+            "automatically (this may take a few minutes)..."
+        )
         dockerfile_path = os.path.join(settings.BASE_DIR, "Dockerfile.sandbox")
         if not os.path.exists(dockerfile_path):
             log.data.error(f"Dockerfile.sandbox not found at {dockerfile_path}")
-            raise FileNotFoundError("Dockerfile.sandbox is missing. Cannot build sandbox.")
-        
+            raise FileNotFoundError(
+                "Dockerfile.sandbox is missing. Cannot build sandbox."
+            )
+
         # Build the image and stream logs
         try:
             generator = client.api.build(
@@ -61,7 +68,7 @@ def ensure_sandbox_image():
                 rm=True,
                 decode=True
             )
-            
+
             for chunk in generator:
                 if 'stream' in chunk:
                     # Log build progress to console
@@ -69,39 +76,41 @@ def ensure_sandbox_image():
                 elif 'error' in chunk:
                     log.data.error(f"Docker build error: {chunk['error']}")
                     raise docker.errors.BuildError(chunk['error'], generator)
-                    
+
             log.data.info("Sandbox image built successfully.")
         except Exception as e:
             log.data.error(f"Failed to build sandbox image: {e}")
             raise
 
-def run_script_in_sandbox(script_content, data_dir, project_uuid, run_type="validation"):
+
+def run_script_in_sandbox(script_content, data_dir, project_uuid,
+                          run_type="validation"):
     """
     Runs a Python script inside an ephemeral Docker container.
     """
     log = logger.get_logger()
     ensure_sandbox_image()
-    
+
     client = get_docker_client()
-    
+
     # Create a unique temporary directory within the project root for this execution
     # This ensures the directory is visible to the host Docker daemon via existing mounts.
     sandbox_dir = tempfile.mkdtemp(
         prefix=f"sandbox_{run_type}_{project_uuid}_",
         dir=settings.PROJECT_TEMP_DIR
     )
-    
+
     try:
         # Paths inside the sandbox directory (container side)
         script_path = os.path.join(sandbox_dir, "script.py")
         results_path = os.path.join(sandbox_dir, "results.json")
         plots_dir = os.path.join(sandbox_dir, "plots")
         os.makedirs(plots_dir, exist_ok=True)
-        
+
         # Write the script to the sandbox directory
         with open(script_path, "w") as f:
             f.write(script_content)
-            
+
         # Define volume mounts using HOST-SIDE paths
         # 1. Translate data_dir (downloads) to host path
         host_data_path = get_host_path(data_dir)
@@ -112,7 +121,7 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid, run_type="vali
             host_data_path: {'bind': '/home/sandboxuser/data', 'mode': 'ro'},
             host_run_path: {'bind': '/home/sandboxuser/run', 'mode': 'rw'}
         }
-        
+
         container = None
         try:
             # Run the container with resource limits and no network access
@@ -124,19 +133,19 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid, run_type="vali
                 working_dir="/home/sandboxuser/run",
                 network_disabled=True,
                 mem_limit="1g",
-                nano_cpus=1000000000, # 1 CPU
+                nano_cpus=1000000000,  # 1 CPU
                 detach=True,
                 stdout=True,
                 stderr=True,
-                remove=False # We want to check status before removal
+                remove=False  # We want to check status before removal
             )
-            
+
             # Wait for completion (max 5 minutes)
             result = container.wait(timeout=300)
             exit_code = result.get('StatusCode', 1)
-            
+
             logs = container.logs().decode('utf-8')
-            
+
             # Read results.json if it was created by the helper
             results_data = {}
             if os.path.exists(results_path):
@@ -152,10 +161,13 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid, run_type="vali
                 for plot_file in sorted(os.listdir(plots_dir)):
                     if plot_file.endswith(".json"):
                         try:
-                            with open(os.path.join(plots_dir, plot_file), "r") as f:
+                            with open(os.path.join(plots_dir, plot_file),
+                                      "r") as f:
                                 captured_plots.append(json.load(f))
                         except Exception as e:
-                            log.data.warning(f"Failed to load plot data from {plot_file}: {e}")
+                            log.data.warning(
+                                f"Failed to load plot data from {plot_file}: {e}"
+                            )
 
             return {
                 'success': exit_code == 0,
@@ -164,7 +176,7 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid, run_type="vali
                 'results': results_data.get('checks', []) if run_type == "validation" else results_data,
                 'plots': captured_plots
             }
-            
+
         except Exception as e:
             log.data.error(f"Sandbox execution failed: {e}")
             return {
@@ -176,11 +188,16 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid, run_type="vali
             if container:
                 try:
                     container.remove(force=True)
-                except:
-                    pass
+                except Exception as e:
+                    # Best effort removal
+                    log.data.warning(
+                        f"Failed to remove sandbox container: {e}"
+                    )
     finally:
         # Clean up the temporary workspace
         try:
             shutil.rmtree(sandbox_dir)
         except Exception as e:
-            log.data.warning(f"Failed to cleanup sandbox directory {sandbox_dir}: {e}")
+            log.data.warning(
+                f"Failed to cleanup sandbox directory {sandbox_dir}: {e}"
+            )
