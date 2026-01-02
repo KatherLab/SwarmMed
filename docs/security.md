@@ -36,6 +36,93 @@ We are committed to ensuring the security of SwarmCloud and its dependencies.
 *   **Security Scanning:** We utilize automated security scanning tools to maintain the integrity of our codebase.
 *   **Patch Management:** We have a process in place for promptly applying security patches to our platform and its dependencies.
 
+## Compliance
+
+### HIPAA (Health Insurance Portability and Accountability Act)
+
+SwarmCloud is designed to be **HIPAA Capable**, providing the technical safeguards required for organizations handling Protected Health Information (PHI). However, full HIPAA compliance is a programmatic requirement that depends on both the platform's features and the hosting organization's operational practices.
+
+#### Technical Safeguards (Implemented)
+
+*   **Access Control:** 
+    *   **Unique User Identification:** Every user is assigned a unique account and UUID.
+    *   **MFA Support:** Multi-Factor Authentication is supported and can be enforced.
+    *   **Automatic Logoff:** Sessions are configured to expire after 30 minutes of inactivity.
+    *   **Encryption and Decryption:** All data at rest in MinIO is encrypted using AES-256 (SSE-S3). All data in transit is encrypted using TLS 1.2/1.3.
+*   **Audit Controls:** 
+    *   SwarmCloud maintains a detailed, tamper-evident audit log of all access to the system. Logs are signed and chained using HMAC-SHA256 to ensure integrity.
+*   **Brute-Force Protection:** Built-in protection against automated login attempts via `django-axes`.
+*   **Database Integrity:** Enforced SSL/TLS connections for PostgreSQL and Redis.
+
+#### Remaining Gaps and Shared Responsibility
+
+Achieving HIPAA compliance is a shared responsibility. The following items must be addressed at the deployment and operational levels:
+
+1.  **Administrative Safeguards (Operational):** The hosting organization must implement required administrative controls, including risk analysis, formal security policies, workforce training, incident response procedures, and regular access reviews.
+2.  **Infrastructure Encryption (Deployment):** Encryption at rest for the PostgreSQL metadata database is not guaranteed by the application layer. **You must ensure that the underlying host disks or volumes (e.g., EBS, LUKS) are encrypted.**
+3.  **Secrets Management:** For production readiness, secrets should be moved from `.env` files to a secure secret management system (e.g., HashiCorp Vault, AWS Secrets Manager) with regular rotation.
+4.  **Audit Log Governance:** While the system generates signed logs, the organization is responsible for log review, alerting (e.g., SIEM integration), and maintaining a long-term retention policy.
+5.  **Business Associate Agreements (BAA):** You must ensure BAAs are signed with any third-party service providers (e.g., Cloud Providers, SMTP relays).
+6.  **High-Privilege Components:** Components like `docker-socket-proxy` provide significant control over the environment. They must be locked down using network isolation and monitored closely.
+
+#### Administrative and Physical Safeguards (HIPAA §164.308 & §164.310)
+
+These safeguards must be implemented by the hosting organization:
+
+*   **Security Management Process:** Conduct regular risk assessments.
+*   **Assigned Security Responsibility:** Designate a security official.
+*   **Workforce Security:** Implement authorization and supervision procedures.
+*   **Facility Access Controls:** Limit physical access to servers and workstations.
+*   **Device and Media Controls:** Manage the receipt and removal of hardware containing PHI.
+
+#### Emergency Access Procedures (Break-Glass)
+
+In accordance with HIPAA §164.312(a)(2)(ii), SwarmCloud supports emergency access procedures:
+
+1.  **Administrative Override:** Platform Administrators can grant temporary "Emergency Access" roles to qualified personnel.
+2.  **Audit Logging:** All emergency access events are logged with high severity (CRITICAL) in the tamper-evident audit trail, including the justification provided for the access.
+3.  **Verification:** Personnel requesting emergency access must be verified via their registered `phone` number or other out-of-band methods before administrative override is performed.
+
+#### Data Retention and Purging
+
+SwarmCloud implements automated data retention policies to comply with HIPAA and GDPR requirements:
+
+*   **PHI Retention:** Records containing PHI are retained for 6 years (2190 days) by default, after which they are automatically purged from the database and associated storage via the `purge_expired_data` task.
+*   **Backup Retention:** Database backups are retained in S3 for 30 days.
+*   **Configuration:** These periods can be adjusted in `core/settings.py` using `DATA_RETENTION_DAYS` and `BACKUP_RETENTION_DAYS`.
+
+#### Encryption Key Rotation
+
+To maintain high security standards, SwarmCloud supports cryptographic key rotation:
+
+*   **Audit Log Signing:** The keys used to sign audit logs should be rotated periodically. This can be performed using the management command:
+    ```bash
+    python manage.py rotate_signing_key
+    ```
+*   **Storage Encryption:** It is recommended to rotate S3/MinIO SSE-S3 keys at the infrastructure level annually.
+
+#### Data De-identification
+
+While SwarmCloud supports HIPAA-compliant workflows for PHI, we strongly recommend following the **HIPAA Safe Harbor** method for de-identification (removing 18 specific identifiers) before uploading datasets to the platform whenever possible to minimize risk.
+
+### GDPR (General Data Protection Regulation)
+
+SwarmCloud implements technical and organizational measures to support GDPR compliance for users within the European Union.
+
+#### Key GDPR Features
+
+*   **Data Minimization (Article 5):** The decentralized Swarm Learning architecture ensures that raw personal/medical data never leaves the local infrastructure of the participant.
+*   **Right to Erasure (Article 17):** Users have a self-service "Delete Account" option in their profile settings, which permanently removes their account, profile, and associated projects from the system.
+*   **Right to Rectification (Article 16):** Users can update their personal information at any time via the User Settings dashboard.
+*   **Consent (Article 7):** Mandatory acceptance of the Terms and Conditions and Privacy Policy is required during the registration process.
+*   **Data Protection by Design (Article 25):** Privacy-preserving technologies (Differential Privacy, Secure Aggregation) are integrated into the core training workflows via NVIDIA FLARE.
+
+#### Documentation
+
+The full Privacy Policy is available within the application and outlines how we handle personal data in accordance with GDPR principles.
+
+---
+
 ## Security Scans
 
 You can run these security scans locally to identify potential vulnerabilities in the codebase or dependencies:
@@ -67,12 +154,32 @@ The web interface of SwarmCloud is built on the Django framework, which has a st
 
 ### _MINIO_[^2]
 
-All project-related data, including datasets and models, is stored in a self-hosted Minio object storage server. This provides a high level of control and security over your data.
+All project-related data, including datasets and models, is stored in a self-hosted Minio object storage server.
 
-*   **Encryption at Rest:** Minio supports server-side encryption, which means that your data is encrypted before it is written to disk.
-*   **Encryption in Transit:** All communication with the Minio server is encrypted using TLS.
+*   **Encryption at Rest:** Minio is configured with Server-Side Encryption (SSE-S3) using a unique KMS secret key. This ensures that all objects are encrypted before being persisted to disk.
+*   **Encryption in Transit:** All communication with the Minio server (both public and internal) is encrypted using TLS.
 *   **Access Control:** Minio has a fine-grained access control system that allows you to control who can access your data.
 *   **Auditing:** All operations on the Minio server are logged, providing a detailed audit trail.
+
+### Database and Cache
+
+*   **PostgreSQL SSL:** Communication between the application and the PostgreSQL database is enforced to use SSL with certificate verification.
+*   **Redis TLS:** Communication with Redis is encrypted using TLS, and access is protected by a strong password.
+
+### Storage Encryption (At Rest)
+
+For maximum security, it is strongly recommended to host the following directories on encrypted volumes (e.g., LUKS, FileVault, or cloud-provider encrypted EBS):
+*   `postgres_data/`: Contains all metadata and project information.
+*   `minio_data/`: Contains all datasets and models.
+*   `workspaces/`: Contains NVFlare job data, logs, and temporary training artifacts.
+
+## Network Security
+
+### Internal Service Mesh
+
+SwarmCloud employs an internal PKI (Public Key Infrastructure) to secure communication between all backend services.
+*   Each service (MinIO, Postgres, Redis) has its own TLS certificate issued by a private internal Root CA.
+*   The application and worker containers trust this internal Root CA, ensuring secure and verified connections across the internal Docker network.
 
 [^2]: [https://blog.min.io/s3-security-access-control/](https://blog.min.io/s3-security-access-control/)
 

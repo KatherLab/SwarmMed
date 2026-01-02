@@ -15,6 +15,8 @@ from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 from django.http import HttpResponse
 
+from ..project.decorators import project_context_required
+
 from apps.users.decorators import developer_required
 from .models import LogEntry, LogCategory
 from apps.logs.logger import get_logger
@@ -46,15 +48,14 @@ def get_user_project(request):
 
 
 @developer_required
-@login_required(login_url='/users/signin/')
+@login_required
+@project_context_required
 def download_log_category(request, category_key):
     """
     Generates and returns a plain-text file containing all historical
     logs for a specific category within the active project.
     """
-    project, is_valid = get_user_project(request)
-    if not is_valid:
-        return HttpResponse("No project selected.", status=404)
+    project, _ = get_user_project(request)
 
     # Validate that the requested category exists
     valid_categories = [choice[0] for choice in LogCategory.choices]
@@ -88,20 +89,15 @@ def download_log_category(request, category_key):
 
 
 @developer_required
-@login_required(login_url='/users/signin/')
+@login_required
+@project_context_required
 def logs_dashboard(request):
     """
     The main logs dashboard view.
     It aggregates logs from the database and, for training logs,
     attempts to fetch real-time logs directly from Docker containers.
     """
-    project, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(
-            request,
-            "apps/logs/no_project_selected.html",
-            {"segment": "logs"}
-        )
+    project, _ = get_user_project(request)
 
     categories_list = []
 

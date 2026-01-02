@@ -24,7 +24,7 @@ from .models import Project, UserCurrentProject
 from .utils import handle_training_code_upload, process_member_identifiers
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def project_list(request):
     """
     Displays a list of all projects where the current user is
@@ -67,7 +67,7 @@ def project_list(request):
     return render(request, 'apps/project/project.html', context)
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def project_create(request):
     """
     Handles the creation of a new project through a form.
@@ -120,7 +120,7 @@ def project_create(request):
     return render(request, 'apps/project/new_project.html', context)
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def project_edit(request, pk):
     """
     Allows the project author to edit project details and files.
@@ -175,7 +175,7 @@ def project_edit(request, pk):
     return render(request, 'apps/project/new_project.html', context)
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def project_delete(request, pk):
     """
     Deletes a project. Only the project author is permitted to do this.
@@ -192,7 +192,7 @@ def project_delete(request, pk):
     return redirect('project:project_list')
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def set_current_project(request, pk):
     """
     Sets a specific project as the 'active' project for the logged-in user.
@@ -219,7 +219,7 @@ def set_current_project(request, pk):
     return redirect('project:project_list')
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def project_archive(request, pk):
     """
     Toggles the project status between 'ARCHIVED' and 'IN_PROGRESS'.
@@ -240,7 +240,7 @@ def project_archive(request, pk):
     return redirect('project:project_list')
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 @require_POST
 def get_user_emails(request):
     """

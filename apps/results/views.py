@@ -40,6 +40,8 @@ from .tasks import run_results_visualization_task, sync_project_results
 logger = logging.getLogger(__name__)
 
 
+from ..project.decorators import project_context_required, project_membership_required
+
 def get_user_project(request):
     """
     Helper function to retrieve the user's currently active project.
@@ -58,34 +60,17 @@ def get_user_project(request):
         return None, False
 
 
-def is_project_member(user, project):
-    """
-    Checks if a user is the author or a member of a project.
-    """
-    return user == project.author or project.members.filter(id=user.id).exists()
-
-
-@login_required(login_url="/users/signin/")
+@login_required
+@project_context_required
 @ensure_csrf_cookie
 def results(request):
     """
     The main results dashboard view.
     Synchronizes results from S3, lists available jobs, and displays result files.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        # If no project is selected, show a friendly placeholder page.
-        return render(
-            request,
-            "apps/results/no_project_selected.html",
-            {"segment": "results"},
-        )
+    current_project_uuid, _ = get_user_project(request)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
-
-    # Security Check: Membership
-    if not is_project_member(request.user, project):
-        return HttpResponseForbidden("You are not a member of this project.")
 
     # Trigger a background sync task to ensure the database matches S3.
     sync_project_results.delay(current_project_uuid)
@@ -234,23 +219,19 @@ def results(request):
     return render(request, "apps/results/results.html", context)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 @require_POST
+@project_membership_required
 def start_results_visualization(request, job_id):
     """
     Triggers a background task to run the project's results visualization script.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return JsonResponse({"error": "No project selected"}, status=400)
+    current_project_uuid, _ = get_user_project(request)
 
     try:
         project = get_object_or_404(Project, identifier=current_project_uuid)
         job = get_object_or_404(TrainingJob, identifier=job_id)
 
-        # Security Check: Membership and Job-Project association
-        if not is_project_member(request.user, project):
-            return JsonResponse({"error": "Forbidden"}, status=403)
         if job.project != project:
             return JsonResponse({"error": "Job does not belong to this project"}, status=400)
 
@@ -317,7 +298,7 @@ def start_results_visualization(request, job_id):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 @require_POST
 def stop_results_visualization(request):
     """
@@ -354,17 +335,14 @@ def stop_results_visualization(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def results_visualization_status(request, job_id):
     """
     API endpoint for the frontend to poll the status of a visualization run.
     """
     try:
         job = get_object_or_404(TrainingJob, identifier=job_id)
-
-        # Security Check: Membership
-        if not is_project_member(request.user, job.project):
-            return JsonResponse({"error": "Forbidden"}, status=403)
 
         # Get the most recent run for this job.
         latest_visualization = ResultsVisualizationRun.objects.filter(
@@ -398,17 +376,18 @@ def results_visualization_status(request, job_id):
         return JsonResponse({"error": "Training job not found"}, status=404)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def download_result(request, result_id):
     """
     Redirects the user to a temporary S3 download URL for a specific result file.
+    Logs the access for audit trails.
     """
     try:
         result = get_object_or_404(TrainingResult, id=result_id)
 
-        # Security Check: Membership
-        if not is_project_member(request.user, result.job.project):
-            return HttpResponseForbidden("Forbidden")
+        log = logger.get_logger()
+        log.access.info(f"User downloaded training result: {result.file_path}", file_key=result.file_path)
 
         download_url = get_s3_download_url(result.file_path)
 
@@ -429,17 +408,15 @@ def download_result(request, result_id):
         return render(request, "404.html")
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def download_all_results(request, project_id):
     """
     Gathers all result files for a project (or job) and provides them as a ZIP archive.
+    Logs the bulk access event.
     """
     try:
         project = get_object_or_404(Project, identifier=project_id)
-
-        # Security Check: Membership
-        if not is_project_member(request.user, project):
-            return HttpResponseForbidden("Forbidden")
 
         s3 = get_s3_client()
         job_filter = request.GET.get("job")
@@ -461,6 +438,9 @@ def download_all_results(request, project_id):
 
         if not keys:
             return render(request, "404.html")
+
+        log = logger.get_logger()
+        log.access.info(f"User downloaded all results for project {project.identifier} (Job: {job_filter})", project_id=project.identifier)
 
         # Create the ZIP archive in memory.
         zip_buffer = io.BytesIO()
@@ -494,30 +474,25 @@ def download_all_results(request, project_id):
         return render(request, "404.html")
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_context_required
 def download_result_by_key(request):
     """
     Downloads a result file using its S3 key (passed as a GET parameter).
+    Logs the access for audit trails.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(
-            request,
-            "apps/results/no_project_selected.html",
-            {"segment": "results"},
-        )
+    current_project_uuid, _ = get_user_project(request)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
-
-    # Security Check: Membership
-    if not is_project_member(request.user, project):
-        return HttpResponseForbidden("Forbidden")
 
     key = request.GET.get("key", "")
     # Security check: Ensure the requested key belongs to the user's active
     # project.
     if not key or not key.startswith(f"{current_project_uuid}/results/"):
         return render(request, "404.html")
+
+    log = logger.get_logger()
+    log.access.info(f"User downloaded result file by key: {key}", file_key=key)
 
     download_url = get_s3_download_url(key)
 

@@ -17,7 +17,7 @@ urlpatterns = [
     path("", views.index, name="index"),
 
     # --- Authentication Endpoints ---
-    path('signin/', views.SignInView.as_view(), name="signin"),
+    path('signin/', views.RedirectToTwoFactorLogin.as_view(), name="signin"),
     path('signup/', views.SignUpView.as_view(), name="signup"),
     path('signout/', views.signout_view, name="signout"),
 
@@ -54,6 +54,13 @@ urlpatterns = [
     # --- User Profile & Settings ---
     path('profile/', views.profile, name='profile'),
     path('change-password/', views.change_password, name='change_password'),
+    path('delete-account/', views.delete_own_account, name='delete_account'),
+    path('export-data/', views.export_user_data, name='export_data'),
+    path('update-cookie-consent/', views.update_cookie_consent, name='update_cookie_consent'),
+
+    # --- Legal & Privacy ---
+    path('privacy-policy/', views.privacy_policy, name='privacy_policy'),
+    path('terms-and-conditions/', views.terms_and_conditions, name='terms_and_conditions'),
 
     # --- Admin User Management ---
     # List and search all users.
@@ -65,5 +72,10 @@ urlpatterns = [
         'user-change-password/<int:id>/',
         views.user_change_password,
         name="user_change_password"
+    ),
+    path(
+        'toggle-emergency-access/<int:id>/',
+        views.toggle_emergency_access,
+        name="toggle_emergency_access"
     ),
 ]

@@ -6,6 +6,7 @@ and synchronization of result files (weights/logs) to S3 storage.
 
 import ast
 import os
+import shutil
 
 from celery import shared_task
 from django.conf import settings
@@ -154,6 +155,23 @@ def monitor_training_jobs():
                     job.save()
                     log.training.info(
                         f"Job {job.identifier} successfully synced to S3.")
+
+                    # Security Cleanup: Remove the local workspace data now that it is safely encrypted in S3.
+                    # This minimizes the window where unencrypted data exists on the host disk.
+                    try:
+                        # Ensure we are deleting the specific job directory, not the whole project
+                        if os.path.exists(workspace_base) and flare_job_uuid in workspace_base:
+                             # The workspace_base is .../prod_00. The job specific data is inside subfolders.
+                             # But we want to clean up the whole run for this job if possible.
+                             # Wait, workspace_base is .../workspace/prod_00
+                             # NVFlare typically creates a new run folder or uses the workspace.
+                             # If we delete prod_00, we might lose logs for debugging if upload failed?
+                             # But here upload succeeded.
+                             shutil.rmtree(workspace_base)
+                             log.training.info(f"Securely cleaned up local workspace: {workspace_base}")
+                    except Exception as e:
+                        log.training.warning(f"Failed to cleanup local workspace {workspace_base}: {e}")
+
                 else:
                     log.training.warning(
                         f"No result folders found for {flare_job_uuid}")

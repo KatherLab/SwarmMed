@@ -5,8 +5,14 @@ manage associated Profile instances.
 """
 
 from django.contrib.auth.models import User
+from django.contrib.auth.signals import (
+    user_logged_in,
+    user_logged_out,
+    user_login_failed
+)
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from apps.logs.logger import get_logger
 
 from .models import Profile
 
@@ -31,5 +37,46 @@ def save_user_profile(sender, instance, **kwargs):
     Ensures the Profile is saved whenever the User is saved.
     """
     # This handles updates to existing users.
-    if hasattr(instance, 'profile'):
-        instance.profile.save()
+    try:
+        if hasattr(instance, 'profile'):
+            instance.profile.save()
+    except Profile.DoesNotExist:
+        # If for some reason the profile doesn't exist, we don't want to crash.
+        # It should have been created by create_user_profile for new users.
+        pass
+
+
+@receiver(user_logged_in)
+def log_user_login(sender, request, user, **kwargs):
+    """
+    Logs successful user login events.
+    """
+    logger = get_logger(user=user)
+    ip_address = request.META.get('REMOTE_ADDR')
+    logger.auth.info(f"User logged in from {ip_address}", ip_address=ip_address)
+
+
+@receiver(user_logged_out)
+def log_user_logout(sender, request, user, **kwargs):
+    """
+    Logs user logout events.
+    """
+    logger = get_logger(user=user)
+    logger.auth.info("User logged out")
+
+
+@receiver(user_login_failed)
+def log_login_failed(sender, credentials, request, **kwargs):
+    """
+    Logs failed login attempts.
+    """
+    username = credentials.get('username', 'unknown')
+    ip_address = request.META.get('REMOTE_ADDR') if request else 'unknown'
+    
+    # We don't have a user object, so we log with user=None.
+    logger = get_logger()
+    logger.auth.warning(
+        f"Failed login attempt for username '{username}' from {ip_address}",
+        username=username,
+        ip_address=ip_address
+    )

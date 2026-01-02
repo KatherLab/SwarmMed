@@ -77,6 +77,28 @@ class Profile(models.Model):
     address = models.CharField(max_length=255, null=True, blank=True)
     phone = models.CharField(max_length=255, null=True, blank=True)
 
+    # Compliance: Track user consent to legal documents and cookies.
+    accepted_policy = models.BooleanField(default=False)
+    accepted_policy_date = models.DateTimeField(null=True, blank=True)
+    accepted_terms = models.BooleanField(default=False)
+    accepted_terms_date = models.DateTimeField(null=True, blank=True)
+    cookie_consent = models.CharField(
+        max_length=20,
+        choices=[('accepted', 'Accepted'), ('rejected', 'Rejected')],
+        null=True,
+        blank=True
+    )
+    cookie_consent_date = models.DateTimeField(null=True, blank=True)
+
+    # GDPR: Right to Restriction of Processing
+    is_restricted = models.BooleanField(default=False)
+    restriction_date = models.DateTimeField(null=True, blank=True)
+
+    # Break-glass / Emergency Access (HIPAA compliance)
+    is_emergency_access = models.BooleanField(default=False)
+    emergency_access_expiry = models.DateTimeField(null=True, blank=True)
+    emergency_access_justification = models.TextField(null=True, blank=True)
+
     def __str__(self):
         """Returns the username of the associated user."""
         return self.user.username

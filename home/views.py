@@ -46,7 +46,7 @@ def get_user_project_uuid(request):
         return None, False
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def index(request):
     """
     The main dashboard view.

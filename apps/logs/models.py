@@ -5,7 +5,9 @@ like project, data, network, training, and results.
 """
 
 import uuid
-
+import hashlib
+import hmac
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -21,6 +23,36 @@ class LogCategory(models.TextChoices):
     NETWORK = 'network', 'Network'
     TRAINING = 'training', 'Training'
     RESULTS = 'results', 'Results'
+    AUTH = 'auth', 'Authentication'
+    ACCESS = 'access', 'Access Control'
+
+
+class LogSigningKey(models.Model):
+    """
+    Stores keys used for signing log entries.
+    Allows for key rotation while maintaining the ability to verify old logs.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.CharField(max_length=255, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @classmethod
+    def get_active_key(cls):
+        """
+        Retrieves the currently active signing key or creates one if none exists.
+        """
+        active_key = cls.objects.filter(is_active=True).first()
+        if not active_key:
+            import secrets
+            import string
+            alphabet = string.ascii_letters + string.digits
+            new_key = "".join(secrets.choice(alphabet) for _ in range(64))
+            active_key = cls.objects.create(key=new_key)
+        return active_key
 
 
 class LogEntry(models.Model):
@@ -34,15 +66,23 @@ class LogEntry(models.Model):
     # The user who performed the action or triggered the log
     user = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
-        related_name='log_entries'
+        on_delete=models.SET_NULL,
+        related_name='log_entries',
+        null=True,
+        blank=True
     )
+
+    # Stores the username at the time of log creation for audit trail persistence
+    # even after user deletion.
+    user_identifier = models.CharField(max_length=150, blank=True, null=True, editable=False)
 
     # The project this log belongs to
     project = models.ForeignKey(
         'project.Project',
         on_delete=models.CASCADE,
-        related_name='log_entries'
+        related_name='log_entries',
+        null=True,
+        blank=True
     )
 
     # The category of the log (e.g., Data, Training)
@@ -60,31 +100,79 @@ class LogEntry(models.Model):
     # When the event occurred
     timestamp = models.DateTimeField(default=timezone.now)
 
-    # Severity level (e.g., INFO, WARNING, ERROR)
+    # Severity level (e.g., INFO, WARNING, ERROR, CRITICAL)
     level = models.CharField(max_length=10, default='INFO')
-
-    # Where the log came from (e.g., a specific client or service)
-    source = models.CharField(
-        max_length=50,
-        blank=True,
-        help_text="e.g., overseer, fl-client-1, celery"
-    )
 
     # The actual log message
     message = models.TextField()
 
-    # Additional structured data related to the event
-    context_data = models.JSONField(default=dict, blank=True)
+    # Additional context for the log entry
+    context_data = models.JSONField(blank=True, default=dict)
+
+    # Metadata from the request context
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(null=True, blank=True)
+    path = models.CharField(max_length=255, null=True, blank=True)
+    object_id = models.CharField(max_length=255, null=True, blank=True)
+
+    # Cryptographic fields for tamper-evidence
+    signing_key = models.ForeignKey(
+        LogSigningKey,
+        on_delete=models.PROTECT,
+        related_name='signed_entries',
+        null=True,
+        blank=True
+    )
+    previous_hash = models.CharField(max_length=128, blank=True, null=True)
+    signature = models.CharField(max_length=128, blank=True, null=True)
 
     class Meta:
-        # Show most recent logs first
         ordering = ['-timestamp']
-        # Indexes for faster searching and filtering
+        verbose_name_plural = "Log Entries"
         indexes = [
             models.Index(fields=['user', 'project', 'category']),
             models.Index(fields=['timestamp']),
         ]
 
     def __str__(self):
-        """String representation of the log entry."""
-        return f"[{self.timestamp}] {self.level} - {self.category}: {self.message[:50]}"
+        return f"[{self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] {self.category} - {self.level}: {self.message[:50]}"
+
+    def calculate_signature(self, key_obj=None):
+        """Calculates a SHA-256 HMAC signature of the log entry.
+        Includes timestamp, user_id, category, message, and previous_hash.
+        Uses a combination of the LogSigningKey (database) and settings.SECRET_KEY (environment).
+        """
+        if not key_obj:
+            key_obj = self.signing_key or LogSigningKey.get_active_key()
+
+        user_id = str(self.user.id) if self.user else "system"
+        ts_str = self.timestamp.isoformat()
+
+        # Data to sign
+        data = f"{self.id}{ts_str}{user_id}{self.category}{self.message}{self.previous_hash}"
+
+        # Combine database-stored key with environment-stored SECRET_KEY
+        combined_key = f"{key_obj.key}{settings.SECRET_KEY}".encode('utf-8')
+        signature = hmac.new(combined_key, data.encode('utf-8'), hashlib.sha256).hexdigest()
+        return signature
+
+    def save(self, *args, **kwargs):
+        """Override save to generate signature and link to previous log."""
+        if not self.user_identifier and self.user:
+            self.user_identifier = self.user.username
+
+        if not self.signature:
+            # Assign active signing key
+            if not self.signing_key:
+                self.signing_key = LogSigningKey.get_active_key()
+
+            # Find the most recent log entry to chain
+            last_entry = LogEntry.objects.order_by('-timestamp').first()
+            if last_entry:
+                self.previous_hash = last_entry.signature
+            else:
+                self.previous_hash = "0" * 64  # Genesis block
+
+            self.signature = self.calculate_signature()
+
+        super().save(*args, **kwargs)

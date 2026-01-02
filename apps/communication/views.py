@@ -16,7 +16,7 @@ from .forms import ProjectPostForm
 from apps.project.models import Project
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def chat_dashboard(request):
     """
     Displays the main communication hub.
@@ -121,7 +121,7 @@ def chat_dashboard(request):
     return render(request, 'apps/communication/chat_dashboard.html', context)
 
 
-@login_required(login_url='/users/signin/')
+@login_required
 def chat_room(request, user_id):
     """
     Displays the conversation history with a specific user and
@@ -164,21 +164,16 @@ def chat_room(request, user_id):
     return render(request, 'apps/communication/chat_room.html', context)
 
 
-@login_required(login_url='/users/signin/')
+from ..project.decorators import project_membership_required
+
+@login_required
+@project_membership_required
 def project_board(request, project_id):
     """
     Displays the discussion board for a specific project.
     Allows members to post updates and questions.
     """
     project = get_object_or_404(Project, pk=project_id)
-
-    # Permission check: verify the user is the project owner or a member
-    if request.user != project.author and request.user not in project.members.all():
-        messages.error(
-            request,
-            "You do not have permission to view this project's board."
-        )
-        return redirect('project:project_list')
 
     # Update the user's access log for this board to mark current posts as
     # 'read'

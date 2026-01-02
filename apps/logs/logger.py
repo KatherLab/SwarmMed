@@ -178,6 +178,22 @@ class Logger:
             self.user_obj,
             self.project_obj)
 
+    @property
+    def auth(self):
+        """Logs related to authentication (login/logout)."""
+        return CategoryLogger(
+            LogCategory.AUTH,
+            self.user_obj,
+            self.project_obj)
+
+    @property
+    def access(self):
+        """Logs related to access control and permission checks."""
+        return CategoryLogger(
+            LogCategory.ACCESS,
+            self.user_obj,
+            self.project_obj)
+
 
 def get_logger(user=None, project=None) -> Logger:
     """

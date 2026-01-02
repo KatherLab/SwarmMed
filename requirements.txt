@@ -1,7 +1,14 @@
 # Core
 django==6.0.0
+django-axes==6.4.0
 python-dotenv==1.0.1
 str2bool==1.1
+
+# Auth
+django-two-factor-auth==1.15.5
+django-otp==1.2.4
+phonenumbers==8.13.52
+qrcode==7.4.2
 
 # Utils
 django-debug-toolbar==4.2.0

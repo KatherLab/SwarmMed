@@ -32,7 +32,7 @@ class LogEntryAdmin(admin.ModelAdmin):
     # Make all fields read-only to prevent manual modification of logs
     readonly_fields = (
         'id', 'user', 'project', 'category', 'swarm_network',
-        'timestamp', 'level', 'source', 'message', 'context_data'
+        'timestamp', 'level', 'message', 'context_data'
     )
 
     def has_add_permission(self, request):

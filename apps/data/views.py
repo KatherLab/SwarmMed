@@ -6,8 +6,10 @@ and the triggering/monitoring of validation and visualization runs.
 
 import json
 import os
+from urllib.parse import urlparse
+from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, HttpResponseForbidden, HttpResponseRedirect
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
 from django.views.decorators.http import require_POST
@@ -37,6 +39,7 @@ from .utils import (
     get_column_prefixes,
 )
 from apps.logs import logger
+from ..project.decorators import project_context_required
 
 
 def get_user_project(request):
@@ -56,23 +59,28 @@ def get_user_project(request):
         return None, False
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_context_required
 def data(request):
     """
     Main overview page for project data.
     Shows general statistics like total size and file counts.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(
-            request, "apps/data/no_project_selected.html", {"segment": "data"}
-        )
+    current_project_uuid, _ = get_user_project(request)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
     root_path = f"{current_project_uuid}/data/"
 
     # Calculate storage stats for this specific project
-    total_size, folder_count, file_count = get_storage_stats(root_path)
+    try:
+        total_size, folder_count, file_count = get_storage_stats(root_path)
+    except Exception as e:
+        # If statistics cannot be retrieved (e.g. MinIO error), use defaults
+        # and log the issue.
+        import logging
+        logging.getLogger('app').warning(f"Error getting storage stats: {e}")
+        total_size, folder_count, file_count = 0, 0, 0
+
     formatted_size = format_size(total_size)
 
     context = {
@@ -85,17 +93,14 @@ def data(request):
     return render(request, "apps/data/data.html", context)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_context_required
 def upload_files(request):
     """
     Handles multi-file and folder uploads.
     Preserves the relative directory structure provided by the browser.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(
-            request, "apps/data/no_project_selected.html", {"segment": "data"}
-        )
+    current_project_uuid, _ = get_user_project(request)
 
     log = logger.get_logger()
 
@@ -160,16 +165,13 @@ def upload_files(request):
     return render(request, "apps/data/upload.html", {"segment": "data"})
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_context_required
 def list_files(request):
     """
     Displays a file browser interface with a multi-column layout.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(
-            request, "apps/data/no_project_selected.html", {"segment": "data"}
-        )
+    current_project_uuid, _ = get_user_project(request)
 
     root_path = f"{current_project_uuid}/data/"
     user_prefix = request.GET.get("prefix", "")
@@ -214,7 +216,6 @@ def list_files(request):
                 {
                     "name": file_name,
                     "key": file,
-                    "download_url": get_s3_download_url(file),
                 }
             )
 
@@ -242,14 +243,46 @@ def list_files(request):
     return render(request, "apps/data/files.html", context)
 
 
+@login_required
+@project_context_required
+def download_file(request):
+    """
+    Logs the access to a file and redirects to a presigned S3 URL.
+    Includes host validation to prevent redirect attacks.
+    """
+    key = request.GET.get('key')
+    current_project_uuid, _ = get_user_project(request)
+
+    if not key or not key.startswith(f"{current_project_uuid}/data/"):
+        return HttpResponse("Unauthorized", status=403)
+
+    log = logger.get_logger()
+    log.access.info(f"User accessed file: {key}", file_key=key)
+
+    download_url = get_s3_download_url(key)
+    
+    # Security: Validate the redirect URL host
+    parsed_url = urlparse(download_url)
+    allowed_hosts = [
+        urlparse(settings.AWS_S3_ENDPOINT_URL).netloc,
+        urlparse(settings.PUBLIC_URL).netloc
+    ]
+
+    # Allow configured S3 hosts or standard AWS S3 domains
+    if parsed_url.netloc not in allowed_hosts and not parsed_url.netloc.endswith("amazonaws.com"):
+        return HttpResponseForbidden("External URL forbidden")
+
+    return HttpResponseRedirect(download_url)
+
+
+@login_required
+@project_context_required
 @require_POST
 def delete_file(request):
     """
     Deletes a file or an entire folder from the project data.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return JsonResponse({"error": "No project selected"}, status=400)
+    current_project_uuid, _ = get_user_project(request)
 
     log = logger.get_logger()
     key = request.POST.get("key")
@@ -274,14 +307,14 @@ def delete_file(request):
     return redirect(get_safe_referer(request, reverse("data:list_files")))
 
 
+@login_required
+@project_context_required
 @require_POST
 def rename_file(request):
     """
     Renames a file or folder in S3.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return JsonResponse({"error": "No project selected"}, status=400)
+    current_project_uuid, _ = get_user_project(request)
 
     log = logger.get_logger()
     old_key = request.POST.get("old_key")
@@ -321,7 +354,7 @@ def rename_file(request):
     return redirect(get_safe_referer(request, reverse("data:list_files")))
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 def list_all_folders(request):
     """
     Returns a recursive flat list of all folders in JSON format.
@@ -365,7 +398,7 @@ def list_all_folders(request):
 # --- Data Validation Views ---
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 @require_POST
 def start_validation(request):
     """
@@ -416,7 +449,7 @@ def start_validation(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 @require_POST
 def stop_validation(request):
     """
@@ -443,7 +476,7 @@ def stop_validation(request):
     return JsonResponse({"error": "No running validation found"}, status=404)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 def validation_status(request):
     """
     Returns the status and results of the latest validation run.
@@ -487,7 +520,7 @@ def validation_status(request):
 # --- Data Visualization Views ---
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 @require_POST
 def start_visualization(request):
     """
@@ -536,7 +569,7 @@ def start_visualization(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 @require_POST
 def stop_visualization(request):
     """
@@ -565,7 +598,7 @@ def stop_visualization(request):
     )
 
 
-@login_required(login_url="/users/signin/")
+@login_required
 def visualization_status(request):
     """
     Returns the status and generated plots of the latest visualization run.

@@ -4,6 +4,10 @@ description: Installation and setup instructions for the SwarmCloud platform.
 ---
 
 # Welcome to SwarmCloud Documentation
+
+!!! warning "Research Use Only"
+    This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
+
 SwarmCloud is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
 
 This documentation provides a comprehensive guide to understanding, setting up, and using the SwarmCloud platform.

@@ -74,6 +74,13 @@ INSTALLED_APPS = [
     "apps.communication",
     # Third-party extensions.
     "storages",
+    "axes",
+    # Multi-Factor Authentication
+    "django_otp",
+    "django_otp.plugins.otp_static",
+    "django_otp.plugins.otp_totp",
+    "two_factor",
+    # "two_factor.plugins.phonenumber",  # Optional: Phone number support
 ]
 
 # Middleware components process requests and responses globally.
@@ -84,9 +91,13 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",  # Multi-Factor Authentication
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.logs.context.RequestContextMiddleware",  # Custom context logging.
+    "axes.middleware.AxesMiddleware",  # Brute-force protection
+    "apps.users.middleware.MFAEnforcementMiddleware",  # Strict MFA enforcement
+    "apps.users.middleware.GDPRRestrictionMiddleware",  # GDPR Right to Restriction
 ]
 
 if DEBUG:
@@ -134,17 +145,27 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASS"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
+        "OPTIONS": {
+            "sslmode": "verify-full" if not DEBUG else "require",
+            "sslrootcert": "/usr/local/share/ca-certificates/internal-ca.crt",
+        },
     },
 }
 
 # --- Password Validation ---
 
 # Standard Django rules to ensure users choose strong passwords.
+# Enhanced for HIPAA compliance (Minimum length 12, complexity check).
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
     },
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {
+            "min_length": 12,
+        }
+    },
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"
@@ -174,6 +195,28 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Authentication and Email ---
 
+# --- Authentication Backends & Security ---
+
+AUTHENTICATION_BACKENDS = [
+    # AxesStandaloneBackend should be the first backend in the AUTHENTICATION_BACKENDS list.
+    'axes.backends.AxesStandaloneBackend',
+    # Django ModelBackend is the default authentication backend.
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# --- Axes Configuration (Brute Force Protection) ---
+
+# Block login after 5 failed attempts
+AXES_FAILURE_LIMIT = 5
+# Cooloff period: 1 hour
+AXES_COOLOFF_TIME = 1
+# Lock out based on user and IP combination
+AXES_LOCK_OUT_PARAMETERS = ["username", "ip_address"]
+# Reset failed attempts on success
+AXES_RESET_ON_SUCCESS = True
+
+# Enforce MFA Login Flow
+LOGIN_URL = "two_factor:login"
 LOGIN_REDIRECT_URL = "/"
 
 # Email configuration for password resets and notifications.
@@ -184,9 +227,18 @@ EMAIL_USE_TLS = str2bool(os.environ.get("EMAIL_USE_TLS", "False"))
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 
+# --- HIPAA Compliance: Session Management ---
 # SESSION_COOKIE_HTTPONLY is True for better security.
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
+
+# Automatic Logoff (HIPAA Technical Safeguard: 164.312(a)(2)(iii))
+# Expire session on browser close
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+# Session timeout after 30 minutes of inactivity (1800 seconds)
+SESSION_COOKIE_AGE = 1800
+# Save the session on every request to update the expiration time
+SESSION_SAVE_EVERY_REQUEST = True
 
 # Mapping Django message levels to Tailwind CSS classes.
 MESSAGE_TAGS = {
@@ -213,29 +265,35 @@ MESSAGE_TAGS = {
 # Uses django-storages and boto3 to store files in S3 (MinIO).
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
-
 if not DEBUG and (not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY):
     raise ValueError("AWS credentials MUST be set in environment when DEBUG is False.")
 
-# Fallback for development if not provided
-AWS_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID or "minioadmin"
-AWS_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY or "minioadmin"
+# For development only: allow local default credentials but do not overwrite
+# production environment variables. This prevents accidental use of
+# hard-coded defaults when running with DEBUG=False.
+if DEBUG:
+    AWS_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID or "minioadmin"
+    AWS_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY or "minioadmin"
 AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "swarmcloud")
-AWS_S3_ENDPOINT_URL = os.environ.get("AWS_S3_ENDPOINT_URL", "http://localhost:9000")
-PUBLIC_URL = os.environ.get("PUBLIC_URL", AWS_S3_ENDPOINT_URL)
+AWS_S3_ENDPOINT_URL = os.environ.get("AWS_S3_ENDPOINT_URL", "https://minio:9000")
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://localhost:9000")
 AWS_S3_CUSTOM_DOMAIN = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}"
-AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "us-east-1")
+AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "eu-central-1")
 AWS_S3_ADDRESSING_STYLE = "path"
 AWS_S3_SIGNATURE_VERSION = "s3v4"
 AWS_S3_FILE_OVERWRITE = False
 AWS_DEFAULT_ACL = None
+# Enforce Server-Side Encryption (SSE-S3)
+AWS_S3_OBJECT_PARAMETERS = {
+    "ServerSideEncryption": "AES256",
+}
 
 STORAGES = {
     "default": {
         "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage" if DEBUG else "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
 
@@ -257,6 +315,16 @@ DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 # Maximum number of files allowed in a single multipart upload.
 DATA_UPLOAD_MAX_NUMBER_FILES = 1000
 
+# --- HIPAA Compliance: Data Retention and Backup ---
+# Retention period for database backups (in days)
+BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", 30))
+# Retention period for PHI and related records (in days). Default: 6 years (2190 days)
+DATA_RETENTION_DAYS = int(os.environ.get("DATA_RETENTION_DAYS", 2190))
+# Retention period for standard security logs (in days). Default: 1 year (365 days)
+SECURITY_LOG_RETENTION_DAYS = int(os.environ.get("SECURITY_LOG_RETENTION_DAYS", 365))
+# Period after which IP addresses are anonymized (in days). Default: 90 days
+IP_ANONYMIZATION_DAYS = int(os.environ.get("IP_ANONYMIZATION_DAYS", 90))
+
 # --- Celery Configuration ---
 
 # Configures Celery to use Redis as the message broker and result backend.
@@ -264,13 +332,17 @@ REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
 if not REDIS_PASSWORD and not DEBUG:
     raise ValueError("REDIS_PASSWORD MUST be set in environment when DEBUG is False.")
 
-# Default for development if not provided
-REDIS_PASSWORD = REDIS_PASSWORD or ""
+# For development only: permit an empty password locally but do not
+# overwrite a missing production secret.
+if DEBUG:
+    REDIS_PASSWORD = REDIS_PASSWORD or ""
 
 REDIS_HOST = "redis"
 REDIS_PORT = 6379
-CELERY_BROKER_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
-CELERY_RESULT_BACKEND = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
+CA_CERT_PATH = "/usr/local/share/ca-certificates/internal-ca.crt"
+
+CELERY_BROKER_URL = f"rediss://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0?ssl_cert_reqs=required&ssl_ca_certs={CA_CERT_PATH}"
+CELERY_RESULT_BACKEND = f"rediss://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0?ssl_cert_reqs=required&ssl_ca_certs={CA_CERT_PATH}"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -278,6 +350,28 @@ CELERY_TIMEZONE = "UTC"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes.
 CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes.
+
+# Automation Schedule (Celery Beat)
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'daily-secure-backup': {
+        'task': 'apps.logs.tasks.scheduled_backup',
+        'schedule': crontab(hour=2, minute=0),  # Daily at 2:00 AM UTC
+    },
+    'daily-data-retention-purge': {
+        'task': 'apps.logs.tasks.purge_expired_data',
+        'schedule': crontab(hour=3, minute=0),  # Daily at 3:00 AM UTC
+    },
+    'daily-ip-anonymization': {
+        'task': 'apps.logs.tasks.anonymize_security_logs',
+        'schedule': crontab(hour=4, minute=0),  # Daily at 4:00 AM UTC
+    },
+    'hourly-emergency-access-cleanup': {
+        'task': 'apps.logs.tasks.revoke_emergency_access',
+        'schedule': crontab(minute=0),  # Every hour
+    },
+}
 
 # --- Security Hardening for Production ---
 if not DEBUG:

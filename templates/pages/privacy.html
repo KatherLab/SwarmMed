@@ -1,0 +1,104 @@
+{% extends "layouts/base.html" %}
+
+{% block content %}
+<div class="px-4 pt-6">
+    <div class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+        <h1 class="mb-4 text-3xl font-extrabold leading-none tracking-tight text-gray-900 md:text-4xl dark:text-white">Privacy Policy</h1>
+        
+        <div class="p-4 mb-6 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400 border border-blue-300" role="alert">
+            <span class="font-medium">Operator Note:</span> This is a template privacy policy. If you are self-hosting this platform, you MUST update the placeholders (indicated by [BRACKETS]) to reflect your organization's details, hosting location, and data retention policies.
+        </div>
+
+        <div class="space-y-6 text-gray-500 dark:text-gray-400">
+            <p>Last updated: January 2, 2026</p>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">1. Introduction</h2>
+            <p>Welcome to MediSwarmCloud. We are committed to protecting your personal data and your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our decentralized medical AI platform.</p>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">2. Data Controller & Data Protection Officer</h2>
+            <p>The data controller responsible for your personal data is:</p>
+            <div class="p-4 mb-4 bg-gray-50 rounded-lg dark:bg-gray-700">
+                <p class="font-medium text-gray-900 dark:text-white">
+                    [INSERT ORGANIZATION NAME]<br>
+                    [INSERT ADDRESS]<br>
+                    Email: [INSERT CONTACT EMAIL]
+                </p>
+            </div>
+            
+            <p>If we have appointed a Data Protection Officer (DPO), they are responsible for overseeing questions in relation to this privacy policy. If you have any questions about this privacy policy, including any requests to exercise your legal rights, please contact the DPO at:</p>
+            <div class="p-4 bg-gray-50 rounded-lg dark:bg-gray-700">
+                <p class="font-medium text-gray-900 dark:text-white">
+                    Data Protection Officer<br>
+                    Email: [INSERT DPO EMAIL]<br>
+                    Address: [INSERT DPO ADDRESS]
+                </p>
+            </div>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">3. Data We Collect</h2>
+            <p>As a decentralized platform, we prioritize data minimization. We collect:</p>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Account Information:</strong> Username, email address, and hashed passwords.</li>
+                <li><strong>Profile Information:</strong> Optional information you provide such as your full name, country, and organization.</li>
+                <li><strong>Usage Data:</strong> Logs of system interactions (login times, project creation).</li>
+                <li><strong>Technical Data:</strong> IP addresses and browser information are collected for security and auditing purposes.</li>
+            </ul>
+            <p><strong>Crucially, MediSwarmCloud does not centrally collect or aggregate your raw medical datasets.</strong> While the platform provides secure, project-specific storage for your datasets to facilitate local validation and swarm training, this data remains within your isolated project environment and is never shared across institutions or used for purposes beyond your specified research goals.</p>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">4. Legal Basis and Purposes</h2>
+            <p>We process your data based on the following legal grounds (GDPR Article 6):</p>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Performance of a Contract:</strong> To provide and maintain our services, manage your account, and provide customer support.</li>
+                <li><strong>Legitimate Interests (Art. 6(1)(f)):</strong> To ensure system security, prevent fraud, and maintain platform integrity. This includes the logging of IP addresses to detect and mitigate unauthorized access or malicious activities.</li>
+                <li><strong>Legal Obligation:</strong> To comply with legal requirements such as tax laws or law enforcement requests.</li>
+                <li><strong>Consent:</strong> For non-essential cookies where applicable.</li>
+            </ul>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">5. Data Retention & Anonymization</h2>
+            <p>We retain your personal data only for as long as necessary to fulfill the purposes we collected it for, including for the purposes of satisfying any legal, accounting, or reporting requirements.</p>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Account Data:</strong> Retained for the duration of your active account. If you delete your account, personal data is removed or anonymized within 30 days.</li>
+                <li><strong>System Logs:</strong> Auditing logs and security records are retained for [INSERT PERIOD, e.g., 1 year].</li>
+                <li><strong>IP Addresses:</strong> IP addresses logged for security purposes are automatically anonymized or deleted after [INSERT PERIOD, e.g., 90 days], unless they are required for an ongoing security investigation.</li>
+            </ul>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">6. Third-Party Data Processors (Sub-processors)</h2>
+            <p>Depending on how this instance is hosted, the following third-party service providers may be used:</p>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Infrastructure Providers:</strong> [INSERT HOSTING PROVIDER, e.g., AWS, Azure, On-Premise]. Data is stored in [INSERT REGION/LOCATION].</li>
+            </ul>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">7. Your Rights (GDPR)</h2>
+            <p>Under the General Data Protection Regulation (GDPR), you have the following rights:</p>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Right to Access:</strong> You can request a copy of the personal data we hold about you.</li>
+                <li><strong>Right to Rectification:</strong> You can update your profile information at any time via your account settings.</li>
+                <li><strong>Right to Erasure (Right to be Forgotten):</strong> You can delete your account and all associated personal data through your profile settings. Audit logs will be anonymized to remove identifiers.</li>
+                <li><strong>Right to Restriction of Processing:</strong> You have the right to request that we suspend the processing of your personal data.</li>
+                <li><strong>Right to Object:</strong> You can object to the processing of your personal data where we are relying on a legitimate interest.</li>
+                <li><strong>Right to Data Portability:</strong> You can download a machine-readable export of your account data from your profile settings.</li>
+                <li><strong>Right to Withdraw Consent:</strong> Where we are relying on consent, you have the right to withdraw it at any time.</li>
+                <li><strong>Right to Lodge a Complaint:</strong> You have the right to lodge a complaint with a data protection supervisory authority.</li>
+            </ul>
+
+            <h2 id="cookies" class="text-xl font-bold text-gray-900 dark:text-white">8. Cookie Policy</h2>
+            <p>We use cookies to ensure the security and functionality of our platform.</p>
+            
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">8.1. Types of Cookies We Use</h3>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Essential Cookies:</strong> These are necessary for the website to function (e.g., session management, CSRF protection). They cannot be disabled.</li>
+                <li><strong>Functional Cookies:</strong> These remember your preferences (e.g., sidebar state, theme).</li>
+            </ul>
+            <p><strong>Note:</strong> By default, this platform does not use third-party analytics or tracking cookies.</p>
+
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">8.2. Managing Cookies</h3>
+            <p>You can control and/or delete cookies as you wish via your browser settings. You can delete all cookies that are already on your computer and you can set most browsers to prevent them from being placed.</p>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">9. Data Security</h2>
+            <p>We implement industry-standard security measures, including encryption for data at rest and in transit. Our decentralized architecture is specifically designed to minimize the risk of large-scale data breaches.</p>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">10. Contact Us</h2>
+            <p>If you have any questions about this Privacy Policy, please contact us at [INSERT CONTACT EMAIL].</p>
+        </div>
+    </div>
+</div>
+{% endblock content %}

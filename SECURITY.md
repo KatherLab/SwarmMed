@@ -33,6 +33,24 @@ SwarmCloud handles sensitive bio data. Always ensure the following:
 - **Encryption:** Use TLS/SSL (HTTPS) for all public-facing endpoints.
 - **Data Privacy:** Be mindful of PII (Personally Identifiable Information) and PHI (Protected Health Information) when logging or storing data.
 
+## Compliance
+
+SwarmCloud is designed with data protection as a core principle and is **HIPAA Capable**.
+
+- **GDPR (General Data Protection Regulation):** The platform's decentralized architecture supports data minimization by keeping raw data local. It also includes self-service tools for the "Right to Erasure" and mandatory consent for data processing.
+- **HIPAA (Health Insurance Portability and Accountability Act):** Technical safeguards (encryption at rest/transit, MFA, brute-force protection, audit logs) are implemented to support PHI handling.
+
+### HIPAA Readiness & Remaining Gaps
+
+While SwarmCloud provides the technical foundation for HIPAA compliance, achieving full compliance requires operational and administrative measures by the hosting organization:
+
+1. **Administrative Safeguards:** HIPAA is a program, not just a set of features. You must implement risk analysis, policies/procedures, training, incident response, and access reviews.
+2. **Business Associate Agreements (BAA):** You must have BAAs in place with any third-party vendors (hosting, email, etc.) that may have access to ePHI.
+3. **Infrastructure Encryption:** While SwarmCloud enforces SSE for MinIO, encryption at rest for the PostgreSQL metadata database depends on host/disk-level encryption. Ensure encrypted volumes are used for all persistent data.
+4. **Secrets Management:** Current production environments use `.env` files. For higher security, it is recommended to use a dedicated secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager) and rotate secrets regularly.
+5. **Audit Log Governance:** Technical log signing is present, but you must implement operational log review, alerting, and retention policies (e.g., exporting to a SIEM).
+6. **Container Security:** The `docker-socket-proxy` is a high-privilege component. Treat it as such in your threat model, ensuring network isolation and strict monitoring.
+
 ## Security Scans
 
 We utilize automated security scanning tools to maintain the integrity of our codebase. You can run these scans locally using the following commands:

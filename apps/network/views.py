@@ -25,6 +25,7 @@ from .utils import (
     get_hostname,
     create_startup_kits_zip,
 )
+from ..project.decorators import project_context_required, project_membership_required
 
 
 def get_user_project(request):
@@ -46,19 +47,14 @@ def get_user_project(request):
         return None, False
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_context_required
 def network(request):
     """
     Main dashboard for managing swarm networks within the active project.
     Displays network statuses, connection info, and participant details.
     """
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(
-            request,
-            "apps/network/no_project_selected.html",
-            {"segment": "network"},
-        )
+    current_project_uuid, _ = get_user_project(request)
 
     # Get the project object from the user's current project relation
     current_project_relation = UserCurrentProject.objects.get(
@@ -120,7 +116,8 @@ def network(request):
     return render(request, "apps/network/network.html", context)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_context_required
 def new_network(request):
     """
     Handles the creation of a new swarm network configuration.
@@ -240,7 +237,8 @@ def new_network(request):
     return render(request, "apps/network/new_network.html", context)
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def set_current_network(request, network_id):
     """
     Sets the specified network as the 'active' network for the current user.
@@ -261,7 +259,8 @@ def set_current_network(request, network_id):
     return redirect("network:network")
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def download_startup_kits(request, network_id):
     """
     Gathers the generated client startup kits (certs, config, start scripts),
@@ -279,7 +278,8 @@ def download_startup_kits(request, network_id):
     return response
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def start_swarm_network(request, network_id):
     """
     Triggers the asynchronous Celery task to start the swarm network containers
@@ -294,7 +294,8 @@ def start_swarm_network(request, network_id):
     return redirect("network:network")
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def stop_swarm_network(request, network_id):
     """
     Triggers the asynchronous Celery task to stop and remove swarm
@@ -309,7 +310,8 @@ def stop_swarm_network(request, network_id):
     return redirect("network:network")
 
 
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def get_swarm_network_status(request, network_id):
     """
     AJAX endpoint that returns the current status of a network.
@@ -320,7 +322,8 @@ def get_swarm_network_status(request, network_id):
 
 
 @require_POST
-@login_required(login_url="/users/signin/")
+@login_required
+@project_membership_required
 def delete_swarm_network(request, network_id):
     """
     Deletes a swarm network configuration and its associated files from disk.

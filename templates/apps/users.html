@@ -436,6 +436,11 @@
         <div>
           <label for="{{ field.name }}" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">{{ field.label }}</label>
           {{ field }}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <p class="mt-2 text-sm text-red-600 dark:text-red-500">{{ error }}</p>
+            {% endfor %}
+          {% endif %}
         </div>
         {% endfor %}
         <div class="bottom-0 left-0 flex justify-center w-full pb-4 space-x-4 md:px-4 md:absolute">
