@@ -5,6 +5,8 @@ allowing administrators to manage projects and user-project relations.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin, TabularInline
+from unfold.contrib.filters.admin import DropdownFilter
 from .models import Project, UserCurrentProject
 from network.models import SwarmNetwork
 from training.models import TrainingJob
@@ -12,7 +14,7 @@ from data.models import ValidationRun, VisualizationRun
 from logs.models import LogEntry
 
 
-class SwarmNetworkInline(admin.TabularInline):
+class SwarmNetworkInline(TabularInline):
     model = SwarmNetwork
     extra = 0
     fields = ("name", "status", "created_at")
@@ -20,7 +22,7 @@ class SwarmNetworkInline(admin.TabularInline):
     can_delete = False
 
 
-class TrainingJobInline(admin.TabularInline):
+class TrainingJobInline(TabularInline):
     model = TrainingJob
     extra = 0
     fields = ("identifier", "status", "created_at")
@@ -28,7 +30,7 @@ class TrainingJobInline(admin.TabularInline):
     can_delete = False
 
 
-class ValidationRunInline(admin.TabularInline):
+class ValidationRunInline(TabularInline):
     model = ValidationRun
     extra = 0
     fields = ("id", "status", "success", "created_at")
@@ -36,7 +38,7 @@ class ValidationRunInline(admin.TabularInline):
     can_delete = False
 
 
-class VisualizationRunInline(admin.TabularInline):
+class VisualizationRunInline(TabularInline):
     model = VisualizationRun
     extra = 0
     fields = ("id", "status", "success", "created_at")
@@ -44,7 +46,7 @@ class VisualizationRunInline(admin.TabularInline):
     can_delete = False
 
 
-class LogEntryInline(admin.TabularInline):
+class LogEntryInline(TabularInline):
     model = LogEntry
     extra = 0
     fields = ("timestamp", "level", "category", "user", "message")
@@ -54,7 +56,7 @@ class LogEntryInline(admin.TabularInline):
 
 
 @admin.register(Project)
-class ProjectAdmin(admin.ModelAdmin):
+class ProjectAdmin(ModelAdmin):
     """
     Configuration for the Project model in the admin panel.
     Provides filtering and search capabilities for easier management.
@@ -64,14 +66,17 @@ class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         "title",
         "author",
-        "status",
+        "status_label",
         "created_at",
         "get_members_count",
-        "identifier",
     )
 
     # Enable filtering by status and creation date
-    list_filter = ("status", "created_at")
+    list_filter = (
+        ("status", DropdownFilter),
+        ("author", DropdownFilter),
+        "created_at",
+    )
 
     # Allow searching by title, author's username, and unique identifier
     search_fields = ("title", "author__username", "identifier")
@@ -81,6 +86,9 @@ class ProjectAdmin(admin.ModelAdmin):
     readonly_fields = ("identifier", "created_at")
 
     date_hierarchy = "created_at"
+    
+    compressed_fields = True
+    warn_unsaved_changes = True
 
     # Add inlines for related models to give a full overview
     inlines = [
@@ -114,6 +122,23 @@ class ProjectAdmin(admin.ModelAdmin):
         ),
     )
 
+    def status_label(self, obj):
+        from unfold.decorators import display
+
+        @display(
+            label={
+                "ACTIVE": "success",
+                "ARCHIVED": "warning",
+                "DELETED": "danger",
+            }
+        )
+        def label(instance):
+            return instance.status
+
+        return label(obj)
+
+    status_label.short_description = "Status"
+
     def get_members_count(self, obj):
         return obj.members.count()
 
@@ -131,7 +156,7 @@ class ProjectAdmin(admin.ModelAdmin):
 
 
 @admin.register(UserCurrentProject)
-class UserCurrentProjectAdmin(admin.ModelAdmin):
+class UserCurrentProjectAdmin(ModelAdmin):
     """
     Configuration for the UserCurrentProject model in the admin panel.
     Helps track which project each user is currently working on.

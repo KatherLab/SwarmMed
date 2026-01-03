@@ -5,6 +5,7 @@ administrators to manage training results and visualization runs.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from .models import (
     ResultsVisualizationPlot,
@@ -14,7 +15,7 @@ from .models import (
 
 
 @admin.register(TrainingResult)
-class TrainingResultAdmin(admin.ModelAdmin):
+class TrainingResultAdmin(ModelAdmin):
     """Configuration for managing individual training result files in admin."""
 
     list_display = ("identifier", "job", "file_size", "created_at")
@@ -24,7 +25,7 @@ class TrainingResultAdmin(admin.ModelAdmin):
 
 
 @admin.register(ResultsVisualizationRun)
-class ResultsVisualizationRunAdmin(admin.ModelAdmin):
+class ResultsVisualizationRunAdmin(ModelAdmin):
     """Configuration for monitoring visualization script executions."""
 
     list_display = ("id", "project", "user", "status", "success", "created_at")
@@ -46,7 +47,7 @@ class ResultsVisualizationRunAdmin(admin.ModelAdmin):
 
 
 @admin.register(ResultsVisualizationPlot)
-class ResultsVisualizationPlotAdmin(admin.ModelAdmin):
+class ResultsVisualizationPlotAdmin(ModelAdmin):
     """Configuration for inspecting generated plots."""
 
     list_display = ("title", "visualization_run", "plot_number", "created_at")

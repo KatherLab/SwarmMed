@@ -5,10 +5,11 @@ allowing administrators to manage Validation and Visualization runs.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin, TabularInline
 from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
 
 
-class ValidationCheckInline(admin.TabularInline):
+class ValidationCheckInline(TabularInline):
     model = ValidationCheck
     extra = 0
     fields = ("name", "status", "message")
@@ -17,7 +18,7 @@ class ValidationCheckInline(admin.TabularInline):
 
 
 @admin.register(ValidationRun)
-class ValidationRunAdmin(admin.ModelAdmin):
+class ValidationRunAdmin(ModelAdmin):
     """
     Admin interface for ValidationRun model.
     Displays key fields in the list view for easier monitoring.
@@ -55,7 +56,7 @@ class ValidationRunAdmin(admin.ModelAdmin):
 
 
 @admin.register(ValidationCheck)
-class ValidationCheckAdmin(admin.ModelAdmin):
+class ValidationCheckAdmin(ModelAdmin):
     """
     Admin interface for ValidationCheck model.
     Helps admins inspect individual checks within a validation run.
@@ -66,7 +67,7 @@ class ValidationCheckAdmin(admin.ModelAdmin):
     search_fields = ("name", "message")
 
 
-class VisualizationPlotInline(admin.TabularInline):
+class VisualizationPlotInline(TabularInline):
     model = VisualizationPlot
     extra = 0
     fields = ("title", "plot_number", "image_data")
@@ -75,7 +76,7 @@ class VisualizationPlotInline(admin.TabularInline):
 
 
 @admin.register(VisualizationRun)
-class VisualizationRunAdmin(admin.ModelAdmin):
+class VisualizationRunAdmin(ModelAdmin):
     """
     Admin interface for VisualizationRun model.
     """
@@ -112,7 +113,7 @@ class VisualizationRunAdmin(admin.ModelAdmin):
 
 
 @admin.register(VisualizationPlot)
-class VisualizationPlotAdmin(admin.ModelAdmin):
+class VisualizationPlotAdmin(ModelAdmin):
     """
     Admin interface for VisualizationPlot model.
     """

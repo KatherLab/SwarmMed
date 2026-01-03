@@ -5,11 +5,12 @@ allowing administrators to manage Messages and ProjectPosts.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 from .models import Message, ProjectPost, ProjectBoardAccess
 
 
 @admin.register(Message)
-class MessageAdmin(admin.ModelAdmin):
+class MessageAdmin(ModelAdmin):
     """
     Configuration for the Message model in the admin panel.
     """
@@ -31,7 +32,7 @@ class MessageAdmin(admin.ModelAdmin):
 
 
 @admin.register(ProjectPost)
-class ProjectPostAdmin(admin.ModelAdmin):
+class ProjectPostAdmin(ModelAdmin):
     """
     Configuration for the ProjectPost model in the admin panel.
     """
@@ -44,7 +45,7 @@ class ProjectPostAdmin(admin.ModelAdmin):
 
 
 @admin.register(ProjectBoardAccess)
-class ProjectBoardAccessAdmin(admin.ModelAdmin):
+class ProjectBoardAccessAdmin(ModelAdmin):
     """
     Configuration for the ProjectBoardAccess model.
     """

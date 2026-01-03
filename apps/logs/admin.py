@@ -4,12 +4,13 @@ Registers the LogEntry model with the Django admin interface.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from .models import LogEntry, LogSigningKey
 
 
 @admin.register(LogEntry)
-class LogEntryAdmin(admin.ModelAdmin):
+class LogEntryAdmin(ModelAdmin):
     """
     Configuration for the LogEntry model in the admin panel.
     Provides filtering and search capabilities for administrators.
@@ -72,7 +73,7 @@ class LogEntryAdmin(admin.ModelAdmin):
 
 
 @admin.register(LogSigningKey)
-class LogSigningKeyAdmin(admin.ModelAdmin):
+class LogSigningKeyAdmin(ModelAdmin):
     """
     Configuration for auditing LogSigningKeys.
     Keys are critical for integrity and should be read-only.

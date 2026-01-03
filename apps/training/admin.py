@@ -6,12 +6,13 @@ Registers training jobs with the Django admin interface.
 from django.contrib import admin
 from django.utils.translation import ngettext
 from django.contrib import messages
+from unfold.admin import ModelAdmin
 
 from .models import TrainingJob
 
 
 @admin.register(TrainingJob)
-class TrainingJobAdmin(admin.ModelAdmin):
+class TrainingJobAdmin(ModelAdmin):
     """Configuration for monitoring training jobs in the admin panel."""
 
     list_display = (

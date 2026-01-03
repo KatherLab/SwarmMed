@@ -7,20 +7,21 @@ allowing administrators to manage Swarm Networks and Participants.
 from django.contrib import admin
 from django.utils.translation import ngettext
 from django.contrib import messages
+from unfold.admin import ModelAdmin, TabularInline
 
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from training.models import TrainingJob
 from .tasks import stop_swarm_network_task
 
 
-class SwarmParticipantInline(admin.TabularInline):
+class SwarmParticipantInline(TabularInline):
     model = SwarmParticipant
     extra = 0
     fields = ("user", "role", "participant_id")
     can_delete = True
 
 
-class TrainingJobInline(admin.TabularInline):
+class TrainingJobInline(TabularInline):
     model = TrainingJob
     extra = 0
     fields = ("identifier", "status", "created_at")
@@ -29,7 +30,7 @@ class TrainingJobInline(admin.TabularInline):
 
 
 @admin.register(SwarmNetwork)
-class SwarmNetworkAdmin(admin.ModelAdmin):
+class SwarmNetworkAdmin(ModelAdmin):
     """
     Admin interface for SwarmNetwork model.
     """
@@ -97,7 +98,7 @@ class SwarmNetworkAdmin(admin.ModelAdmin):
 
 
 @admin.register(SwarmParticipant)
-class SwarmParticipantAdmin(admin.ModelAdmin):
+class SwarmParticipantAdmin(ModelAdmin):
     """
     Admin interface for SwarmParticipant model.
     """
@@ -108,7 +109,7 @@ class SwarmParticipantAdmin(admin.ModelAdmin):
 
 
 @admin.register(UserCurrentNetwork)
-class UserCurrentNetworkAdmin(admin.ModelAdmin):
+class UserCurrentNetworkAdmin(ModelAdmin):
     """
     Admin interface for tracking users' current active network.
     """

@@ -7,11 +7,15 @@ it into the standard User admin for a unified view.
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
+from unfold.admin import ModelAdmin, StackedInline
+from unfold.forms import UserChangeForm, UserCreationForm, AdminPasswordChangeForm
+from unfold.contrib.filters.admin import DropdownFilter
+from django.utils.translation import gettext_lazy as _
 
 from .models import Profile
 
 
-class ProfileInline(admin.StackedInline):
+class ProfileInline(StackedInline):
     """
     Allows editing the Profile directly within the User admin page.
     """
@@ -28,35 +32,63 @@ class ProfileInline(admin.StackedInline):
     )
 
 
-class UserAdmin(BaseUserAdmin):
+class UserAdmin(BaseUserAdmin, ModelAdmin):
     """
     Extended User admin that includes the Profile inline.
     """
 
+    form = UserChangeForm
+    add_form = UserCreationForm
+    change_password_form = AdminPasswordChangeForm
     inlines = (ProfileInline,)
-    list_display = BaseUserAdmin.list_display + (
+    list_display = (
+        "display_header",
+        "is_active",
         "get_role",
         "get_emergency_access",
         "date_joined",
-        "last_login",
     )
-    list_filter = BaseUserAdmin.list_filter + (
-        "profile__role",
+    list_filter = (
+        "is_active",
+        "is_staff",
+        ("profile__role", DropdownFilter),
         "profile__is_emergency_access",
     )
     readonly_fields = ("date_joined", "last_login")
     date_hierarchy = "date_joined"
 
+    def display_header(self, instance):
+        return instance.username
+
+    display_header.short_description = _("User")
+
     def get_role(self, obj):
-        return obj.profile.role
+        from unfold.decorators import display
+
+        @display(
+            label={
+                "ADMIN": "danger",
+                "RESEARCHER": "info",
+                "PROVIDER": "success",
+            }
+        )
+        def role_label(instance):
+            return instance.profile.role
+
+        return role_label(obj)
 
     get_role.short_description = "Role"
 
     def get_emergency_access(self, obj):
-        return obj.profile.is_emergency_access
+        from unfold.decorators import display
+
+        @display(boolean=True, label=True)
+        def emergency_label(instance):
+            return instance.profile.is_emergency_access
+
+        return emergency_label(obj)
 
     get_emergency_access.short_description = "Emergency"
-    get_emergency_access.boolean = True
 
 
 # Re-register User admin
@@ -65,7 +97,7 @@ admin.site.register(User, UserAdmin)
 
 
 @admin.register(Profile)
-class ProfileAdmin(admin.ModelAdmin):
+class ProfileAdmin(ModelAdmin):
     """
     Configuration for the Profile model in the admin panel.
     """
@@ -73,16 +105,20 @@ class ProfileAdmin(admin.ModelAdmin):
     # Display more relevant fields in the list view.
     list_display = (
         "user",
-        "role",
-        "is_emergency_access",
+        "role_label",
+        "emergency_label",
         "country",
         "city",
-        "cookie_consent",
         "identifier",
     )
 
     # Enable filtering by role, emergency access, and cookie consent.
-    list_filter = ("role", "is_emergency_access", "cookie_consent", "country")
+    list_filter = (
+        ("role", DropdownFilter),
+        "is_emergency_access",
+        "cookie_consent",
+        ("country", DropdownFilter),
+    )
 
     # Enable searching by username, email, full name and identifiers.
     search_fields = (
@@ -90,9 +126,35 @@ class ProfileAdmin(admin.ModelAdmin):
         "user__email",
         "full_name",
         "identifier",
-        "phone",
-        "city",
     )
+
+    def role_label(self, obj):
+        from unfold.decorators import display
+
+        @display(
+            label={
+                "ADMIN": "danger",
+                "RESEARCHER": "info",
+                "PROVIDER": "success",
+            }
+        )
+        def label(instance):
+            return instance.role
+
+        return label(obj)
+
+    role_label.short_description = "Role"
+
+    def emergency_label(self, obj):
+        from unfold.decorators import display
+
+        @display(boolean=True, label=True)
+        def label(instance):
+            return instance.is_emergency_access
+
+        return label(obj)
+
+    emergency_label.short_description = "Emergency"
 
     # Logical groupings for the detail view.
     fieldsets = (

@@ -66,6 +66,10 @@ INTERNAL_IPS = ["127.0.0.1"]
 
 # List of Django apps enabled for this project.
 INSTALLED_APPS = [
+    "unfold",  # before django.contrib.admin
+    "unfold.contrib.filters",
+    "unfold.contrib.forms",
+    "unfold.contrib.inlines",
     # Core Django apps.
     "django.contrib.admin",
     "django.contrib.auth",
@@ -476,5 +480,117 @@ LOGGING = {
     "root": {
         "handlers": ["console"],
         "level": "WARNING",
+    },
+}
+
+# --- Unfold Admin Configuration ---
+
+UNFOLD = {
+    "SITE_TITLE": "SwarmCloud Admin",
+    "SITE_HEADER": "SwarmCloud Admin",
+    "SITE_SYMBOL": "cloud",  # icon from Material Symbols
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": True,
+    "DASHBOARD_CALLBACK": "apps.common.views.dashboard_callback",
+    "COLORS": {
+        "primary": {
+            "50": "250 252 255",
+            "100": "240 247 255",
+            "200": "186 220 255",
+            "300": "133 193 255",
+            "400": "28 140 255",
+            "500": "0 112 240",
+            "600": "0 101 216",
+            "700": "0 84 180",
+            "800": "0 67 144",
+            "900": "0 55 118",
+            "950": "0 31 66",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": "User Management",
+                "items": [
+                    {
+                        "title": "Users",
+                        "icon": "person",
+                        "link": "/admin/auth/user/",
+                    },
+                    {
+                        "title": "Groups",
+                        "icon": "group",
+                        "link": "/admin/auth/group/",
+                    },
+                    {
+                        "title": "Profiles",
+                        "icon": "contact_page",
+                        "link": "/admin/users/profile/",
+                    },
+                ],
+            },
+            {
+                "title": "Project Hub",
+                "items": [
+                    {
+                        "title": "Projects",
+                        "icon": "folder",
+                        "link": "/admin/project/project/",
+                    },
+                    {
+                        "title": "Swarm Networks",
+                        "icon": "hub",
+                        "link": "/admin/network/swarmnetwork/",
+                    },
+                    {
+                        "title": "Training Jobs",
+                        "icon": "model_training",
+                        "link": "/admin/training/trainingjob/",
+                    },
+                ],
+            },
+            {
+                "title": "Data & Analysis",
+                "items": [
+                    {
+                        "title": "Validation Runs",
+                        "icon": "fact_check",
+                        "link": "/admin/data/validationrun/",
+                    },
+                    {
+                        "title": "Visualization Runs",
+                        "icon": "monitoring",
+                        "link": "/admin/data/visualizationrun/",
+                    },
+                    {
+                        "title": "Results",
+                        "icon": "analytics",
+                        "link": "/admin/results/trainingresult/",
+                    },
+                ],
+            },
+            {
+                "title": "System Infrastructure",
+                "items": [
+                    {
+                        "title": "Audit Logs",
+                        "icon": "receipt_long",
+                        "link": "/admin/logs/logentry/",
+                    },
+                    {
+                        "title": "Communication",
+                        "icon": "forum",
+                        "link": "/admin/communication/message/",
+                    },
+                    {
+                        "title": "MFA Devices",
+                        "icon": "security",
+                        "link": "/admin/otp_totp/totpdevice/",
+                    },
+                ],
+            },
+        ],
     },
 }
