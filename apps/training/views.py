@@ -10,10 +10,12 @@ import re
 import shutil
 import socket
 import time
+from typing import Optional
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.utils import timezone
@@ -27,6 +29,59 @@ from .utils import download_s3_folder
 from ..project.decorators import project_context_required, project_membership_required
 
 logger = get_logger()
+
+
+def _tail_text(file_path: str, max_bytes: int = 2048 * 1024) -> str:
+    """Read up to the last max_bytes of a text file (decoded safely)."""
+    try:
+        with open(file_path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            end = f.tell()
+            start = max(0, end - max_bytes)
+            f.seek(start)
+            data = f.read()
+        return data.decode('utf-8', errors='ignore')
+    except OSError:
+        return ""
+
+
+def _find_latest_training_log(
+    project_id: str,
+    network_id: str,
+    job_uuid: str,
+    cache_ttl_seconds: int = 60,
+) -> Optional[str]:
+    """Locate the most relevant log file for a given NVFlare job.
+
+    Uses a short cache to avoid repeated directory walks.
+    """
+    cache_key = f"training_log_path_{project_id}_{network_id}_{job_uuid}"
+    cached_path = cache.get(cache_key)
+    if cached_path and os.path.exists(cached_path):
+        return cached_path
+
+    workspace_root = os.path.join('workspaces', project_id, network_id, 'workspace')
+    if not os.path.exists(workspace_root):
+        return None
+
+    latest_log = None
+    for root, dirs, files in os.walk(workspace_root):
+        # Prune obviously irrelevant/hidden directories.
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+
+        if job_uuid in root:
+            for cand in ('log_fl.txt', 'log.txt'):
+                if cand in files:
+                    latest_log = os.path.join(root, cand)
+                    break
+        if latest_log:
+            break
+
+    if latest_log and os.path.exists(latest_log):
+        cache.set(cache_key, latest_log, cache_ttl_seconds)
+        return latest_log
+
+    return None
 
 
 def get_user_project(request):
@@ -60,7 +115,14 @@ def format_duration(seconds):
 def get_training_progress_info(training_job, current_network):
     """
     Helper function to calculate progress, duration, and ETA for a training job.
+    Cached for 30 seconds to reduce filesystem overhead during active training.
     """
+    # Cache key based on job ID and status
+    cache_key = f'training_progress_{training_job.id}_{training_job.status}'
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
+    
     training_progress = 0
     training_status = training_job.status.title()
     is_training_running = False
@@ -79,6 +141,20 @@ def get_training_progress_info(training_job, current_network):
 
     if training_job.status == 'RUNNING':
         is_training_running = True
+
+        # Fast path: if Celery recently updated progress, use it.
+        have_cached_progress = False
+        try:
+            if training_job.progress_updated_at:
+                age = (timezone.now() - training_job.progress_updated_at).total_seconds()
+                if age <= 60 and training_job.progress_percent is not None:
+                    training_progress = int(training_job.progress_percent)
+                    if training_progress >= 100:
+                        training_progress = 99
+                    have_cached_progress = True
+        except Exception:
+            pass
+
         try:
             # STEP A: Find out how many rounds the user configured.
             total_rounds = 10
@@ -103,23 +179,50 @@ def get_training_progress_info(training_job, current_network):
                 str(current_network.identifier), 'workspace'
             )
             ended = False
-            for root, _, files in os.walk(workspace_dir):
-                if job_uuid in root:
-                    for fname in files:
-                        if fname.startswith('log') and fname.endswith('.txt'):
-                            fpath = os.path.join(root, fname)
-                            try:
-                                with open(fpath, 'r') as lf:
-                                    data = lf.read()
-                                    if ('ending workflow' in data and 'swarm_controller' in data) or \
-                                       ('child worker process finished with RC 0' in data):
-                                        ended = True
-                                    for m in re.finditer(r'finished training round (\d+)', data):
-                                        rnum = int(m.group(1))
-                                        if rnum > rounds_finished:
-                                            rounds_finished = rnum
-                            except OSError:
-                                continue
+
+            # If we already have a progress value from Celery, avoid doing expensive log work.
+            if have_cached_progress:
+                ended = False
+                rounds_finished = training_job.rounds_finished or 0
+            
+            # Prefer a direct log if we can find it; otherwise fall back to scanning.
+            preferred_log = _find_latest_training_log(
+                str(training_job.project.identifier),
+                str(current_network.identifier),
+                job_uuid,
+                cache_ttl_seconds=60,
+            )
+
+            round_re = re.compile(r'finished training round (\d+)')
+
+            def scan_log_tail(fpath: str) -> None:
+                nonlocal ended, rounds_finished
+                data = _tail_text(fpath)
+                if not data:
+                    return
+                if ('ending workflow' in data and 'swarm_controller' in data) or (
+                    'child worker process finished with RC 0' in data
+                ):
+                    ended = True
+                for m in round_re.finditer(data):
+                    rnum = int(m.group(1))
+                    if rnum > rounds_finished:
+                        rounds_finished = rnum
+
+            if not have_cached_progress:
+                if preferred_log and os.path.exists(preferred_log):
+                    scan_log_tail(preferred_log)
+                else:
+                    for root, dirs, files in os.walk(workspace_dir):
+                        dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+                        if job_uuid in root:
+                            for fname in files:
+                                if fname.startswith('log') and fname.endswith('.txt'):
+                                    scan_log_tail(os.path.join(root, fname))
+                                    if ended:
+                                        break
+                        if ended:
+                            break
 
             if ended:
                 training_progress = 100
@@ -129,7 +232,7 @@ def get_training_progress_info(training_job, current_network):
                     training_job.status = 'COMPLETED'
                     training_job.completed_at = timezone.now()
                     training_job.save()
-            elif total_rounds > 0:
+            elif not have_cached_progress and total_rounds > 0:
                 training_progress = min(99, int(rounds_finished * 100 / total_rounds))
         except Exception as e:
             logger.training.debug(f"Failed to calculate training progress: {e}")
@@ -157,13 +260,19 @@ def get_training_progress_info(training_job, current_network):
         duration_str = format_duration(elapsed)
         eta_str = "Finished"
 
-    return {
+    result = {
         "status": training_status,
         "progress": training_progress,
         "duration": duration_str,
         "eta": eta_str,
         "is_running": is_training_running
     }
+    
+    # Cache for 5 seconds (only cache if status is RUNNING for dynamic updates)
+    if training_job.status == 'RUNNING':
+        cache.set(cache_key, result, 5)
+    
+    return result
 
 
 @login_required
@@ -209,23 +318,17 @@ def training(request):
                     if match_uuid:
                         job_uuid = match_uuid.group(1)
 
-                workspace_root = os.path.join(
-                    'workspaces', str(training_job.project.identifier),
-                    str(current_network.identifier), 'workspace'
+                latest_log = _find_latest_training_log(
+                    str(training_job.project.identifier),
+                    str(current_network.identifier),
+                    job_uuid,
+                    cache_ttl_seconds=60,
                 )
-                latest_log = None
-                for root, _, files in os.walk(workspace_root):
-                    if job_uuid in root:
-                        for cand in ['log_fl.txt', 'log.txt']:
-                            if cand in files:
-                                latest_log = os.path.join(root, cand)
-                                break
-                    if latest_log:
-                        break
 
                 if latest_log and os.path.exists(latest_log):
-                    with open(latest_log, 'r') as lf:
-                        lines = lf.readlines()[-50:]
+                    # Tail-read to avoid loading huge logs into memory.
+                    tail = _tail_text(latest_log, max_bytes=256 * 1024)
+                    lines = tail.splitlines()[-50:]
                     for line in lines:
                         line = line.strip()
                         if not line: continue
@@ -295,28 +398,42 @@ def start_training(request, network_id):
     source_code_prefix = f"{project.identifier}/code/training/"
     try:
         download_s3_folder(settings.AWS_STORAGE_BUCKET_NAME, source_code_prefix, app_client_custom_dir)
+        log.training.info(f"Downloaded training code from S3: {source_code_prefix}")
     except Exception as e:
         log.training.error(f"Failed to download training code: {e}")
 
     flare_adapter_src = os.path.join(settings.BASE_DIR, 'apps', 'training', 'flare_adapter.py')
     shutil.copyfile(flare_adapter_src, os.path.join(app_client_custom_dir, 'flare_adapter.py'))
 
-    from apps.data.utils import get_internal_s3_download_url, list_s3_folder
+    from apps.data.utils import get_internal_s3_download_url, get_s3_client
 
-    def get_all_files(prefix):
-        folders, files = list_s3_folder(prefix)
-        all_files = files
-        for folder in folders:
-            all_files.extend(get_all_files(folder))
-        return all_files
-
+    # Build a manifest of project data files using an S3 paginator.
+    # This avoids recursive folder listing calls which become very slow for large datasets.
+    s3 = get_s3_client()
     root_data_prefix = f"{project.identifier}/data/"
-    project_files = get_all_files(root_data_prefix)
-    data_manifest = {}
-    for file_key in project_files:
-        rel_path = os.path.relpath(file_key, root_data_prefix)
-        data_manifest[rel_path] = get_internal_s3_download_url(file_key, expires=86400)
+    paginator = s3.get_paginator('list_objects_v2')
 
+    log.training.debug(f"Building data manifest for prefix: {root_data_prefix}")
+    data_manifest = {}
+    file_count = 0
+    for page in paginator.paginate(
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+        Prefix=root_data_prefix,
+    ):
+        for obj in page.get('Contents', []):
+            file_key = obj.get('Key')
+            if not file_key or file_key.endswith('/'):
+                continue
+
+            # Skip hidden files/dirs (e.g. .DS_Store, .ipynb_checkpoints)
+            rel_path = file_key[len(root_data_prefix):]
+            if not rel_path or any(part.startswith('.') for part in rel_path.split('/')):
+                continue
+
+            data_manifest[rel_path] = get_internal_s3_download_url(file_key, expires=86400)
+            file_count += 1
+
+    log.training.info(f"Data manifest built with {file_count} files.")
     manifest_path = os.path.join(app_client_custom_dir, 'data_manifest.json')
     with open(manifest_path, 'w') as f:
         json.dump(data_manifest, f, indent=2)
@@ -467,17 +584,29 @@ def training_logs_api(request):
             match_uuid = re.search(r'([0-9a-f-]{36})', job_uuid)
             if match_uuid: job_uuid = match_uuid.group(1)
 
-        workspace_root = os.path.join(
-            'workspaces', str(job.project.identifier),
-            str(current_network.identifier), 'workspace'
-        )
-        latest_log = None
-        for root, _, files in os.walk(workspace_root):
-            if job_uuid in root:
-                for cand in ('log_fl.txt', 'log.txt'):
-                    if cand in files:
-                        latest_log = os.path.join(root, cand)
-                        break
+        # Cache key for this specific job log path
+        cache_key = f"training_log_path_{job_uuid}"
+        latest_log = cache.get(cache_key)
+
+        # Verify if cached path still exists, else clear it
+        if latest_log and not os.path.exists(latest_log):
+            latest_log = None
+            cache.delete(cache_key)
+
+        # If not cached, find it via os.walk
+        if not latest_log:
+            workspace_root = os.path.join(
+                'workspaces', str(job.project.identifier),
+                str(current_network.identifier), 'workspace'
+            )
+            for root, _, files in os.walk(workspace_root):
+                if job_uuid in root:
+                    for cand in ('log_fl.txt', 'log.txt'):
+                        if cand in files:
+                            latest_log = os.path.join(root, cand)
+                            # Cache valid path for 60 seconds
+                            cache.set(cache_key, latest_log, 60)
+                            break
                 if latest_log: break
 
         if latest_log and os.path.exists(latest_log):

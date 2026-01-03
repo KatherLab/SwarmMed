@@ -61,6 +61,7 @@ urlpatterns = [
     # --- Legal & Privacy ---
     path('privacy-policy/', views.privacy_policy, name='privacy_policy'),
     path('terms-and-conditions/', views.terms_and_conditions, name='terms_and_conditions'),
+    path('accept-terms/', views.accept_terms, name='accept_terms'),
 
     # --- Admin User Management ---
     # List and search all users.

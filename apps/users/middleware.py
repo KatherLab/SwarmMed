@@ -66,3 +66,37 @@ class GDPRRestrictionMiddleware:
                     return render(request, 'errors/restricted.html', status=403)
 
         return self.get_response(request)
+
+
+class LegalAcceptanceMiddleware:
+    """
+    Middleware that ensures authenticated users have accepted the 
+    Terms and Conditions and Privacy Policy.
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.user.is_authenticated:
+            # List of URLs that don't require legal acceptance check
+            # to avoid redirect loops and allow the user to actually accept or sign out.
+            exempt_urls = [
+                reverse('users:accept_terms'),
+                reverse('users:signout'),
+                reverse('terms'),
+                reverse('privacy'),
+                reverse('license'),
+                reverse('imprint'),
+                reverse('contact'),
+            ]
+            
+            # Also exempt static and media files
+            if request.path.startswith('/static/') or request.path.startswith('/media/'):
+                return self.get_response(request)
+
+            if request.path not in exempt_urls:
+                profile = getattr(request.user, 'profile', None)
+                if profile and (not profile.accepted_terms or not profile.accepted_policy):
+                    return redirect('users:accept_terms')
+
+        return self.get_response(request)

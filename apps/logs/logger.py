@@ -76,6 +76,7 @@ def log(level, message, category='project', user=None, project=None, **extra):
 
     # Pop special keys that should not go into context_data
     exc_info = log_extra.pop('exc_info', None)
+    object_id = log_extra.pop('object_id', None)
 
     # Inject IDs into the record so the DatabaseLogHandler can find them
     if final_user:
@@ -88,8 +89,11 @@ def log(level, message, category='project', user=None, project=None, **extra):
         else:
             log_extra['project_id'] = str(final_project)
 
+    if object_id:
+        log_extra['object_id'] = str(object_id)
+
     log_extra['category'] = category
-    log_extra['context_data'] = extra
+    log_extra['context_data'] = log_extra.copy()
 
     # Trigger the underlying logging call
     log_func = getattr(_logger, level.lower())
@@ -107,25 +111,25 @@ class CategoryLogger:
         self.user = user
         self.project_obj = project
 
-    def info(self, message, **kwargs):
+    def info(self, message, user=None, project=None, **kwargs):
         log('INFO', message, category=self.category,
-            user=self.user, project=self.project_obj, **kwargs)
+            user=user or self.user, project=project or self.project_obj, **kwargs)
 
-    def error(self, message, **kwargs):
+    def error(self, message, user=None, project=None, **kwargs):
         log('ERROR', message, category=self.category,
-            user=self.user, project=self.project_obj, **kwargs)
+            user=user or self.user, project=project or self.project_obj, **kwargs)
 
-    def warning(self, message, **kwargs):
+    def warning(self, message, user=None, project=None, **kwargs):
         log('WARNING', message, category=self.category,
-            user=self.user, project=self.project_obj, **kwargs)
+            user=user or self.user, project=project or self.project_obj, **kwargs)
 
-    def debug(self, message, **kwargs):
+    def debug(self, message, user=None, project=None, **kwargs):
         log('DEBUG', message, category=self.category,
-            user=self.user, project=self.project_obj, **kwargs)
+            user=user or self.user, project=project or self.project_obj, **kwargs)
 
-    def critical(self, message, **kwargs):
+    def critical(self, message, user=None, project=None, **kwargs):
         log('CRITICAL', message, category=self.category,
-            user=self.user, project=self.project_obj, **kwargs)
+            user=user or self.user, project=project or self.project_obj, **kwargs)
 
 
 class Logger:
@@ -137,6 +141,15 @@ class Logger:
     def __init__(self, user=None, project=None):
         self.user_obj = user
         self.project_obj = project
+
+    def log(self, level, message, category='project', user=None, project=None, **kwargs):
+        """
+        Generic log method that allows specifying a category string.
+        """
+        log(level, message, category=category,
+            user=user or self.user_obj,
+            project=project or self.project_obj,
+            **kwargs)
 
     @property
     def project(self):

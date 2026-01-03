@@ -45,7 +45,18 @@ class LogSigningKey(models.Model):
     def get_active_key(cls):
         """
         Retrieves the currently active signing key or creates one if none exists.
+        Uses Django cache to avoid repeated database lookups.
         """
+        from django.core.cache import cache
+        cache_key = 'active_log_signing_key_id'
+        key_id = cache.get(cache_key)
+        
+        if key_id:
+            try:
+                return cls.objects.get(id=key_id)
+            except cls.DoesNotExist:
+                pass
+
         active_key = cls.objects.filter(is_active=True).first()
         if not active_key:
             import secrets
@@ -53,6 +64,9 @@ class LogSigningKey(models.Model):
             alphabet = string.ascii_letters + string.digits
             new_key = "".join(secrets.choice(alphabet) for _ in range(64))
             active_key = cls.objects.create(key=new_key)
+        
+        # Cache the key ID for 1 hour to reduce DB load
+        cache.set(cache_key, active_key.id, 3600)
         return active_key
 
 
@@ -103,6 +117,9 @@ class LogEntry(models.Model):
 
     # Severity level (e.g., INFO, WARNING, ERROR, CRITICAL)
     level = models.CharField(max_length=10, default='INFO')
+
+    # Where the log originated (e.g., 'web', 'celery', or a specific container name)
+    source = models.CharField(max_length=100, default='web')
 
     # The actual log message (Encrypted)
     message = EncryptedTextField()

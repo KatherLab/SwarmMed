@@ -4,7 +4,9 @@ These functions make certain data available globally in all templates
 without having to pass them explicitly in every view.
 """
 
-from django.db.models import Q
+from django.core.cache import cache
+from django.db.models import Q, Count, OuterRef, Subquery, F
+from django.db.models.functions import Coalesce
 from .models import Message, ProjectPost, ProjectBoardAccess
 from apps.project.models import Project
 
@@ -21,6 +23,12 @@ def unread_messages(request):
         return {'unread_message_count': 0}
 
     user = request.user
+    cache_key = f'unread_messages_count_{user.id}'
+
+    # Try to get from cache
+    total_count = cache.get(cache_key)
+    if total_count is not None:
+        return {'unread_message_count': total_count}
 
     # 1. Direct Messages Count
     # We count messages where the current user is the recipient and 'is_read'
@@ -34,33 +42,37 @@ def unread_messages(request):
         Q(author=user) | Q(members=user)
     ).distinct()
 
-    board_unread_count = 0
+    # Subquery for the user's last access time to each project board
+    last_access_subquery = ProjectBoardAccess.objects.filter(
+        user=user,
+        project=OuterRef('pk')
+    ).values('last_accessed')[:1]
 
-    for project in user_projects:
-        try:
-            # Check when the user last accessed this project's board
-            access_log = ProjectBoardAccess.objects.get(
-                user=user, project=project)
-            last_accessed = access_log.last_accessed
-        except ProjectBoardAccess.DoesNotExist:
-            # If they have never accessed it, we consider all posts as
-            # new/unread
-            last_accessed = None
+    # Calculate unread posts per project in a single query
+    # Logic:
+    # - If last_accessed exists: count posts where timestamp > last_accessed
+    # - If last_accessed is null: count all posts
+    
+    projects_with_counts = user_projects.annotate(
+        last_accessed_val=Subquery(last_access_subquery)
+    ).annotate(
+        unread_count=Count(
+            'posts',
+            filter=Q(
+                posts__timestamp__gt=F('last_accessed_val')
+            ) | Q(
+                last_accessed_val__isnull=True
+            )
+        )
+    )
 
-        if last_accessed:
-            # Count posts created after the user's last access time
-            count = ProjectPost.objects.filter(
-                project=project,
-                timestamp__gt=last_accessed
-            ).count()
-        else:
-            # Count all posts in the project if the user has never clicked on
-            # the board
-            count = ProjectPost.objects.filter(project=project).count()
-
-        board_unread_count += count
+    # Sum up the unread counts from all projects
+    board_unread_count = sum(p.unread_count for p in projects_with_counts)
 
     # Combine both counts for the final notification badge number
     total_count = dm_count + board_unread_count
+    
+    # Cache the result for 5 minutes (300 seconds)
+    cache.set(cache_key, total_count, 300)
 
     return {'unread_message_count': total_count}

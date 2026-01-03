@@ -41,45 +41,42 @@ def purge_expired_data():
     security_retention_days = settings.SECURITY_LOG_RETENTION_DAYS
     security_cutoff = timezone.now() - timedelta(days=security_retention_days)
 
-    # 1. Purge Validation Runs
-    validation_runs = ValidationRun.objects.filter(created_at__lt=cutoff_date)
-    val_count = validation_runs.count()
-    validation_runs.delete()  # Cascade deletes ValidationCheck
+    # 1. Purge Validation Runs (Bulk delete is safe, signals/cascades will run)
+    val_count, _ = ValidationRun.objects.filter(created_at__lt=cutoff_date).delete()
 
     # 2. Purge Visualization Runs
-    visualization_runs = VisualizationRun.objects.filter(created_at__lt=cutoff_date)
-    viz_count = visualization_runs.count()
-    visualization_runs.delete()  # Cascade deletes VisualizationPlot
+    viz_count, _ = VisualizationRun.objects.filter(created_at__lt=cutoff_date).delete()
 
     # 3. Purge Training Results
-    training_results = TrainingResult.objects.filter(created_at__lt=cutoff_date)
+    # We need to handle file cleanup. 
+    # Optimization: Fetch only necessary fields to reduce memory usage.
+    training_results = TrainingResult.objects.filter(created_at__lt=cutoff_date).only('file_path', 'id')
     res_count = training_results.count()
-    # Explicitly delete associated files in storage
-    for res in training_results:
+    
+    for res in training_results.iterator():
         if res.file_path:
             try:
-                if default_storage.exists(res.file_path):
-                    default_storage.delete(res.file_path)
+                # Avoid extra network calls: delete() is typically idempotent.
+                default_storage.delete(res.file_path)
             except Exception as e:
                  # Log error but continue purging other records
                  pass
-    training_results.delete()
+    
+    # Bulk delete the records after file cleanup
+    TrainingResult.objects.filter(created_at__lt=cutoff_date).delete()
 
     # 4. Purge Results Visualization Runs
-    res_viz_runs = ResultsVisualizationRun.objects.filter(created_at__lt=cutoff_date)
-    res_viz_count = res_viz_runs.count()
-    res_viz_runs.delete()
+    res_viz_count, _ = ResultsVisualizationRun.objects.filter(created_at__lt=cutoff_date).delete()
 
     # 5. Purge Training Jobs
-    training_jobs = TrainingJob.objects.filter(created_at__lt=cutoff_date)
-    job_count = training_jobs.count()
-    training_jobs.delete()
+    job_count, _ = TrainingJob.objects.filter(created_at__lt=cutoff_date).delete()
 
     # 6. Purge Swarm Networks
+    # These models likely have custom delete logic (e.g. stopping containers).
+    # We must iterate and call .delete() on each instance.
     swarm_networks = SwarmNetwork.objects.filter(created_at__lt=cutoff_date)
     net_count = swarm_networks.count()
-    # Using a loop to ensure the custom delete() method is called for filesystem cleanup
-    for net in swarm_networks:
+    for net in swarm_networks.iterator():
         net.delete()
 
     # 7. Purge Audit Logs
@@ -89,13 +86,16 @@ def purge_expired_data():
     standard_categories = [LogCategory.AUTH, LogCategory.ACCESS, LogCategory.PROJECT]
     hipaa_categories = [LogCategory.DATA, LogCategory.TRAINING, LogCategory.RESULTS, LogCategory.NETWORK]
     
-    standard_logs = LogEntry.objects.filter(category__in=standard_categories, timestamp__lt=security_cutoff)
-    standard_log_count = standard_logs.count()
-    standard_logs.delete()
+    # Bulk delete for logs is highly efficient and recommended
+    standard_log_count, _ = LogEntry.objects.filter(
+        category__in=standard_categories, 
+        timestamp__lt=security_cutoff
+    ).delete()
     
-    hipaa_logs = LogEntry.objects.filter(category__in=hipaa_categories, timestamp__lt=cutoff_date)
-    hipaa_log_count = hipaa_logs.count()
-    hipaa_logs.delete()
+    hipaa_log_count, _ = LogEntry.objects.filter(
+        category__in=hipaa_categories, 
+        timestamp__lt=cutoff_date
+    ).delete()
 
     return {
         "validation_runs_purged": val_count,

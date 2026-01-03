@@ -122,6 +122,29 @@ class SignupForm(UserCreationForm):
         return user
 
 
+class AdminAddUserForm(UserCreationForm):
+    """Form used by admins to add new users without requiring legal agreement at creation."""
+
+    role = forms.ChoiceField(
+        choices=ROLE_CHOICES,
+        required=True,
+        widget=forms.Select(attrs={'class': AUTH_INPUT_CLASSES})
+    )
+
+    class Meta:
+        """Meta configuration for AdminAddUserForm."""
+        model = User
+        fields = ('username', 'first_name', 'last_name', 'email',)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name, field in self.fields.items():
+            if not field.widget.attrs.get('placeholder'):
+                field.widget.attrs['placeholder'] = field.label
+            field.widget.attrs['class'] = AUTH_INPUT_CLASSES
+            field.widget.attrs['required'] = True
+
+
 class UserUpdateForm(forms.ModelForm):
     """Form used by admins to update basic user information."""
 

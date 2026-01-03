@@ -10,7 +10,7 @@ import re
 
 from django.contrib.auth.decorators import login_required
 from django.db import models
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 
 from apps.data.utils import format_size, get_storage_stats
 from apps.network.models import (

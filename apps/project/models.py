@@ -9,8 +9,11 @@ import uuid
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.core.files.storage import default_storage
 from django.db import models
+from django.db.models.signals import post_save, post_delete, m2m_changed
+from django.dispatch import receiver
 
 # Import local utility functions for generating dynamic file paths
 from .utils import (
@@ -64,7 +67,7 @@ class Project(models.Model):
     )
 
     # Automatically set to the current date when the project is first created.
-    creation_date = models.DateField(auto_now_add=True)
+    creation_date = models.DateField(auto_now_add=True, db_index=True)
 
     # Optional detailed description of the project's purpose.
     description = models.TextField(blank=True)
@@ -73,7 +76,8 @@ class Project(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='IN_PROGRESS'
+        default='IN_PROGRESS',
+        db_index=True
     )
 
     # File fields for different types of scripts required by the platform.
@@ -83,6 +87,7 @@ class Project(models.Model):
     # Python code that performs the actual training of the model.
     training_code = models.FileField(
         upload_to=training_code_path,
+        max_length=512,
         blank=True,
         null=True
     )
@@ -90,6 +95,7 @@ class Project(models.Model):
     # requirements.txt file listing the dependencies for the training code.
     requirements_file = models.FileField(
         upload_to=requirements_path,
+        max_length=512,
         blank=True,
         null=True
     )
@@ -97,6 +103,7 @@ class Project(models.Model):
     # Script for validating the format and quality of user-provided data.
     data_validation_script = models.FileField(
         upload_to=data_validation_path,
+        max_length=512,
         blank=True,
         null=True
     )
@@ -104,6 +111,7 @@ class Project(models.Model):
     # Script for visualizing the training dataset.
     data_visualization_script = models.FileField(
         upload_to=data_visualization_path,
+        max_length=512,
         blank=True,
         null=True
     )
@@ -111,6 +119,7 @@ class Project(models.Model):
     # Script for visualizing the final training results (e.g., loss curves).
     results_visualization_script = models.FileField(
         upload_to=results_visualization_path,
+        max_length=512,
         blank=True,
         null=True
     )
@@ -127,8 +136,10 @@ class Project(models.Model):
         """
         Custom save method to handle automatic cleanup of old files.
         If a user replaces an old file with a new one, we delete the old file
-        from the storage to prevent orphan files taking up space.
+        from the storage asynchronously to prevent blocking the web request.
         """
+        from .tasks import cleanup_project_files
+
         # If self.pk exists, it means we are updating an existing project.
         if self.pk:
             try:
@@ -136,10 +147,10 @@ class Project(models.Model):
                 # database
                 old_instance = Project.objects.get(pk=self.pk)
 
-                def replace_file_and_cleanup(old_file, new_file, subfolder):
+                def trigger_cleanup(old_file, new_file, subfolder):
                     """
-                    Helper function to detect file changes and delete the
-                    entire subfolder of the old file to avoid clutter.
+                    Helper function to detect file changes and trigger
+                    background deletion of the old folder.
                     """
                     # Check if an old file exists and is being replaced by a
                     # different file.
@@ -149,53 +160,32 @@ class Project(models.Model):
                         # specific script type.
                         folder_path = os.path.join(
                             str(self.identifier), subfolder)
-
-                        # Handle deletion differently depending on where files
-                        # are stored.
-                        if hasattr(default_storage, 'bucket'):
-                            # Using Amazon S3 storage (via django-storages).
-                            prefix = folder_path
-                            s3_objects = default_storage.bucket.objects.filter(
-                                Prefix=prefix
-                            )
-                            s3_objects.delete()
-                        else:
-                            # Using standard local filesystem storage.
-                            full_path = os.path.join(
-                                settings.MEDIA_ROOT, folder_path)
-                            if os.path.exists(full_path):
-                                # Delete the entire folder and its contents.
-                                shutil.rmtree(full_path)
-                                # Re-create the folder so it's ready for the
-                                # new file.
-                                os.makedirs(full_path, exist_ok=True)
-
-                        # Explicitly remove the old file's reference from the
-                        # storage backend.
-                        old_file.delete(save=False)
+                        
+                        # Trigger background task for deletion
+                        cleanup_project_files.delay(folder_path)
 
                 # Check each file field and trigger cleanup if it has changed.
-                replace_file_and_cleanup(
+                trigger_cleanup(
                     old_instance.training_code,
                     self.training_code,
                     'code/training/'
                 )
-                replace_file_and_cleanup(
+                trigger_cleanup(
                     old_instance.requirements_file,
                     self.requirements_file,
                     'code/requirements/'
                 )
-                replace_file_and_cleanup(
+                trigger_cleanup(
                     old_instance.data_validation_script,
                     self.data_validation_script,
                     'code/data_validation/'
                 )
-                replace_file_and_cleanup(
+                trigger_cleanup(
                     old_instance.data_visualization_script,
                     self.data_visualization_script,
                     'code/data_visualization/'
                 )
-                replace_file_and_cleanup(
+                trigger_cleanup(
                     old_instance.results_visualization_script,
                     self.results_visualization_script,
                     'code/results_visualization/'
@@ -214,12 +204,10 @@ class Project(models.Model):
         Custom delete method to ensure all files associated with
         the project are removed from storage when the database record is deleted.
         """
-        # If using S3 storage, delete all objects that start with this
-        # project's UUID.
-        if hasattr(default_storage, 'bucket'):
-            prefix = f"{str(self.identifier)}/"
-            s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)
-            s3_objects.delete()
+        from .tasks import delete_all_project_files
+        
+        # Trigger background task for full cleanup
+        delete_all_project_files.delay(str(self.identifier))
 
         # Call the standard Django delete operation to remove the database
         # record.
@@ -258,3 +246,31 @@ class UserCurrentProject(models.Model):
         """Returns string representation of the relation for the admin interface."""
         project_title = self.project.title if self.project else "None"
         return f"{self.user.username}'s active project: {project_title}"
+
+
+# Cache invalidation signals
+@receiver([post_save, post_delete], sender=Project)
+def invalidate_project_cache(sender, instance, **kwargs):
+    """Invalidate project list cache when projects are created, updated, or deleted."""
+    # Clear cache for project author
+    cache.delete(f'project_list_{instance.author.id}')
+    # Clear cache for all members
+    for member in instance.members.all():
+        cache.delete(f'project_list_{member.id}')
+
+
+@receiver(m2m_changed, sender=Project.members.through)
+def invalidate_project_cache_on_member_change(sender, instance, action, **kwargs):
+    """Invalidate cache when project members are added or removed."""
+    if action in ['post_add', 'post_remove', 'post_clear']:
+        # Clear cache for project author
+        cache.delete(f'project_list_{instance.author.id}')
+        # Clear cache for all current members
+        for member in instance.members.all():
+            cache.delete(f'project_list_{member.id}')
+
+
+@receiver([post_save, post_delete], sender=UserCurrentProject)
+def invalidate_project_list_on_current_change(sender, instance, **kwargs):
+    """Invalidate project list cache when a user's current project changes."""
+    cache.delete(f'project_list_{instance.user.id}')

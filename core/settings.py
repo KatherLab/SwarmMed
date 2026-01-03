@@ -8,6 +8,7 @@ import os
 import secrets
 import string
 from pathlib import Path
+from urllib.parse import urlparse
 
 from django.contrib import messages
 from dotenv import load_dotenv
@@ -104,9 +105,11 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.logs.context.RequestContextMiddleware",  # Custom context logging.
+    "apps.logs.middleware.AuditLogMiddleware",      # Audit logging for write requests.
     "axes.middleware.AxesMiddleware",  # Brute-force protection
     "apps.users.middleware.MFAEnforcementMiddleware",  # Strict MFA enforcement
     "apps.users.middleware.GDPRRestrictionMiddleware",  # GDPR Right to Restriction
+    "apps.users.middleware.LegalAcceptanceMiddleware",  # Ensure legal terms are accepted
 ]
 
 if DEBUG:
@@ -126,7 +129,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [UI_TEMPLATES],
-        "APP_DIRS": True,
+        "APP_DIRS": False,
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.debug",
@@ -135,6 +138,16 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # Custom context processor for unread message counts.
                 "apps.communication.context_processors.unread_messages",
+            ],
+            # Enable cached template loader in production for performance
+            "loaders": [
+                ("django.template.loaders.cached.Loader", [
+                    "django.template.loaders.filesystem.Loader",
+                    "django.template.loaders.app_directories.Loader",
+                ]),
+            ] if not DEBUG else [
+                "django.template.loaders.filesystem.Loader",
+                "django.template.loaders.app_directories.Loader",
             ],
         },
     },
@@ -154,12 +167,51 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASS"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
+        "CONN_MAX_AGE": 600,  # Persistent connections (10 mins)
+        "CONN_HEALTH_CHECKS": True,  # Validate connections before reuse
         "OPTIONS": {
             "sslmode": "verify-full" if not DEBUG else "require",
             "sslrootcert": "/usr/local/share/ca-certificates/internal-ca.crt",
         },
     },
 }
+
+# --- Caching Configuration ---
+
+# Configures Redis connection parameters used by CACHES and Celery.
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
+if not REDIS_PASSWORD and not DEBUG:
+    raise ValueError("REDIS_PASSWORD MUST be set in environment when DEBUG is False.")
+
+# For development only: permit an empty password locally but do not
+# overwrite a missing production secret.
+if DEBUG:
+    REDIS_PASSWORD = REDIS_PASSWORD or ""
+
+REDIS_HOST = "redis"
+REDIS_PORT = 6379
+CA_CERT_PATH = "/usr/local/share/ca-certificates/internal-ca.crt"
+
+# Configures Django to use Redis for caching.
+# This improves performance for frequently accessed data and sessions.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.environ.get(
+            "REDIS_CACHE_URL",
+            f"rediss://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1?ssl_cert_reqs=required&ssl_ca_certs={CA_CERT_PATH}"
+        ),
+        "TIMEOUT": 300,  # Default cache timeout: 5 minutes
+        "OPTIONS": {
+        },
+    }
+}
+
+# --- Session Management ---
+
+# Store sessions in the cache instead of the database for better performance.
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "default"
 
 # --- Password Validation ---
 
@@ -286,7 +338,7 @@ if DEBUG:
 AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "swarmcloud")
 AWS_S3_ENDPOINT_URL = os.environ.get("AWS_S3_ENDPOINT_URL", "https://minio:9000")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://localhost:9000")
-AWS_S3_CUSTOM_DOMAIN = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}"
+AWS_S3_CUSTOM_DOMAIN = f"{urlparse(PUBLIC_URL).netloc}/{AWS_STORAGE_BUCKET_NAME}"
 AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "eu-central-1")
 AWS_S3_ADDRESSING_STYLE = "path"
 AWS_S3_SIGNATURE_VERSION = "s3v4"
@@ -359,6 +411,8 @@ CELERY_TIMEZONE = "UTC"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes.
 CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_POOL_LIMIT = 10  # Limit Redis connection pool size
 
 # Automation Schedule (Celery Beat)
 from celery.schedules import crontab
@@ -379,6 +433,10 @@ CELERY_BEAT_SCHEDULE = {
     'hourly-emergency-access-cleanup': {
         'task': 'apps.logs.tasks.revoke_emergency_access',
         'schedule': crontab(minute=0),  # Every hour
+    },
+    'monitor-training-jobs': {
+        'task': 'apps.training.tasks.monitor_training_jobs',
+        'schedule': 30.0,  # Every 30 seconds
     },
 }
 

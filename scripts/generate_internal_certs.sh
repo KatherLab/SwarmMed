@@ -34,10 +34,16 @@ EOT
 generate_cert "minio" "minio"
 generate_cert "redis" "redis"
 generate_cert "postgres" "postgres"
+generate_cert "pgbouncer" "pgbouncer"
+generate_cert "webapp" "localhost"
 
 # Redis needs a combined cert/key sometimes, or specific permissions
 chmod 644 $CERT_DIR/*.crt
 chmod 600 $CERT_DIR/*.key
+
+# Copy webapp certs to the main certs directory for Nginx
+cp $CERT_DIR/webapp.crt certs/selfsigned.crt
+cp $CERT_DIR/webapp.key certs/selfsigned.key
 
 # Minio expects certs in a specific structure if mounted to /root/.minio/certs
 mkdir -p $CERT_DIR/minio_certs/CAs

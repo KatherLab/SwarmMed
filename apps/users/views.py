@@ -28,6 +28,7 @@ from apps.users.forms import (
     ProfileForm,
     SigninForm,
     SignupForm,
+    AdminAddUserForm,
     UserPasswordChangeForm,
     UserPasswordResetForm,
     UserSetPasswordForm,
@@ -165,7 +166,9 @@ def user_list(request):
     users_queryset = User.objects.filter(**filters).order_by("username")
 
     # Empty form for creating new users.
-    form = SignupForm()
+    form = AdminAddUserForm()
+    form_errors = False
+    password_error_id = request.GET.get('password_error')
 
     # Set up pagination (5 users per page).
     page_number = request.GET.get("page", 1)
@@ -174,21 +177,24 @@ def user_list(request):
 
     if request.method == "POST":
         # Handle new user creation from the admin panel.
-        form = SignupForm(request.POST)
+        form = AdminAddUserForm(request.POST)
         if form.is_valid():
             new_user = form.save()
             # Manually set the role from the form's cleaned data.
             new_user.profile.role = form.cleaned_data["role"]
             new_user.profile.save()
             messages.success(request, f"User {new_user.username} created successfully.")
-            return redirect(get_safe_referer(request))
+            return redirect(reverse("users:user_list"))
         else:
+            form_errors = True
             messages.error(request, "Error creating user. Please check the form for details.")
 
     context = {
         "segment": "users",
         "users": users_page,
         "form": form,
+        "form_errors": form_errors,
+        "password_error_id": password_error_id,
     }
     return render(request, "apps/users.html", context)
 
@@ -199,6 +205,10 @@ def delete_user(request, id):
     user_to_delete = get_object_or_404(User, id=id)
     # Anonymize logs before deletion to comply with GDPR
     anonymize_user_data(user_to_delete)
+    
+    log = logger.get_logger()
+    log.access.warning(f"ADMIN {request.user.username} DELETED user account: {user_to_delete.username}", target_user=user_to_delete.username)
+    
     user_to_delete.delete()
     return redirect(get_safe_referer(request))
 
@@ -216,6 +226,10 @@ def update_user(request, id):
             updated_user.profile.role = form.cleaned_data["role"]
             updated_user.profile.save()
             messages.success(request, "User updated successfully")
+            return redirect(reverse("users:user_list"))
+        else:
+            messages.error(request, "Error updating user.")
+            return redirect(reverse("users:user_list") + f"?update_error={id}")
 
     return redirect(get_safe_referer(request))
 
@@ -241,9 +255,14 @@ def user_change_password(request, id):
                 messages.success(
                     request, f"Password updated for {user_to_change.username}"
                 )
+                return redirect(reverse("users:user_list"))
             except ValidationError as e:
                 for error in e.messages:
-                    messages.error(request, error)
+                    messages.error(request, error, extra_tags='password_error')
+                return redirect(reverse("users:user_list") + f"?password_error={id}")
+        else:
+            messages.error(request, "Password cannot be empty.", extra_tags='password_error')
+            return redirect(reverse("users:user_list") + f"?password_error={id}")
 
     # Return redirect with referer check
     return redirect(get_safe_referer(request))
@@ -305,6 +324,51 @@ def terms_and_conditions(request):
     return render(request, "pages/terms.html", {"segment": "terms"})
 
 
+@login_required
+def accept_terms(request):
+    """
+    Forces users to accept Terms and Privacy Policy before accessing the dashboard.
+    """
+    profile = request.user.profile
+    
+    # If already accepted, redirect to dashboard
+    if profile.accepted_terms and profile.accepted_policy:
+        return redirect('home:dashboard')
+        
+    if request.method == "POST":
+        accept_terms = request.POST.get('accept_terms') == 'on'
+        accept_privacy = request.POST.get('accept_privacy') == 'on'
+        
+        if accept_terms and accept_privacy:
+            from django.utils import timezone
+            profile.accepted_terms = True
+            profile.accepted_terms_date = timezone.now()
+            profile.accepted_policy = True
+            profile.accepted_policy_date = timezone.now()
+            profile.save()
+            messages.success(request, "Thank you for accepting our legal terms.")
+            return redirect('home:dashboard')
+        else:
+            messages.error(request, "You must accept both documents to continue.")
+            
+    return render(request, "pages/accept_terms.html")
+
+
+def license(request):
+    """Displays the license page."""
+    return render(request, "pages/license.html", {"segment": "license"})
+
+
+def imprint(request):
+    """Displays the imprint page."""
+    return render(request, "pages/imprint.html", {"segment": "imprint"})
+
+
+def contact(request):
+    """Displays the contact page."""
+    return render(request, "pages/contact.html", {"segment": "contact"})
+
+
 import json
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
@@ -315,7 +379,8 @@ def cleanup_user_resources(user):
     Cleans up external resources (like S3/MinIO objects) associated with the user.
     """
     # Delete S3 objects for each project authored by the user
-    for project in user.created_projects.all():
+    # Optimize with select_related to avoid N+1 queries
+    for project in user.created_projects.select_related('author').all():
         if hasattr(default_storage, 'bucket'):
             prefix = f"{str(project.identifier)}/"
             s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)
@@ -339,6 +404,10 @@ def delete_own_account(request):
         anonymize_user_data(user)
         # Cleanup resources before deleting user record (cascades will handle DB rows)
         cleanup_user_resources(user)
+        
+        log = logger.get_logger()
+        log.access.warning(f"User {user.username} DELETED their own account.")
+        
         logout(request)
         user.delete()
         messages.success(request, "Your account has been successfully deleted.")
@@ -377,6 +446,9 @@ def export_user_data(request):
     user = request.user
     profile = user.profile
     
+    log = logger.get_logger()
+    log.access.info(f"User {user.username} EXPORTED their personal data (GDPR Portability).")
+    
     # Base user and profile data
     data = {
         "user": {
@@ -407,8 +479,9 @@ def export_user_data(request):
     }
 
     # Add Logs with Redaction
+    # Optimize query with select_related for related fields
     user_logs = []
-    for entry in user.log_entries.all():
+    for entry in user.log_entries.select_related('project', 'swarm_network', 'signing_key').all():
         log_data = {
             "id": str(entry.id),
             "category": entry.category,
@@ -445,7 +518,14 @@ def export_user_data(request):
     data["logs"] = user_logs
 
     # Add Projects (where author)
-    projects = user.created_projects.all()
+    # Optimize with prefetch_related for M2M relationships and select_related for FK
+    projects = user.created_projects.select_related('author').prefetch_related(
+        'members',
+        'validation_runs',
+        'visualization_runs',
+        'training_jobs',
+        'swarm_networks'
+    ).all()
     data["authored_projects"] = []
     for project in projects:
         project_data = {
@@ -480,8 +560,9 @@ def export_user_data(request):
     ))
 
     # Add Swarm Network Participation
+    # Optimize with select_related for related network and project
     data["swarm_participations"] = []
-    for part in user.swarm_participations.all():
+    for part in user.swarm_participations.select_related('network__project', 'user').all():
         data["swarm_participations"].append({
             "network_name": part.network.name,
             "role": part.role,

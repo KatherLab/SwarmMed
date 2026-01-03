@@ -61,7 +61,8 @@ class SwarmNetwork(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='INITIALIZING'
+        default='INITIALIZING',
+        db_index=True
     )
 
     # Unique identifier used for file path generation and API calls
@@ -83,76 +84,36 @@ class SwarmNetwork(models.Model):
         """
         Custom delete method to ensure associated Docker resources
         and filesystem directories are cleaned up.
+        
+        If the network is running, it transitions to STOPPING and
+        triggers an async task to stop and then delete the record.
         """
-        # 1. If the network is running, stop and remove containers
-        if self.status == 'RUNNING':
-            project_name = self.project.title.replace(' ', '_')
-            provision_dir = os.path.join(
-                settings.BASE_DIR,
-                'workspaces',
-                str(self.project.identifier),
-                str(self.identifier)
-            )
-            compose_dir = os.path.join(
-                provision_dir,
-                'workspace',
-                project_name,
-                'prod_00'
-            )
-            compose_file_path = os.path.join(compose_dir, 'compose.yaml')
+        from .tasks import cleanup_network_resources, stop_and_delete_network_task
+        
+        # If the network is in a state where it might be running,
+        # we don't delete the DB record immediately.
+        # Instead, we transition to STOPPING and let the task handle it.
+        if self.status in ['RUNNING', 'STARTING', 'STOPPING', 'ERROR']:
+            # Avoid re-triggering if already stopping
+            if self.status != 'STOPPING':
+                self.status = 'STOPPING'
+                self.save(update_fields=['status'])
+            
+            stop_and_delete_network_task.delay(str(self.identifier))
+            return
 
-            if os.path.exists(compose_file_path):
-                # Handle path mapping if running inside a container (e.g.,
-                # Docker-in-Docker)
-                host_project_path = os.getenv('HOST_PROJECT_PATH')
-                if host_project_path:
-                    with open(compose_file_path, 'r') as f:
-                        compose_content = f.read()
-
-                    relative_compose_dir = os.path.relpath(
-                        compose_dir,
-                        settings.BASE_DIR
-                    )
-                    host_compose_dir = os.path.join(
-                        host_project_path,
-                        relative_compose_dir
-                    )
-
-                    # Update paths to point to host machine directories
-                    mappings = {
-                        'build: ./nvflare': f'build: {os.path.join(host_compose_dir, "nvflare")}',
-                        './fl-client': os.path.join(host_compose_dir, 'fl-client'),
-                        './server': os.path.join(host_compose_dir, 'server'),
-                        './overseer': os.path.join(host_compose_dir, 'overseer'),
-                    }
-                    for old, new in mappings.items():
-                        compose_content = compose_content.replace(old, new)
-
-                    with open(compose_file_path, 'w') as f:
-                        f.write(compose_content)
-
-                # Stop and remove containers via docker-compose
-                docker_compose_path = shutil.which('docker-compose') or 'docker-compose'
-                try:
-                    subprocess.run(  # nosec B603
-                        [docker_compose_path, '-f', 'compose.yaml', 'down'],
-                        cwd=compose_dir,
-                        check=False
-                    )
-                except Exception as e:
-                    logger.network.error(f"Failed to stop Docker containers for network {self.name}: {e}")
-
-        # 2. Clean up the provisioning directory on the filesystem
-        provision_dir = os.path.join(
-            'workspaces',
-            str(self.project.identifier),
-            str(self.identifier)
+        # For other states (INITIALIZING, PROVISIONED, STOPPED), 
+        # trigger async cleanup of any files and delete immediately.
+        cleanup_network_resources.delay(
+            project_title=self.project.title,
+            project_identifier=str(self.project.identifier),
+            network_identifier=str(self.identifier),
+            network_name=self.name
         )
-        if os.path.exists(provision_dir):
-            shutil.rmtree(provision_dir)
 
-        # 3. Call the parent class delete method to remove the database record
+        # Call the parent class delete method to remove the database record
         super().delete(*args, **kwargs)
+
 
 
 class SwarmParticipant(models.Model):
@@ -190,6 +151,11 @@ class SwarmParticipant(models.Model):
     class Meta:
         # Ensure that participant IDs are unique within a specific network
         unique_together = ('network', 'participant_id')
+        indexes = [
+            # Optimize lookups by user across networks
+            models.Index(fields=['user', 'network']),
+            models.Index(fields=['network', 'role']),
+        ]
 
     def __str__(self):
         """Returns a string representation of the participant."""

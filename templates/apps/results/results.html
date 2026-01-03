@@ -98,9 +98,7 @@
   </div>
 </section>
 
-
     
-      {% if selected_job_details %}
       <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800" id="visualization">
         <!-- Header -->
         <div class="items-center justify-between lg:flex mb-4">
@@ -109,7 +107,7 @@
             <span class="text-base font-normal text-gray-500 dark:text-gray-400">Analyze your model's performance</span>
           </div>
           <div class="flex items-center space-x-2">
-              {% if project.results_visualization_script %}
+              {% if selected_job_id and project.results_visualization_script %}
               <button id="run-visualization-btn" class="inline-flex items-center justify-center whitespace-nowrap min-w-max bg-green-100 text-green-700 border border-green-100 hover:border-green-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-green-300 dark:text-green-300">
                   <svg class="w-6 h-6 mr-2 flex-shrink-0 inline-block" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
                     <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 18V6l8 6-8 6Z"/>
@@ -139,6 +137,30 @@
                 </div>
               </div>
             </div>
+            {% elif not has_jobs %}
+            <div class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-700 dark:text-yellow-400 border border-yellow-100 dark:border-yellow-800" role="alert">
+              <div class="flex items-center">
+                <svg class="flex-shrink-0 inline w-4 h-4 mr-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
+                </svg>
+                <span class="sr-only">Info</span>
+                <div>
+                  <span class="font-medium">No results found!</span> You need at least one training result to visualize. Please run training first.
+                </div>
+              </div>
+            </div>
+            {% elif not selected_job_id %}
+            <div class="p-4 mb-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-700 dark:text-blue-400 border border-blue-100 dark:border-blue-800" role="alert">
+              <div class="flex items-center">
+                <svg class="flex-shrink-0 inline w-4 h-4 mr-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
+                </svg>
+                <span class="sr-only">Info</span>
+                <div>
+                  <span class="font-medium">No specific job selected!</span> Please select a specific training job from the dropdown menu to visualize its performance results.
+                </div>
+              </div>
+            </div>
             {% else %}
              <div class="text-center py-8">
               <p class="text-gray-500 dark:text-gray-400">Click "Run Visualization" to generate plots.</p>
@@ -153,7 +175,7 @@
           <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="1">
             <div class="placeholder-content">
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 1</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">{% if not project.results_visualization_script %}Add a visualization script to your project{% else %}Click "Run Visualization" to generate plots{% endif %}</p>
             </div>
             <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 1" />
             <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
@@ -173,7 +195,7 @@
           <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="2">
             <div class="placeholder-content">
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 2</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">{% if not project.results_visualization_script %}Add a visualization script to your project{% else %}Click "Run Visualization" to generate plots{% endif %}</p>
             </div>
             <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 2" />
             <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
@@ -193,7 +215,7 @@
           <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="3">
             <div class="placeholder-content">
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 3</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">{% if not project.results_visualization_script %}Add a visualization script to your project{% else %}Click "Run Visualization" to generate plots{% endif %}</p>
             </div>
             <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 3" />
             <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
@@ -213,7 +235,7 @@
           <div class="chart-container bg-gray-50 dark:bg-gray-700 rounded-lg h-96 flex items-center justify-center text-center relative" data-plot="4">
             <div class="placeholder-content">
               <p class="text-gray-400 dark:text-gray-500 text-sm">Chart Placeholder 4</p>
-              <p class="text-xs text-gray-400 dark:text-gray-500">Add a visualization script to your project</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">{% if not project.results_visualization_script %}Add a visualization script to your project{% else %}Click "Run Visualization" to generate plots{% endif %}</p>
             </div>
             <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 4" />
             <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
@@ -231,14 +253,13 @@
       
         </div>
       </section>
-      {% endif %}
 
     </main>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    {% if selected_job_details %}
-    const jobId = "{{ selected_job_details.identifier }}";
+    {% if has_jobs %}
+    const jobId = "{{ selected_job_details.identifier|default:selected_job_id }}";
     const runBtn = document.getElementById('run-visualization-btn');
     const stopBtn = document.getElementById('stop-visualization-btn');
     const statusContainer = document.getElementById('visualization-status-container');
@@ -344,7 +365,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // Show image
                     if (image) {
-                        image.src = `data:image/png;base64,${plot.image_data}`;
+                        image.src = plot.image_url;
                         image.style.display = 'block';
                         image.classList.remove('hidden');
                     }
@@ -364,22 +385,23 @@ document.addEventListener('DOMContentLoaded', function() {
                         const pngBtn = actions.querySelector('.download-png');
                         const svgBtn = actions.querySelector('.download-svg');
                         
-                        pngBtn.onclick = () => downloadImage(plot.image_data, `${plot.title.replace(/\s+/g, '_')}.png`, 'image/png');
-                        svgBtn.onclick = () => downloadImage(plot.svg_data, `${plot.title.replace(/\s+/g, '_')}.svg`, 'image/svg+xml');
+                        pngBtn.onclick = () => downloadImage(plot.image_url, `${plot.title.replace(/\s+/g, '_')}.png`);
+                        svgBtn.onclick = () => downloadImage(plot.svg_url, `${plot.title.replace(/\s+/g, '_')}.svg`);
                     }
                 }
             });
         }
     }
 
-    function downloadImage(base64, filename, type) {
-        if (!base64) {
+    function downloadImage(url, filename) {
+        if (!url) {
             alert('Data not available for this plot. Please run the visualization again.');
             return;
         }
         const link = document.createElement('a');
-        link.href = `data:${type};base64,${base64}`;
+        link.href = url;
         link.download = filename;
+        link.target = '_blank';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

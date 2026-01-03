@@ -7,18 +7,22 @@ and downloading result files from S3.
 import io
 import logging
 import os
+import re
 import zipfile
 from urllib.parse import urlparse
 
+from django.urls import reverse
 from celery import current_app
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import models
 from django.http import (
     HttpResponse,
     JsonResponse,
     HttpResponseForbidden,
     HttpResponseRedirect,
+    StreamingHttpResponse,
 )
 from django.shortcuts import render, get_object_or_404
 from django.utils import timezone
@@ -51,7 +55,7 @@ def get_user_project(request):
         (str or None, bool): (Project UUID string, Success flag)
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(
+        user_current_project = UserCurrentProject.objects.select_related('project').get(
             user=request.user
         )
         if not user_current_project.project:
@@ -72,141 +76,126 @@ def results(request):
     current_project_uuid, _ = get_user_project(request)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
+    log = logger.get_logger(user=request.user, project=project)
 
     # Trigger a background sync task to ensure the database matches S3.
     sync_project_results.delay(current_project_uuid)
-    messages.info(
-        request,
-        "Result synchronization started in background. Page will refresh automatically.",
-    )
-
-    # Initialize S3 client to list objects.
+    log.results.debug(f"Triggered results sync for project {current_project_uuid}")
+    
+    # Initialize S3 client to list objects (source of truth for existence).
     s3 = get_s3_client()
     prefix = f"{project.identifier}/results/"
     paginator = s3.get_paginator("list_objects_v2")
 
-    # We use these sets/dicts to collect unique jobs found in S3.
     job_ids_in_s3 = set()
     job_last_modified = {}
     s3_items = []
 
-    # Paginate through S3 objects to find result files.
-    for page in paginator.paginate(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix
-    ):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            if key.endswith("/"):
-                continue
+    # Paginate through S3 objects.
+    try:
+        for page in paginator.paginate(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix
+        ):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key.endswith("/"):
+                    continue
 
-            # S3 Key format:
-            # <project_uuid>/results/<job_id>/<client_name>/<filename>
-            parts = key.split("/")
-            if len(parts) < 4:
-                continue
+                parts = key.split("/")
+                if len(parts) < 4:
+                    continue
 
-            job_id = parts[2]
-            job_ids_in_s3.add(job_id)
+                job_id = parts[2]
+                job_ids_in_s3.add(job_id)
 
-            # Track the latest modification time for each job.
-            last_modified = obj.get("LastModified")
-            if last_modified:
-                prev = job_last_modified.get(job_id)
-                job_last_modified[job_id] = (
-                    max(prev, last_modified) if prev else last_modified
-                )
-
-            s3_items.append(
-                {
-                    "key": key,
-                    "size": obj.get("Size", 0),
-                    "last_modified": last_modified,
-                }
-            )
-
-            # Synchronize this specific file into our database TrainingResult
-            # model.
-            try:
-                # flare_job_id might contain the job_id string.
-                job = TrainingJob.objects.filter(
-                    project=project, flare_job_id__icontains=job_id
-                ).first()
-
-                if job:
-                    tr, created = TrainingResult.objects.get_or_create(
-                        job=job,
-                        file_path=key,
-                        defaults={"file_size": obj.get("Size", 0)},
+                last_modified = obj.get("LastModified")
+                if last_modified:
+                    prev = job_last_modified.get(job_id)
+                    job_last_modified[job_id] = (
+                        max(prev, last_modified) if prev else last_modified
                     )
-                    if not created and tr.file_size != obj.get("Size", 0):
-                        tr.file_size = obj.get("Size", 0)
-                        tr.save(update_fields=["file_size"])
-            except Exception as e:
-                _logger.warning(f"Error syncing result for {key}: {e}")
+
+                s3_items.append(
+                    {
+                        "key": key,
+                        "size": obj.get("Size", 0),
+                        "last_modified": last_modified,
+                    }
+                )
+    except Exception as e:
+        log.results.error(f"Error listing S3 objects: {e}")
+
+    # Fetch all jobs for this project to build the dropdown options.
+    all_project_jobs = TrainingJob.objects.filter(project=project).order_by('-created_at')
+    
+    # Match database results by file_path for efficient lookup
+    db_results = {r.file_path: r for r in TrainingResult.objects.filter(job__project=project)}
 
     # Build a list of job options for the dropdown selector.
     job_options = []
-    for job_id in list(job_ids_in_s3):
-        db_job = TrainingJob.objects.filter(
-            project=project, flare_job_id__icontains=job_id
-        ).first()
-
-        lm = job_last_modified.get(job_id)
+    for job_id_s3 in list(job_ids_in_s3):
+        # Match S3 job_id against flare_job_id in DB
+        db_job = all_project_jobs.filter(flare_job_id__icontains=job_id_s3).first()
+        lm = job_last_modified.get(job_id_s3)
 
         if db_job:
-            # Prefer database timestamp for cleaner formatting.
-            label = db_job.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            label = f"{db_job.created_at.strftime('%Y-%m-%d %H:%M:%S')} ({job_id_s3[:8]})"
             sort_time = db_job.created_at
         else:
-            # Fallback to S3 timestamp.
-            label = lm.strftime("%Y-%m-%d %H:%M:%S") if lm else job_id
+            label = lm.strftime("%Y-%m-%d %H:%M:%S") if lm else job_id_s3
             sort_time = lm if lm else timezone.now()
 
         job_options.append(
-            {"value": job_id, "label": label, "last_modified": sort_time}
+            {"value": job_id_s3, "label": label, "last_modified": sort_time}
         )
 
-    # Sort options so the newest job is at the top.
+    # Sort options: newest first.
     job_options.sort(key=lambda x: x["last_modified"], reverse=True)
 
-    # Handle user selection from the GET parameters.
+    # User selection.
     selected_job_id = request.GET.get("job")
-
-    # Default to the most recent job if none selected.
     if "job" not in request.GET and job_options:
         selected_job_id = job_options[0]["value"]
 
-    # Filter S3 items to show only those belonging to the selected job.
+    # Filter items for selected job.
     if selected_job_id:
-        s3_items = [
-            it
-            for it in s3_items
-            if f"/results/{selected_job_id}/" in it["key"]
-        ]
+        s3_items = [it for it in s3_items if f"/results/{selected_job_id}/" in it["key"]]
 
-    # Prepare data for the template.
+    # Prepare results for display, matching S3 items with DB records where possible.
     prepared_results = []
     for item in s3_items:
         key = item["key"]
         parts = key.split("/")
+        db_rec = db_results.get(key)
+        
         prepared_results.append(
             {
+                "id": db_rec.id if db_rec else None,
                 "file_path": key,
                 "file_size": item["size"],
-                "file_type": os.path.splitext(key)[1].lstrip(".").lower()
-                or "unknown",
+                "file_type": os.path.splitext(key)[1].lstrip(".").lower() or "unknown",
                 "cleaned_filename": os.path.basename(key),
-                "uploaded_at": item.get("last_modified"),
+                "uploaded_at": db_rec.created_at if db_rec else item.get("last_modified"),
                 "client_name": parts[3] if len(parts) > 3 else "unknown",
             }
         )
 
-    # Fetch details for the selected job for the header display.
+    # Sort results by time (newest first).
+    prepared_results.sort(key=lambda x: x["uploaded_at"] or timezone.now(), reverse=True)
+
+    # Selected job details for header and visualization.
     selected_job_details = None
     if selected_job_id:
-        selected_job_details = TrainingJob.objects.filter(
-            project=project, flare_job_id__icontains=selected_job_id
-        ).first()
+        # Try to find the exact job first
+        selected_job_details = all_project_jobs.filter(flare_job_id__icontains=selected_job_id).first()
+    
+    # Fallback: if no job selected explicitly (first visit), but jobs exist,
+    # default to the latest job so the visualization box can be rendered.
+    # But if user explicitly selected "All jobs" (job=""), selected_job_id will be empty string.
+    if "job" not in request.GET and not selected_job_details and all_project_jobs.exists():
+        selected_job_details = all_project_jobs.first()
+        if selected_job_details:
+            selected_job_id = selected_job_details.flare_job_id # Ensure we have a valid string for the fallback job
 
     context = {
         "segment": "results",
@@ -216,6 +205,7 @@ def results(request):
         "job_options": job_options,
         "selected_job_id": selected_job_id,
         "selected_job_details": selected_job_details,
+        "has_jobs": bool(job_options), # Check job_options which includes S3-only jobs
     }
     return render(request, "apps/results/results.html", context)
 
@@ -231,10 +221,33 @@ def start_results_visualization(request, job_id):
 
     try:
         project = get_object_or_404(Project, identifier=current_project_uuid)
-        job = get_object_or_404(TrainingJob, identifier=job_id)
+        log = logger.get_logger(user=request.user, project=project)
 
-        if job.project != project:
-            return JsonResponse({"error": "Job does not belong to this project"}, status=400)
+        # 1. Try to find the job in DB by identifier (UUID) or flare_job_id.
+        job = TrainingJob.objects.filter(
+            models.Q(identifier=job_id) | models.Q(flare_job_id__icontains=job_id),
+            project=project
+        ).first()
+
+        # flare_id is what the sandbox needs to find the files in S3.
+        # If we have a DB record, use its clean flare_job_id. 
+        # If not, assume job_id passed from frontend is the flare_job_id string from S3.
+        flare_id = job_id
+        if job:
+            flare_id = job.flare_job_id
+            # Clean the NVFlare job ID if it's complex.
+            try:
+                import ast
+                parsed = ast.literal_eval(flare_id)
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if (isinstance(item, dict) and
+                                item.get('type') == 'string' and
+                                'Submitted job:' in item.get('data', '')):
+                            flare_id = item.get('data', '').split(':')[-1].strip()
+                            break
+            except (ValueError, SyntaxError):
+                pass
 
         # Check if the project actually has a visualization script uploaded.
         script_prefix = f"{project.identifier}/code/results_visualization/"
@@ -249,6 +262,7 @@ def start_results_visualization(request, job_id):
         ]
 
         if not py_scripts:
+            log.results.error(f"No visualization script found for project {project.identifier}")
             return JsonResponse(
                 {
                     "error": (
@@ -259,29 +273,35 @@ def start_results_visualization(request, job_id):
                 status=400,
             )
 
-        # Cancel any existing visualization tasks for this specific job to
+        # Cancel any existing visualization tasks for this specific flare_id to
         # avoid overlap.
-        running_visualizations = ResultsVisualizationRun.objects.filter(
-            project=project, job=job, status__in=["pending", "running"]
+        running_query = ResultsVisualizationRun.objects.filter(
+            project=project, status__in=["pending", "running"],
+            flare_job_id=flare_id
         )
-        for viz in running_visualizations:
+
+        for viz in running_query:
             if viz.celery_task_id:
                 current_app.control.revoke(viz.celery_task_id, terminate=True)
             viz.status = "cancelled"
             viz.completed_at = timezone.now()
             viz.save()
+            log.results.info(f"Cancelled previous results visualization run {viz.id}")
 
         # Create a new run record in the database.
         visualization_run = ResultsVisualizationRun.objects.create(
-            project=project, job=job, user=request.user
+            project=project, job=job, flare_job_id=flare_id, user=request.user
         )
 
         # Dispatch the task to Celery.
+        # We pass flare_id to the task so it knows which S3 folder to download.
         task = run_results_visualization_task.delay(
-            str(visualization_run.id), str(job.identifier)
+            str(visualization_run.id), flare_id
         )
         visualization_run.celery_task_id = task.id
         visualization_run.save()
+
+        log.results.info(f"Started results visualization run {visualization_run.id} for job {flare_id}")
 
         return JsonResponse(
             {
@@ -290,9 +310,9 @@ def start_results_visualization(request, job_id):
             }
         )
 
-    except (Project.DoesNotExist, TrainingJob.DoesNotExist):
+    except Project.DoesNotExist:
         return JsonResponse(
-            {"error": "Project or Training Job not found"}, status=404
+            {"error": "Project not found"}, status=404
         )
     except Exception as e:
         _logger.exception("Failed to start visualization")
@@ -310,8 +330,10 @@ def stop_results_visualization(request):
         visualization_run = ResultsVisualizationRun.objects.get(
             id=run_id, user=request.user
         )
+        log = logger.get_logger(user=request.user, project=visualization_run.project)
 
         if visualization_run.status not in ["pending", "running"]:
+            log.results.debug(f"Stop visualization requested for {run_id} but status is {visualization_run.status}")
             return JsonResponse(
                 {"error": "No running visualization found."}, status=404
             )
@@ -321,10 +343,12 @@ def stop_results_visualization(request):
             current_app.control.revoke(
                 visualization_run.celery_task_id, terminate=True
             )
+            log.results.info(f"Revoked Celery task {visualization_run.celery_task_id} for visualization run {run_id}")
 
         visualization_run.status = "cancelled"
         visualization_run.completed_at = timezone.now()
         visualization_run.save()
+        log.results.warning(f"Results visualization run {run_id} cancelled by user.")
 
         return JsonResponse({"success": True})
 
@@ -343,22 +367,52 @@ def results_visualization_status(request, job_id):
     API endpoint for the frontend to poll the status of a visualization run.
     """
     try:
-        job = get_object_or_404(TrainingJob, identifier=job_id)
+        current_project_uuid, _ = get_user_project(request)
+        project = get_object_or_404(Project, identifier=current_project_uuid)
 
-        # Get the most recent run for this job.
+        # Get the clean flare_id for filtering. 
+        # Frontend might pass a UUID if DB record exists, or a string flare_id.
+        flare_id = job_id
+        job = TrainingJob.objects.filter(
+            models.Q(identifier=job_id) | models.Q(flare_job_id__icontains=job_id),
+            project=project
+        ).first()
+        
+        if job:
+            flare_id = job.flare_job_id
+            try:
+                import ast
+                parsed = ast.literal_eval(flare_id)
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if (isinstance(item, dict) and
+                                item.get('type') == 'string' and
+                                'Submitted job:' in item.get('data', '')):
+                            flare_id = item.get('data', '').split(':')[-1].strip()
+                            break
+            except (ValueError, SyntaxError):
+                pass
+
+        # Get the most recent run for this flare_id.
         latest_visualization = ResultsVisualizationRun.objects.filter(
-            project=job.project, job=job
+            project=project, flare_job_id=flare_id
         ).first()
 
         if not latest_visualization:
             return JsonResponse({"status": "none", "plots": []})
 
         # Retrieve all plots associated with this run.
-        plots = list(
-            ResultsVisualizationPlot.objects.filter(
-                visualization_run=latest_visualization
-            ).values("title", "plot_number", "image_data", "svg_data")
+        plots_qs = ResultsVisualizationPlot.objects.filter(
+            visualization_run=latest_visualization
         )
+        plots = []
+        for p in plots_qs:
+            plots.append({
+                "title": p.title,
+                "plot_number": p.plot_number,
+                "image_url": reverse('results:get_visualization_plot', args=[p.id, 'image']) if p.image_data else None,
+                "svg_url": reverse('results:get_visualization_plot', args=[p.id, 'svg']) if p.svg_data else None,
+            })
 
         return JsonResponse(
             {
@@ -373,41 +427,60 @@ def results_visualization_status(request, job_id):
             }
         )
 
-    except TrainingJob.DoesNotExist:
-        return JsonResponse({"error": "Training job not found"}, status=404)
+    except Project.DoesNotExist:
+        return JsonResponse({"error": "Project not found"}, status=404)
+
+
+def _proxy_s3_download(key, filename):
+    """
+    Helper to proxy a file download from S3 through Django using StreamingHttpResponse.
+    """
+    s3 = get_s3_client()
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        
+        def stream_content():
+            for chunk in obj['Body'].iter_chunks(chunk_size=1024*1024): # 1MB chunks
+                yield chunk
+        
+        # Force application/octet-stream to prevent Nginx from gzipping the content.
+        # If Nginx gzips, it changes the content length but might not strip the header
+        # when buffering is disabled, leading to "Network Error" in Chrome.
+        response = StreamingHttpResponse(
+            stream_content(),
+            content_type='application/octet-stream'
+        )
+        # Set Content-Length if available (helps Chrome show progress and verify completion)
+        if obj.get('ContentLength'):
+            response['Content-Length'] = obj['ContentLength']
+
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        # Disable Nginx buffering for this stream
+        response['X-Accel-Buffering'] = 'no'
+        return response
+    except Exception as e:
+        _logger.error(f"Failed to proxy S3 download for {key}: {e}")
+        return HttpResponse("File download failed", status=500)
 
 
 @login_required
 @project_membership_required
 def download_result(request, result_id):
     """
-    Redirects the user to a temporary S3 download URL for a specific result file.
-    Logs the access for audit trails.
+    Serves a result file by proxying the download through Django.
+    This avoids issues with self-signed certificates or inaccessible S3 hosts (e.g. Docker network).
     """
     try:
         result = get_object_or_404(TrainingResult, id=result_id)
 
         log = logger.get_logger()
-        log.access.info(f"User downloaded training result: {result.file_path}", file_key=result.file_path)
+        log.access.info(f"User downloading training result: {result.file_path}", file_key=result.file_path)
 
-        download_url = get_s3_download_url(result.file_path)
-
-        # Security: Validate the redirect URL host
-        parsed_url = urlparse(download_url)
-        allowed_hosts = [
-            urlparse(settings.AWS_S3_ENDPOINT_URL).netloc,
-            urlparse(settings.PUBLIC_URL).netloc
-        ]
-
-        # Allow configured S3 hosts or standard AWS S3 domains
-        if parsed_url.netloc not in allowed_hosts and not parsed_url.netloc.endswith("amazonaws.com"):
-            return HttpResponseForbidden("External URL forbidden")
-
-        # If there is a safe referer, we prefer to stay in the app and open the
-        # link (e.g. in a new tab if the frontend does that), but usually, we just
-        # want to go to the download URL.
-        # We use HttpResponseRedirect directly for the external URL to be explicit.
-        return HttpResponseRedirect(download_url)
+        # Direct proxying is more reliable for local/self-hosted setups
+        return _proxy_s3_download(result.file_path, os.path.basename(result.file_path))
+        
     except TrainingResult.DoesNotExist:
         return render(request, "404.html")
 
@@ -483,7 +556,7 @@ def download_all_results(request, project_id):
 def download_result_by_key(request):
     """
     Downloads a result file using its S3 key (passed as a GET parameter).
-    Logs the access for audit trails.
+    Used as a fallback for results not yet indexed in the database.
     """
     current_project_uuid, _ = get_user_project(request)
 
@@ -496,20 +569,34 @@ def download_result_by_key(request):
         return render(request, "404.html")
 
     log = logger.get_logger()
-    log.access.info(f"User downloaded result file by key: {key}", file_key=key)
+    log.access.info(f"User downloading result file by key: {key}", file_key=key)
 
-    download_url = get_s3_download_url(key)
+    # Direct proxying is more reliable for local/self-hosted setups
+    return _proxy_s3_download(key, os.path.basename(key))
 
-    # Security: Validate the redirect URL host
-    parsed_url = urlparse(download_url)
-    allowed_hosts = [
-        urlparse(settings.AWS_S3_ENDPOINT_URL).netloc,
-        urlparse(settings.PUBLIC_URL).netloc
-    ]
 
-    # Allow configured S3 hosts or standard AWS S3 domains
-    if parsed_url.netloc not in allowed_hosts and not parsed_url.netloc.endswith("amazonaws.com"):
-        return HttpResponseForbidden("External URL forbidden")
-
-    # Use HttpResponseRedirect directly for the external S3 URL.
-    return HttpResponseRedirect(download_url)
+@login_required
+@project_membership_required
+def get_visualization_plot(request, plot_id, plot_type):
+    """
+    Proxies a visualization plot image from S3 through Django.
+    """
+    plot = get_object_or_404(ResultsVisualizationPlot, id=plot_id)
+    
+    key = None
+    filename = f"plot_{plot.plot_number}"
+    
+    if plot_type == 'image' and plot.image_data:
+        key = plot.image_data.name
+        filename += ".png"
+    elif plot_type == 'svg' and plot.svg_data:
+        key = plot.svg_data.name
+        filename += ".svg"
+        
+    if not key:
+        return HttpResponse("Plot data not found", status=404)
+        
+    response = _proxy_s3_download(key, filename)
+    # Ensure plots are displayed inline
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response

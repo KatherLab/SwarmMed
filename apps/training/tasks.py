@@ -7,15 +7,52 @@ and synchronization of result files (weights/logs) to S3 storage.
 import ast
 import os
 import shutil
+import json
+import re
 
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
 from apps.logs import logger
+from apps.logs.utils import format_exception
 
 from .models import TrainingJob
 from .utils import upload_folder_to_s3
+
+
+def _tail_text(file_path: str, max_bytes: int = 2048 * 1024) -> str:
+    """Read up to the last max_bytes of a text file (decoded safely)."""
+    try:
+        with open(file_path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            end = f.tell()
+            start = max(0, end - max_bytes)
+            f.seek(start)
+            data = f.read()
+        return data.decode('utf-8', errors='ignore')
+    except OSError:
+        return ""
+
+
+_ROUND_RE = re.compile(r"finished training round (\d+)")
+
+
+def _get_total_rounds(project_id: str, network_id: str) -> int:
+    """Try to read num_rounds from the server config written at job submission."""
+    cfg_path = os.path.join(
+        'workspaces', project_id, network_id, 'job', 'app_server', 'config', 'config_fed_server.json'
+    )
+    try:
+        if os.path.exists(cfg_path):
+            with open(cfg_path, 'r') as f:
+                cfg = json.load(f)
+            for workflow in cfg.get('workflows', []):
+                if workflow.get('id') == 'swarm_controller':
+                    return int(workflow.get('args', {}).get('num_rounds', 10))
+    except Exception:
+        pass
+    return 10
 
 
 @shared_task
@@ -95,6 +132,8 @@ def monitor_training_jobs():
 
             # Step 3: Determine if the job has ended by scanning log files.
             ended = (job.status == 'COMPLETED')
+            total_rounds = _get_total_rounds(project_id, network_id)
+            rounds_finished = 0
             if not ended:
                 for root, _, files in os.walk(workspace_base):
                     if ended:
@@ -107,16 +146,40 @@ def monitor_training_jobs():
                                     'log') and fname.endswith('.txt'):
                                 fpath = os.path.join(root, fname)
                                 try:
-                                    with open(fpath, 'r') as lf:
-                                        content = lf.read()
-                                        # Specific log markers indicating
-                                        # NVFlare finished.
-                                        if ('ending workflow swarm_controller' in content or
-                                                'child worker process finished' in content):
-                                            ended = True
-                                            break
+                                    content = _tail_text(fpath)
+                                    # Specific log markers indicating NVFlare finished.
+                                    if (
+                                        'ending workflow swarm_controller' in content
+                                        or 'child worker process finished' in content
+                                    ):
+                                        ended = True
+                                        break
+
+                                    for m in _ROUND_RE.finditer(content):
+                                        rnum = int(m.group(1))
+                                        if rnum > rounds_finished:
+                                            rounds_finished = rnum
                                 except OSError:
                                     continue
+
+            # Persist progress (even while still running) so the UI can avoid log parsing.
+            try:
+                job.total_rounds = total_rounds
+                job.rounds_finished = rounds_finished
+                if total_rounds and total_rounds > 0:
+                    pct = int(rounds_finished * 100 / total_rounds)
+                    job.progress_percent = max(0, min(100, pct))
+                else:
+                    job.progress_percent = 0
+                job.progress_updated_at = timezone.now()
+                job.save(update_fields=[
+                    'total_rounds',
+                    'rounds_finished',
+                    'progress_percent',
+                    'progress_updated_at',
+                ])
+            except Exception:
+                pass
 
             # Step 4: If the job is complete, upload participant results to S3.
             if ended:
@@ -152,7 +215,9 @@ def monitor_training_jobs():
                     job.status = 'COMPLETED'
                     if not job.completed_at:
                         job.completed_at = timezone.now()
-                    job.save()
+                    job.progress_percent = 100
+                    job.progress_updated_at = timezone.now()
+                    job.save(update_fields=['status', 'completed_at', 'progress_percent', 'progress_updated_at'])
                     log.training.info(
                         f"Job {job.identifier} successfully synced to S3.")
 
@@ -177,4 +242,4 @@ def monitor_training_jobs():
                         f"No result folders found for {flare_job_uuid}")
 
         except Exception as e:
-            log.training.error(f"Error monitoring job {job.identifier}: {e}")
+            log.training.error(f"Error monitoring job {job.identifier}: {str(e)}", extra=format_exception(e))

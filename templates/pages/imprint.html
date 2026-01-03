@@ -1,0 +1,53 @@
+{% extends "layouts/base.html" %}
+
+{% block content %}
+<div class="px-4 pt-6">
+    <div class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+        <h1 class="mb-4 text-3xl font-extrabold leading-none tracking-tight text-gray-900 md:text-4xl dark:text-white">Imprint</h1>
+        
+        <div class="p-4 mb-6 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400 border border-blue-300" role="alert">
+            <span class="font-medium">Operator Note:</span> This is a template imprint (Impressum). If you are self-hosting this platform, you MUST update the placeholders (indicated by [BRACKETS]) to reflect your organization's legal details.
+        </div>
+
+        <div class="space-y-6 text-gray-500 dark:text-gray-400">
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">Information according to § 5 TMG</h2>
+            <div class="p-4 mb-4 bg-gray-50 rounded-lg dark:bg-gray-700">
+                <p class="font-medium text-gray-900 dark:text-white">
+                    [INSERT ORGANIZATION NAME]<br>
+                    [INSERT REPRESENTATIVE NAME]<br>
+                    [INSERT STREET AND NUMBER]<br>
+                    [INSERT ZIP CODE AND CITY]<br>
+                    [INSERT COUNTRY]
+                </p>
+            </div>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">Contact</h2>
+            <div class="p-4 mb-4 bg-gray-50 rounded-lg dark:bg-gray-700">
+                <p class="font-medium text-gray-900 dark:text-white">
+                    Phone: [INSERT PHONE NUMBER]<br>
+                    Email: [INSERT CONTACT EMAIL]
+                </p>
+            </div>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">VAT ID</h2>
+            <p>Sales tax identification number according to § 27 a sales tax law:</p>
+            <p class="font-medium text-gray-900 dark:text-white">[INSERT VAT ID]</p>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">Editorial Responsibility</h2>
+            <p>Responsible for the content according to § 18 MStV:</p>
+            <div class="p-4 mb-4 bg-gray-50 rounded-lg dark:bg-gray-700">
+                <p class="font-medium text-gray-900 dark:text-white">
+                    [INSERT NAME OF PERSON RESPONSIBLE]<br>
+                    [INSERT ADDRESS]
+                </p>
+            </div>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">EU Dispute Resolution</h2>
+            <p>The European Commission provides a platform for online dispute resolution (ODR): <a href="https://ec.europa.eu/consumers/odr/" class="text-blue-600 hover:underline dark:text-blue-500">https://ec.europa.eu/consumers/odr/</a>. Our e-mail address can be found above in the imprint.</p>
+
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white">Consumer Dispute Resolution/Universal Arbitration Board</h2>
+            <p>We are not willing or obliged to participate in dispute resolution proceedings before a consumer arbitration board.</p>
+        </div>
+    </div>
+</div>
+{% endblock content %}

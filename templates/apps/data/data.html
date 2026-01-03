@@ -641,7 +641,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Show image
                 if (image) {
-                    image.src = `data:image/png;base64,${plot.image_data}`;
+                    image.src = plot.image_url;
                     image.style.display = 'block';
                     image.classList.remove('hidden');
                 }
@@ -661,21 +661,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     const pngBtn = actions.querySelector('.download-png');
                     const svgBtn = actions.querySelector('.download-svg');
                     
-                    pngBtn.onclick = () => downloadImage(plot.image_data, `${plot.title.replace(/\s+/g, '_')}.png`, 'image/png');
-                    svgBtn.onclick = () => downloadImage(plot.svg_data, `${plot.title.replace(/\s+/g, '_')}.svg`, 'image/svg+xml');
+                    pngBtn.onclick = () => downloadImage(plot.image_url, `${plot.title.replace(/\s+/g, '_')}.png`);
+                    svgBtn.onclick = () => downloadImage(plot.svg_url, `${plot.title.replace(/\s+/g, '_')}.svg`);
                 }
             }
         });
     }
 
-    function downloadImage(base64, filename, type) {
-        if (!base64) {
+    function downloadImage(url, filename) {
+        if (!url) {
             alert('Data not available for this plot. Please run the visualization again.');
             return;
         }
         const link = document.createElement('a');
-        link.href = `data:${type};base64,${base64}`;
+        link.href = url;
         link.download = filename;
+        link.target = '_blank';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

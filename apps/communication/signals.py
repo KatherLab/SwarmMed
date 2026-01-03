@@ -8,7 +8,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import Message, ProjectPost
+from django.core.cache import cache
+from .models import Message, ProjectPost, ProjectBoardAccess
 from apps.logs.logger import get_logger
 
 logger = get_logger()
@@ -19,6 +20,9 @@ def send_message_notification(sender, instance, created, **kwargs):
     """
     Sends an email notification to the recipient when a new direct message is created.
     """
+    # Invalidate unread count cache for the recipient
+    cache.delete(f'unread_messages_count_{instance.recipient.id}')
+
     # Only send notification if the message was just created (not updated)
     # and the recipient has an email address associated with their account.
     if created and instance.recipient.email:
@@ -56,6 +60,11 @@ def send_project_post_notification(sender, instance, created, **kwargs):
     if created:
         project = instance.project
         author = instance.author
+
+        # Invalidate unread count cache for all project members
+        cache.delete(f'unread_messages_count_{project.author.id}')
+        for member in project.members.all():
+            cache.delete(f'unread_messages_count_{member.id}')
 
         # Collect all recipients: the project creator and all invited members
         recipients = set()
@@ -102,3 +111,11 @@ def send_project_post_notification(sender, instance, created, **kwargs):
             except Exception as e:
                 # Catch and log errors during email delivery
                 logger.project.error(f"Failed to send project post notification email to {recipient.email}: {e}")
+
+
+@receiver(post_save, sender=ProjectBoardAccess)
+def invalidate_unread_count_on_access(sender, instance, **kwargs):
+    """
+    Invalidates unread message count cache when a user accesses a project board.
+    """
+    cache.delete(f'unread_messages_count_{instance.user.id}')

@@ -13,10 +13,6 @@ nav:
     - Developer: developer.md
     - Contribution: contribution.md
     - Elements: elements.md
-    - Compliance:
-        - GDPR (DPIA): DPIA.md
-        - GDPR (ROPA): ROPA.md
-        - Data Breach Procedure: data_breach_procedure.md
 
 extra:
   generator: false

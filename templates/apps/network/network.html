@@ -115,7 +115,7 @@
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
       <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
         <svg class="w-6 h-6 mr-2" fill="none" viewBox="0 0 24 24">
-          <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          <path stroke="currentColor" stroke-linecap="round" stroke-width="2"
             d="M7 17v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1a3 3 0 0 0-3-3h-4a3 3 0 0 0-3 3Zm8-9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
         </svg>
         Hostname
@@ -315,16 +315,25 @@ document.addEventListener('DOMContentLoaded', function() {
         if (currentStatus === 'Starting' || currentStatus === 'Stopping') {
             const interval = setInterval(() => {
                 fetch(`/network/${currentNetworkId}/status/`)
-                    .then(response => response.json())
+                    .then(response => {
+                        if (response.status === 404) {
+                            // Network is gone (deleted)
+                            clearInterval(interval);
+                            location.reload();
+                            return;
+                        }
+                        return response.json();
+                    })
                     .then(data => {
-                        if (data.status !== 'Starting' && data.status !== 'Stopping') {
+                        if (data && data.status !== 'Starting' && data.status !== 'Stopping') {
                             clearInterval(interval);
                             location.reload();
                         }
                     })
                     .catch(error => {
                         console.error('Error fetching network status:', error);
-                        clearInterval(interval);
+                        // Optional: reload anyway after some errors to reflect state
+                        // location.reload();
                     });
             }, 5000); // Poll every 5 seconds
         }

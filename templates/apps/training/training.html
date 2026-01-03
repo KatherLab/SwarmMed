@@ -143,7 +143,7 @@
               <!-- Dropdown filter -->
               <div>
                 <button id="dropdownLogLevelButton" data-dropdown-toggle="dropdownLogLevel" class="border border-blue-100 text-blue-700 bg-blue-100 hover:border-blue-700  focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 text-center inline-flex items-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-blue-300 dark:text-blue-300" type="button">
-                  Filter Level
+                  <span id="dropdownLogLevelText">Filter Level</span>
                   <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                   </svg>
@@ -189,33 +189,48 @@
           </div>
         
 <script>
-(function(){
-  const btn=document.getElementById('dropdownLogLevelButton');
-  let currentLevel = localStorage.getItem('trainingLogLevel') || 'all';
-  window.currentLogLevel = currentLevel;
+  window.currentLogLevel = localStorage.getItem('trainingLogLevel') || 'all';
+
+  function applyFilter(){
+    const rows = document.querySelectorAll('#logsBody tr[data-level]');
+    rows.forEach(r => {
+      if(window.currentLogLevel === 'all'){
+        r.classList.remove('hidden');
+      } else {
+        (r.dataset.level === window.currentLogLevel) ? r.classList.remove('hidden') : r.classList.add('hidden');
+      }
+    });
+    const textEl = document.getElementById('dropdownLogLevelText');
+    if(textEl){
+      textEl.textContent = (window.currentLogLevel === 'all' ? 'Filter Level' : 'Level: ' + window.currentLogLevel.toUpperCase());
+    }
+  }
+
   function setFilter(level){
     window.currentLogLevel = level || 'all';
     localStorage.setItem('trainingLogLevel', window.currentLogLevel);
-    const rows=document.querySelectorAll('#logsBody tr[data-level]');
-    rows.forEach(r=>{
-      if(window.currentLogLevel==='all'){ r.classList.remove('hidden'); }
-      else { (r.dataset.level===window.currentLogLevel)? r.classList.remove('hidden') : r.classList.add('hidden'); }
-    });
-    if(btn){ btn.firstChild && (btn.firstChild.textContent = (window.currentLogLevel==='all'?'Filter Level':'Level: '+window.currentLogLevel.toUpperCase())); }
+    applyFilter();
   }
-  document.addEventListener("DOMContentLoaded",function(){
-    document.querySelectorAll('#dropdownLogLevel .log-filter-item').forEach(a=>{
-      a.addEventListener('click',function(e){ e.preventDefault(); setFilter(this.dataset.level); });
+
+  document.addEventListener("DOMContentLoaded", function(){
+    document.querySelectorAll('#dropdownLogLevel .log-filter-item').forEach(a => {
+      a.addEventListener('click', function(e){
+        e.preventDefault();
+        setFilter(this.dataset.level);
+      });
     });
-    setFilter(window.currentLogLevel);
+    applyFilter();
   });
-})();
+
   function renderLogs(rows){
-    const body=document.getElementById('logsBody');
+    const body = document.getElementById('logsBody');
     if(!body) return;
-    if(!rows || !rows.length){ body.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500 dark:text-gray-400">No logs found.</td></tr>'; return; }
+    if(!rows || !rows.length){
+      body.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500 dark:text-gray-400">No logs found.</td></tr>';
+      return;
+    }
     
-    body.innerHTML = rows.map(l=>{
+    body.innerHTML = rows.map(l => {
       const levelClass = (l.level||'').toLowerCase() === 'error' ? 'text-red-600 dark:text-red-400 font-bold' : 
                          (l.level||'').toLowerCase() === 'warning' ? 'text-yellow-600 dark:text-yellow-400' : '';
       
@@ -226,15 +241,7 @@
         + `</tr>`;
     }).join('');
 
-    if(window.currentLogLevel){
-      const rowsEls=document.querySelectorAll('#logsBody tr[data-level]');
-      rowsEls.forEach(r=>{
-        if(window.currentLogLevel==='all'){ r.classList.remove('hidden'); }
-        else { (r.dataset.level===window.currentLogLevel)? r.classList.remove('hidden') : r.classList.add('hidden'); }
-      });
-      const btn=document.getElementById('dropdownLogLevelButton');
-      if(btn){ btn.firstChild && (btn.firstChild.textContent = (window.currentLogLevel==='all'?'Filter Level':'Level: '+window.currentLogLevel.toUpperCase())); }
-    }
+    applyFilter();
   }
   function poll(){
     // status/progress + controls
@@ -267,8 +274,9 @@
     fetch('{% url 'training:training_logs_api' %}')
       .then(r=>r.json()).then(d=>{ renderLogs(d.logs||[]); }).catch(()=>{});
   }
-  setInterval(poll, 1500);
-  poll();
+        // Initial poll
+        poll();
+        setInterval(poll, 3000);
 </script>
 </section>
       

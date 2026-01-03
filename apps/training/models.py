@@ -58,7 +58,8 @@ class TrainingJob(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='PENDING'
+        default='PENDING',
+        db_index=True
     )
 
     # The job ID returned by NVIDIA FLARE after successful submission.
@@ -71,11 +72,17 @@ class TrainingJob(models.Model):
     )
 
     # Automatically set when the record is created.
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     # Set manually when the job is detected as finished (COMPLETED, FAILED, or
     # STOPPED).
     completed_at = models.DateTimeField(null=True, blank=True)
+
+    # Progress tracking (updated by periodic Celery monitoring).
+    total_rounds = models.PositiveIntegerField(null=True, blank=True)
+    rounds_finished = models.PositiveIntegerField(null=True, blank=True)
+    progress_percent = models.PositiveSmallIntegerField(null=True, blank=True)
+    progress_updated_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     def __str__(self):
         """Returns a human-readable string representation of the job."""

@@ -51,7 +51,11 @@ class ResultsVisualizationContext:
         self.log = logger.get_logger()
 
         # Fetch the training job to access its metadata (like flare_job_id).
-        self.job = TrainingJob.objects.get(identifier=job_identifier)
+        # Fallback to None if not found in database (e.g. S3-only results).
+        try:
+            self.job = TrainingJob.objects.get(identifier=job_identifier)
+        except (TrainingJob.DoesNotExist, ValueError):
+            self.job = TrainingJob.objects.filter(flare_job_id__icontains=job_identifier).first()
 
     def __enter__(self):
         """Called when entering the 'with' block."""
@@ -189,20 +193,22 @@ class ResultsVisualizationContext:
         from django.core.files.storage import default_storage
 
         # 1. Determine the clean NVFlare job ID.
-        flare_id = self.job.flare_job_id
-        try:
-            # Handle complex flare_job_id formats (sometimes stored as
-            # stringified lists).
-            parsed = ast.literal_eval(flare_id)
-            if isinstance(parsed, list):
-                for item in parsed:
-                    if (isinstance(item, dict) and
-                            item.get('type') == 'string' and
-                            'Submitted job:' in item.get('data', '')):
-                        flare_id = item.get('data', '').split(':')[-1].strip()
-                        break
-        except (ValueError, SyntaxError):
-            pass
+        flare_id = self.job_identifier
+        if self.job:
+            flare_id = self.job.flare_job_id
+            try:
+                # Handle complex flare_job_id formats (sometimes stored as
+                # stringified lists).
+                parsed = ast.literal_eval(flare_id)
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if (isinstance(item, dict) and
+                                item.get('type') == 'string' and
+                                'Submitted job:' in item.get('data', '')):
+                            flare_id = item.get('data', '').split(':')[-1].strip()
+                            break
+            except (ValueError, SyntaxError):
+                pass
 
         # 2. Define a list of paths where weights might be stored.
         search_paths = []
@@ -213,11 +219,12 @@ class ResultsVisualizationContext:
                 f"{self.project_uuid}/results/{flare_id}/{client_name}/{model_filename}"
             )
             # Check local workspace as well.
-            search_paths.append(os.path.join(
-                'workspaces', self.project_uuid,
-                str(self.job.network.identifier),
-                'workspace', flare_id, client_name, "models", model_filename
-            ))
+            if self.job:
+                search_paths.append(os.path.join(
+                    'workspaces', self.project_uuid,
+                    str(self.job.network.identifier),
+                    'workspace', flare_id, client_name, "models", model_filename
+                ))
 
         # Default candidates based on NVFlare's standard naming and output
         # structure.
@@ -355,18 +362,20 @@ class ResultsVisualizationContext:
         from django.core.files.storage import default_storage
 
         # Parse flare_job_id
-        flare_id = self.job.flare_job_id
-        try:
-            parsed = ast.literal_eval(flare_id)
-            if isinstance(parsed, list):
-                for item in parsed:
-                    if (isinstance(item, dict) and
-                            item.get('type') == 'string' and
-                            'Submitted job:' in item.get('data', '')):
-                        flare_id = item.get('data', '').split(':')[-1].strip()
-                        break
-        except (ValueError, SyntaxError):
-            pass
+        flare_id = self.job_identifier
+        if self.job:
+            flare_id = self.job.flare_job_id
+            try:
+                parsed = ast.literal_eval(flare_id)
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if (isinstance(item, dict) and
+                                item.get('type') == 'string' and
+                                'Submitted job:' in item.get('data', '')):
+                            flare_id = item.get('data', '').split(':')[-1].strip()
+                            break
+            except (ValueError, SyntaxError):
+                pass
 
         if not client_name:
             client_name = "fl-client-1"

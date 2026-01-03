@@ -59,4 +59,11 @@ urlpatterns = [
         views.results_visualization_status,
         name='results_visualization_status'
     ),
+
+    # Serve visualization plots via Django proxy
+    path(
+        'plot/<str:plot_id>/<str:plot_type>/',
+        views.get_visualization_plot,
+        name='get_visualization_plot'
+    ),
 ]

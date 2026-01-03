@@ -98,6 +98,92 @@
 
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">10. Contact Us</h2>
             <p>If you have any questions about this Privacy Policy, please contact us at [INSERT CONTACT EMAIL].</p>
+
+            <hr class="h-px my-8 bg-gray-200 border-0 dark:bg-gray-700">
+
+            <h2 id="dpia" class="text-xl font-bold text-gray-900 dark:text-white">11. Data Protection Impact Assessment (DPIA) Summary</h2>
+            <p>MediSwarmCloud conducts periodic Data Protection Impact Assessments to identify and minimize the data protection risks of our project.</p>
+            
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">11.1 Nature and Necessity</h3>
+            <p>The platform facilitates collaborative machine learning on medical datasets. Processing is necessary to enable privacy-preserving medical research where traditional centralization is prohibited or risky. Our "data stays local" approach is the most proportional way to achieve these goals.</p>
+
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">11.2 Risk Assessment & Mitigation</h3>
+            <div class="relative overflow-x-auto shadow-md sm:rounded-lg mt-4">
+                <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" class="px-6 py-3">Risk</th>
+                            <th scope="col" class="px-6 py-3">Mitigation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">Unauthorized access to account data</td>
+                            <td class="px-6 py-4">MFA, RBAC, Encryption.</td>
+                        </tr>
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">Model inversion attacks</td>
+                            <td class="px-6 py-4">Differential Privacy (DP) and Secure Aggregation.</td>
+                        </tr>
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">Data breach of metadata/logs</td>
+                            <td class="px-6 py-4">Audit log signing, TLS 1.3, managed DB security.</td>
+                        </tr>
+                        <tr class="bg-white dark:bg-gray-800">
+                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">Malicious participant</td>
+                            <td class="px-6 py-4">Byzantine-robust aggregation algorithms.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h2 id="ropa" class="text-xl font-bold text-gray-900 dark:text-white mt-8">12. Record of Processing Activities (ROPA)</h2>
+            <p>In accordance with Article 30 of the GDPR, we maintain the following record of processing activities:</p>
+            
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">12.1 User Account Management</h3>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Purpose:</strong> To manage user accounts and provide access to the platform.</li>
+                <li><strong>Data Categories:</strong> Username, Full Name, Email, Hashed Passwords, UUID.</li>
+                <li><strong>Retention:</strong> Duration of the account plus [INSERT PERIOD, e.g., 30 days] after deletion.</li>
+            </ul>
+
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">12.2 Audit Logging and Security</h3>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Purpose:</strong> To ensure system security and maintain an audit trail for compliance (HIPAA/GDPR).</li>
+                <li><strong>Data Categories:</strong> Login times, IP addresses, action logs.</li>
+                <li><strong>Retention:</strong> [INSERT PERIOD, e.g., 1 year].</li>
+            </ul>
+
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">12.3 Swarm Learning Coordination</h3>
+            <ul class="list-disc ml-6 space-y-2">
+                <li><strong>Purpose:</strong> To coordinate decentralized model training.</li>
+                <li><strong>Data Categories:</strong> Organization name, project membership, mTLS public keys, training metadata.</li>
+                <li><strong>Retention:</strong> Duration of the training project.</li>
+            </ul>
+
+            <h2 id="breach" class="text-xl font-bold text-gray-900 dark:text-white mt-8">13. Data Breach Notification Procedure</h2>
+            <p>This procedure is followed in the event of a personal data breach, in compliance with GDPR Articles 33 and 34.</p>
+            
+            <ol class="list-decimal ml-6 space-y-4">
+                <li>
+                    <strong>Identification:</strong> Any suspected breach must be immediately reported to the Security Lead and DPO.
+                </li>
+                <li>
+                    <strong>Containment & Assessment:</strong> The Security Team will validate the breach, take immediate steps to stop it, and assess the scope and nature of the affected data.
+                </li>
+                <li>
+                    <strong>Risk Assessment:</strong> The DPO and Security Lead will assess the risk to the rights and freedoms of individuals.
+                </li>
+                <li>
+                    <strong>Notification to Authority:</strong> If the breach is likely to result in a risk to individuals, the DPO will notify the relevant Supervisory Authority within <strong>72 hours</strong>.
+                </li>
+                <li>
+                    <strong>Notification to Individuals:</strong> If the breach is likely to result in a <strong>high risk</strong> to individuals, MediSwarmCloud will notify the affected individuals without undue delay.
+                </li>
+                <li>
+                    <strong>Documentation:</strong> All breaches are documented in an Internal Data Breach Register, and a post-mortem analysis is conducted.
+                </li>
+            </ol>
         </div>
     </div>
 </div>

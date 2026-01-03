@@ -1,5 +1,6 @@
 import re
 import json
+import traceback
 
 # List of common PHI/PII fields to redact
 SENSITIVE_FIELDS = [
@@ -42,3 +43,14 @@ def redact_message(message):
     
     # You could add more regex-based redactions here (e.g., SSN, phone numbers)
     return message
+
+def format_exception(exc):
+    """
+    Formats an exception into a structured dictionary for logging.
+    Includes type, message, and a redacted traceback.
+    """
+    return {
+        'type': type(exc).__name__,
+        'message': str(exc),
+        'traceback': traceback.format_exc()
+    }

@@ -11,6 +11,7 @@ import zipfile
 import yaml
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.text import slugify
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.http import HttpResponse, JsonResponse
@@ -26,6 +27,7 @@ from .utils import (
     create_startup_kits_zip,
 )
 from ..project.decorators import project_context_required, project_membership_required
+from apps.logs import logger
 
 
 def get_user_project(request):
@@ -36,7 +38,7 @@ def get_user_project(request):
         tuple: (project_uuid_string, is_valid_boolean)
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(
+        user_current_project = UserCurrentProject.objects.select_related('project').get(
             user=request.user
         )
         if not user_current_project.project:
@@ -57,19 +59,23 @@ def network(request):
     current_project_uuid, _ = get_user_project(request)
 
     # Get the project object from the user's current project relation
-    current_project_relation = UserCurrentProject.objects.get(
+    # Optimization: select_related to fetch project in one query
+    current_project_relation = UserCurrentProject.objects.select_related('project').get(
         user=request.user
     )
     project = current_project_relation.project
 
     # List all networks associated with this specific project
-    swarm_networks = SwarmNetwork.objects.filter(project=project)
+    # Optimization: select_related to fetch related fields in one query
+    swarm_networks = SwarmNetwork.objects.filter(project=project).select_related('project', 'author')
 
     # Identify which network the user is currently focusing on
     try:
-        current_network = UserCurrentNetwork.objects.get(
+        # Optimization: select_related to fetch network and its project in one query
+        current_network_rel = UserCurrentNetwork.objects.select_related('network__project').get(
             user=request.user
-        ).network
+        )
+        current_network = current_network_rel.network
     except UserCurrentNetwork.DoesNotExist:
         current_network = None
 
@@ -136,6 +142,7 @@ def new_network(request):
             user=request.user
         )
         project = current_project_relation.project
+        log = logger.get_logger(user=request.user, project=project)
 
         # Create the basic database record for this network
         swarm_network = SwarmNetwork.objects.create(
@@ -144,6 +151,7 @@ def new_network(request):
             description=description,
             author=request.user,
         )
+        log.network.info(f"Initialized new network record: {network_name} (ID: {swarm_network.identifier})")
 
         if creation_method == "create":
             # Extract client JSON data from the dynamic form fields
@@ -176,6 +184,8 @@ def new_network(request):
                     participant_id=client_data["name"],
                 )
 
+            log.network.info(f"Provisioning network '{network_name}' with {len(clients)} clients.", clients=clients)
+            
             # Trigger background provisioning via NVFlare
             generate_flare_startup_kit(
                 network_id=swarm_network.identifier,
@@ -194,6 +204,8 @@ def new_network(request):
                 )
                 os.makedirs(provision_dir, exist_ok=True)
 
+                log.network.info(f"User uploading startup kit for network '{network_name}'.", filename=startup_package.name)
+                
                 # Extract the uploaded zip file into the project workspace securely
                 with zipfile.ZipFile(startup_package, "r") as zip_ref:
                     # Get absolute path of the target directory for verification
@@ -219,8 +231,10 @@ def new_network(request):
 
                 swarm_network.status = "PROVISIONED"
                 swarm_network.save()
+                log.network.info(f"Startup kit extracted and network '{network_name}' marked as PROVISIONED.")
 
         elif creation_method == "local_test":
+            log.network.info(f"Provisioning local testing network '{network_name}'.")
             # Generate a network intended for development/testing on a single
             # machine
             generate_flare_startup_kit(
@@ -267,6 +281,10 @@ def download_startup_kits(request, network_id):
     packages them into a ZIP file, and returns it as a download.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    
+    log.network.info(f"User downloaded startup kits for network '{swarm_network.name}' (ID: {swarm_network.identifier})")
+    
     zip_buffer = create_startup_kits_zip(swarm_network)
 
     response = HttpResponse(
@@ -286,6 +304,10 @@ def start_swarm_network(request, network_id):
     using docker-compose.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    
+    log.network.info(f"Starting swarm network '{swarm_network.name}' (ID: {swarm_network.identifier}).")
+    
     swarm_network.status = "STARTING"
     swarm_network.save()
 
@@ -302,6 +324,10 @@ def stop_swarm_network(request, network_id):
     network containers.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    
+    log.network.info(f"Stopping swarm network '{swarm_network.name}' (ID: {swarm_network.identifier}).")
+    
     swarm_network.status = "STOPPING"
     swarm_network.save()
 
@@ -330,7 +356,22 @@ def delete_swarm_network(request, network_id):
     Only the project author is permitted to delete networks.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    
     if swarm_network.project.author == request.user:
-        # The model's delete method handles Docker cleanup and file removal
+        # If the network is currently active, inform the user about the shutdown phase
+        if swarm_network.status in ['RUNNING', 'STARTING', 'ERROR']:
+            messages.info(request, f"Network '{swarm_network.name}' is being stopped gracefully before deletion. This may take a moment.")
+        else:
+            messages.success(request, f"Network '{swarm_network.name}' deleted successfully.")
+            
+        log.network.warning(f"Deleting swarm network '{swarm_network.name}' (ID: {swarm_network.identifier}).")
+        
+        # The model's delete method handles Docker cleanup and file removal.
+        # If the network is running, it will transition to STOPPING and delete asynchronously.
         swarm_network.delete()
+    else:
+        log.access.warning(f"Unauthorized delete attempt for network '{swarm_network.name}' by user {request.user.username}.")
+        messages.error(request, "You do not have permission to delete this network.")
+        
     return redirect("network:network")

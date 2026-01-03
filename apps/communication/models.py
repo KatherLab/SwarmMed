@@ -31,13 +31,20 @@ class Message(models.Model):
     # The actual content of the message (Encrypted)
     body = EncryptedTextField()
     # When the message was sent (automatically set on creation)
-    timestamp = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
     # Tracks if the recipient has seen the message
-    is_read = models.BooleanField(default=False)
+    is_read = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         # Most recent messages appear first
         ordering = ['-timestamp']
+        indexes = [
+            # Optimize fetching conversation history between two users
+            models.Index(fields=['sender', 'recipient', '-timestamp']),
+            models.Index(fields=['recipient', 'sender', '-timestamp']),
+            # Optimize counting unread messages for a recipient
+            models.Index(fields=['recipient', 'is_read', '-timestamp']),
+        ]
 
     def __str__(self):
         """String representation of the message object."""
@@ -63,11 +70,15 @@ class ProjectPost(models.Model):
     # The content of the update (Encrypted)
     content = EncryptedTextField()
     # When the post was made
-    timestamp = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         # Most recent posts appear first
         ordering = ['-timestamp']
+        indexes = [
+            # Optimize fetching posts for a project board
+            models.Index(fields=['project', '-timestamp']),
+        ]
 
     def __str__(self):
         """String representation of the project post."""
@@ -95,3 +106,8 @@ class ProjectBoardAccess(models.Model):
     class Meta:
         # Ensure a unique log entry for each user-project pair
         unique_together = ('user', 'project')
+        indexes = [
+            # Optimize lookups for checking last access time
+            models.Index(fields=['project', 'last_accessed']),
+            models.Index(fields=['user', 'project']),
+        ]

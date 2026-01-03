@@ -66,6 +66,22 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## 📂 Troubleshooting
 
+### "Your connection is not private" (SSL Warning)
+Since the platform uses an internal Certificate Authority (CA) for `localhost`, your browser will show a warning. To resolve this:
+
+**macOS:**
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/internal/ca.crt
+```
+
+**Windows (PowerShell as Admin):**
+```powershell
+Import-Certificate -FilePath "certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+**Chrome/Edge Bypass:**
+Type `thisisunsafe` anywhere on the warning page to bypass it without installing the certificate.
+
 ### No Tailscale Connection
 If you encounter connectivity issues with the VPN:
 ```bash

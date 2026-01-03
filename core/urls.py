@@ -9,7 +9,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.static import serve
-from apps.users.views import privacy_policy, terms_and_conditions
+from apps.users.views import privacy_policy, terms_and_conditions, license, imprint, contact
 from two_factor.urls import urlpatterns as tf_urls
 
 # List of root URL patterns for the entire project.
@@ -20,6 +20,9 @@ urlpatterns = [
     # Legal and Privacy
     path("privacy/", privacy_policy, name="privacy"),
     path("terms/", terms_and_conditions, name="terms"),
+    path("license/", license, name="license"),
+    path("imprint/", imprint, name="imprint"),
+    path("contact/", contact, name="contact"),
 
     # Django Administrative interface.
     path("admin/", admin.site.urls),

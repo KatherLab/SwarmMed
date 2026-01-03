@@ -9,7 +9,7 @@ import os
 from urllib.parse import urlparse
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponse, JsonResponse, HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponse, JsonResponse, HttpResponseForbidden, HttpResponseRedirect, StreamingHttpResponse
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
 from django.views.decorators.http import require_POST
@@ -37,9 +37,10 @@ from .utils import (
     get_storage_stats,
     format_size,
     get_column_prefixes,
+    get_s3_client,
 )
 from apps.logs import logger
-from ..project.decorators import project_context_required
+from ..project.decorators import project_context_required, project_membership_required
 
 
 def get_user_project(request):
@@ -48,7 +49,7 @@ def get_user_project(request):
     Returns: (project_uuid_string, is_valid_boolean)
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(
+        user_current_project = UserCurrentProject.objects.select_related('project').get(
             user=request.user
         )
         if not user_current_project.project:
@@ -175,6 +176,9 @@ def list_files(request):
 
     root_path = f"{current_project_uuid}/data/"
     user_prefix = request.GET.get("prefix", "")
+    
+    log = logger.get_logger()
+    log.access.info(f"User listed files in prefix: {user_prefix or '(root)'}", prefix=user_prefix)
 
     # Calculate full S3 path
     # Generate prefixes for the column-based view (breadcrumb style)
@@ -247,8 +251,7 @@ def list_files(request):
 @project_context_required
 def download_file(request):
     """
-    Logs the access to a file and redirects to a presigned S3 URL.
-    Includes host validation to prevent redirect attacks.
+    Logs the access to a file and proxies the download through Django.
     """
     key = request.GET.get('key')
     current_project_uuid, _ = get_user_project(request)
@@ -259,20 +262,8 @@ def download_file(request):
     log = logger.get_logger()
     log.access.info(f"User accessed file: {key}", file_key=key)
 
-    download_url = get_s3_download_url(key)
-    
-    # Security: Validate the redirect URL host
-    parsed_url = urlparse(download_url)
-    allowed_hosts = [
-        urlparse(settings.AWS_S3_ENDPOINT_URL).netloc,
-        urlparse(settings.PUBLIC_URL).netloc
-    ]
-
-    # Allow configured S3 hosts or standard AWS S3 domains
-    if parsed_url.netloc not in allowed_hosts and not parsed_url.netloc.endswith("amazonaws.com"):
-        return HttpResponseForbidden("External URL forbidden")
-
-    return HttpResponseRedirect(download_url)
+    # Direct proxying is more reliable for local/self-hosted setups
+    return _proxy_s3_download(key, os.path.basename(key))
 
 
 @login_required
@@ -460,6 +451,7 @@ def stop_validation(request):
         return JsonResponse({"error": "No project selected"}, status=400)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
+    log = logger.get_logger(user=request.user, project=project)
 
     run = ValidationRun.objects.filter(
         project=project, status__in=["pending", "running"]
@@ -468,11 +460,14 @@ def stop_validation(request):
     if run:
         if run.celery_task_id:
             current_app.control.revoke(run.celery_task_id, terminate=True)
+            log.data.info(f"Revoked Celery task {run.celery_task_id} for validation run {run.id}")
         run.status = "cancelled"
         run.completed_at = timezone.now()
         run.save()
+        log.data.warning(f"Validation run {run.id} cancelled by user.")
         return JsonResponse({"success": True})
 
+    log.data.debug("Stop validation requested but no running validation found.")
     return JsonResponse({"error": "No running validation found"}, status=404)
 
 
@@ -580,6 +575,7 @@ def stop_visualization(request):
         return JsonResponse({"error": "No project selected"}, status=400)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
+    log = logger.get_logger(user=request.user, project=project)
 
     run = VisualizationRun.objects.filter(
         project=project, status__in=["pending", "running"]
@@ -588,11 +584,14 @@ def stop_visualization(request):
     if run:
         if run.celery_task_id:
             current_app.control.revoke(run.celery_task_id, terminate=True)
+            log.data.info(f"Revoked Celery task {run.celery_task_id} for visualization run {run.id}")
         run.status = "cancelled"
         run.completed_at = timezone.now()
         run.save()
+        log.data.warning(f"Visualization run {run.id} cancelled by user.")
         return JsonResponse({"success": True})
 
+    log.data.debug("Stop visualization requested but no running visualization found.")
     return JsonResponse(
         {"error": "No running visualization found"}, status=404
     )
@@ -620,11 +619,15 @@ def visualization_status(request):
             }
         )
 
-    plots = list(
-        VisualizationPlot.objects.filter(visualization_run=latest_run).values(
-            "title", "plot_number", "image_data", "svg_data"
-        )
-    )
+    plots_qs = VisualizationPlot.objects.filter(visualization_run=latest_run)
+    plots = []
+    for p in plots_qs:
+        plots.append({
+            "title": p.title,
+            "plot_number": p.plot_number,
+            "image_url": reverse('data:get_visualization_plot', args=[p.id, 'image']) if p.image_data else None,
+            "svg_url": reverse('data:get_visualization_plot', args=[p.id, 'svg']) if p.svg_data else None,
+        })
 
     return JsonResponse(
         {
@@ -637,3 +640,58 @@ def visualization_status(request):
             "completed_at": latest_run.completed_at,
         }
     )
+
+
+def _proxy_s3_download(key, filename):
+    """
+    Helper to proxy a file download from S3 through Django using StreamingHttpResponse.
+    """
+    s3 = get_s3_client()
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        
+        def stream_content():
+            for chunk in obj['Body'].iter_chunks(chunk_size=1024*1024): # 1MB chunks
+                yield chunk
+                
+        response = StreamingHttpResponse(
+            stream_content(),
+            content_type=obj.get('ContentType', 'application/octet-stream')
+        )
+        # response['Content-Length'] = obj.get('ContentLength')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        # Disable Nginx buffering for this stream
+        response['X-Accel-Buffering'] = 'no'
+        return response
+    except Exception as e:
+        logger.get_logger().data.error(f"Failed to proxy S3 download for {key}: {e}")
+        return HttpResponse("File download failed", status=500)
+
+
+@login_required
+@project_membership_required
+def get_visualization_plot(request, plot_id, plot_type):
+    """
+    Proxies a visualization plot image from S3 through Django.
+    """
+    plot = get_object_or_404(VisualizationPlot, id=plot_id)
+    
+    key = None
+    filename = f"plot_{plot.plot_number}"
+    
+    if plot_type == 'image' and plot.image_data:
+        key = plot.image_data.name
+        filename += ".png"
+    elif plot_type == 'svg' and plot.svg_data:
+        key = plot.svg_data.name
+        filename += ".svg"
+        
+    if not key:
+        return HttpResponse("Plot data not found", status=404)
+        
+    response = _proxy_s3_download(key, filename)
+    # Ensure plots are displayed inline
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response

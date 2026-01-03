@@ -1,7 +1,7 @@
 services:
   app:
     container_name: swarmcloud
-    command: gunicorn --bind 0.0.0.0:8000 core.wsgi:application
+    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 8 --worker-class gthread --access-logfile - --error-logfile - --log-level info --max-requests 1000 --max-requests-jitter 50 core.wsgi:application
     restart: always
     build:
       context: .
@@ -19,6 +19,7 @@ services:
       - /usr/bin/tailscale:/usr/bin/tailscale:ro
     depends_on:
       - postgres
+      - pgbouncer
       - redis
       - docker-proxy
     env_file:
@@ -60,7 +61,7 @@ services:
 
   celery_worker:
     container_name: celery_worker
-    command: celery -A core worker --loglevel=info --concurrency=2
+    command: celery -A core worker --loglevel=info --concurrency=8 --prefetch-multiplier=2
     restart: always
     build:
       context: .
@@ -75,6 +76,7 @@ services:
       - ./certs/internal/ca.crt:/usr/local/share/ca-certificates/internal-ca.crt:ro
     depends_on:
       - postgres
+      - pgbouncer
       - redis
       - docker-proxy
     env_file:
@@ -85,6 +87,7 @@ services:
       - SSL_CERT_FILE=/usr/local/share/ca-certificates/internal-ca.crt
       - AWS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
       - SKIP_MIGRATIONS=1
+      - CELERY_WORKER=1
 
   docker-proxy:
     image: tecnativa/docker-socket-proxy
@@ -156,12 +159,34 @@ services:
       -c ssl_cert_file=/var/lib/postgresql/server.crt
       -c ssl_key_file=/var/lib/postgresql/server.key
       -c ssl_ca_file=/var/lib/postgresql/root.crt
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
     ports:
       - "127.0.0.1:5432:5432"
     env_file:
       - .env
     networks:
       - db_network
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: pgbouncer
+    restart: always
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+      - ./certs/internal/ca.crt:/etc/pgbouncer/certs/ca.crt:ro
+      - ./certs/internal/pgbouncer.crt:/etc/pgbouncer/certs/pgbouncer.crt:ro
+      - ./certs/internal/pgbouncer.key:/etc/pgbouncer/certs/pgbouncer.key:ro
+    depends_on:
+      - postgres
+    networks:
+      - db_network
+    expose:
+      - "5432"
 
   minio:
     image: minio/minio

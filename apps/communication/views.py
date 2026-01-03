@@ -8,12 +8,14 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib import messages
-from django.db.models import Q
+from django.db.models import Q, OuterRef, Subquery, Count, F
 from django.utils import timezone
+from django.core.cache import cache
 
 from .models import Message, ProjectPost, ProjectBoardAccess
 from .forms import ProjectPostForm
 from apps.project.models import Project
+from apps.logs import logger
 
 
 @login_required
@@ -24,93 +26,101 @@ def chat_dashboard(request):
     """
     user = request.user
 
-    # --- 1. Direct Messages Logic ---
-    # Find IDs of everyone this user has interacted with
-    sent_to = Message.objects.filter(
-        sender=user).values_list(
-        'recipient',
-        flat=True)
-    received_from = Message.objects.filter(
-        recipient=user).values_list(
-        'sender', flat=True)
-
-    # Combine and get unique user IDs
-    contact_ids = set(list(sent_to) + list(received_from))
-
-    contacts = []
-    for contact_id in contact_ids:
-        # Fetch the contact user object
-        contact = User.objects.get(id=contact_id)
-
-        # Get the most recent message between these two users
-        last_msg = Message.objects.filter(Q(sender=user, recipient=contact) | Q(
-            sender=contact, recipient=user)).order_by('-timestamp').first()
-
-        # Count how many messages from this contact are currently unread
-        unread_count = Message.objects.filter(
-            sender=contact,
-            recipient=user,
-            is_read=False
-        ).count()
-
-        contacts.append({
-            'user': contact,
-            'last_message': last_msg,
-            'unread_count': unread_count
-        })
-
-    # Sort the list of contacts so the most recent conversation is at the top
-    contacts.sort(
-        key=lambda x: x['last_message'].timestamp if x['last_message'] else None,
-        reverse=True)
-
-    # --- 2. Project Boards Logic ---
-    # Get all projects the user is involved in
+    # --- 1. Available Users for New Chat ---
+    # Find all users currently in projects with the current user efficiently
     user_projects = Project.objects.filter(
         Q(author=user) | Q(members=user)
     ).distinct()
 
+    available_users = User.objects.filter(
+        Q(created_projects__in=user_projects) |
+        Q(member_projects__in=user_projects)
+    ).exclude(id=user.id).distinct()
+
+    # --- 2. Direct Messages Logic ---
+    # Find everyone this user has interacted with
+    contact_users = User.objects.filter(
+        Q(received_messages__sender=user) |
+        Q(sent_messages__recipient=user)
+    ).exclude(id=user.id).distinct().select_related('profile')
+
+    # Subquery to get the ID of the most recent message between the user and each contact
+    last_msg_subquery = Message.objects.filter(
+        Q(sender=user, recipient=OuterRef('pk')) |
+        Q(sender=OuterRef('pk'), recipient=user)
+    ).order_by('-timestamp').values('id')[:1]
+
+    # Annotate contacts with unread count and the ID of the last message
+    contact_users = contact_users.annotate(
+        unread_count_annotated=Count(
+            'sent_messages',
+            filter=Q(sent_messages__recipient=user, sent_messages__is_read=False)
+        ),
+        last_msg_id=Subquery(last_msg_subquery)
+    )
+
+    # Bulk fetch the last messages to avoid N+1 in the loop
+    last_msg_ids = [c.last_msg_id for c in contact_users if c.last_msg_id]
+    messages_dict = {m.id: m for m in Message.objects.filter(id__in=last_msg_ids)}
+
+    contacts = []
+    for contact in contact_users:
+        last_msg = messages_dict.get(contact.last_msg_id)
+        contacts.append({
+            'user': contact,
+            'last_message': last_msg,
+            'unread_count': contact.unread_count_annotated
+        })
+
+    # Sort the list of contacts so the most recent conversation is at the top
+    contacts.sort(
+        key=lambda x: x['last_message'].timestamp if x['last_message'] else timezone.now(),
+        reverse=True)
+
+    # --- 3. Project Boards Logic ---
+    # Subquery for the latest post ID on each project board
+    last_post_subquery = ProjectPost.objects.filter(
+        project=OuterRef('pk')
+    ).order_by('-timestamp').values('id')[:1]
+
+    # Subquery for the user's last access time to each project board
+    last_access_subquery = ProjectBoardAccess.objects.filter(
+        user=user,
+        project=OuterRef('pk')
+    ).values('last_accessed')[:1]
+
+    # Annotate project queryset with necessary metadata
+    # We use Case/When to handle the two unread count scenarios:
+    # 1. User has visited before: Count posts newer than last_accessed_val
+    # 2. User has never visited: Count all posts
+    user_projects_annotated = user_projects.select_related('author').annotate(
+        last_post_id=Subquery(last_post_subquery),
+        last_accessed_val=Subquery(last_access_subquery)
+    ).annotate(
+        unread_count_calculated=Count(
+            'posts',
+            filter=Q(
+                posts__timestamp__gt=F('last_accessed_val')
+            ) | Q(
+                last_accessed_val__isnull=True
+            )
+        )
+    )
+
+    # Bulk fetch last posts
+    last_post_ids = [p.last_post_id for p in user_projects_annotated if p.last_post_id]
+    posts_dict = {p.id: p for p in ProjectPost.objects.filter(id__in=last_post_ids)}
+
     project_boards = []
-    for project in user_projects:
-        # Check for unread posts based on the last time the user clicked the
-        # board
-        try:
-            access_log = ProjectBoardAccess.objects.get(
-                user=user, project=project)
-            last_accessed = access_log.last_accessed
-        except ProjectBoardAccess.DoesNotExist:
-            last_accessed = None
-
-        if last_accessed:
-            unread_posts = ProjectPost.objects.filter(
-                project=project,
-                timestamp__gt=last_accessed
-            ).count()
-        else:
-            unread_posts = ProjectPost.objects.filter(project=project).count()
-
-        # Get the latest update on the project board
-        last_post = ProjectPost.objects.filter(
-            project=project
-        ).order_by('-timestamp').first()
+    for project in user_projects_annotated:
+        # Unread count is now pre-calculated in the database query
+        unread_posts = project.unread_count_calculated
 
         project_boards.append({
             'project': project,
             'unread_count': unread_posts,
-            'last_post': last_post
+            'last_post': posts_dict.get(project.last_post_id)
         })
-
-    # --- 3. Available Users for New Chat ---
-    # Find all users currently in projects with the current user
-    available_users = set()
-    for p in user_projects:
-        available_users.add(p.author)
-        for m in p.members.all():
-            available_users.add(m)
-
-    # Remove the current user from the list of people they can message
-    if user in available_users:
-        available_users.remove(user)
 
     context = {
         'segment': 'communication',
@@ -129,6 +139,10 @@ def chat_room(request, user_id):
     """
     other_user = get_object_or_404(User, pk=user_id)
     user = request.user
+    log = logger.get_logger(user=user)
+
+    # Log access to the chat room for audit purposes
+    log.access.info(f"User accessed direct message room with user: {other_user.username}", target_user=other_user.username)
 
     # Automatically mark all incoming messages from this user as read
     Message.objects.filter(
@@ -136,6 +150,9 @@ def chat_room(request, user_id):
         recipient=user,
         is_read=False
     ).update(is_read=True)
+
+    # Invalidate unread count cache for the current user
+    cache.delete(f'unread_messages_count_{user.id}')
 
     # Handle sending a new message
     if request.method == 'POST':
@@ -147,6 +164,7 @@ def chat_room(request, user_id):
                 subject="Chat Message",  # Default subject for simple chat
                 body=body
             )
+            log.access.info(f"User sent direct message to: {other_user.username}", target_user=other_user.username)
             # Redirect back to the same page to prevent double-submission on
             # refresh
             return redirect('communication:chat_room', user_id=user_id)
@@ -154,7 +172,7 @@ def chat_room(request, user_id):
     # Retrieve the full message history between these two users
     messages_history = Message.objects.filter(
         Q(sender=user, recipient=other_user) | Q(sender=other_user, recipient=user)
-    ).order_by('timestamp')
+    ).select_related('sender', 'recipient').order_by('timestamp')
 
     context = {
         'segment': 'communication',
@@ -174,6 +192,10 @@ def project_board(request, project_id):
     Allows members to post updates and questions.
     """
     project = get_object_or_404(Project, pk=project_id)
+    log = logger.get_logger(user=request.user, project=project)
+
+    # Log access to the project discussion board
+    log.access.info(f"User accessed discussion board for project: {project.title} ({project.identifier})")
 
     # Update the user's access log for this board to mark current posts as
     # 'read'
@@ -191,6 +213,8 @@ def project_board(request, project_id):
             post.project = project
             post.author = request.user
             post.save()
+            
+            log.access.info(f"User created new post on discussion board for project: {project.title}")
 
             # Update access log again so the user's own new post isn't
             # immediately flagged as 'new' for them.
@@ -207,7 +231,7 @@ def project_board(request, project_id):
         form = ProjectPostForm()
 
     # Fetch all posts belonging to this project
-    posts = project.posts.all()
+    posts = project.posts.select_related('author').all()
 
     context = {
         'segment': 'project',

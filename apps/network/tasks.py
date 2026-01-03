@@ -186,8 +186,11 @@ def start_swarm_network_task(network_id, user_id):
         env["DOCKER_BUILDKIT"] = "1"
         env["COMPOSE_DOCKER_CLI_BUILD"] = "1"
 
+        # Use unique project name to avoid clashes
+        docker_project_name = f"swarm_{str(swarm_network.identifier)[:12]}"
+
         ret = run_and_log_subprocess(
-            [docker_path, 'compose', '-f', 'compose.yaml', 'build'],
+            [docker_path, 'compose', '-p', docker_project_name, '-f', 'compose.yaml', 'build'],
             cwd=compose_dir,
             env=env,
             logger=logger
@@ -198,7 +201,7 @@ def start_swarm_network_task(network_id, user_id):
         # 3. Start containers with live logging
         logger.network.info("Starting Docker containers (detached)...")
         ret = run_and_log_subprocess(
-            [docker_path, 'compose', '-f', 'compose.yaml', 'up', '-d'],
+            [docker_path, 'compose', '-p', docker_project_name, '-f', 'compose.yaml', 'up', '-d'],
             cwd=compose_dir,
             env=env,
             logger=logger
@@ -208,7 +211,8 @@ def start_swarm_network_task(network_id, user_id):
 
         # 4. Network connection
         try:
-            net_name = os.path.basename(compose_dir) + "_default"
+            # Docker Compose adds '_default' to the project name for its default network
+            net_name = f"{docker_project_name}_default"
             logger.network.info(f"Connecting app and storage to network: {net_name}")
 
             # Connect via DOCKER_HOST if provided (e.g. for the proxy), else use local socket
@@ -342,10 +346,12 @@ def stop_swarm_network_task(network_id, user_id):
         if os.path.exists(os.path.join(compose_dir, 'compose.yaml')):
             logger.network.info(f"Stopping network: {network.name}")
             docker_path = shutil.which('docker') or 'docker'
+            
+            docker_project_name = f"swarm_{str(network.identifier)[:12]}"
 
             env = os.environ.copy()
             ret = run_and_log_subprocess(
-                [docker_path, 'compose', '-f', 'compose.yaml', 'down'],
+                [docker_path, 'compose', '-p', docker_project_name, '-f', 'compose.yaml', 'down'],
                 cwd=compose_dir,
                 env=env,
                 logger=logger
@@ -363,3 +369,138 @@ def stop_swarm_network_task(network_id, user_id):
 
     except Exception as e:
         print(f"Failed to stop network: {e}")
+
+
+@shared_task
+def stop_and_delete_network_task(network_id):
+    """
+    Stops a running network and then deletes its database record.
+    This ensures that resources are cleaned up before the record is gone.
+    """
+    try:
+        network = SwarmNetwork.objects.get(identifier=network_id)
+        
+        # 1. Perform cleanup (stops containers, syncs results, and removes files)
+        # We call the cleanup function synchronously within this task
+        cleanup_network_resources(
+            project_title=network.project.title,
+            project_identifier=str(network.project.identifier),
+            network_identifier=str(network.identifier),
+            network_name=network.name
+        )
+        
+        # 2. Delete the record from the database
+        # We use filter().delete() to avoid re-triggering the custom delete() method
+        SwarmNetwork.objects.filter(identifier=network_id).delete()
+        
+    except SwarmNetwork.DoesNotExist:
+        # If it was already deleted, we just ensure resources are gone
+        # (Though we don't have the details here, cleanup_network_resources 
+        # might have already been called by another task)
+        pass
+    except Exception as e:
+        internal_logger = get_logger()
+        internal_logger.network.error(f"Failed to stop and delete network {network_id}: {e}")
+
+
+@shared_task
+def cleanup_network_resources(project_title, project_identifier, network_identifier, network_name):
+    """
+    Asynchronously cleans up Docker containers and filesystem resources
+    associated with a deleted SwarmNetwork.
+    
+    Arguments are passed as strings since the DB record might already be deleted.
+    """
+    try:
+        # Use a generic system logger since the network/project might be gone
+        logger = get_logger()
+        
+        project_name_slug = slugify(project_title).replace('-', '_')
+        
+        provision_dir = os.path.join(
+            settings.BASE_DIR,
+            'workspaces',
+            str(project_identifier),
+            str(network_identifier)
+        )
+        
+        compose_dir = os.path.join(
+            provision_dir,
+            'workspace',
+            project_name_slug,
+            'prod_00'
+        )
+        
+        compose_file_path = os.path.join(compose_dir, 'compose.yaml')
+
+        # 1. Stop Docker containers
+        if os.path.exists(compose_file_path):
+            
+            # Handle host path adjustment for cleanup if needed
+            host_project_path = os.getenv('HOST_PROJECT_PATH')
+            if host_project_path:
+                try:
+                    with open(compose_file_path, 'r') as f:
+                        compose_content = f.read()
+
+                    relative_compose_dir = os.path.relpath(compose_dir, settings.BASE_DIR)
+                    host_compose_dir = os.path.join(host_project_path, relative_compose_dir)
+
+                    mappings = {
+                        'build: ./nvflare': f'build: {os.path.join(host_compose_dir, "nvflare")}',
+                        './fl-client': os.path.join(host_compose_dir, 'fl-client'),
+                        './server': os.path.join(host_compose_dir, 'server'),
+                        './overseer': os.path.join(host_compose_dir, 'overseer'),
+                    }
+                    
+                    # We need to make sure we are tearing down the *same* configuration
+                    # that was brought up. If the file on disk already has host paths,
+                    # simply running 'down' is fine. If we need to modify it to match, we do so.
+                    # Usually, the file on disk should be the one last used.
+                    
+                except Exception as e:
+                    logger.network.warning(f"Error reading compose file during cleanup prep: {e}")
+
+            # Reliable binary detection
+            docker_compose_bin = shutil.which('docker-compose')
+            if docker_compose_bin:
+                cmd = [docker_compose_bin]
+            else:
+                docker_bin = shutil.which('docker')
+                if docker_bin:
+                    cmd = [docker_bin, 'compose']
+                else:
+                    cmd = ['docker', 'compose'] # Fallback
+            
+            # Use unique project name to ensure we target the right containers
+            docker_project_name = f"swarm_{network_identifier[:12]}"
+            cmd.extend(['-p', docker_project_name, '-f', 'compose.yaml', 'down'])
+            
+            logger.network.info(f"Stopping Docker resources for deleted network: {network_name}")
+            try:
+                subprocess.run(
+                    cmd,
+                    cwd=compose_dir,
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception as e:
+                logger.network.error(f"Failed to stop Docker containers for deleted network {network_name}: {e}")
+        
+        # 2. Sync results to S3 before wiping the local filesystem
+        try:
+            from apps.results.tasks import sync_project_results
+            logger.network.info(f"Synchronizing results for network {network_name} before deletion.")
+            # Run synchronously to ensure files are uploaded before rmtree
+            sync_project_results(project_identifier)
+        except Exception as e:
+            logger.network.error(f"Result sync failed during network cleanup for {network_name}: {e}")
+
+        # 3. Cleanup Filesystem
+        if os.path.exists(provision_dir):
+            shutil.rmtree(provision_dir)
+            logger.network.info(f"Cleaned up workspace directory for deleted network: {network_name}")
+            
+    except Exception as e:
+        logger.network.error(f"Error during network resource cleanup for {network_name}: {e}")

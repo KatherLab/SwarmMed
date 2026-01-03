@@ -7,10 +7,13 @@ visualization scripts in an isolated environment.
 import ast
 import os
 import traceback
+import re
+import base64
 
 import boto3
 from celery import shared_task
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from apps.logs import logger
@@ -26,6 +29,36 @@ from .models import (
     TrainingResult,
 )
 from .visualization import ResultsVisualizationContext
+
+
+_UUID_RE = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
+
+
+def _extract_flare_job_uuid(flare_job_id_raw: str) -> str | None:
+    """Best-effort extraction of the NVFlare job UUID from stored flare_job_id."""
+    if not flare_job_id_raw:
+        return None
+
+    # Case 1: it already contains a UUID.
+    m = _UUID_RE.search(str(flare_job_id_raw))
+    if m:
+        return m.group(1)
+
+    # Case 2: some code stores a stringified list/dict of log records.
+    try:
+        parsed = ast.literal_eval(flare_job_id_raw)
+        if isinstance(parsed, list):
+            for item in parsed:
+                if isinstance(item, dict):
+                    data = item.get('data', '')
+                    if isinstance(data, str) and 'Submitted job:' in data:
+                        m2 = _UUID_RE.search(data)
+                        if m2:
+                            return m2.group(1)
+    except (ValueError, SyntaxError, TypeError):
+        return None
+
+    return None
 
 
 @shared_task
@@ -47,6 +80,13 @@ def sync_project_results(project_uuid):
 
         project = Project.objects.get(identifier=project_uuid)
         log.results.info(f"Starting results sync for project {project_uuid}")
+
+        # Pre-compute job UUID -> TrainingJob mapping once.
+        job_lookup: dict[str, TrainingJob] = {}
+        for job in TrainingJob.objects.filter(project=project).only('id', 'flare_job_id', 'project'):
+            job_uuid = _extract_flare_job_uuid(job.flare_job_id or "")
+            if job_uuid:
+                job_lookup[job_uuid] = job
 
         s3 = get_s3_client()
         prefix = f"{project.identifier}/results/"
@@ -79,52 +119,13 @@ def sync_project_results(project_uuid):
                 job_id_from_s3_key = parts[2]
                 last_modified = obj.get('LastModified')
 
-                job = None
-                try:
-                    # Attempt to find the matching TrainingJob record.
-                    # We use 'icontains' because flare_job_id might be a
-                    # complex string.
-                    job_obj = TrainingJob.objects.filter(
+                job = job_lookup.get(job_id_from_s3_key)
+                if not job:
+                    # Backward-compatible fallback (rare): try icontains once.
+                    job = TrainingJob.objects.filter(
                         project=project,
                         flare_job_id__icontains=job_id_from_s3_key
-                    ).first()
-
-                    if job_obj:
-                        job = job_obj
-                    else:
-                        # Fallback for complex job ID storage (e.g.,
-                        # stringified JSON logs).
-                        all_jobs = TrainingJob.objects.filter(project=project)
-                        for potential_job in all_jobs:
-                            raw_flare_job_id = potential_job.flare_job_id or ""
-                            actual_job_id = None
-                            try:
-                                # Try parsing the field if it looks like a
-                                # list/dict.
-                                parsed = ast.literal_eval(raw_flare_job_id)
-                                if isinstance(parsed, list):
-                                    for item in parsed:
-                                        if (isinstance(item, dict) and
-                                                item.get('type') == 'string' and
-                                                'Submitted job:' in item.get('data', '')):
-                                            actual_job_id = item.get(
-                                                'data', '').split(':')[-1].strip()
-                                            break
-                            except (ValueError, SyntaxError, TypeError):
-                                pass
-
-                            if not actual_job_id:
-                                actual_job_id = raw_flare_job_id
-
-                            if (actual_job_id and actual_job_id.strip()
-                                    == job_id_from_s3_key):
-                                job = potential_job
-                                break
-
-                except (TrainingJob.DoesNotExist, Exception) as e:
-                    log.results.warning(
-                        f"TrainingJob search error for {job_id_from_s3_key}: {e}")
-                    job = None
+                    ).only('id', 'flare_job_id', 'project').first()
 
                 if job:
                     # Step 3: Create or update the TrainingResult record.
@@ -173,6 +174,9 @@ def run_results_visualization_task(self, run_id, job_id):
         run.status = 'running'
         run.started_at = timezone.now()
         run.celery_task_id = self.request.id
+        # Ensure flare_job_id is preserved if it was passed to the task
+        if not run.flare_job_id and job_id:
+            run.flare_job_id = job_id
         run.save()
 
         # Step 1: Download the user's visualization script from S3.
@@ -221,23 +225,24 @@ def run_results_visualization_task(self, run_id, job_id):
 
             # Also download the model weights to the temp directory so they are available in the sandbox
             try:
-                # Try to get the path to the model weights
-                # We reuse the logic from get_model but just for the path
-                flare_id = context.job.flare_job_id
-                try:
-                    import ast
-                    parsed = ast.literal_eval(flare_id)
-                    if isinstance(parsed, list):
-                        for item in parsed:
-                            if (isinstance(item, dict) and
-                                    item.get('type') == 'string' and
-                                    'Submitted job:' in item.get('data', '')):
-                                flare_id = item.get('data', '').split(':')[-1].strip()
-                                break
-                except (ValueError, SyntaxError, TypeError):
-                    pass
-                                # Check S3 for the most likely model file
-                from apps.data.utils import get_s3_client
+                # Use the flare_id passed to the task. 
+                # If context.job exists, we try to clean it, otherwise use job_id directly.
+                flare_id = job_id
+                if context.job:
+                    flare_id = context.job.flare_job_id
+                    try:
+                        parsed = ast.literal_eval(flare_id)
+                        if isinstance(parsed, list):
+                            for item in parsed:
+                                if (isinstance(item, dict) and
+                                        item.get('type') == 'string' and
+                                        'Submitted job:' in item.get('data', '')):
+                                    flare_id = item.get('data', '').split(':')[-1].strip()
+                                    break
+                    except (ValueError, SyntaxError, TypeError):
+                        pass
+                
+                # Check S3 for the most likely model file
                 from django.core.files.storage import default_storage
                 import shutil
 
@@ -247,7 +252,7 @@ def run_results_visualization_task(self, run_id, job_id):
 
                 found_key = None
                 for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=results_prefix):
-                    for obj in page.get('Contents', []):
+                    for obj in page.get("Contents", []):
                         key = obj['Key']
                         if key.endswith(('.pt', '.npy', '.npz')):
                             found_key = key
@@ -416,10 +421,24 @@ visualization = ResultsVisualizationHelper('/home/sandboxuser/data', 'plots')
 
             # Step 4: Save any generated plots to the database.
             for plot_data in result.get('plots', []):
-                ResultsVisualizationPlot.objects.create(
+                # Handle Base64 conversion to files
+                plot_obj = ResultsVisualizationPlot(
                     visualization_run=run,
-                    **plot_data
+                    title=plot_data['title'],
+                    plot_number=plot_data['plot_number']
                 )
+                
+                if plot_data.get('image_data'):
+                    img_name = f"plot_{plot_data['plot_number']}.png"
+                    img_content = ContentFile(base64.b64decode(plot_data['image_data']), name=img_name)
+                    plot_obj.image_data.save(img_name, img_content, save=False)
+                
+                if plot_data.get('svg_data'):
+                    svg_name = f"plot_{plot_data['plot_number']}.svg"
+                    svg_content = ContentFile(base64.b64decode(plot_data['svg_data']), name=svg_name)
+                    plot_obj.svg_data.save(svg_name, svg_content, save=False)
+                
+                plot_obj.save()
 
         run.status = 'completed'
         run.completed_at = timezone.now()

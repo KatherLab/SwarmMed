@@ -38,7 +38,7 @@ def get_user_project(request):
         return None, False
 
     try:
-        user_current_project = UserCurrentProject.objects.get(
+        user_current_project = UserCurrentProject.objects.select_related('project').get(
             user=request.user)
         if not user_current_project.project:
             return None, False

@@ -15,3 +15,9 @@ class LogsConfig(AppConfig):
 
     # The full Python path to the application
     name = 'apps.logs'
+
+    def ready(self):
+        """
+        Import signal handlers when the application is ready.
+        """
+        import apps.logs.signals

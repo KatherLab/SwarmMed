@@ -7,6 +7,7 @@ with local script execution, handling on-demand downloads and cleanup.
 import os
 import tempfile
 import shutil
+import concurrent.futures
 from typing import Dict, List
 
 from django.core.files.storage import default_storage
@@ -72,6 +73,8 @@ class DataFileSystem:
             raise ValueError(f"Invalid relative path: {relative_path}")
 
         if clean_rel_path in self._downloaded_files:
+            # HIPAA Compliance: Log access to specific PHI file even on cache hit
+            self.log.access.info(f"Accessed PHI file (cached): {clean_rel_path}")
             return self._downloaded_files[clean_rel_path]
 
         # The full key in S3
@@ -87,9 +90,14 @@ class DataFileSystem:
         try:
             with default_storage.open(s3_key, 'rb') as s3_file:
                 with open(local_path, 'wb') as local_file:
-                    shutil.copyfileobj(s3_file, local_file)
+                    # Use a larger buffer to improve throughput for large datasets.
+                    shutil.copyfileobj(s3_file, local_file, length=1024 * 1024)
 
             self._downloaded_files[clean_rel_path] = local_path
+            
+            # HIPAA Compliance: Log access to specific PHI file
+            self.log.access.info(f"Accessed PHI file (downloaded): {clean_rel_path}")
+            
             return local_path
         except Exception as e:
             self.log.data.error(
@@ -151,7 +159,7 @@ class DataFileSystem:
     def download_all(self):
         """
         Recursively downloads ALL files from the project's S3 data directory
-        to the local temporary directory.
+        to the local temporary directory using parallel threads.
         """
         from django.conf import settings
         from .utils import get_s3_client
@@ -161,7 +169,8 @@ class DataFileSystem:
 
         self.log.data.info(f"Starting full data download for project {self.project_uuid}...")
 
-        count = 0
+        # 1. Collect all files to download first
+        files_to_download = []
         for page in paginator.paginate(
             Bucket=settings.AWS_STORAGE_BUCKET_NAME,
             Prefix=self.root_path
@@ -170,13 +179,29 @@ class DataFileSystem:
                 key = obj['Key']
                 if key.endswith('/'):
                     continue
+                
+                # Check for hidden files or directories (e.g. .DS_Store, .ipynb_checkpoints)
+                # We check if any segment of the path starts with '.'
+                if any(part.startswith('.') for part in key.split('/')):
+                     continue
 
                 # Calculate relative path within the data directory
                 rel_path = key[len(self.root_path):]
+                files_to_download.append(rel_path)
 
-                # Use the internal download mechanism to populate cache and temp_dir
+        # 2. Download in parallel
+        count = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            # Map the download function to the files
+            future_to_file = {
+                executor.submit(self._ensure_file_downloaded, rel_path): rel_path
+                for rel_path in files_to_download
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_file):
+                rel_path = future_to_file[future]
                 try:
-                    self._ensure_file_downloaded(rel_path)
+                    future.result()
                     count += 1
                 except Exception as e:
                     self.log.data.warning(f"Failed to download {rel_path} during sync: {e}")

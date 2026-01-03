@@ -26,7 +26,6 @@ class DatabaseLogHandler(logging.Handler):
             project_id = getattr(record, 'project_id', None)
             object_id = getattr(record, 'object_id', None)
 
-            from django.contrib.auth.models import User
             from django.apps import apps
             from .context import _thread_locals
 
@@ -38,21 +37,6 @@ class DatabaseLogHandler(logging.Handler):
             except (LookupError, RuntimeError):
                 # Models might not be ready during early initialization
                 return
-
-            # Fetch the actual objects from the database using the IDs
-            user = None
-            if user_id:
-                try:
-                    user = User.objects.get(id=user_id)
-                except User.DoesNotExist:
-                    pass
-
-            project = None
-            if project_id:
-                try:
-                    project = project_model.objects.get(identifier=project_id)
-                except project_model.DoesNotExist:
-                    pass
 
             # Extract request metadata from thread-local storage
             request = getattr(_thread_locals, 'request', None)
@@ -76,10 +60,20 @@ class DatabaseLogHandler(logging.Handler):
             context_data = getattr(record, 'context_data', {})
             safe_context_data = redact_phi(context_data)
 
+            # Determine source (e.g. 'web', 'celery')
+            # If we are in a celery worker, the process name or a specific env var might tell us.
+            source = getattr(record, 'source', 'web')
+            
+            # Check for common environment indicators
+            import os
+            if os.environ.get('CELERY_WORKER'):
+                source = 'celery'
+            elif os.environ.get('CONTAINER_NAME'):
+                source = os.environ.get('CONTAINER_NAME')
+
             # Create the database record
-            log_entry_model.objects.create(
-                user=user,
-                project=project,
+            # Optimization: Assign IDs directly to avoid extra SELECT queries
+            log_entry = log_entry_model(
                 category=getattr(record, 'category', 'project'),
                 level=record.levelname,
                 message=safe_message,
@@ -87,8 +81,36 @@ class DatabaseLogHandler(logging.Handler):
                 ip_address=ip_address,
                 user_agent=user_agent,
                 path=path,
-                object_id=object_id
+                object_id=object_id,
+                source=source
             )
+            
+            if user_id:
+                log_entry.user_id = user_id
+            
+            if project_id:
+                # project_id in record might be the 'identifier' (UUID) or PK.
+                # Project model uses identifier (UUID) as a unique field, but PK is an integer.
+                # LogEntry.project is a ForeignKey to Project.
+                # If project_id is a UUID, we still need to find the PK if we want to avoid the SELECT.
+                # But wait, LogEntry.project is defined as:
+                # project = models.ForeignKey('project.Project', ...)
+                # In Django, if we have the PK, we can do log_entry.project_id = pk.
+                # Since Project identifier is unique but NOT the PK, we have to look it up 
+                # unless we change the record to pass the PK.
+                # For safety, if it's a UUID (identifier), we do one lookup.
+                try:
+                    # If it's a project instance already, take the PK
+                    if hasattr(project_id, 'pk'):
+                        log_entry.project_id = project_id.pk
+                    else:
+                        project = project_model.objects.filter(identifier=project_id).only('id').first()
+                        if project:
+                            log_entry.project_id = project.id
+                except:
+                    pass
+
+            log_entry.save()
 
         except Exception as e:
             # CRITICAL: A failure in logging should NEVER crash the main application.

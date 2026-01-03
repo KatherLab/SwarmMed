@@ -1,4 +1,5 @@
 import base64
+import threading
 from cryptography.fernet import Fernet, MultiFernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -6,6 +7,10 @@ from django.conf import settings
 from django.db import models
 from django.utils.encoding import force_bytes, force_str
 
+# Module-level cache for Fernet instances to avoid expensive HKDF derivation
+# on every field access or model instantiation.
+_fernet_cache = {}
+_fernet_lock = threading.Lock()
 
 class EncryptedFieldMixin:
     """
@@ -16,19 +21,32 @@ class EncryptedFieldMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._fernet = None
 
     @property
     def fernet(self):
-        if self._fernet is None:
-            self._fernet = self._get_fernet()
-        return self._fernet
-
-    def _get_fernet(self):
+        """
+        Retrieves a cached MultiFernet instance or creates a new one.
+        Thread-safe caching ensures HKDF is only run once per unique set of keys.
+        """
+        global _fernet_cache
+        
+        # We use the keys themselves (or their hash) as the cache key
         keys = getattr(settings, "FERNET_KEYS", [settings.SECRET_KEY])
         if isinstance(keys, (str, bytes)):
             keys = [keys]
+        
+        # Convert keys to a tuple for hashability
+        cache_key = tuple(keys)
+        
+        if cache_key not in _fernet_cache:
+            with _fernet_lock:
+                # Double-check pattern
+                if cache_key not in _fernet_cache:
+                    _fernet_cache[cache_key] = self._get_fernet(keys)
+        
+        return _fernet_cache[cache_key]
 
+    def _get_fernet(self, keys):
         use_hkdf = getattr(settings, "FERNET_USE_HKDF", True)
         fernet_keys = []
 

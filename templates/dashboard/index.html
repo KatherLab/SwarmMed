@@ -152,8 +152,10 @@
           var nsEl=document.getElementById('DashboardNetworkStatus');
           if(nsEl && nsEl.textContent && nsEl.textContent.trim().length===0){ nsEl.textContent = 'N/A'; }
         }
-        setInterval(pollDash, 1500);
-        pollDash();
+    // Initial poll
+    pollDash();
+    setInterval(pollDash, 5000);
+
       })();
     </script>
 
