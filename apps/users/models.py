@@ -9,6 +9,7 @@ import secrets
 
 from django.contrib.auth.models import User
 from django.db import models
+from apps.core.fields import EncryptedCharField, EncryptedTextField
 
 
 # Define available roles for users in the system.
@@ -69,13 +70,13 @@ class Profile(models.Model):
     # HEX color code for the user's avatar background.
     color = models.CharField(max_length=7, null=True, blank=True)
 
-    # Optional contact and location information.
-    full_name = models.CharField(max_length=255, null=True, blank=True)
-    country = models.CharField(max_length=255, null=True, blank=True)
-    city = models.CharField(max_length=255, null=True, blank=True)
-    zip_code = models.CharField(max_length=255, null=True, blank=True)
-    address = models.CharField(max_length=255, null=True, blank=True)
-    phone = models.CharField(max_length=255, null=True, blank=True)
+    # Optional contact and location information (Encrypted PHI).
+    full_name = EncryptedCharField(max_length=255, null=True, blank=True)
+    country = EncryptedCharField(max_length=255, null=True, blank=True)
+    city = EncryptedCharField(max_length=255, null=True, blank=True)
+    zip_code = EncryptedCharField(max_length=255, null=True, blank=True)
+    address = EncryptedCharField(max_length=255, null=True, blank=True)
+    phone = EncryptedCharField(max_length=255, null=True, blank=True)
 
     # Compliance: Track user consent to legal documents and cookies.
     accepted_policy = models.BooleanField(default=False)
@@ -97,7 +98,7 @@ class Profile(models.Model):
     # Break-glass / Emergency Access (HIPAA compliance)
     is_emergency_access = models.BooleanField(default=False)
     emergency_access_expiry = models.DateTimeField(null=True, blank=True)
-    emergency_access_justification = models.TextField(null=True, blank=True)
+    emergency_access_justification = EncryptedTextField(null=True, blank=True)
 
     def __str__(self):
         """Returns the username of the associated user."""

@@ -7,6 +7,7 @@ project board posts, and tracking board access.
 from django.db import models
 from django.contrib.auth.models import User
 from apps.project.models import Project
+from apps.core.fields import EncryptedCharField, EncryptedTextField
 
 
 class Message(models.Model):
@@ -25,10 +26,10 @@ class Message(models.Model):
         related_name='received_messages',
         on_delete=models.CASCADE
     )
-    # The subject line of the message
-    subject = models.CharField(max_length=255)
-    # The actual content of the message
-    body = models.TextField()
+    # The subject line of the message (Encrypted)
+    subject = EncryptedCharField(max_length=255)
+    # The actual content of the message (Encrypted)
+    body = EncryptedTextField()
     # When the message was sent (automatically set on creation)
     timestamp = models.DateTimeField(auto_now_add=True)
     # Tracks if the recipient has seen the message
@@ -59,8 +60,8 @@ class ProjectPost(models.Model):
         related_name='project_posts',
         on_delete=models.CASCADE
     )
-    # The content of the update
-    content = models.TextField()
+    # The content of the update (Encrypted)
+    content = EncryptedTextField()
     # When the post was made
     timestamp = models.DateTimeField(auto_now_add=True)
 

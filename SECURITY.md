@@ -26,7 +26,7 @@ Instead, please send an email to [mediswarmcloud@gmail.com](mailto:mediswarmclou
 ## Secure Configuration
 
 SwarmCloud handles sensitive bio data. Always ensure the following:
-- **Environment Variables:** Never commit secrets to the repository. Use `.env` files and ensure they are ignored by git.
+- **Environment Variables:** Never commit secrets to the repository. Use the provided `.env.template` as a base for your local `.env` file and ensure it is ignored by git.
 - **Production Mode:** `DEBUG` must be set to `False` in production environments.
 - **Database & Services:** Use secure, unique passwords for MinIO, Postgres, and Redis.
 - **Secret Key:** Ensure `SECRET_KEY` is kept private and changed immediately if compromised.
@@ -46,10 +46,11 @@ While SwarmCloud provides the technical foundation for HIPAA compliance, achievi
 
 1. **Administrative Safeguards:** HIPAA is a program, not just a set of features. You must implement risk analysis, policies/procedures, training, incident response, and access reviews.
 2. **Business Associate Agreements (BAA):** You must have BAAs in place with any third-party vendors (hosting, email, etc.) that may have access to ePHI.
-3. **Infrastructure Encryption:** While SwarmCloud enforces SSE for MinIO, encryption at rest for the PostgreSQL metadata database depends on host/disk-level encryption. Ensure encrypted volumes are used for all persistent data.
-4. **Secrets Management:** Current production environments use `.env` files. For higher security, it is recommended to use a dedicated secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager) and rotate secrets regularly.
-5. **Audit Log Governance:** Technical log signing is present, but you must implement operational log review, alerting, and retention policies (e.g., exporting to a SIEM).
-6. **Container Security:** The `docker-socket-proxy` is a high-privilege component. Treat it as such in your threat model, ensuring network isolation and strict monitoring.
+3. **Infrastructure Encryption:** SwarmCloud uses named Docker volumes for all persistent data (`postgres_data`, `minio_data`, `workspace_data`, etc.). To ensure encryption at rest, these volumes should be configured with an encrypted volume driver (e.g., LUKS-backed local driver or cloud-provider encrypted storage).
+4. **Postgres SSL Enforcement:** SSL is enforced at the database level via a mandatory initialization script (`scripts/init_postgres_ssl.sh`) that runs whenever the database is initialized, ensuring `pg_hba.conf` only allows `hostssl` connections.
+5. **Secrets Management:** Current environments use `.env` files based on `.env.template`. For higher security, it is recommended to use a dedicated secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager) and rotate secrets regularly.
+6. **Audit Log Governance:** Technical log signing is present, but you must implement operational log review, alerting, and retention policies (e.g., exporting to a SIEM).
+7. **Container Security:** The `docker-socket-proxy` is a high-privilege component. Treat it as such in your threat model, ensuring network isolation and strict monitoring.
 
 ## Security Scans
 

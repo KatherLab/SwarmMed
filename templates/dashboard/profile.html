@@ -162,6 +162,21 @@
                     </a>
                 </div>
                 <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Security & Two-Factor Authentication</h3>
+                    <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                        Two-factor authentication adds an additional layer of security to your account by requiring more than just a password to log in.
+                    </p>
+                    <div class="flex items-center gap-4">
+                        {% if request.user.is_verified %}
+                            <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">Enabled</span>
+                            <a href="{% url 'two_factor:profile' %}" class="text-sm font-medium text-purple-600 hover:underline dark:text-purple-500">Manage 2FA Settings</a>
+                        {% else %}
+                            <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">Disabled</span>
+                            <a href="{% url 'two_factor:setup' %}" class="text-white bg-purple-700 hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-purple-600 dark:hover:bg-purple-700 focus:outline-none dark:focus:ring-purple-800">Enable 2FA</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
                     <h3 class="mb-4 text-xl font-semibold text-red-600 dark:text-red-500">Danger Zone</h3>
                     <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">Once you delete your account, there is no going back. Please be certain.</p>
                     <button type="button" data-modal-target="delete-account-modal" data-modal-toggle="delete-account-modal" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-red-500 dark:hover:bg-red-600 dark:focus:ring-red-900">

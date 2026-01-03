@@ -59,8 +59,8 @@ SwarmCloud is designed to be **HIPAA Capable**, providing the technical safeguar
 Achieving HIPAA compliance is a shared responsibility. The following items must be addressed at the deployment and operational levels:
 
 1.  **Administrative Safeguards (Operational):** The hosting organization must implement required administrative controls, including risk analysis, formal security policies, workforce training, incident response procedures, and regular access reviews.
-2.  **Infrastructure Encryption (Deployment):** Encryption at rest for the PostgreSQL metadata database is not guaranteed by the application layer. **You must ensure that the underlying host disks or volumes (e.g., EBS, LUKS) are encrypted.**
-3.  **Secrets Management:** For production readiness, secrets should be moved from `.env` files to a secure secret management system (e.g., HashiCorp Vault, AWS Secrets Manager) with regular rotation.
+2.  **Infrastructure Encryption (Deployment):** SwarmCloud uses named Docker volumes for all persistent data. **To ensure encryption at rest, you must configure these volumes in `docker-compose.yml` to use an encrypted volume driver (e.g., LUKS, cloud-provider encrypted storage) or host-level encryption.**
+3.  **Secrets Management:** Secrets are managed via `.env` files based on the `.env.template`. For production readiness, secrets should be moved to a secure secret management system (e.g., HashiCorp Vault, AWS Secrets Manager) with regular rotation.
 4.  **Audit Log Governance:** While the system generates signed logs, the organization is responsible for log review, alerting (e.g., SIEM integration), and maintaining a long-term retention policy.
 5.  **Business Associate Agreements (BAA):** You must ensure BAAs are signed with any third-party service providers (e.g., Cloud Providers, SMTP relays).
 6.  **High-Privilege Components:** Components like `docker-socket-proxy` provide significant control over the environment. They must be locked down using network isolation and monitored closely.

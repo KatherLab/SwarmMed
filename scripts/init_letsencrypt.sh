@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Usage: ./scripts/init_letsencrypt.sh [staging]
+# Pass 'staging' as an argument to use the Let's Encrypt staging server (recommended for dev).
+
 if ! [ -x "$(command -v docker-compose)" ]; then
   echo 'Error: docker-compose is not installed.' >&2
   exit 1
@@ -11,7 +14,13 @@ data_path="./certbot"
 email="" # Adding a valid address is strongly recommended
 staging=0 # Set to 1 if you're testing your setup to avoid hitting request limits
 
-read -p "Enter your domain name (e.g. example.com): " domain
+# Check for staging flag in arguments
+if [ "$1" == "staging" ]; then
+  staging=1
+  echo "### Using Let's Encrypt STAGING environment ###"
+fi
+
+read -p "Enter your domain name (e.g. dev.example.com): " domain
 domains+=($domain)
 
 if [ -z "$domain" ]; then
@@ -21,7 +30,7 @@ fi
 
 read -p "Enter your email for Certbot updates: " email
 
-if [ -d "$data_path" ]; then
+if [ -d "$data_path/conf/live/$domain" ]; then
   read -p "Existing data found for $domain. Continue and replace existing certificate? (y/N) " decision
   if [ "$decision" != "Y" ] && [ "$decision" != "y" ]; then
     exit
@@ -77,6 +86,7 @@ case "$email" in
 esac
 
 # Enable staging mode if needed
+staging_arg=""
 if [ $staging != "0" ]; then staging_arg="--staging"; fi
 
 docker-compose run --rm --entrypoint \
@@ -95,6 +105,8 @@ docker-compose exec nginx nginx -s reload
 echo "### SUCCESS: Certificates obtained!"
 echo "---------------------------------------------------------"
 echo "NEXT STEPS:"
-echo "1. Update nginx/app.conf or rename nginx/production.conf to nginx/app.conf"
+echo "1. Update nginx/app.conf to use the new certificate paths:"
+echo "   ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;"
+echo "   ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;"
 echo "2. Ensure env variables for DOMAIN_NAME are set if using variables."
 echo "3. Restart nginx: docker-compose restart nginx"

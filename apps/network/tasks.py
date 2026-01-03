@@ -168,6 +168,7 @@ def start_swarm_network_task(network_id, user_id):
                 './fl-client': os.path.join(host_dir, 'fl-client'),
                 './server': os.path.join(host_dir, 'server'),
                 './overseer': os.path.join(host_dir, 'overseer'),
+                './nvflare': os.path.join(host_dir, 'nvflare'),
             }
             for old, new in mappings.items():
                 content = content.replace(old, new)

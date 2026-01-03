@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     gnupg \
+    gosu \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
@@ -40,15 +41,18 @@ COPY . .
 # Copy built assets from Stage 1
 COPY --from=static-builder /app/static/dist ./static/dist
 
+# Install internal CA certificate and update system trust store
+USER root
+RUN mkdir -p /usr/local/share/ca-certificates/ && \
+    cp certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt && \
+    update-ca-certificates
+
 # Create a non-root user and set permissions
 RUN useradd -m appuser && chown -R appuser:appuser /app
 
 # Add entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-
-# Switch to the non-root user
-USER appuser
 
 # Use entrypoint script
 ENTRYPOINT ["/entrypoint.sh"]

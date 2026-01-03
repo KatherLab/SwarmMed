@@ -30,6 +30,10 @@ sudo tailscale up
 git clone https://github.com/pfeifferis/MediSwarmCloud.git
 cd MediSwarmCloud
 
+# Setup environment variables
+cp .env.template .env
+# Edit .env with your secrets
+
 # Build and start containers
 docker compose build
 docker compose up -d

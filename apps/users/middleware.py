@@ -1,5 +1,6 @@
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from two_factor.utils import default_device
 
 class MFAEnforcementMiddleware:
     """
@@ -29,8 +30,9 @@ class MFAEnforcementMiddleware:
             # OTPMiddleware adds 'is_verified' to request.user
             if not is_exempt and not getattr(request.user, 'is_verified', False):
                 # If not verified and not on an exempt page, redirect to MFA login
-                # If they haven't set up MFA, two_factor:login will handle it or we can 
-                # redirect to setup if we want to force setup.
+                # If they haven't set up MFA, redirect to setup page.
+                if not default_device(request.user):
+                    return redirect('two_factor:setup')
                 return redirect('two_factor:login')
 
         return self.get_response(request)

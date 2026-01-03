@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+from apps.core.fields import EncryptedTextField
 
 
 class LogCategory(models.TextChoices):
@@ -103,8 +104,8 @@ class LogEntry(models.Model):
     # Severity level (e.g., INFO, WARNING, ERROR, CRITICAL)
     level = models.CharField(max_length=10, default='INFO')
 
-    # The actual log message
-    message = models.TextField()
+    # The actual log message (Encrypted)
+    message = EncryptedTextField()
 
     # Additional context for the log entry
     context_data = models.JSONField(blank=True, default=dict)

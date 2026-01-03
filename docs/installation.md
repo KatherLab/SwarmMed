@@ -76,29 +76,26 @@ cd SwarmCloud
 
 ### Environment Variables
 
-Create a `.env` file in the root of the project and add the following variables:
+SwarmCloud uses environment variables for configuration and sensitive information. Copy the provided `.env.template` file to create your local `.env` file:
 
 ``` bash
-SECRET_KEY=your-secret-key
-DEBUG=True
-
-POSTGRES_DB=swarmcloud
-POSTGRES_USER=swarmcloud
-POSTGRES_PASSWORD=swarmcloud
-POSTGRES_HOST=db
-POSTGRES_PORT=5432
-
-AWS_ACCESS_KEY_ID=your-access-key-id
-AWS_SECRET_ACCESS_KEY=your-secret-access-key
-AWS_STORAGE_BUCKET_NAME=your-bucket-name
-AWS_S3_REGION_NAME=your-region
-AWS_S3_ENDPOINT_URL=your-s3-endpoint-url
+cp .env.template .env
 ```
 
-Please replace the placeholder values with your actual configuration. 
+Open the `.env` file and fill in the required values. Key sections include:
 
-!!! tip "Generate Secret Keys"
-    You can generate a secret keys using the following website: [https://randomkeygen.com](https://randomkeygen.com)
+*   **SECRET_KEY:** A unique random string for cryptographic signing.
+*   **Database Settings:** Credentials for PostgreSQL and Redis.
+*   **MinIO / S3 Settings:** Credentials and endpoint for object storage.
+*   **Encryption Keys:** `FERNET_KEYS` and `BACKUP_ENCRYPTION_KEY` used for data-at-rest protection.
+
+!!! tip "Generate Secure Keys"
+    You can generate secure Fernet keys using Python:
+    ```bash
+    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    ```
+
+Please ensure that you **never** commit your `.env` file to version control.
 
 ### Build and Run
 

@@ -37,6 +37,14 @@ if not SECRET_KEY:
     else:
         raise ValueError("SECRET_KEY environment variable is not set and DEBUG is False.")
 
+# Fernet Encryption Keys (for django-fernet-fields)
+# In production, this MUST be set in the environment as a comma-separated list of keys.
+FERNET_KEYS = os.environ.get("FERNET_KEYS", SECRET_KEY).split(",")
+FERNET_USE_HKDF = True
+
+# Backup Encryption Key
+BACKUP_ENCRYPTION_KEY = os.environ.get("BACKUP_ENCRYPTION_KEY", SECRET_KEY)
+
 # ALLOWED_HOSTS defines which domain names can access this server.
 # It should be restricted to your production domains.
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
@@ -64,6 +72,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Custom project-specific apps.
     "home",
+    "apps.core",
     "apps.users",
     "apps.project",
     "apps.data",

@@ -28,6 +28,7 @@ from django.views.decorators.http import require_POST
 from apps.data.utils import get_s3_client, get_s3_download_url
 from apps.project.models import Project, UserCurrentProject
 from apps.training.models import TrainingJob
+from apps.logs import logger
 
 from .models import (
     ResultsVisualizationPlot,
@@ -37,7 +38,7 @@ from .models import (
 from .tasks import run_results_visualization_task, sync_project_results
 
 # Standard Python logger for this module.
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 from ..project.decorators import project_context_required, project_membership_required
@@ -141,7 +142,7 @@ def results(request):
                         tr.file_size = obj.get("Size", 0)
                         tr.save(update_fields=["file_size"])
             except Exception as e:
-                logger.warning(f"Error syncing result for {key}: {e}")
+                _logger.warning(f"Error syncing result for {key}: {e}")
 
     # Build a list of job options for the dropdown selector.
     job_options = []
@@ -294,7 +295,7 @@ def start_results_visualization(request, job_id):
             {"error": "Project or Training Job not found"}, status=404
         )
     except Exception as e:
-        logger.exception("Failed to start visualization")
+        _logger.exception("Failed to start visualization")
         return JsonResponse({"error": str(e)}, status=500)
 
 
@@ -393,10 +394,13 @@ def download_result(request, result_id):
 
         # Security: Validate the redirect URL host
         parsed_url = urlparse(download_url)
-        allowed_host = urlparse(settings.AWS_S3_ENDPOINT_URL).netloc
+        allowed_hosts = [
+            urlparse(settings.AWS_S3_ENDPOINT_URL).netloc,
+            urlparse(settings.PUBLIC_URL).netloc
+        ]
 
-        # Allow configured S3 host or standard AWS S3 domains
-        if parsed_url.netloc != allowed_host and not parsed_url.netloc.endswith("amazonaws.com"):
+        # Allow configured S3 hosts or standard AWS S3 domains
+        if parsed_url.netloc not in allowed_hosts and not parsed_url.netloc.endswith("amazonaws.com"):
             return HttpResponseForbidden("External URL forbidden")
 
         # If there is a safe referer, we prefer to stay in the app and open the
@@ -498,10 +502,13 @@ def download_result_by_key(request):
 
     # Security: Validate the redirect URL host
     parsed_url = urlparse(download_url)
-    allowed_host = urlparse(settings.AWS_S3_ENDPOINT_URL).netloc
+    allowed_hosts = [
+        urlparse(settings.AWS_S3_ENDPOINT_URL).netloc,
+        urlparse(settings.PUBLIC_URL).netloc
+    ]
 
-    # Allow configured S3 host or standard AWS S3 domains
-    if parsed_url.netloc != allowed_host and not parsed_url.netloc.endswith("amazonaws.com"):
+    # Allow configured S3 hosts or standard AWS S3 domains
+    if parsed_url.netloc not in allowed_hosts and not parsed_url.netloc.endswith("amazonaws.com"):
         return HttpResponseForbidden("External URL forbidden")
 
     # Use HttpResponseRedirect directly for the external S3 URL.
