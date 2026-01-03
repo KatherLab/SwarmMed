@@ -10,14 +10,14 @@ class LogsConfig(AppConfig):
     """
     Standard Django configuration for the logs application.
     """
+
     # Use 64-bit integers for primary keys by default
-    default_auto_field = 'django.db.models.BigAutoField'
+    default_auto_field = "django.db.models.BigAutoField"
 
     # The full Python path to the application
-    name = 'apps.logs'
+    name = "logs"
 
     def ready(self):
         """
         Import signal handlers when the application is ready.
         """
-        import apps.logs.signals

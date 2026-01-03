@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-CERT_DIR="certs/internal"
+CERT_DIR="infrastructure/certs/internal"
 mkdir -p $CERT_DIR
 
 # Root CA
@@ -42,8 +42,8 @@ chmod 644 $CERT_DIR/*.crt
 chmod 600 $CERT_DIR/*.key
 
 # Copy webapp certs to the main certs directory for Nginx
-cp $CERT_DIR/webapp.crt certs/selfsigned.crt
-cp $CERT_DIR/webapp.key certs/selfsigned.key
+cp $CERT_DIR/webapp.crt infrastructure/certs/selfsigned.crt
+cp $CERT_DIR/webapp.key infrastructure/certs/selfsigned.key
 
 # Minio expects certs in a specific structure if mounted to /root/.minio/certs
 mkdir -p $CERT_DIR/minio_certs/CAs

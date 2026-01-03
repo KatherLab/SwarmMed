@@ -10,7 +10,7 @@ from .context import get_context
 from .models import LogCategory
 
 # Global internal logger instance
-_logger = logging.getLogger('app')
+_logger = logging.getLogger("app")
 _setup_done = False
 
 
@@ -28,14 +28,13 @@ def _setup_logger():
 
     # 1. Console Handler: Prints logs to the terminal/standard output
     console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s'
-    ))
+    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     _logger.addHandler(console)
 
     # 2. Database Handler: Saves logs to the Django database
     try:
         from .handlers import DatabaseLogHandler
+
         db_handler = DatabaseLogHandler()
         # Only save INFO and above to the database to avoid bloating it with
         # DEBUG logs
@@ -52,7 +51,7 @@ def _setup_logger():
     _setup_done = True
 
 
-def log(level, message, category='project', user=None, project=None, **extra):
+def log(level, message, category="project", user=None, project=None, **extra):
     """
     Core logging function that prepares metadata and triggers the Python logger.
 
@@ -75,25 +74,25 @@ def log(level, message, category='project', user=None, project=None, **extra):
     log_extra = extra.copy()
 
     # Pop special keys that should not go into context_data
-    exc_info = log_extra.pop('exc_info', None)
-    object_id = log_extra.pop('object_id', None)
+    exc_info = log_extra.pop("exc_info", None)
+    object_id = log_extra.pop("object_id", None)
 
     # Inject IDs into the record so the DatabaseLogHandler can find them
     if final_user:
-        log_extra['user_id'] = final_user.id
+        log_extra["user_id"] = final_user.id
 
     if final_project:
         # Check if project is an object or a string identifier
-        if hasattr(final_project, 'identifier'):
-            log_extra['project_id'] = str(final_project.identifier)
+        if hasattr(final_project, "identifier"):
+            log_extra["project_id"] = str(final_project.identifier)
         else:
-            log_extra['project_id'] = str(final_project)
+            log_extra["project_id"] = str(final_project)
 
     if object_id:
-        log_extra['object_id'] = str(object_id)
+        log_extra["object_id"] = str(object_id)
 
-    log_extra['category'] = category
-    log_extra['context_data'] = log_extra.copy()
+    log_extra["category"] = category
+    log_extra["context_data"] = log_extra.copy()
 
     # Trigger the underlying logging call
     log_func = getattr(_logger, level.lower())
@@ -112,24 +111,54 @@ class CategoryLogger:
         self.project_obj = project
 
     def info(self, message, user=None, project=None, **kwargs):
-        log('INFO', message, category=self.category,
-            user=user or self.user, project=project or self.project_obj, **kwargs)
+        log(
+            "INFO",
+            message,
+            category=self.category,
+            user=user or self.user,
+            project=project or self.project_obj,
+            **kwargs,
+        )
 
     def error(self, message, user=None, project=None, **kwargs):
-        log('ERROR', message, category=self.category,
-            user=user or self.user, project=project or self.project_obj, **kwargs)
+        log(
+            "ERROR",
+            message,
+            category=self.category,
+            user=user or self.user,
+            project=project or self.project_obj,
+            **kwargs,
+        )
 
     def warning(self, message, user=None, project=None, **kwargs):
-        log('WARNING', message, category=self.category,
-            user=user or self.user, project=project or self.project_obj, **kwargs)
+        log(
+            "WARNING",
+            message,
+            category=self.category,
+            user=user or self.user,
+            project=project or self.project_obj,
+            **kwargs,
+        )
 
     def debug(self, message, user=None, project=None, **kwargs):
-        log('DEBUG', message, category=self.category,
-            user=user or self.user, project=project or self.project_obj, **kwargs)
+        log(
+            "DEBUG",
+            message,
+            category=self.category,
+            user=user or self.user,
+            project=project or self.project_obj,
+            **kwargs,
+        )
 
     def critical(self, message, user=None, project=None, **kwargs):
-        log('CRITICAL', message, category=self.category,
-            user=user or self.user, project=project or self.project_obj, **kwargs)
+        log(
+            "CRITICAL",
+            message,
+            category=self.category,
+            user=user or self.user,
+            project=project or self.project_obj,
+            **kwargs,
+        )
 
 
 class Logger:
@@ -142,70 +171,55 @@ class Logger:
         self.user_obj = user
         self.project_obj = project
 
-    def log(self, level, message, category='project', user=None, project=None, **kwargs):
+    def log(
+        self, level, message, category="project", user=None, project=None, **kwargs
+    ):
         """
         Generic log method that allows specifying a category string.
         """
-        log(level, message, category=category,
+        log(
+            level,
+            message,
+            category=category,
             user=user or self.user_obj,
             project=project or self.project_obj,
-            **kwargs)
+            **kwargs,
+        )
 
     @property
     def project(self):
         """Logs related to general project actions."""
-        return CategoryLogger(
-            LogCategory.PROJECT,
-            self.user_obj,
-            self.project_obj)
+        return CategoryLogger(LogCategory.PROJECT, self.user_obj, self.project_obj)
 
     @property
     def data(self):
         """Logs related to data management and validation."""
-        return CategoryLogger(
-            LogCategory.DATA,
-            self.user_obj,
-            self.project_obj)
+        return CategoryLogger(LogCategory.DATA, self.user_obj, self.project_obj)
 
     @property
     def network(self):
         """Logs related to swarm network provisioning and status."""
-        return CategoryLogger(
-            LogCategory.NETWORK,
-            self.user_obj,
-            self.project_obj)
+        return CategoryLogger(LogCategory.NETWORK, self.user_obj, self.project_obj)
 
     @property
     def training(self):
         """Logs related to FL training execution and container logs."""
-        return CategoryLogger(
-            LogCategory.TRAINING,
-            self.user_obj,
-            self.project_obj)
+        return CategoryLogger(LogCategory.TRAINING, self.user_obj, self.project_obj)
 
     @property
     def results(self):
         """Logs related to result generation and analysis."""
-        return CategoryLogger(
-            LogCategory.RESULTS,
-            self.user_obj,
-            self.project_obj)
+        return CategoryLogger(LogCategory.RESULTS, self.user_obj, self.project_obj)
 
     @property
     def auth(self):
-        """Logs related to authentication (login/logout)."""
-        return CategoryLogger(
-            LogCategory.AUTH,
-            self.user_obj,
-            self.project_obj)
+        """Logs related to authentication (login/logout). Re-mapped to project."""
+        return CategoryLogger(LogCategory.PROJECT, self.user_obj, self.project_obj)
 
     @property
     def access(self):
-        """Logs related to access control and permission checks."""
-        return CategoryLogger(
-            LogCategory.ACCESS,
-            self.user_obj,
-            self.project_obj)
+        """Logs related to access control and permission checks. Re-mapped to project."""
+        return CategoryLogger(LogCategory.PROJECT, self.user_obj, self.project_obj)
 
 
 def get_logger(user=None, project=None) -> Logger:

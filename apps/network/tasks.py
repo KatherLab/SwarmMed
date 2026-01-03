@@ -15,9 +15,9 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.utils.text import slugify
 
-from apps.logs.logger import get_logger
-from apps.logs.models import LogCategory, LogEntry
-from apps.project.models import Project
+from logs.logger import get_logger
+from logs.models import LogCategory, LogEntry
+from project.models import Project
 from .models import SwarmNetwork
 
 
@@ -32,7 +32,7 @@ def run_and_log_subprocess(command, cwd, env, logger):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1
+        bufsize=1,
     )
 
     for line in process.stdout:
@@ -47,12 +47,7 @@ def run_and_log_subprocess(command, cwd, env, logger):
 
 @shared_task(bind=True)
 def execute_and_log_in_container(
-    self,
-    container_name,
-    command,
-    network_id,
-    project_id,
-    user_id
+    self, container_name, command, network_id, project_id, user_id
 ):
     """
     Executes a shell command inside a running Docker container and
@@ -65,7 +60,11 @@ def execute_and_log_in_container(
 
         # Connect via DOCKER_HOST if provided (e.g. for the proxy), else use local socket
         docker_host = os.environ.get("DOCKER_HOST", None)
-        client = docker.from_env() if not docker_host else docker.DockerClient(base_url=docker_host)
+        client = (
+            docker.from_env()
+            if not docker_host
+            else docker.DockerClient(base_url=docker_host)
+        )
         container = client.containers.get(container_name)
 
         logger.network.info(f"Executing in {container_name}: {command}")
@@ -82,8 +81,8 @@ def execute_and_log_in_container(
                 swarm_network=network,
                 category=LogCategory.NETWORK,
                 source=container_name,
-                level='INFO',
-                message=line.decode('utf-8').strip()
+                level="INFO",
+                message=line.decode("utf-8").strip(),
             )
 
     except Exception as e:
@@ -103,83 +102,93 @@ def start_swarm_network_task(network_id, user_id):
         logger = get_logger(user=user, project=swarm_network.project)
 
         # Sanitize project name to prevent path traversal
-        project_name = slugify(swarm_network.project.title).replace('-', '_')
+        project_name = slugify(swarm_network.project.title).replace("-", "_")
         provision_dir = os.path.join(
             settings.BASE_DIR,
-            'workspaces',
+            "workspaces",
             str(swarm_network.project.identifier),
-            str(swarm_network.identifier)
+            str(swarm_network.identifier),
         )
-        compose_dir = os.path.join(
-            provision_dir,
-            'workspace',
-            project_name,
-            'prod_00'
-        )
-        compose_file_path = os.path.join(compose_dir, 'compose.yaml')
+        compose_dir = os.path.join(provision_dir, "workspace", project_name, "prod_00")
+        compose_file_path = os.path.join(compose_dir, "compose.yaml")
 
         if not os.path.exists(compose_file_path):
-            raise FileNotFoundError(
-                f"Compose file missing: {compose_file_path}")
+            raise FileNotFoundError(f"Compose file missing: {compose_file_path}")
 
         # 1. Modify compose file for host-path mapping and platform enforcement
-        with open(compose_file_path, 'r') as f:
+        with open(compose_file_path, "r") as f:
             compose_content = yaml.safe_load(f)
 
         # Security Validation: Prevent unauthorized host-bind mounts and privileged mode
-        if 'services' in compose_content:
-            for service_name, service_config in compose_content['services'].items():
-                if service_config.get('privileged'):
-                    raise ValueError(f"Security error: Privileged mode is not allowed for service '{service_name}'")
+        if "services" in compose_content:
+            for service_name, service_config in compose_content["services"].items():
+                if service_config.get("privileged"):
+                    raise ValueError(
+                        f"Security error: Privileged mode is not allowed for service '{service_name}'"
+                    )
 
-                volumes = service_config.get('volumes', [])
+                volumes = service_config.get("volumes", [])
                 for volume in volumes:
                     if isinstance(volume, str):
                         # Short syntax: host:container
-                        if ':' in volume:
-                            host_path = volume.split(':')[0]
+                        if ":" in volume:
+                            host_path = volume.split(":")[0]
                             # Allow relative paths starting with ./ or just file names
                             # Deny absolute paths and paths going up too far
-                            if host_path.startswith('/') or '..' in host_path:
-                                if not any(host_path.startswith(allowed) for allowed in ['./fl-client', './server', './overseer', './nvflare']):
-                                    raise ValueError(f"Security error: Unauthorized host-bind mount '{host_path}' in service '{service_name}'")
+                            if host_path.startswith("/") or ".." in host_path:
+                                if not any(
+                                    host_path.startswith(allowed)
+                                    for allowed in [
+                                        "./fl-client",
+                                        "./server",
+                                        "./overseer",
+                                        "./nvflare",
+                                    ]
+                                ):
+                                    raise ValueError(
+                                        f"Security error: Unauthorized host-bind mount '{host_path}' in service '{service_name}'"
+                                    )
                     elif isinstance(volume, dict):
                         # Long syntax
-                        if volume.get('type') == 'bind':
-                            source = volume.get('source', '')
-                            if source.startswith('/') or '..' in source:
-                                raise ValueError(f"Security error: Unauthorized host-bind mount '{source}' in service '{service_name}'")
+                        if volume.get("type") == "bind":
+                            source = volume.get("source", "")
+                            if source.startswith("/") or ".." in source:
+                                raise ValueError(
+                                    f"Security error: Unauthorized host-bind mount '{source}' in service '{service_name}'"
+                                )
 
         # Write back YAML structure first
-        with open(compose_file_path, 'w') as f:
+        with open(compose_file_path, "w") as f:
             yaml.safe_dump(compose_content, f, default_flow_style=False)
 
         # Then perform text-based host path replacement if needed
-        host_project_path = os.getenv('HOST_PROJECT_PATH')
+        host_project_path = os.getenv("HOST_PROJECT_PATH")
         if host_project_path:
-            with open(compose_file_path, 'r') as f:
+            with open(compose_file_path, "r") as f:
                 content = f.read()
 
             rel_dir = os.path.relpath(compose_dir, settings.BASE_DIR)
             host_dir = os.path.join(host_project_path, rel_dir)
 
             mappings = {
-                'build: ./nvflare': f'build: {os.path.join(host_dir, "nvflare")}',
-                './fl-client': os.path.join(host_dir, 'fl-client'),
-                './server': os.path.join(host_dir, 'server'),
-                './overseer': os.path.join(host_dir, 'overseer'),
-                './nvflare': os.path.join(host_dir, 'nvflare'),
+                "build: ./nvflare": f"build: {os.path.join(host_dir, 'nvflare')}",
+                "./fl-client": os.path.join(host_dir, "fl-client"),
+                "./server": os.path.join(host_dir, "server"),
+                "./overseer": os.path.join(host_dir, "overseer"),
+                "./nvflare": os.path.join(host_dir, "nvflare"),
             }
             for old, new in mappings.items():
                 content = content.replace(old, new)
 
-            with open(compose_file_path, 'w') as f:
+            with open(compose_file_path, "w") as f:
                 f.write(content)
-            logger.network.info("Updated compose file with host paths and platform enforcement.")
+            logger.network.info(
+                "Updated compose file with host paths and platform enforcement."
+            )
 
         # 2. Build Docker images with live logging
         logger.network.info("Building Docker images for the network...")
-        docker_path = shutil.which('docker') or 'docker'
+        docker_path = shutil.which("docker") or "docker"
         env = os.environ.copy()
 
         # Use BuildKit for better compatibility and efficiency
@@ -190,10 +199,18 @@ def start_swarm_network_task(network_id, user_id):
         docker_project_name = f"swarm_{str(swarm_network.identifier)[:12]}"
 
         ret = run_and_log_subprocess(
-            [docker_path, 'compose', '-p', docker_project_name, '-f', 'compose.yaml', 'build'],
+            [
+                docker_path,
+                "compose",
+                "-p",
+                docker_project_name,
+                "-f",
+                "compose.yaml",
+                "build",
+            ],
             cwd=compose_dir,
             env=env,
-            logger=logger
+            logger=logger,
         )
         if ret != 0:
             raise subprocess.CalledProcessError(ret, "docker compose build")
@@ -201,10 +218,19 @@ def start_swarm_network_task(network_id, user_id):
         # 3. Start containers with live logging
         logger.network.info("Starting Docker containers (detached)...")
         ret = run_and_log_subprocess(
-            [docker_path, 'compose', '-p', docker_project_name, '-f', 'compose.yaml', 'up', '-d'],
+            [
+                docker_path,
+                "compose",
+                "-p",
+                docker_project_name,
+                "-f",
+                "compose.yaml",
+                "up",
+                "-d",
+            ],
             cwd=compose_dir,
             env=env,
-            logger=logger
+            logger=logger,
         )
         if ret != 0:
             raise subprocess.CalledProcessError(ret, "docker compose up")
@@ -217,7 +243,11 @@ def start_swarm_network_task(network_id, user_id):
 
             # Connect via DOCKER_HOST if provided (e.g. for the proxy), else use local socket
             docker_host = os.environ.get("DOCKER_HOST", None)
-            client = docker.from_env() if not docker_host else docker.DockerClient(base_url=docker_host)
+            client = (
+                docker.from_env()
+                if not docker_host
+                else docker.DockerClient(base_url=docker_host)
+            )
 
             try:
                 network = client.networks.get(net_name)
@@ -226,33 +256,37 @@ def start_swarm_network_task(network_id, user_id):
                 try:
                     network.connect("swarmcloud")
                 except Exception:
-                    pass # Might already be connected
+                    pass  # Might already be connected
 
                 # Connect the MinIO storage container
                 try:
                     network.connect("minio")
                 except Exception:
-                    pass # Might already be connected
+                    pass  # Might already be connected
 
             except docker.errors.NotFound:
                 logger.network.warning(f"Network {net_name} not found.")
 
         except Exception as e:
-            logger.network.warning(f"Could not connect containers to flare network: {e}")
+            logger.network.warning(
+                f"Could not connect containers to flare network: {e}"
+            )
 
         # Mark as running and trigger preflight check
-        swarm_network.status = 'RUNNING'
+        swarm_network.status = "RUNNING"
         swarm_network.save()
         run_nvflare_preflight_check.delay(network_id, user_id)
 
     except Exception as e:
-        if 'swarm_network' in locals():
-            swarm_network.status = 'ERROR'
+        if "swarm_network" in locals():
+            swarm_network.status = "ERROR"
             swarm_network.save()
 
         # Ensure the error is logged to the database so the user sees it
-        internal_logger = get_logger(user=User.objects.get(id=user_id),
-                                     project=swarm_network.project if 'swarm_network' in locals() else None)
+        internal_logger = get_logger(
+            user=User.objects.get(id=user_id),
+            project=swarm_network.project if "swarm_network" in locals() else None,
+        )
         internal_logger.network.error(f"Failed to start network: {str(e)}")
 
 
@@ -266,20 +300,20 @@ def run_nvflare_preflight_check(network_id, user_id):
         user = User.objects.get(id=user_id)
         logger = get_logger(user=user, project=network.project)
 
-        project_name = slugify(network.project.title).replace('-', '_')
+        project_name = slugify(network.project.title).replace("-", "_")
         provision_dir = os.path.join(
             settings.BASE_DIR,
-            'workspaces',
+            "workspaces",
             str(network.project.identifier),
-            str(network.identifier)
+            str(network.identifier),
         )
         admin_startup_dir = os.path.join(
             provision_dir,
-            'workspace',
+            "workspace",
             project_name,
-            'prod_00',
-            'admin@nvidia.com',
-            'startup'
+            "prod_00",
+            "admin@nvidia.com",
+            "startup",
         )
 
         if not os.path.exists(admin_startup_dir):
@@ -288,10 +322,13 @@ def run_nvflare_preflight_check(network_id, user_id):
 
         logger.network.info("Running NVFlare Preflight Check...")
 
-        python_path = shutil.which('python3') or 'python3'
+        python_path = shutil.which("python3") or "python3"
         command = [
-            python_path, '-m', 'nvflare.tool.preflight_check',
-            '-p', admin_startup_dir
+            python_path,
+            "-m",
+            "nvflare.tool.preflight_check",
+            "-p",
+            admin_startup_dir,
         ]
 
         env = os.environ.copy()
@@ -305,9 +342,9 @@ def run_nvflare_preflight_check(network_id, user_id):
                         project=network.project,
                         swarm_network=network,
                         category=LogCategory.NETWORK,
-                        source='preflight-check',
-                        level='INFO' if output == result.stdout else 'ERROR',
-                        message=line.strip()
+                        source="preflight-check",
+                        level="INFO" if output == result.stdout else "ERROR",
+                        message=line.strip(),
                     )
 
         if result.returncode == 0:
@@ -329,42 +366,45 @@ def stop_swarm_network_task(network_id, user_id):
         user = User.objects.get(id=user_id)
         logger = get_logger(user=user, project=network.project)
 
-        project_name = slugify(network.project.title).replace('-', '_')
+        project_name = slugify(network.project.title).replace("-", "_")
         provision_dir = os.path.join(
             settings.BASE_DIR,
-            'workspaces',
+            "workspaces",
             str(network.project.identifier),
-            str(network.identifier)
+            str(network.identifier),
         )
-        compose_dir = os.path.join(
-            provision_dir,
-            'workspace',
-            project_name,
-            'prod_00'
-        )
+        compose_dir = os.path.join(provision_dir, "workspace", project_name, "prod_00")
 
-        if os.path.exists(os.path.join(compose_dir, 'compose.yaml')):
+        if os.path.exists(os.path.join(compose_dir, "compose.yaml")):
             logger.network.info(f"Stopping network: {network.name}")
-            docker_path = shutil.which('docker') or 'docker'
-            
+            docker_path = shutil.which("docker") or "docker"
+
             docker_project_name = f"swarm_{str(network.identifier)[:12]}"
 
             env = os.environ.copy()
             ret = run_and_log_subprocess(
-                [docker_path, 'compose', '-p', docker_project_name, '-f', 'compose.yaml', 'down'],
+                [
+                    docker_path,
+                    "compose",
+                    "-p",
+                    docker_project_name,
+                    "-f",
+                    "compose.yaml",
+                    "down",
+                ],
                 cwd=compose_dir,
                 env=env,
-                logger=logger
+                logger=logger,
             )
             if ret == 0:
-                network.status = 'STOPPED'
+                network.status = "STOPPED"
                 network.save()
                 logger.network.info("Network stopped successfully.")
             else:
-                network.status = 'ERROR'
+                network.status = "ERROR"
                 network.save()
         else:
-            network.status = 'ERROR'
+            network.status = "ERROR"
             network.save()
 
     except Exception as e:
@@ -379,128 +419,147 @@ def stop_and_delete_network_task(network_id):
     """
     try:
         network = SwarmNetwork.objects.get(identifier=network_id)
-        
+
         # 1. Perform cleanup (stops containers, syncs results, and removes files)
         # We call the cleanup function synchronously within this task
         cleanup_network_resources(
             project_title=network.project.title,
             project_identifier=str(network.project.identifier),
             network_identifier=str(network.identifier),
-            network_name=network.name
+            network_name=network.name,
         )
-        
+
         # 2. Delete the record from the database
         # We use filter().delete() to avoid re-triggering the custom delete() method
         SwarmNetwork.objects.filter(identifier=network_id).delete()
-        
+
     except SwarmNetwork.DoesNotExist:
         # If it was already deleted, we just ensure resources are gone
-        # (Though we don't have the details here, cleanup_network_resources 
+        # (Though we don't have the details here, cleanup_network_resources
         # might have already been called by another task)
         pass
     except Exception as e:
         internal_logger = get_logger()
-        internal_logger.network.error(f"Failed to stop and delete network {network_id}: {e}")
+        internal_logger.network.error(
+            f"Failed to stop and delete network {network_id}: {e}"
+        )
 
 
 @shared_task
-def cleanup_network_resources(project_title, project_identifier, network_identifier, network_name):
+def cleanup_network_resources(
+    project_title, project_identifier, network_identifier, network_name
+):
     """
     Asynchronously cleans up Docker containers and filesystem resources
     associated with a deleted SwarmNetwork.
-    
+
     Arguments are passed as strings since the DB record might already be deleted.
     """
     try:
         # Use a generic system logger since the network/project might be gone
         logger = get_logger()
-        
-        project_name_slug = slugify(project_title).replace('-', '_')
-        
+
+        project_name_slug = slugify(project_title).replace("-", "_")
+
         provision_dir = os.path.join(
             settings.BASE_DIR,
-            'workspaces',
+            "workspaces",
             str(project_identifier),
-            str(network_identifier)
+            str(network_identifier),
         )
-        
+
         compose_dir = os.path.join(
-            provision_dir,
-            'workspace',
-            project_name_slug,
-            'prod_00'
+            provision_dir, "workspace", project_name_slug, "prod_00"
         )
-        
-        compose_file_path = os.path.join(compose_dir, 'compose.yaml')
+
+        compose_file_path = os.path.join(compose_dir, "compose.yaml")
 
         # 1. Stop Docker containers
         if os.path.exists(compose_file_path):
-            
             # Handle host path adjustment for cleanup if needed
-            host_project_path = os.getenv('HOST_PROJECT_PATH')
+            host_project_path = os.getenv("HOST_PROJECT_PATH")
             if host_project_path:
                 try:
-                    with open(compose_file_path, 'r') as f:
+                    with open(compose_file_path, "r") as f:
                         compose_content = f.read()
 
-                    relative_compose_dir = os.path.relpath(compose_dir, settings.BASE_DIR)
-                    host_compose_dir = os.path.join(host_project_path, relative_compose_dir)
+                    relative_compose_dir = os.path.relpath(
+                        compose_dir, settings.BASE_DIR
+                    )
+                    host_compose_dir = os.path.join(
+                        host_project_path, relative_compose_dir
+                    )
 
                     mappings = {
-                        'build: ./nvflare': f'build: {os.path.join(host_compose_dir, "nvflare")}',
-                        './fl-client': os.path.join(host_compose_dir, 'fl-client'),
-                        './server': os.path.join(host_compose_dir, 'server'),
-                        './overseer': os.path.join(host_compose_dir, 'overseer'),
+                        "build: ./nvflare": f"build: {os.path.join(host_compose_dir, 'nvflare')}",
+                        "./fl-client": os.path.join(host_compose_dir, "fl-client"),
+                        "./server": os.path.join(host_compose_dir, "server"),
+                        "./overseer": os.path.join(host_compose_dir, "overseer"),
                     }
-                    
+
                     # We need to make sure we are tearing down the *same* configuration
                     # that was brought up. If the file on disk already has host paths,
                     # simply running 'down' is fine. If we need to modify it to match, we do so.
                     # Usually, the file on disk should be the one last used.
-                    
+
                 except Exception as e:
-                    logger.network.warning(f"Error reading compose file during cleanup prep: {e}")
+                    logger.network.warning(
+                        f"Error reading compose file during cleanup prep: {e}"
+                    )
 
             # Reliable binary detection
-            docker_compose_bin = shutil.which('docker-compose')
+            docker_compose_bin = shutil.which("docker-compose")
             if docker_compose_bin:
                 cmd = [docker_compose_bin]
             else:
-                docker_bin = shutil.which('docker')
+                docker_bin = shutil.which("docker")
                 if docker_bin:
-                    cmd = [docker_bin, 'compose']
+                    cmd = [docker_bin, "compose"]
                 else:
-                    cmd = ['docker', 'compose'] # Fallback
-            
+                    cmd = ["docker", "compose"]  # Fallback
+
             # Use unique project name to ensure we target the right containers
             docker_project_name = f"swarm_{network_identifier[:12]}"
-            cmd.extend(['-p', docker_project_name, '-f', 'compose.yaml', 'down'])
-            
-            logger.network.info(f"Stopping Docker resources for deleted network: {network_name}")
+            cmd.extend(["-p", docker_project_name, "-f", "compose.yaml", "down"])
+
+            logger.network.info(
+                f"Stopping Docker resources for deleted network: {network_name}"
+            )
             try:
                 subprocess.run(
                     cmd,
                     cwd=compose_dir,
                     check=False,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
                 )
             except Exception as e:
-                logger.network.error(f"Failed to stop Docker containers for deleted network {network_name}: {e}")
-        
+                logger.network.error(
+                    f"Failed to stop Docker containers for deleted network {network_name}: {e}"
+                )
+
         # 2. Sync results to S3 before wiping the local filesystem
         try:
-            from apps.results.tasks import sync_project_results
-            logger.network.info(f"Synchronizing results for network {network_name} before deletion.")
+            from results.tasks import sync_project_results
+
+            logger.network.info(
+                f"Synchronizing results for network {network_name} before deletion."
+            )
             # Run synchronously to ensure files are uploaded before rmtree
             sync_project_results(project_identifier)
         except Exception as e:
-            logger.network.error(f"Result sync failed during network cleanup for {network_name}: {e}")
+            logger.network.error(
+                f"Result sync failed during network cleanup for {network_name}: {e}"
+            )
 
         # 3. Cleanup Filesystem
         if os.path.exists(provision_dir):
             shutil.rmtree(provision_dir)
-            logger.network.info(f"Cleaned up workspace directory for deleted network: {network_name}")
-            
+            logger.network.info(
+                f"Cleaned up workspace directory for deleted network: {network_name}"
+            )
+
     except Exception as e:
-        logger.network.error(f"Error during network resource cleanup for {network_name}: {e}")
+        logger.network.error(
+            f"Error during network resource cleanup for {network_name}: {e}"
+        )

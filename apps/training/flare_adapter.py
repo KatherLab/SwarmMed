@@ -57,9 +57,9 @@ class FlareDataFileSystem:
 
         # Try multiple locations for data_manifest.json to be robust across different NVFlare executors
         manifest_locations = [
-            os.path.join(os.getcwd(), 'data_manifest.json'),
-            os.path.join(os.path.dirname(__file__), 'data_manifest.json'),
-            os.path.join(os.getcwd(), 'custom', 'data_manifest.json'),
+            os.path.join(os.getcwd(), "data_manifest.json"),
+            os.path.join(os.path.dirname(__file__), "data_manifest.json"),
+            os.path.join(os.getcwd(), "custom", "data_manifest.json"),
         ]
 
         manifest_path = None
@@ -70,13 +70,19 @@ class FlareDataFileSystem:
 
         if manifest_path:
             try:
-                with open(manifest_path, 'r') as f:
+                with open(manifest_path, "r") as f:
                     self.manifest = json.load(f)
-                print(f"FlareDataFileSystem: Loaded manifest from {manifest_path} with {len(self.manifest)} files.")
+                print(
+                    f"FlareDataFileSystem: Loaded manifest from {manifest_path} with {len(self.manifest)} files."
+                )
             except Exception as e:
-                print(f"FlareDataFileSystem: ERROR - Failed to load manifest from {manifest_path}: {e}")
+                print(
+                    f"FlareDataFileSystem: ERROR - Failed to load manifest from {manifest_path}: {e}"
+                )
         else:
-            print("FlareDataFileSystem: WARNING - data_manifest.json not found in search paths.")
+            print(
+                "FlareDataFileSystem: WARNING - data_manifest.json not found in search paths."
+            )
 
         print(f"FlareDataFileSystem: Initialized. Temp dir: {self.temp_dir}")
 
@@ -87,8 +93,7 @@ class FlareDataFileSystem:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Ensure cleanup of temporary files when the context is closed."""
         if exc_type:
-            print(
-                f"FlareDataFileSystem: Exiting context with error: {exc_val}")
+            print(f"FlareDataFileSystem: Exiting context with error: {exc_val}")
         self.cleanup()
 
     def cleanup(self):
@@ -103,7 +108,9 @@ class FlareDataFileSystem:
         local temporary directory using presigned URLs.
         """
         if not self.manifest:
-            print("FlareDataFileSystem: ERROR - No manifest loaded, cannot download data.")
+            print(
+                "FlareDataFileSystem: ERROR - No manifest loaded, cannot download data."
+            )
             return
 
         file_count = 0
@@ -118,21 +125,30 @@ class FlareDataFileSystem:
                 # No S3 credentials needed here.
                 try:
                     # Validate URL scheme to prevent file:// or other unexpected schemes (Bandit B310)
-                    if not url.startswith(('http://', 'https://')):
-                        print(f"FlareDataFileSystem: ERROR - Unsafe URL scheme in manifest: {url}")
+                    if not url.startswith(("http://", "https://")):
+                        print(
+                            f"FlareDataFileSystem: ERROR - Unsafe URL scheme in manifest: {url}"
+                        )
                         continue
 
                     print(f"FlareDataFileSystem: Downloading {rel_path}...")
-                    
+
                     # Create an opener that uses our SSL context (ignoring cert verification for internal network)
-                    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=self.ssl_context))
-                    with opener.open(url) as response, open(local_path, 'wb') as out_file:
+                    opener = urllib.request.build_opener(
+                        urllib.request.HTTPSHandler(context=self.ssl_context)
+                    )
+                    with (
+                        opener.open(url) as response,
+                        open(local_path, "wb") as out_file,
+                    ):
                         shutil.copyfileobj(response, out_file)
-                        
+
                     self._downloaded_files[rel_path] = local_path
                     file_count += 1
                 except Exception as e:
-                    print(f"FlareDataFileSystem: ERROR - Failed to download {rel_path}: {e}")
+                    print(
+                        f"FlareDataFileSystem: ERROR - Failed to download {rel_path}: {e}"
+                    )
 
         if file_count == 0:
             print("FlareDataFileSystem: WARNING - No files were downloaded.")
@@ -151,6 +167,7 @@ class FlareDataFileSystem:
 # =================================================================================
 # Public Adapter Functions
 # =================================================================================
+
 
 def init_flare():
     """
@@ -218,6 +235,7 @@ def send_model(params: dict, metrics: dict = None):
 # Helper functions for framework-specific conversions
 # =================================================================================
 
+
 def get_weights_list(params: dict):
     """
     Converts a dictionary of parameters back to a sorted list of numpy arrays.
@@ -238,6 +256,7 @@ def get_pytorch_state_dict(params: dict):
     Required for PyTorch's model.load_state_dict() method.
     """
     import torch
+
     return {k: torch.as_tensor(v) for k, v in params.items()}
 
 

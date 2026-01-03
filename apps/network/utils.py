@@ -65,8 +65,7 @@ def is_tailscale_connected():
         # Logic: If status is not empty and we are not in a restricted
         # 'peerapi' state
         is_connected = (
-            bool(result.stdout.strip())
-            and "peerapi" not in result.stdout.lower()
+            bool(result.stdout.strip()) and "peerapi" not in result.stdout.lower()
         )
 
         status = "connected" if is_connected else "disconnected"
@@ -108,10 +107,12 @@ def create_startup_kits_zip(swarm_network):
     # We use Path for more robust path handling
     workspaces_root = Path(os.getcwd()) / "workspaces"
     base_prod_path = (
-        workspaces_root /
-        str(swarm_network.project.identifier) /
-        str(swarm_network.identifier) /
-        "workspace" / project_name / "prod_00"
+        workspaces_root
+        / str(swarm_network.project.identifier)
+        / str(swarm_network.identifier)
+        / "workspace"
+        / project_name
+        / "prod_00"
     )
 
     zip_buffer = io.BytesIO()
@@ -126,11 +127,7 @@ def create_startup_kits_zip(swarm_network):
         # NVFlare creates a directory for each participant
         for item in os.scandir(str(abs_base_prod_path)):
             # We only want to package client kits (not server or admin)
-            if (
-                item.is_dir()
-                and item.name != "server"
-                and "admin" not in item.name
-            ):
+            if item.is_dir() and item.name != "server" and "admin" not in item.name:
                 # Ensure client_dir_path is strictly within base_prod_path
                 client_dir = Path(item.path).resolve()
                 if not client_dir.is_relative_to(abs_base_prod_path):
@@ -154,9 +151,7 @@ def create_startup_kits_zip(swarm_network):
                             client_zip.write(str(file_path), str(arcname))
 
                 # Add the client's zip file into the main zip buffer
-                main_zip.writestr(
-                    f"{item.name}.zip", client_zip_buffer.getvalue()
-                )
+                main_zip.writestr(f"{item.name}.zip", client_zip_buffer.getvalue())
 
     zip_buffer.seek(0)
     return zip_buffer

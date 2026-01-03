@@ -10,7 +10,7 @@ import logging
 
 # Thread-local storage to keep track of context within a single request/thread
 _thread_locals = threading.local()
-_internal_logger = logging.getLogger('app')
+_internal_logger = logging.getLogger("app")
 
 
 def set_context(user=None, project=None):
@@ -30,22 +30,22 @@ def get_context():
     Returns:
         tuple: (User object or None, Project object or None)
     """
-    user = getattr(_thread_locals, 'user', None)
-    project = getattr(_thread_locals, 'project', None)
+    user = getattr(_thread_locals, "user", None)
+    project = getattr(_thread_locals, "project", None)
 
     # If context isn't set, try to extract it from the active request
     if not user or not project:
         try:
-            request = getattr(_thread_locals, 'request', None)
+            request = getattr(_thread_locals, "request", None)
 
-            if request and hasattr(request,
-                                   'user') and request.user.is_authenticated:
+            if request and hasattr(request, "user") and request.user.is_authenticated:
                 if not user:
                     user = request.user
 
                 if not project:
                     # Attempt to find the user's currently active project
-                    from ..project.models import UserCurrentProject
+                    from project.models import UserCurrentProject
+
                     try:
                         user_current_project = UserCurrentProject.objects.get(
                             user=request.user
@@ -77,7 +77,7 @@ class RequestContextMiddleware:
         response = self.get_response(request)
 
         # Clean up after the request is finished to prevent memory leaks
-        if hasattr(_thread_locals, 'request'):
+        if hasattr(_thread_locals, "request"):
             del _thread_locals.request
 
         return response

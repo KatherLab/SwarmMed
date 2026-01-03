@@ -15,37 +15,21 @@ from django.utils import timezone
 from django.core.files.base import ContentFile
 
 
-
-from .models import (
-
-    ValidationRun,
-
-    ValidationCheck,
-
-    VisualizationRun,
-
-    VisualizationPlot
-
-)
+from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
 
 from .filesystem import DataFileSystem
 
 from .sandbox import run_script_in_sandbox
 
-from apps.logs import logger
+from logs import logger
 
-from apps.logs.context import set_context
+from logs.context import set_context
 
-from apps.logs.utils import format_exception
-
-
-
+from logs.utils import format_exception
 
 
 @shared_task(bind=True)
-
 def run_validation_task(self, validation_run_id):
-
     """
 
     Background task to execute a user's data validation script.
@@ -53,26 +37,19 @@ def run_validation_task(self, validation_run_id):
     """
 
     try:
-
         validation_run = ValidationRun.objects.get(id=validation_run_id)
 
         project = validation_run.project
 
         user = validation_run.user
 
-
-
         set_context(user=user, project=project)
 
         log = logger.get_logger()
 
-
-
         log.data.info(f"Starting validation run: {validation_run_id}")
 
-
-
-        validation_run.status = 'running'
+        validation_run.status = "running"
 
         validation_run.started_at = timezone.now()
 
@@ -80,33 +57,22 @@ def run_validation_task(self, validation_run_id):
 
         validation_run.save()
 
-
-
         if not project.data_validation_script:
-
             log.data.error("No validation script found for project")
 
             raise Exception("No validation script found for project")
 
-
-
         # Prepare the data filesystem (downloads files from S3)
 
         with DataFileSystem(str(project.identifier)) as fs:
-
             # Synchronize all data files to the local temp directory so they are visible in the sandbox
 
             fs.download_all()
 
-
-
             script_content = project.data_validation_script.read()
 
             if isinstance(script_content, bytes):
-
-                script_content = script_content.decode('utf-8')
-
-
+                script_content = script_content.decode("utf-8")
 
             # Wrap user script with helper for sandbox
 
@@ -200,95 +166,58 @@ validation = ValidationHelper('/home/sandboxuser/data', 'results.json')
 
 """
 
-
-
-
-
-
-
             # Run in sandbox
 
-
-
-
-
             result = run_script_in_sandbox(
-
                 script_wrapper,
-
                 fs.temp_dir,
-
                 str(project.identifier),
-
-                run_type="validation"
-
+                run_type="validation",
             )
 
+            validation_run.success = result["success"]
 
+            validation_run.output = result["output"]
 
-            validation_run.success = result['success']
-
-            validation_run.output = result['output']
-
-
-
-            if not result['success'] and 'error' in result:
-
-                validation_run.error_message = result['error']
+            if not result["success"] and "error" in result:
+                validation_run.error_message = result["error"]
 
                 log.data.warning(f"Validation failed: {result['error']}")
 
-
-
             # Save Results
 
-            for check_data in result.get('results', []):
-
+            for check_data in result.get("results", []):
                 ValidationCheck.objects.create(
-
-                    validation_run=validation_run,
-
-                    **check_data
-
+                    validation_run=validation_run, **check_data
                 )
 
-
-
-        validation_run.status = 'completed'
+        validation_run.status = "completed"
 
         validation_run.completed_at = timezone.now()
 
         validation_run.save()
 
-        log.data.info(f"Validation run {validation_run_id} completed. Success: {validation_run.success}")
-
-
+        log.data.info(
+            f"Validation run {validation_run_id} completed. Success: {validation_run.success}"
+        )
 
         return {
-
-            'success': validation_run.success,
-
-            'checks_count': len(result.get('results', [])),
-
-            'output': validation_run.output
-
+            "success": validation_run.success,
+            "checks_count": len(result.get("results", [])),
+            "output": validation_run.output,
         }
 
-
-
     except Exception as e:
-
         try:
-
             log = logger.get_logger()
 
-            log.data.error(f"Error in run_validation_task: {str(e)}", extra=format_exception(e))
-
-            
+            log.data.error(
+                f"Error in run_validation_task: {str(e)}", extra=format_exception(e)
+            )
 
             validation_run = ValidationRun.objects.get(id=validation_run_id)
 
-            validation_run.status = 'failed'
+            validation_run.status = "failed"
 
             validation_run.success = False
 
@@ -301,19 +230,15 @@ validation = ValidationHelper('/home/sandboxuser/data', 'results.json')
             validation_run.save()
 
         except Exception as inner_e:
-
-            log.data.critical(f"Critical failure in run_validation_task error handler: {inner_e}")
+            log.data.critical(
+                f"Critical failure in run_validation_task error handler: {inner_e}"
+            )
 
         raise e
 
 
-
-
-
 @shared_task(bind=True)
-
 def run_visualization_task(self, visualization_run_id):
-
     """
 
     Background task to execute a user's data visualization script.
@@ -321,26 +246,19 @@ def run_visualization_task(self, visualization_run_id):
     """
 
     try:
-
         visualization_run = VisualizationRun.objects.get(id=visualization_run_id)
 
         project = visualization_run.project
 
         user = visualization_run.user
 
-
-
         set_context(user=user, project=project)
 
         log = logger.get_logger()
 
-
-
         log.data.info(f"Starting visualization run: {visualization_run_id}")
 
-
-
-        visualization_run.status = 'running'
+        visualization_run.status = "running"
 
         visualization_run.started_at = timezone.now()
 
@@ -348,31 +266,20 @@ def run_visualization_task(self, visualization_run_id):
 
         visualization_run.save()
 
-
-
         if not project.data_visualization_script:
-
             log.data.error("No visualization script found for project")
 
             raise Exception("No visualization script found for project")
 
-
-
         with DataFileSystem(str(project.identifier)) as fs:
-
             # Synchronize all data files to the local temp directory so they are visible in the sandbox
 
             fs.download_all()
 
-
-
             script_content = project.data_visualization_script.read()
 
             if isinstance(script_content, bytes):
-
-                script_content = script_content.decode('utf-8')
-
-
+                script_content = script_content.decode("utf-8")
 
             # Wrap visualization script with helper for saving plots
 
@@ -504,113 +411,80 @@ visualization = VisualizationHelper('/home/sandboxuser/data', 'plots')
 
 """
 
-
-
             # Run in sandbox
 
             result = run_script_in_sandbox(
-
                 script_wrapper,
-
                 fs.temp_dir,
-
                 str(project.identifier),
-
-                run_type="visualization"
-
+                run_type="visualization",
             )
 
+            visualization_run.success = result["success"]
 
+            visualization_run.output = result["output"]
 
-            visualization_run.success = result['success']
-
-            visualization_run.output = result['output']
-
-
-
-            if not result['success'] and 'error' in result:
-
-                visualization_run.error_message = result['error']
+            if not result["success"] and "error" in result:
+                visualization_run.error_message = result["error"]
 
                 log.data.warning(f"Visualization failed: {result['error']}")
 
-
-
             # Save Plots
 
-            for plot_data in result.get('plots', []):
-
+            for plot_data in result.get("plots", []):
                 plot_obj = VisualizationPlot(
-
                     visualization_run=visualization_run,
-
-                    title=plot_data['title'],
-
-                    plot_number=plot_data['plot_number']
-
+                    title=plot_data["title"],
+                    plot_number=plot_data["plot_number"],
                 )
 
-
-
-                if plot_data.get('image_data'):
-
+                if plot_data.get("image_data"):
                     img_name = f"plot_{plot_data['plot_number']}.png"
 
-                    img_content = ContentFile(base64.b64decode(plot_data['image_data']), name=img_name)
+                    img_content = ContentFile(
+                        base64.b64decode(plot_data["image_data"]), name=img_name
+                    )
 
                     plot_obj.image_data.save(img_name, img_content, save=False)
 
-
-
-                if plot_data.get('svg_data'):
-
+                if plot_data.get("svg_data"):
                     svg_name = f"plot_{plot_data['plot_number']}.svg"
 
-                    svg_content = ContentFile(base64.b64decode(plot_data['svg_data']), name=svg_name)
+                    svg_content = ContentFile(
+                        base64.b64decode(plot_data["svg_data"]), name=svg_name
+                    )
 
                     plot_obj.svg_data.save(svg_name, svg_content, save=False)
 
-
-
                 plot_obj.save()
 
-
-
-        visualization_run.status = 'completed'
+        visualization_run.status = "completed"
 
         visualization_run.completed_at = timezone.now()
 
         visualization_run.save()
 
-        log.data.info(f"Visualization run {visualization_run_id} completed. Success: {visualization_run.success}")
-
-
+        log.data.info(
+            f"Visualization run {visualization_run_id} completed. Success: {visualization_run.success}"
+        )
 
         return {
-
-            'success': visualization_run.success,
-
-            'plots_count': len(result.get('plots', [])),
-
-            'output': visualization_run.output
-
+            "success": visualization_run.success,
+            "plots_count": len(result.get("plots", [])),
+            "output": visualization_run.output,
         }
 
-
-
     except Exception as e:
-
         try:
-
             log = logger.get_logger()
 
-            log.data.error(f"Error in run_visualization_task: {str(e)}", extra=format_exception(e))
-
-            
+            log.data.error(
+                f"Error in run_visualization_task: {str(e)}", extra=format_exception(e)
+            )
 
             visualization_run = VisualizationRun.objects.get(id=visualization_run_id)
 
-            visualization_run.status = 'failed'
+            visualization_run.status = "failed"
 
             visualization_run.success = False
 
@@ -623,7 +497,8 @@ visualization = VisualizationHelper('/home/sandboxuser/data', 'plots')
             visualization_run.save()
 
         except Exception as inner_e:
-
-            log.data.critical(f"Critical failure in run_visualization_task error handler: {inner_e}")
+            log.data.critical(
+                f"Critical failure in run_visualization_task error handler: {inner_e}"
+            )
 
         raise e

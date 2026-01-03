@@ -5,23 +5,7 @@ and uploading results from the training workspace.
 """
 
 import os
-
-import boto3
-from django.conf import settings
-
-
-def get_s3_client():
-    """
-    Creates and returns a pre-configured S3 client using project settings.
-    Supports both AWS S3 and local S3-compatible storage like MinIO.
-    """
-    return boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME,
-        endpoint_url=settings.AWS_S3_ENDPOINT_URL
-    )
+from common.utils import get_s3_client
 
 
 def download_s3_folder(bucket_name, s3_folder, local_dir):
@@ -35,14 +19,14 @@ def download_s3_folder(bucket_name, s3_folder, local_dir):
         local_dir (str): The local path where files will be saved.
     """
     s3 = get_s3_client()
-    paginator = s3.get_paginator('list_objects_v2')
+    paginator = s3.get_paginator("list_objects_v2")
 
     # Iterate through all objects in S3 that start with the given folder
     # prefix.
     for page in paginator.paginate(Bucket=bucket_name, Prefix=s3_folder):
-        for obj in page.get('Contents', []):
+        for obj in page.get("Contents", []):
             # Calculate the relative path from the S3 folder to the file.
-            rel_path = os.path.relpath(obj['Key'], s3_folder)
+            rel_path = os.path.relpath(obj["Key"], s3_folder)
             target = os.path.join(local_dir, rel_path)
 
             # Ensure the local subdirectory exists.
@@ -50,8 +34,8 @@ def download_s3_folder(bucket_name, s3_folder, local_dir):
                 os.makedirs(os.path.dirname(target))
 
             # If the object is a file (not a directory marker), download it.
-            if not obj['Key'].endswith('/'):
-                s3.download_file(bucket_name, obj['Key'], target)
+            if not obj["Key"].endswith("/"):
+                s3.download_file(bucket_name, obj["Key"], target)
 
 
 def upload_file_to_s3(bucket_name, key, local_path):
@@ -75,14 +59,16 @@ def upload_folder_to_s3(bucket_name, local_dir, prefix):
     """
     for root, dirs, files in os.walk(local_dir):
         # Modify 'dirs' in-place to skip hidden directories during the walk.
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
 
         for filename in files:
             # Security & Efficiency: Skip hidden files and Python source/byte code.
             # We only want to upload data results (CSV, .pt, .npy, etc.)
-            if (filename.startswith('.') or
-                    filename.endswith('.py') or
-                    filename.endswith('.pyc')):
+            if (
+                filename.startswith(".")
+                or filename.endswith(".py")
+                or filename.endswith(".pyc")
+            ):
                 continue
 
             full_path = os.path.join(root, filename)

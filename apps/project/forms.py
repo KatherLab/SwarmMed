@@ -6,7 +6,7 @@ including custom logic for handling project member identifiers.
 
 from django import forms
 
-from apps.users.models import Profile
+from users.models import Profile
 
 from .models import Project
 
@@ -21,28 +21,31 @@ class ProjectForm(forms.ModelForm):
     # This is not a model field, so we define it explicitly.
     member_identifiers = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={
-            'class': 'form-control',
-            'placeholder': 'Enter UUIDs separated by commas or new lines'
-        }),
-        help_text="Enter the UUID identifiers of users to add as members"
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Enter UUIDs separated by commas or new lines",
+            }
+        ),
+        help_text="Enter the UUID identifiers of users to add as members",
     )
 
     class Meta:
         """
         Metadata for the ProjectForm, linking it to the Project model.
         """
+
         model = Project
         # List of fields from the Project model to include in the form.
         # Note: 'member_identifiers' is added manually above.
         fields = [
-            'title',
-            'description',
-            'training_code',
-            'requirements_file',
-            'data_validation_script',
-            'data_visualization_script',
-            'results_visualization_script'
+            "title",
+            "description",
+            "training_code",
+            "requirements_file",
+            "data_validation_script",
+            "data_visualization_script",
+            "results_visualization_script",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -52,7 +55,7 @@ class ProjectForm(forms.ModelForm):
         """
         # Extract the project instance if provided (standard for editing
         # existing objects).
-        instance = kwargs.get('instance', None)
+        instance = kwargs.get("instance", None)
         super().__init__(*args, **kwargs)
 
         # If we are editing an existing project (instance exists),
@@ -72,5 +75,4 @@ class ProjectForm(forms.ModelForm):
 
             # Join the UUIDs into a single comma-separated string for the text
             # area field.
-            self.initial['member_identifiers'] = ', '.join(
-                current_member_uuids)
+            self.initial["member_identifiers"] = ", ".join(current_member_uuids)

@@ -4,36 +4,13 @@ Provides low-level wrappers around boto3 for common S3 operations
 like listing, deleting, renaming, and statistics.
 """
 
-import boto3
 from django.conf import settings
-
-
-def get_s3_client():
-    """
-    Creates and returns an S3 client using the internal network credentials.
-    This client uses the internal endpoint URL (useful for server-to-server).
-    """
-    return boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME,
-        endpoint_url=settings.AWS_S3_ENDPOINT_URL
-    )
-
-
-def get_public_s3_client():
-    """
-    Creates and returns an S3 client using the public URL settings.
-    This is used for generating presigned URLs that work in the user's browser.
-    """
-    return boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME,
-        endpoint_url=settings.PUBLIC_URL
-    )
+from common.utils import (
+    get_s3_client,
+    get_public_s3_client,
+    get_s3_download_url,
+    get_internal_s3_download_url,
+)
 
 
 def create_minio_bucket(bucket_name):
@@ -42,7 +19,7 @@ def create_minio_bucket(bucket_name):
     """
     s3 = get_s3_client()
     buckets = s3.list_buckets()
-    if not any(b['Name'] == bucket_name for b in buckets['Buckets']):
+    if not any(b["Name"] == bucket_name for b in buckets["Buckets"]):
         s3.create_bucket(Bucket=bucket_name)
 
 
@@ -57,25 +34,23 @@ def list_s3_folder(prefix=""):
         tuple: (folders, files) where each is a list of S3 keys.
     """
     s3 = get_s3_client()
-    paginator = s3.get_paginator('list_objects_v2')
+    paginator = s3.get_paginator("list_objects_v2")
 
     # Use '/' as delimiter to only get immediate children (not recursive)
     result = paginator.paginate(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-        Prefix=prefix,
-        Delimiter='/'
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix, Delimiter="/"
     )
 
     folders = []
     files = []
     for page in result:
         # CommonPrefixes represent subdirectories
-        for cp in page.get('CommonPrefixes', []):
-            folders.append(cp['Prefix'])
+        for cp in page.get("CommonPrefixes", []):
+            folders.append(cp["Prefix"])
 
         # Contents represent files
-        for obj in page.get('Contents', []):
-            key = obj['Key']
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
             # Exclude the directory itself if it matches the prefix
             if key != prefix:
                 files.append(key)
@@ -98,11 +73,8 @@ def copy_s3_object(source_key, target_key):
     s3 = get_s3_client()
     s3.copy_object(
         Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-        CopySource={
-            'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
-            'Key': source_key
-        },
-        Key=target_key
+        CopySource={"Bucket": settings.AWS_STORAGE_BUCKET_NAME, "Key": source_key},
+        Key=target_key,
     )
 
 
@@ -119,18 +91,16 @@ def delete_s3_folder(prefix):
     Deletes all objects that start with the given prefix (effectively deleting a folder).
     """
     s3 = get_s3_client()
-    paginator = s3.get_paginator('list_objects_v2')
+    paginator = s3.get_paginator("list_objects_v2")
 
     # We must find and delete every object recursively
     for page in paginator.paginate(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-        Prefix=prefix
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix
     ):
-        objects = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
+        objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
         if objects:
             s3.delete_objects(
-                Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-                Delete={'Objects': objects}
+                Bucket=settings.AWS_STORAGE_BUCKET_NAME, Delete={"Objects": objects}
             )
 
 
@@ -139,16 +109,15 @@ def rename_s3_folder(old_prefix, new_prefix):
     Renames a virtual folder by moving all contained objects to the new prefix.
     """
     s3 = get_s3_client()
-    paginator = s3.get_paginator('list_objects_v2')
+    paginator = s3.get_paginator("list_objects_v2")
 
     for page in paginator.paginate(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-        Prefix=old_prefix
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=old_prefix
     ):
-        for obj in page.get('Contents', []):
-            old_key = obj['Key']
+        for obj in page.get("Contents", []):
+            old_key = obj["Key"]
             # Calculate the new key name based on the new prefix
-            new_key = new_prefix + old_key[len(old_prefix):]
+            new_key = new_prefix + old_key[len(old_prefix) :]
             copy_s3_object(old_key, new_key)
             delete_s3_object(old_key)
 
@@ -159,9 +128,9 @@ def get_s3_download_url(key, expires=3600):
     """
     s3 = get_public_s3_client()
     url = s3.generate_presigned_url(
-        'get_object',
-        Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': key},
-        ExpiresIn=expires
+        "get_object",
+        Params={"Bucket": settings.AWS_STORAGE_BUCKET_NAME, "Key": key},
+        ExpiresIn=expires,
     )
     return url
 
@@ -173,9 +142,9 @@ def get_internal_s3_download_url(key, expires=3600):
     """
     s3 = get_s3_client()
     url = s3.generate_presigned_url(
-        'get_object',
-        Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': key},
-        ExpiresIn=expires
+        "get_object",
+        Params={"Bucket": settings.AWS_STORAGE_BUCKET_NAME, "Key": key},
+        ExpiresIn=expires,
     )
 
     # If the URL contains localhost or 127.0.0.1, other containers won't be able
@@ -196,50 +165,29 @@ def get_storage_stats(prefix=""):
         tuple: (total_size_bytes, folder_count, file_count)
     """
     s3 = get_s3_client()
-    paginator = s3.get_paginator('list_objects_v2')
+    paginator = s3.get_paginator("list_objects_v2")
 
     total_size = 0
     file_count = 0
     folders = set()
 
     for page in paginator.paginate(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-        Prefix=prefix
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix
     ):
-        for obj in page.get('Contents', []):
+        for obj in page.get("Contents", []):
             file_count += 1
-            total_size += obj.get('Size', 0)
+            total_size += obj.get("Size", 0)
 
             # Identify parent folders by looking at the key segments
-            key = obj['Key']
-            parts = key.split('/')
+            key = obj["Key"]
+            parts = key.split("/")
 
             # Add all parent directory paths to our set
             for i in range(1, len(parts)):
-                folder_path = '/'.join(parts[:i]) + '/'
+                folder_path = "/".join(parts[:i]) + "/"
                 folders.add(folder_path)
 
     return total_size, len(folders), file_count
-
-
-def format_size(size_bytes):
-    """
-    Converts a number of bytes into a human-readable string (e.g., '1.2 MB').
-    """
-    if size_bytes == 0:
-        return '0 B'
-
-    units = ['B', 'KB', 'MB', 'GB', 'TB']
-    size = size_bytes
-    unit_index = 0
-
-    while size > 1024 and unit_index < len(units) - 1:
-        size /= 1024
-        unit_index += 1
-
-    if unit_index > 0:
-        return f"{size:.1f} {units[unit_index]}"
-    return f"{size} {units[unit_index]}"
 
 
 def get_column_prefixes(path):
@@ -251,8 +199,8 @@ def get_column_prefixes(path):
     if not path:
         return [""]
 
-    parts = path.rstrip('/').split('/')
+    parts = path.rstrip("/").split("/")
     prefixes = [""]
     for i in range(len(parts)):
-        prefixes.append('/'.join(parts[:i + 1]) + '/')
+        prefixes.append("/".join(parts[: i + 1]) + "/")
     return prefixes

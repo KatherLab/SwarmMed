@@ -10,7 +10,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.core.cache import cache
 from .models import Message, ProjectPost, ProjectBoardAccess
-from apps.logs.logger import get_logger
+from logs.logger import get_logger
 
 logger = get_logger()
 
@@ -21,7 +21,7 @@ def send_message_notification(sender, instance, created, **kwargs):
     Sends an email notification to the recipient when a new direct message is created.
     """
     # Invalidate unread count cache for the recipient
-    cache.delete(f'unread_messages_count_{instance.recipient.id}')
+    cache.delete(f"unread_messages_count_{instance.recipient.id}")
 
     # Only send notification if the message was just created (not updated)
     # and the recipient has an email address associated with their account.
@@ -31,11 +31,12 @@ def send_message_notification(sender, instance, created, **kwargs):
             f"Hello {instance.recipient.username},\n\n"
             f"You have received a new message from {instance.sender.username}.\n\n"
             f"Subject: {instance.subject}\n\n"
-            "Please log in to your SwarmCloud account to view the full message.")
+            "Please log in to your SwarmCloud account to view the full message."
+        )
 
         # Use EMAIL_HOST_USER from settings or fallback to None
         # (Django will then use DEFAULT_FROM_EMAIL).
-        from_email = getattr(settings, 'EMAIL_HOST_USER', None)
+        from_email = getattr(settings, "EMAIL_HOST_USER", None)
 
         try:
             # Attempt to send the email
@@ -62,9 +63,9 @@ def send_project_post_notification(sender, instance, created, **kwargs):
         author = instance.author
 
         # Invalidate unread count cache for all project members
-        cache.delete(f'unread_messages_count_{project.author.id}')
+        cache.delete(f"unread_messages_count_{project.author.id}")
         for member in project.members.all():
-            cache.delete(f'unread_messages_count_{member.id}')
+            cache.delete(f"unread_messages_count_{member.id}")
 
         # Collect all recipients: the project creator and all invited members
         recipients = set()
@@ -95,7 +96,7 @@ def send_project_post_notification(sender, instance, created, **kwargs):
             "Please log in to SwarmCloud to view the full post and reply."
         )
 
-        from_email = getattr(settings, 'EMAIL_HOST_USER', None)
+        from_email = getattr(settings, "EMAIL_HOST_USER", None)
 
         # Send individual emails to each recipient to maintain privacy
         # (prevents users from seeing each other's email addresses in a group list).
@@ -110,7 +111,9 @@ def send_project_post_notification(sender, instance, created, **kwargs):
                 )
             except Exception as e:
                 # Catch and log errors during email delivery
-                logger.project.error(f"Failed to send project post notification email to {recipient.email}: {e}")
+                logger.project.error(
+                    f"Failed to send project post notification email to {recipient.email}: {e}"
+                )
 
 
 @receiver(post_save, sender=ProjectBoardAccess)
@@ -118,4 +121,4 @@ def invalidate_unread_count_on_access(sender, instance, **kwargs):
     """
     Invalidates unread message count cache when a user accesses a project board.
     """
-    cache.delete(f'unread_messages_count_{instance.user.id}')
+    cache.delete(f"unread_messages_count_{instance.user.id}")

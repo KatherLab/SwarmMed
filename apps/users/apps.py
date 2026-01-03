@@ -10,11 +10,12 @@ class UsersConfig(AppConfig):
     """
     Standard Django AppConfig for the 'users' application.
     """
+
     # Use 64-bit integers for primary keys by default.
     default_auto_field = "django.db.models.BigAutoField"
 
     # Python path to the application.
-    name = "apps.users"
+    name = "users"
 
     def ready(self):
         """
@@ -22,4 +23,4 @@ class UsersConfig(AppConfig):
         Used to register signal handlers defined in signals.py.
         """
         # Importing signals here ensures they are connected to the models.
-        import apps.users.signals  # noqa
+        import users.signals  # noqa

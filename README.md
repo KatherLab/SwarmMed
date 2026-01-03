@@ -71,12 +71,12 @@ Since the platform uses an internal Certificate Authority (CA) for `localhost`, 
 
 **macOS:**
 ```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/internal/ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain infrastructure/certs/internal/ca.crt
 ```
 
 **Windows (PowerShell as Admin):**
 ```powershell
-Import-Certificate -FilePath "certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath "infrastructure\certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
 **Chrome/Edge Bypass:**

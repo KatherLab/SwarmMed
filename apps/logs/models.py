@@ -11,7 +11,7 @@ from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
-from apps.core.fields import EncryptedTextField
+from common.fields import EncryptedTextField
 
 
 class LogCategory(models.TextChoices):
@@ -19,13 +19,12 @@ class LogCategory(models.TextChoices):
     Defines the different types of logs we track in the system.
     This helps in filtering and organizing logs for the user.
     """
-    PROJECT = 'project', 'Project'
-    DATA = 'data', 'Data'
-    NETWORK = 'network', 'Network'
-    TRAINING = 'training', 'Training'
-    RESULTS = 'results', 'Results'
-    AUTH = 'auth', 'Authentication'
-    ACCESS = 'access', 'Access Control'
+
+    PROJECT = "project", "Project"
+    DATA = "data", "Data"
+    NETWORK = "network", "Network"
+    TRAINING = "training", "Training"
+    RESULTS = "results", "Results"
 
 
 class LogSigningKey(models.Model):
@@ -33,13 +32,14 @@ class LogSigningKey(models.Model):
     Stores keys used for signing log entries.
     Allows for key rotation while maintaining the ability to verify old logs.
     """
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     key = models.CharField(max_length=255, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
 
     @classmethod
     def get_active_key(cls):
@@ -48,9 +48,10 @@ class LogSigningKey(models.Model):
         Uses Django cache to avoid repeated database lookups.
         """
         from django.core.cache import cache
-        cache_key = 'active_log_signing_key_id'
+
+        cache_key = "active_log_signing_key_id"
         key_id = cache.get(cache_key)
-        
+
         if key_id:
             try:
                 return cls.objects.get(id=key_id)
@@ -61,10 +62,11 @@ class LogSigningKey(models.Model):
         if not active_key:
             import secrets
             import string
+
             alphabet = string.ascii_letters + string.digits
             new_key = "".join(secrets.choice(alphabet) for _ in range(64))
             active_key = cls.objects.create(key=new_key)
-        
+
         # Cache the key ID for 1 hour to reduce DB load
         cache.set(cache_key, active_key.id, 3600)
         return active_key
@@ -75,6 +77,7 @@ class LogEntry(models.Model):
     Represents a single log event in the system.
     Stores metadata like user, project, category, and the actual message.
     """
+
     # Unique identifier for the log entry
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -82,22 +85,24 @@ class LogEntry(models.Model):
     user = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
-        related_name='log_entries',
+        related_name="log_entries",
         null=True,
-        blank=True
+        blank=True,
     )
 
     # Stores the username at the time of log creation for audit trail persistence
     # even after user deletion.
-    user_identifier = models.CharField(max_length=150, blank=True, null=True, editable=False)
+    user_identifier = models.CharField(
+        max_length=150, blank=True, null=True, editable=False
+    )
 
     # The project this log belongs to
     project = models.ForeignKey(
-        'project.Project',
+        "project.Project",
         on_delete=models.CASCADE,
-        related_name='log_entries',
+        related_name="log_entries",
         null=True,
-        blank=True
+        blank=True,
     )
 
     # The category of the log (e.g., Data, Training)
@@ -105,21 +110,21 @@ class LogEntry(models.Model):
 
     # Optional link to a specific swarm network
     swarm_network = models.ForeignKey(
-        'network.SwarmNetwork',
+        "network.SwarmNetwork",
         on_delete=models.CASCADE,
-        related_name='log_entries',
+        related_name="log_entries",
         null=True,
-        blank=True
+        blank=True,
     )
 
     # When the event occurred
     timestamp = models.DateTimeField(default=timezone.now)
 
     # Severity level (e.g., INFO, WARNING, ERROR, CRITICAL)
-    level = models.CharField(max_length=10, default='INFO')
+    level = models.CharField(max_length=10, default="INFO")
 
     # Where the log originated (e.g., 'web', 'celery', or a specific container name)
-    source = models.CharField(max_length=100, default='web')
+    source = models.CharField(max_length=100, default="web")
 
     # The actual log message (Encrypted)
     message = EncryptedTextField()
@@ -137,19 +142,19 @@ class LogEntry(models.Model):
     signing_key = models.ForeignKey(
         LogSigningKey,
         on_delete=models.PROTECT,
-        related_name='signed_entries',
+        related_name="signed_entries",
         null=True,
-        blank=True
+        blank=True,
     )
     previous_hash = models.CharField(max_length=128, blank=True, null=True)
     signature = models.CharField(max_length=128, blank=True, null=True)
 
     class Meta:
-        ordering = ['-timestamp']
+        ordering = ["-timestamp"]
         verbose_name_plural = "Log Entries"
         indexes = [
-            models.Index(fields=['user', 'project', 'category']),
-            models.Index(fields=['timestamp']),
+            models.Index(fields=["user", "project", "category"]),
+            models.Index(fields=["timestamp"]),
         ]
 
     def __str__(self):
@@ -170,8 +175,10 @@ class LogEntry(models.Model):
         data = f"{self.id}{ts_str}{user_id}{self.category}{self.message}{self.previous_hash}"
 
         # Combine database-stored key with environment-stored SECRET_KEY
-        combined_key = f"{key_obj.key}{settings.SECRET_KEY}".encode('utf-8')
-        signature = hmac.new(combined_key, data.encode('utf-8'), hashlib.sha256).hexdigest()
+        combined_key = f"{key_obj.key}{settings.SECRET_KEY}".encode("utf-8")
+        signature = hmac.new(
+            combined_key, data.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
         return signature
 
     def save(self, *args, **kwargs):
@@ -185,7 +192,7 @@ class LogEntry(models.Model):
                 self.signing_key = LogSigningKey.get_active_key()
 
             # Find the most recent log entry to chain
-            last_entry = LogEntry.objects.order_by('-timestamp').first()
+            last_entry = LogEntry.objects.order_by("-timestamp").first()
             if last_entry:
                 self.previous_hash = last_entry.signature
             else:

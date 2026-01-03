@@ -10,8 +10,9 @@ class TrainingConfig(AppConfig):
     """
     Standard Django AppConfig for the 'training' application.
     """
+
     # Specifies the type of auto-generated primary key for models in this app.
-    default_auto_field = 'django.db.models.BigAutoField'
+    default_auto_field = "django.db.models.BigAutoField"
 
     # The full Python path to the application.
-    name = 'apps.training'
+    name = "training"

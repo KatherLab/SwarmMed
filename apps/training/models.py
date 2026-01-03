@@ -3,15 +3,15 @@ Database models for the training application.
 Defines the structure for tracking training jobs in the swarm learning network.
 """
 
-import uuid
 
 from django.db import models
 
-from apps.network.models import SwarmNetwork
-from apps.project.models import Project
+from common.models import AbstractBaseModel
+from network.models import SwarmNetwork
+from project.models import Project
 
 
-class TrainingJob(models.Model):
+class TrainingJob(AbstractBaseModel):
     """
     Tracks the status, configuration, and progress of a swarm learning training job.
     A job is linked to a project (the task) and a network (the infrastructure).
@@ -25,41 +25,27 @@ class TrainingJob(models.Model):
     # FAILED: An error occurred during training or submission.
     # STOPPED: Manually aborted by the user.
     STATUS_CHOICES = [
-        ('PENDING', 'Pending'),
-        ('STARTING', 'Starting'),
-        ('RUNNING', 'Running'),
-        ('COMPLETED', 'Completed'),
-        ('FAILED', 'Failed'),
-        ('STOPPED', 'Stopped'),
+        ("PENDING", "Pending"),
+        ("STARTING", "Starting"),
+        ("RUNNING", "Running"),
+        ("COMPLETED", "Completed"),
+        ("FAILED", "Failed"),
+        ("STOPPED", "Stopped"),
     ]
 
     # The project this job belongs to (defines what code/data is used).
     project = models.ForeignKey(
-        Project,
-        on_delete=models.CASCADE,
-        related_name='training_jobs'
+        Project, on_delete=models.CASCADE, related_name="training_jobs"
     )
 
     # The swarm network (Docker containers/S3) where the job is executed.
     network = models.ForeignKey(
-        SwarmNetwork,
-        on_delete=models.CASCADE,
-        related_name='training_jobs'
-    )
-
-    # A unique internal identifier for this job entry.
-    identifier = models.UUIDField(
-        default=uuid.uuid4,
-        editable=False,
-        unique=True
+        SwarmNetwork, on_delete=models.CASCADE, related_name="training_jobs"
     )
 
     # Current execution status.
     status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='PENDING',
-        db_index=True
+        max_length=20, choices=STATUS_CHOICES, default="PENDING", db_index=True
     )
 
     # The job ID returned by NVIDIA FLARE after successful submission.
@@ -68,11 +54,8 @@ class TrainingJob(models.Model):
         max_length=255,
         blank=True,
         null=True,
-        help_text="The unique job ID assigned by NVIDIA FLARE."
+        help_text="The unique job ID assigned by NVIDIA FLARE.",
     )
-
-    # Automatically set when the record is created.
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     # Set manually when the job is detected as finished (COMPLETED, FAILED, or
     # STOPPED).

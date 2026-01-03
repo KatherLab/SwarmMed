@@ -4,16 +4,17 @@ Provides a context manager for executing visualization scripts,
 handling data access, and capturing matplotlib plots as Base64.
 """
 
-from apps.logs import logger
+from logs import logger
 from .filesystem import DataFileSystem
 import matplotlib.pyplot as plt
 import io
 import base64
 import matplotlib
+
 # Use the 'Agg' backend for non-interactive (headless) environments
-matplotlib.use('Agg')
+matplotlib.use("Agg")
 # Save text as actual text objects in SVGs for better quality/editing
-matplotlib.rcParams['svg.fonttype'] = 'none'
+matplotlib.rcParams["svg.fonttype"] = "none"
 
 
 class VisualizationContext:
@@ -52,9 +53,7 @@ class VisualizationContext:
         """
         # Limit to 4 plots per run to prevent excessive database/memory usage
         if self.current_plot_number >= 4:
-            self.log.data.warning(
-                f"Max plots (4) reached. '{title}' was not saved."
-            )
+            self.log.data.warning(f"Max plots (4) reached. '{title}' was not saved.")
             return
 
         self.current_plot_number += 1
@@ -63,47 +62,37 @@ class VisualizationContext:
             # 1. Capture and encode as PNG
             png_buffer = io.BytesIO()
             plt.savefig(
-                png_buffer,
-                format='png',
-                dpi=100,
-                bbox_inches='tight',
-                transparent=True
+                png_buffer, format="png", dpi=100, bbox_inches="tight", transparent=True
             )
             png_buffer.seek(0)
-            png_base64 = base64.b64encode(
-                png_buffer.getvalue()).decode('utf-8')
+            png_base64 = base64.b64encode(png_buffer.getvalue()).decode("utf-8")
 
             # 2. Capture and encode as SVG
             svg_buffer = io.BytesIO()
-            plt.savefig(
-                svg_buffer,
-                format='svg',
-                bbox_inches='tight',
-                transparent=True
-            )
+            plt.savefig(svg_buffer, format="svg", bbox_inches="tight", transparent=True)
             svg_buffer.seek(0)
-            svg_base64 = base64.b64encode(
-                svg_buffer.getvalue()).decode('utf-8')
+            svg_base64 = base64.b64encode(svg_buffer.getvalue()).decode("utf-8")
 
             # 3. Store the encoded data
-            self.plots.append({
-                'title': title,
-                'plot_number': self.current_plot_number,
-                'image_data': png_base64,
-                'svg_data': svg_base64
-            })
+            self.plots.append(
+                {
+                    "title": title,
+                    "plot_number": self.current_plot_number,
+                    "image_data": png_base64,
+                    "svg_data": svg_base64,
+                }
+            )
 
             # Clear the current figure so the next plot starts fresh
             plt.clf()
 
-            self.log.data.info(
-                f"Saved plot {self.current_plot_number}: '{title}'")
+            self.log.data.info(f"Saved plot {self.current_plot_number}: '{title}'")
 
         except Exception as e:
             self.log.data.error(f"Failed to save plot '{title}': {str(e)}")
             raise
 
-    def open(self, relative_path: str, mode: str = 'r', **kwargs):
+    def open(self, relative_path: str, mode: str = "r", **kwargs):
         """
         Opens a project data file from S3 (via the virtual filesystem).
         """

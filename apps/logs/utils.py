@@ -1,16 +1,27 @@
 import re
-import json
 import traceback
 
 # List of common PHI/PII fields to redact
 SENSITIVE_FIELDS = [
-    'first_name', 'last_name', 'email', 'phone', 'address', 'zip_code',
-    'ssn', 'patient_id', 'medical_record_number', 'birth_date',
-    'password', 'secret', 'token', 'key'
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "address",
+    "zip_code",
+    "ssn",
+    "patient_id",
+    "medical_record_number",
+    "birth_date",
+    "password",
+    "secret",
+    "token",
+    "key",
 ]
 
 # Regex for basic email redaction
-EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+EMAIL_REGEX = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
+
 
 def redact_phi(data):
     """
@@ -31,18 +42,20 @@ def redact_phi(data):
         return re.sub(EMAIL_REGEX, "[REDACTED_EMAIL]", data)
     return data
 
+
 def redact_message(message):
     """
     Redacts sensitive information from a log message string.
     """
     if not isinstance(message, str):
         return message
-    
+
     # Redact emails
     message = re.sub(EMAIL_REGEX, "[REDACTED_EMAIL]", message)
-    
+
     # You could add more regex-based redactions here (e.g., SSN, phone numbers)
     return message
+
 
 def format_exception(exc):
     """
@@ -50,7 +63,7 @@ def format_exception(exc):
     Includes type, message, and a redacted traceback.
     """
     return {
-        'type': type(exc).__name__,
-        'message': str(exc),
-        'traceback': traceback.format_exc()
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": traceback.format_exc(),
     }

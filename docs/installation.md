@@ -144,19 +144,19 @@ To resolve this and see the "green lock," you must trust the Root CA on your sys
 ### macOS
 Run the following command in your terminal:
 ```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/internal/ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain infrastructure/certs/internal/ca.crt
 ```
-Alternatively, open `certs/internal/ca.crt` in **Keychain Access**, double-click the **InternalCA** certificate, and set **Trust** to **Always Trust**.
+Alternatively, open `infrastructure/certs/internal/ca.crt` in **Keychain Access**, double-click the **InternalCA** certificate, and set **Trust** to **Always Trust**.
 
 ### Windows (PowerShell)
 Run as Administrator:
 ```powershell
-Import-Certificate -FilePath "certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath "infrastructure\certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
 ### Linux (Ubuntu/Debian)
 ```bash
-sudo cp certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt
+sudo cp infrastructure/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt
 sudo update-ca-certificates
 ```
 *Note: You may also need to import the certificate manually into your browser settings (e.g., Firefox Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities -> Import).*

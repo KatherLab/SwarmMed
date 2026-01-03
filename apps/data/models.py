@@ -5,10 +5,10 @@ individual validation checks, visualization runs, and generated plots.
 """
 
 import os
-import uuid
 from django.db import models
 from django.contrib.auth.models import User
-from apps.project.models import Project
+from common.models import AbstractBaseModel
+from project.models import Project
 
 
 def visualization_plot_path(instance, filename):
@@ -18,30 +18,26 @@ def visualization_plot_path(instance, filename):
     """
     project_id = str(instance.visualization_run.project.identifier)
     run_id = str(instance.visualization_run.id)
-    return os.path.join(project_id, 'plots', 'visualization', run_id, filename)
+    return os.path.join(project_id, "plots", "visualization", run_id, filename)
 
 
-class ValidationRun(models.Model):
+class ValidationRun(AbstractBaseModel):
     """
     Represents a single execution of a data validation script.
     Tracks the overall status and outcome of the validation process.
     """
-    STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('running', 'Running'),
-        ('completed', 'Completed'),
-        ('failed', 'Failed'),
-        ('cancelled', 'Cancelled'),
-    ]
 
-    # Unique identifier for the validation run
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
+    ]
 
     # The project this validation belongs to
     project = models.ForeignKey(
-        Project,
-        on_delete=models.CASCADE,
-        related_name='validation_runs'
+        Project, on_delete=models.CASCADE, related_name="validation_runs"
     )
 
     # The user who triggered the validation
@@ -49,14 +45,10 @@ class ValidationRun(models.Model):
 
     # Current lifecycle status of the task
     status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='pending',
-        db_index=True
+        max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True
     )
 
     # Timestamps for tracking execution time
-    created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -75,11 +67,11 @@ class ValidationRun(models.Model):
 
     class Meta:
         # Show most recent runs first
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
 
     def __str__(self):
         """String representation of the validation run."""
-        return f"Validation {self.id} ({self.status})"
+        return f"Validation {self.identifier} ({self.status})"
 
 
 class ValidationCheck(models.Model):
@@ -87,21 +79,24 @@ class ValidationCheck(models.Model):
     Represents an individual check performed within a validation run.
     Example: 'Check for missing values' or 'Verify date formats'.
     """
+
     validation_run = models.ForeignKey(
-        ValidationRun,
-        on_delete=models.CASCADE,
-        related_name='checks'
+        ValidationRun, on_delete=models.CASCADE, related_name="checks"
     )
 
     # Name of the specific check
     name = models.CharField(max_length=255)
 
     # Outcome of this specific check
-    status = models.CharField(max_length=20, choices=[
-        ('ok', 'OK'),
-        ('warning', 'Warning'),
-        ('error', 'Error'),
-    ], db_index=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ("ok", "OK"),
+            ("warning", "Warning"),
+            ("error", "Error"),
+        ],
+        db_index=True,
+    )
 
     # Explanatory message for the user
     message = models.TextField(blank=True)
@@ -114,37 +109,30 @@ class ValidationCheck(models.Model):
         return f"{self.name}: {self.status}"
 
 
-class VisualizationRun(models.Model):
+class VisualizationRun(AbstractBaseModel):
     """
     Represents a single execution of a data visualization script.
     Similar to ValidationRun, but for generating graphical insights.
     """
+
     STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('running', 'Running'),
-        ('completed', 'Completed'),
-        ('failed', 'Failed'),
-        ('cancelled', 'Cancelled'),
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
     project = models.ForeignKey(
-        Project,
-        on_delete=models.CASCADE,
-        related_name='visualization_runs'
+        Project, on_delete=models.CASCADE, related_name="visualization_runs"
     )
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
 
     status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='pending',
-        db_index=True
+        max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -155,22 +143,21 @@ class VisualizationRun(models.Model):
     celery_task_id = models.CharField(max_length=255, blank=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
 
     def __str__(self):
         """String representation of the visualization run."""
-        return f"Visualization {self.id} ({self.status})"
+        return f"Visualization {self.identifier} ({self.status})"
 
 
-class VisualizationPlot(models.Model):
+class VisualizationPlot(AbstractBaseModel):
     """
     Stores an individual plot generated by a visualization run.
     Plots are stored as files in the default storage (S3 or local).
     """
+
     visualization_run = models.ForeignKey(
-        VisualizationRun,
-        on_delete=models.CASCADE,
-        related_name='plots'
+        VisualizationRun, on_delete=models.CASCADE, related_name="plots"
     )
 
     # Human-readable title for the plot
@@ -180,16 +167,18 @@ class VisualizationPlot(models.Model):
     plot_number = models.IntegerField()
 
     # The image file content stored in S3/Filesystem
-    image_data = models.ImageField(upload_to=visualization_plot_path, max_length=512)  # PNG format
-    svg_data = models.FileField(upload_to=visualization_plot_path, max_length=512, blank=True, null=True)  # SVG format
-
-    created_at = models.DateTimeField(auto_now_add=True)
+    image_data = models.ImageField(
+        upload_to=visualization_plot_path, max_length=512
+    )  # PNG format
+    svg_data = models.FileField(
+        upload_to=visualization_plot_path, max_length=512, blank=True, null=True
+    )  # SVG format
 
     class Meta:
         # Keep plots in their intended order
-        ordering = ['plot_number']
+        ordering = ["plot_number"]
         # Ensure only one plot exists for each position in a run
-        unique_together = ['visualization_run', 'plot_number']
+        unique_together = ["visualization_run", "plot_number"]
 
     def __str__(self):
         """String representation of the plot."""

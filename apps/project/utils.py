@@ -13,7 +13,7 @@ import uuid
 from django.conf import settings
 from django.core.files.storage import default_storage
 
-from apps.users.models import Profile
+from users.models import Profile
 
 
 def get_upload_path(instance, filename, subfolder):
@@ -26,27 +26,27 @@ def get_upload_path(instance, filename, subfolder):
 
 def training_code_path(instance, filename):
     """Specific path generator for training code scripts."""
-    return get_upload_path(instance, filename, 'code/training')
+    return get_upload_path(instance, filename, "code/training")
 
 
 def requirements_path(instance, filename):
     """Specific path generator for requirements.txt files."""
-    return get_upload_path(instance, filename, 'code/requirements')
+    return get_upload_path(instance, filename, "code/requirements")
 
 
 def data_validation_path(instance, filename):
     """Specific path generator for data validation scripts."""
-    return get_upload_path(instance, filename, 'code/data_validation')
+    return get_upload_path(instance, filename, "code/data_validation")
 
 
 def data_visualization_path(instance, filename):
     """Specific path generator for dataset visualization scripts."""
-    return get_upload_path(instance, filename, 'code/data_visualization')
+    return get_upload_path(instance, filename, "code/data_visualization")
 
 
 def results_visualization_path(instance, filename):
     """Specific path generator for results visualization scripts."""
-    return get_upload_path(instance, filename, 'code/results_visualization')
+    return get_upload_path(instance, filename, "code/results_visualization")
 
 
 def process_member_identifiers(project, member_identifiers):
@@ -58,7 +58,8 @@ def process_member_identifiers(project, member_identifiers):
         member_identifiers (str): A string containing UUIDs separated by commas or newlines.
     """
     # Import logger inside the function to avoid circular import issues.
-    from apps.logs import logger
+    from logs import logger
+
     log = logger.get_logger()
 
     # Clear all existing members before re-adding them from the provided list.
@@ -70,7 +71,7 @@ def process_member_identifiers(project, member_identifiers):
         return
 
     # Split the input string into a list of individual identifier strings.
-    identifiers = re.split(r'[,\n]+', member_identifiers)
+    identifiers = re.split(r"[,\n]+", member_identifiers)
 
     for identifier_str in identifiers:
         identifier_str = identifier_str.strip()
@@ -89,14 +90,11 @@ def process_member_identifiers(project, member_identifiers):
                 if profile.user != project.author:
                     project.members.add(profile.user)
             except Profile.DoesNotExist:
-                log.project.warning(
-                    f"Profile not found for UUID: {identifier_uuid}"
-                )
+                log.project.warning(f"Profile not found for UUID: {identifier_uuid}")
 
         except ValueError:
             # Log a warning if the string isn't a valid UUID.
-            log.project.warning(
-                f"Invalid UUID format provided: {identifier_str}")
+            log.project.warning(f"Invalid UUID format provided: {identifier_str}")
 
 
 def handle_training_code_upload(project, request):
@@ -112,15 +110,14 @@ def handle_training_code_upload(project, request):
         bool: True if files were processed and saved, False otherwise.
     """
     # 'training_code_directories' is a JSON string mapping file keys to relative paths.
-    training_code_directories_json = request.POST.get(
-        'training_code_directories', '{}')
+    training_code_directories_json = request.POST.get("training_code_directories", "{}")
     try:
         directories = json.loads(training_code_directories_json)
     except json.JSONDecodeError:
         directories = {}
 
     # Get the list of all files uploaded via the 'training_code' input field.
-    files = request.FILES.getlist('training_code')
+    files = request.FILES.getlist("training_code")
 
     if directories and files:
         # We handle storage manually for these files, so we clear the field on
@@ -130,7 +127,7 @@ def handle_training_code_upload(project, request):
         # If we are updating an existing project, remove old training files
         # first.
         if project.pk:
-            clean_folder_path(project.identifier, 'code/training/')
+            clean_folder_path(project.identifier, "code/training/")
 
         # Define the base storage path for this project's training code.
         root_path = f"{project.identifier}/code/training/"
@@ -145,7 +142,7 @@ def handle_training_code_upload(project, request):
 
             # Combine the root path with the relative path, ensuring forward
             # slashes.
-            save_path = os.path.join(root_path, rel_path).replace('\\', '/')
+            save_path = os.path.join(root_path, rel_path).replace("\\", "/")
 
             # Save the file to the configured storage (Local or S3).
             default_storage.save(save_path, file_obj)
@@ -166,7 +163,7 @@ def clean_folder_path(identifier, subfolder):
     folder_path = f"{identifier}/{subfolder}"
 
     # Check if we're using S3 storage.
-    if hasattr(default_storage, 'bucket'):
+    if hasattr(default_storage, "bucket"):
         # In S3, we delete objects by their prefix.
         prefix = folder_path
         s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)

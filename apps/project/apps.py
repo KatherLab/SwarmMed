@@ -10,12 +10,13 @@ class ProjectConfig(AppConfig):
     """
     Standard Django AppConfig for the 'project' application.
     """
+
     # Specifies the type of auto-generated primary key for models in this app.
     # BigAutoField is a 64-bit integer, recommended for large databases.
-    default_auto_field = 'django.db.models.BigAutoField'
+    default_auto_field = "django.db.models.BigAutoField"
 
     # The full Python path to the application.
-    name = 'apps.project'
+    name = "project"
 
     def ready(self):
         """
@@ -24,4 +25,4 @@ class ProjectConfig(AppConfig):
         when the server starts.
         """
         # Import signals to make sure @receiver decorators are executed.
-        import apps.project.signals  # noqa: F401
+        import project.signals  # noqa: F401

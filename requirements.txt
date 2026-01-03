@@ -13,6 +13,7 @@ qrcode==7.4.2
 # Utils
 django-debug-toolbar==4.2.0
 pillow==11.1.0
+django-unfold==0.75.0
 
 # Services
 redis==5.0.1

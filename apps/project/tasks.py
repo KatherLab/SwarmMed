@@ -12,6 +12,7 @@ from django.core.files.storage import default_storage
 
 logger = logging.getLogger(__name__)
 
+
 @shared_task
 def cleanup_project_files(folder_path):
     """
@@ -19,7 +20,7 @@ def cleanup_project_files(folder_path):
     This is intended to be run in the background.
     """
     try:
-        if hasattr(default_storage, 'bucket'):
+        if hasattr(default_storage, "bucket"):
             # Using Amazon S3 storage
             prefix = folder_path
             s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)
@@ -44,15 +45,21 @@ def delete_all_project_files(project_identifier):
     """
     try:
         folder_path = f"{str(project_identifier)}/"
-        if hasattr(default_storage, 'bucket'):
+        if hasattr(default_storage, "bucket"):
             prefix = folder_path
             s3_objects = default_storage.bucket.objects.filter(Prefix=prefix)
             s3_objects.delete()
-            logger.info(f"Successfully deleted all S3 files for project: {project_identifier}")
+            logger.info(
+                f"Successfully deleted all S3 files for project: {project_identifier}"
+            )
         else:
             full_path = os.path.join(settings.MEDIA_ROOT, folder_path)
             if os.path.exists(full_path):
                 shutil.rmtree(full_path)
-                logger.info(f"Successfully deleted all local files for project: {project_identifier}")
+                logger.info(
+                    f"Successfully deleted all local files for project: {project_identifier}"
+                )
     except Exception as e:
-        logger.error(f"Error during full project cleanup for {project_identifier}: {str(e)}")
+        logger.error(
+            f"Error during full project cleanup for {project_identifier}: {str(e)}"
+        )

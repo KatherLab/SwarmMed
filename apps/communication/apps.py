@@ -10,11 +10,12 @@ class CommunicationConfig(AppConfig):
     """
     Configuration class for the communication application.
     """
+
     # Use 64-bit integers for primary keys by default
-    default_auto_field = 'django.db.models.BigAutoField'
+    default_auto_field = "django.db.models.BigAutoField"
 
     # The full Python path to the application
-    name = 'apps.communication'
+    name = "communication"
 
     def ready(self):
         """
@@ -22,4 +23,4 @@ class CommunicationConfig(AppConfig):
         We use it to import and connect any signal handlers.
         """
         # Import the signals module to ensure they are registered
-        import apps.communication.signals  # noqa: F401
+        import communication.signals  # noqa: F401

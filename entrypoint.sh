@@ -1,4 +1,11 @@
 #!/bin/bash
+set -e
+
+# Generate PgBouncer configuration from environment variables
+if [ -f "/app/scripts/setup_pgbouncer.py" ]; then
+  echo "Syncing PgBouncer configuration..."
+  python3 /app/scripts/setup_pgbouncer.py
+fi
 
 # Fix permissions for volume-mounted directories
 echo "Fixing permissions..."

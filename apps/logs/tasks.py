@@ -2,7 +2,6 @@
 Celery tasks for system maintenance, including automated backups and data retention purging.
 """
 
-import os
 from datetime import timedelta
 from django.utils import timezone
 from django.core.management import call_command
@@ -11,22 +10,24 @@ from django.core.files.storage import default_storage
 from celery import shared_task
 
 # Import models to purge
-from apps.data.models import ValidationRun, VisualizationRun
-from apps.results.models import TrainingResult, ResultsVisualizationRun
-from apps.logs.models import LogEntry, LogCategory
-from apps.training.models import TrainingJob
-from apps.network.models import SwarmNetwork
-from apps.users.models import Profile
-from apps.logs import logger
+from data.models import ValidationRun, VisualizationRun
+from results.models import TrainingResult, ResultsVisualizationRun
+from logs.models import LogEntry, LogCategory
+from training.models import TrainingJob
+from network.models import SwarmNetwork
+from users.models import Profile
+from logs import logger
 
-@shared_task(name="apps.logs.tasks.scheduled_backup")
+
+@shared_task(name="logs.tasks.scheduled_backup")
 def scheduled_backup():
     """
-    Triggers the secure_backup management command.
+    Automated task to perform a full database backup.
     """
-    call_command('secure_backup')
+    call_command("secure_backup")
 
-@shared_task(name="apps.logs.tasks.purge_expired_data")
+
+@shared_task(name="logs.tasks.purge_expired_data")
 def purge_expired_data():
     """
     Deletes records and associated files that are older than the retention period.
@@ -48,25 +49,29 @@ def purge_expired_data():
     viz_count, _ = VisualizationRun.objects.filter(created_at__lt=cutoff_date).delete()
 
     # 3. Purge Training Results
-    # We need to handle file cleanup. 
+    # We need to handle file cleanup.
     # Optimization: Fetch only necessary fields to reduce memory usage.
-    training_results = TrainingResult.objects.filter(created_at__lt=cutoff_date).only('file_path', 'id')
+    training_results = TrainingResult.objects.filter(created_at__lt=cutoff_date).only(
+        "file_path", "id"
+    )
     res_count = training_results.count()
-    
+
     for res in training_results.iterator():
         if res.file_path:
             try:
                 # Avoid extra network calls: delete() is typically idempotent.
                 default_storage.delete(res.file_path)
-            except Exception as e:
-                 # Log error but continue purging other records
-                 pass
-    
+            except Exception:
+                # Log error but continue purging other records
+                pass
+
     # Bulk delete the records after file cleanup
     TrainingResult.objects.filter(created_at__lt=cutoff_date).delete()
 
     # 4. Purge Results Visualization Runs
-    res_viz_count, _ = ResultsVisualizationRun.objects.filter(created_at__lt=cutoff_date).delete()
+    res_viz_count, _ = ResultsVisualizationRun.objects.filter(
+        created_at__lt=cutoff_date
+    ).delete()
 
     # 5. Purge Training Jobs
     job_count, _ = TrainingJob.objects.filter(created_at__lt=cutoff_date).delete()
@@ -80,21 +85,24 @@ def purge_expired_data():
         net.delete()
 
     # 7. Purge Audit Logs
-    # Standard security logs (AUTH, ACCESS, etc.) are purged after 1 year.
+    # Standard security logs (PROJECT) are purged after 1 year.
     # Logs that might contain PHI metadata (DATA, TRAINING, RESULTS) are kept for 6 years (HIPAA).
-    
-    standard_categories = [LogCategory.AUTH, LogCategory.ACCESS, LogCategory.PROJECT]
-    hipaa_categories = [LogCategory.DATA, LogCategory.TRAINING, LogCategory.RESULTS, LogCategory.NETWORK]
-    
+
+    standard_categories = [LogCategory.PROJECT]
+    hipaa_categories = [
+        LogCategory.DATA,
+        LogCategory.TRAINING,
+        LogCategory.RESULTS,
+        LogCategory.NETWORK,
+    ]
+
     # Bulk delete for logs is highly efficient and recommended
     standard_log_count, _ = LogEntry.objects.filter(
-        category__in=standard_categories, 
-        timestamp__lt=security_cutoff
+        category__in=standard_categories, timestamp__lt=security_cutoff
     ).delete()
-    
+
     hipaa_log_count, _ = LogEntry.objects.filter(
-        category__in=hipaa_categories, 
-        timestamp__lt=cutoff_date
+        category__in=hipaa_categories, timestamp__lt=cutoff_date
     ).delete()
 
     return {
@@ -108,36 +116,37 @@ def purge_expired_data():
         "hipaa_audit_logs_purged": hipaa_log_count,
     }
 
-@shared_task(name="apps.logs.tasks.revoke_emergency_access")
+
+@shared_task(name="logs.tasks.revoke_emergency_access")
 def revoke_emergency_access():
     """
     Periodic task to automatically revoke expired emergency access.
     """
     expired_profiles = Profile.objects.filter(
-        is_emergency_access=True,
-        emergency_access_expiry__lt=timezone.now()
+        is_emergency_access=True, emergency_access_expiry__lt=timezone.now()
     )
-    
+
     count = expired_profiles.count()
     log = logger.get_logger()
-    
+
     for profile in expired_profiles:
         username = profile.user.username
         profile.is_emergency_access = False
         profile.emergency_access_expiry = None
         profile.save()
-        
+
         log.access.info(
             f"AUTOMATIC REVOCATION of expired emergency access for user {username}.",
-            target_user=username
+            target_user=username,
         )
-        
+
     return {"revoked_count": count}
 
-@shared_task(name="apps.logs.tasks.anonymize_security_logs")
+
+@shared_task(name="logs.tasks.anonymize_security_logs")
 def anonymize_security_logs():
     """
     Periodic task to anonymize IP addresses in logs older than 90 days.
     Ensures GDPR compliance for security logging.
     """
-    call_command('anonymize_ips')
+    call_command("anonymize_ips")

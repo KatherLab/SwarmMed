@@ -6,20 +6,23 @@ and the triggering/monitoring of validation and visualization runs.
 
 import json
 import os
-from urllib.parse import urlparse
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponse, JsonResponse, HttpResponseForbidden, HttpResponseRedirect, StreamingHttpResponse
+from django.http import (
+    HttpResponse,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
 from django.views.decorators.http import require_POST
 from django.urls import reverse
 
-from apps.users.utils import get_safe_referer
+from common.utils import get_safe_referer, format_size, get_s3_client
 from django.utils import timezone
 from celery import current_app
 
-from ..project.models import UserCurrentProject, Project
+from project.models import UserCurrentProject, Project
 from .models import (
     ValidationRun,
     ValidationCheck,
@@ -31,16 +34,13 @@ from .utils import (
     list_s3_folder,
     delete_s3_object,
     rename_s3_object,
-    get_s3_download_url,
     delete_s3_folder,
     rename_s3_folder,
     get_storage_stats,
-    format_size,
     get_column_prefixes,
-    get_s3_client,
 )
-from apps.logs import logger
-from ..project.decorators import project_context_required, project_membership_required
+from logs import logger
+from project.decorators import project_context_required, project_membership_required
 
 
 def get_user_project(request):
@@ -49,7 +49,7 @@ def get_user_project(request):
     Returns: (project_uuid_string, is_valid_boolean)
     """
     try:
-        user_current_project = UserCurrentProject.objects.select_related('project').get(
+        user_current_project = UserCurrentProject.objects.select_related("project").get(
             user=request.user
         )
         if not user_current_project.project:
@@ -79,7 +79,8 @@ def data(request):
         # If statistics cannot be retrieved (e.g. MinIO error), use defaults
         # and log the issue.
         import logging
-        logging.getLogger('app').warning(f"Error getting storage stats: {e}")
+
+        logging.getLogger("app").warning(f"Error getting storage stats: {e}")
         total_size, folder_count, file_count = 0, 0, 0
 
     formatted_size = format_size(total_size)
@@ -120,20 +121,36 @@ def upload_files(request):
         destination_folder = request.POST.get("destination_folder", "")
 
         # Security: Sanitize destination_folder
-        destination_folder = os.path.normpath(destination_folder).lstrip(os.path.sep + (os.path.altsep or ""))
+        destination_folder = os.path.normpath(destination_folder).lstrip(
+            os.path.sep + (os.path.altsep or "")
+        )
         if destination_folder == "." or not destination_folder:
             destination_folder = ""
         elif destination_folder.startswith(".."):
-            log.data.warning(f"Blocked upload with malicious destination folder: {destination_folder}")
+            log.data.warning(
+                f"Blocked upload with malicious destination folder: {destination_folder}"
+            )
             return HttpResponse("Invalid destination folder", status=400)
 
         root_path = f"{current_project_uuid}/data/"
-        full_destination = os.path.join(root_path, destination_folder).replace("\\", "/")
-        if not full_destination.endswith('/'):
-            full_destination += '/'
+        full_destination = os.path.join(root_path, destination_folder).replace(
+            "\\", "/"
+        )
+        if not full_destination.endswith("/"):
+            full_destination += "/"
 
         # Security: Allowed file extensions
-        ALLOWED_EXTENSIONS = {'.csv', '.txt', '.json', '.parquet', '.npy', '.npz', '.h5', '.pt', '.pth'}
+        ALLOWED_EXTENSIONS = {
+            ".csv",
+            ".txt",
+            ".json",
+            ".parquet",
+            ".npy",
+            ".npz",
+            ".h5",
+            ".pt",
+            ".pth",
+        }
 
         for idx, file in enumerate(files):
             # Basic security check: Validate file extension
@@ -147,9 +164,13 @@ def upload_files(request):
             rel_path = directories.get(key, file.name)
 
             # Security Check: Prevent path traversal
-            clean_rel_path = os.path.normpath(rel_path).lstrip(os.path.sep + (os.path.altsep or ""))
+            clean_rel_path = os.path.normpath(rel_path).lstrip(
+                os.path.sep + (os.path.altsep or "")
+            )
             if clean_rel_path.startswith("..") or os.path.isabs(clean_rel_path):
-                log.data.warning(f"Blocked upload with path traversal attempt: {rel_path}")
+                log.data.warning(
+                    f"Blocked upload with path traversal attempt: {rel_path}"
+                )
                 continue
 
             # Combine paths and ensure forward slashes for S3 compatibility
@@ -176,9 +197,11 @@ def list_files(request):
 
     root_path = f"{current_project_uuid}/data/"
     user_prefix = request.GET.get("prefix", "")
-    
+
     log = logger.get_logger()
-    log.access.info(f"User listed files in prefix: {user_prefix or '(root)'}", prefix=user_prefix)
+    log.access.info(
+        f"User listed files in prefix: {user_prefix or '(root)'}", prefix=user_prefix
+    )
 
     # Calculate full S3 path
     # Generate prefixes for the column-based view (breadcrumb style)
@@ -198,9 +221,9 @@ def list_files(request):
                 continue
 
             # Extract just the folder name for display
-            folder_name = folder[len(full_col_prefix):-1]
+            folder_name = folder[len(full_col_prefix) : -1]
             # Path relative to project root for navigation links
-            relative_folder_path = folder[len(root_path):]
+            relative_folder_path = folder[len(root_path) :]
 
             processed_folders.append(
                 {
@@ -215,7 +238,7 @@ def list_files(request):
             if not file.startswith(root_path):
                 continue
 
-            file_name = file[len(full_col_prefix):]
+            file_name = file[len(full_col_prefix) :]
             processed_files.append(
                 {
                     "name": file_name,
@@ -253,7 +276,7 @@ def download_file(request):
     """
     Logs the access to a file and proxies the download through Django.
     """
-    key = request.GET.get('key')
+    key = request.GET.get("key")
     current_project_uuid, _ = get_user_project(request)
 
     if not key or not key.startswith(f"{current_project_uuid}/data/"):
@@ -403,9 +426,7 @@ def start_validation(request):
         project = Project.objects.get(identifier=current_project_uuid)
 
         if not project.data_validation_script:
-            return JsonResponse(
-                {"error": "No validation script found"}, status=400
-            )
+            return JsonResponse({"error": "No validation script found"}, status=400)
 
         # Stop any existing runs that are still pending or running
         active_runs = ValidationRun.objects.filter(
@@ -460,7 +481,9 @@ def stop_validation(request):
     if run:
         if run.celery_task_id:
             current_app.control.revoke(run.celery_task_id, terminate=True)
-            log.data.info(f"Revoked Celery task {run.celery_task_id} for validation run {run.id}")
+            log.data.info(
+                f"Revoked Celery task {run.celery_task_id} for validation run {run.id}"
+            )
         run.status = "cancelled"
         run.completed_at = timezone.now()
         run.save()
@@ -529,9 +552,7 @@ def start_visualization(request):
         project = Project.objects.get(identifier=current_project_uuid)
 
         if not project.data_visualization_script:
-            return JsonResponse(
-                {"error": "No visualization script found"}, status=400
-            )
+            return JsonResponse({"error": "No visualization script found"}, status=400)
 
         # Stop existing visualization runs
         active_runs = VisualizationRun.objects.filter(
@@ -544,9 +565,7 @@ def start_visualization(request):
             run.completed_at = timezone.now()
             run.save()
 
-        viz_run = VisualizationRun.objects.create(
-            project=project, user=request.user
-        )
+        viz_run = VisualizationRun.objects.create(project=project, user=request.user)
 
         task = run_visualization_task.delay(str(viz_run.id))
         viz_run.celery_task_id = task.id
@@ -584,7 +603,9 @@ def stop_visualization(request):
     if run:
         if run.celery_task_id:
             current_app.control.revoke(run.celery_task_id, terminate=True)
-            log.data.info(f"Revoked Celery task {run.celery_task_id} for visualization run {run.id}")
+            log.data.info(
+                f"Revoked Celery task {run.celery_task_id} for visualization run {run.id}"
+            )
         run.status = "cancelled"
         run.completed_at = timezone.now()
         run.save()
@@ -592,9 +613,7 @@ def stop_visualization(request):
         return JsonResponse({"success": True})
 
     log.data.debug("Stop visualization requested but no running visualization found.")
-    return JsonResponse(
-        {"error": "No running visualization found"}, status=404
-    )
+    return JsonResponse({"error": "No running visualization found"}, status=404)
 
 
 @login_required
@@ -622,12 +641,20 @@ def visualization_status(request):
     plots_qs = VisualizationPlot.objects.filter(visualization_run=latest_run)
     plots = []
     for p in plots_qs:
-        plots.append({
-            "title": p.title,
-            "plot_number": p.plot_number,
-            "image_url": reverse('data:get_visualization_plot', args=[p.id, 'image']) if p.image_data else None,
-            "svg_url": reverse('data:get_visualization_plot', args=[p.id, 'svg']) if p.svg_data else None,
-        })
+        plots.append(
+            {
+                "title": p.title,
+                "plot_number": p.plot_number,
+                "image_url": reverse(
+                    "data:get_visualization_plot", args=[p.id, "image"]
+                )
+                if p.image_data
+                else None,
+                "svg_url": reverse("data:get_visualization_plot", args=[p.id, "svg"])
+                if p.svg_data
+                else None,
+            }
+        )
 
     return JsonResponse(
         {
@@ -648,22 +675,22 @@ def _proxy_s3_download(key, filename):
     """
     s3 = get_s3_client()
     bucket = settings.AWS_STORAGE_BUCKET_NAME
-    
+
     try:
         obj = s3.get_object(Bucket=bucket, Key=key)
-        
+
         def stream_content():
-            for chunk in obj['Body'].iter_chunks(chunk_size=1024*1024): # 1MB chunks
+            for chunk in obj["Body"].iter_chunks(chunk_size=1024 * 1024):  # 1MB chunks
                 yield chunk
-                
+
         response = StreamingHttpResponse(
             stream_content(),
-            content_type=obj.get('ContentType', 'application/octet-stream')
+            content_type=obj.get("ContentType", "application/octet-stream"),
         )
         # response['Content-Length'] = obj.get('ContentLength')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
         # Disable Nginx buffering for this stream
-        response['X-Accel-Buffering'] = 'no'
+        response["X-Accel-Buffering"] = "no"
         return response
     except Exception as e:
         logger.get_logger().data.error(f"Failed to proxy S3 download for {key}: {e}")
@@ -677,21 +704,21 @@ def get_visualization_plot(request, plot_id, plot_type):
     Proxies a visualization plot image from S3 through Django.
     """
     plot = get_object_or_404(VisualizationPlot, id=plot_id)
-    
+
     key = None
     filename = f"plot_{plot.plot_number}"
-    
-    if plot_type == 'image' and plot.image_data:
+
+    if plot_type == "image" and plot.image_data:
         key = plot.image_data.name
         filename += ".png"
-    elif plot_type == 'svg' and plot.svg_data:
+    elif plot_type == "svg" and plot.svg_data:
         key = plot.svg_data.name
         filename += ".svg"
-        
+
     if not key:
         return HttpResponse("Plot data not found", status=404)
-        
+
     response = _proxy_s3_download(key, filename)
     # Ensure plots are displayed inline
-    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
     return response

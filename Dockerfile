@@ -44,7 +44,7 @@ COPY --from=static-builder /app/static/dist ./static/dist
 # Install internal CA certificate and update system trust store
 USER root
 RUN mkdir -p /usr/local/share/ca-certificates/ && \
-    cp certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt && \
+    cp infrastructure/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt && \
     update-ca-certificates
 
 # Create a non-root user and set permissions

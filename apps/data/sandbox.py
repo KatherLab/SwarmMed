@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import docker
 from django.conf import settings
-from apps.logs import logger
+from logs import logger
 
 
 def get_docker_client():
@@ -34,7 +34,7 @@ def get_host_path(container_path):
     # Join the host's project root with the relative path
     host_path = os.path.join(settings.HOST_PROJECT_PATH, rel_path)
     # Ensure forward slashes for cross-platform compatibility
-    return host_path.replace('\\', '/')
+    return host_path.replace("\\", "/")
 
 
 def ensure_sandbox_image():
@@ -66,16 +66,16 @@ def ensure_sandbox_image():
                 dockerfile="Dockerfile.sandbox",
                 tag="swarmcloud-sandbox",
                 rm=True,
-                decode=True
+                decode=True,
             )
 
             for chunk in generator:
-                if 'stream' in chunk:
+                if "stream" in chunk:
                     # Log build progress to console
-                    print(chunk['stream'].strip())
-                elif 'error' in chunk:
+                    print(chunk["stream"].strip())
+                elif "error" in chunk:
                     log.data.error(f"Docker build error: {chunk['error']}")
-                    raise docker.errors.BuildError(chunk['error'], generator)
+                    raise docker.errors.BuildError(chunk["error"], generator)
 
             log.data.info("Sandbox image built successfully.")
         except Exception as e:
@@ -83,8 +83,9 @@ def ensure_sandbox_image():
             raise
 
 
-def run_script_in_sandbox(script_content, data_dir, project_uuid,
-                          run_type="validation"):
+def run_script_in_sandbox(
+    script_content, data_dir, project_uuid, run_type="validation"
+):
     """
     Runs a Python script inside an ephemeral Docker container.
     """
@@ -96,8 +97,7 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid,
     # Create a unique temporary directory within the project root for this execution
     # This ensures the directory is visible to the host Docker daemon via existing mounts.
     sandbox_dir = tempfile.mkdtemp(
-        prefix=f"sandbox_{run_type}_{project_uuid}_",
-        dir=settings.PROJECT_TEMP_DIR
+        prefix=f"sandbox_{run_type}_{project_uuid}_", dir=settings.PROJECT_TEMP_DIR
     )
 
     try:
@@ -118,8 +118,8 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid,
         host_run_path = get_host_path(sandbox_dir)
 
         volumes = {
-            host_data_path: {'bind': '/home/sandboxuser/data', 'mode': 'ro'},
-            host_run_path: {'bind': '/home/sandboxuser/run', 'mode': 'rw'}
+            host_data_path: {"bind": "/home/sandboxuser/data", "mode": "ro"},
+            host_run_path: {"bind": "/home/sandboxuser/run", "mode": "rw"},
         }
 
         container = None
@@ -137,14 +137,14 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid,
                 detach=True,
                 stdout=True,
                 stderr=True,
-                remove=False  # We want to check status before removal
+                remove=False,  # We want to check status before removal
             )
 
             # Wait for completion (max 5 minutes)
             result = container.wait(timeout=300)
-            exit_code = result.get('StatusCode', 1)
+            exit_code = result.get("StatusCode", 1)
 
-            logs = container.logs().decode('utf-8')
+            logs = container.logs().decode("utf-8")
 
             # Read results.json if it was created by the helper
             results_data = {}
@@ -161,8 +161,7 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid,
                 for plot_file in sorted(os.listdir(plots_dir)):
                     if plot_file.endswith(".json"):
                         try:
-                            with open(os.path.join(plots_dir, plot_file),
-                                      "r") as f:
+                            with open(os.path.join(plots_dir, plot_file), "r") as f:
                                 captured_plots.append(json.load(f))
                         except Exception as e:
                             log.data.warning(
@@ -170,34 +169,28 @@ def run_script_in_sandbox(script_content, data_dir, project_uuid,
                             )
 
             return {
-                'success': exit_code == 0,
-                'output': logs,
-                'exit_code': exit_code,
-                'results': results_data.get('checks', []) if run_type == "validation" else results_data,
-                'plots': captured_plots
+                "success": exit_code == 0,
+                "output": logs,
+                "exit_code": exit_code,
+                "results": results_data.get("checks", [])
+                if run_type == "validation"
+                else results_data,
+                "plots": captured_plots,
             }
 
         except Exception as e:
             log.data.error(f"Sandbox execution failed: {e}")
-            return {
-                'success': False,
-                'output': str(e),
-                'error': str(e)
-            }
+            return {"success": False, "output": str(e), "error": str(e)}
         finally:
             if container:
                 try:
                     container.remove(force=True)
                 except Exception as e:
                     # Best effort removal
-                    log.data.warning(
-                        f"Failed to remove sandbox container: {e}"
-                    )
+                    log.data.warning(f"Failed to remove sandbox container: {e}")
     finally:
         # Clean up the temporary workspace
         try:
             shutil.rmtree(sandbox_dir)
         except Exception as e:
-            log.data.warning(
-                f"Failed to cleanup sandbox directory {sandbox_dir}: {e}"
-            )
+            log.data.warning(f"Failed to cleanup sandbox directory {sandbox_dir}: {e}")

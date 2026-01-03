@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
+
 import os
 import sys
 
@@ -7,6 +8,13 @@ import sys
 def main():
     """Run administrative tasks."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
+
+    # Add the 'apps' directory to the Python path.
+    # This allows importing apps directly (e.g., 'import users') instead of 'import apps.users'.
+    from pathlib import Path
+
+    BASE_DIR = Path(__file__).resolve().parent
+    sys.path.append(str(BASE_DIR / "apps"))
 
     try:
         from django.core.management import execute_from_command_line

@@ -11,7 +11,7 @@ import concurrent.futures
 from typing import Dict, List
 
 from django.core.files.storage import default_storage
-from apps.logs import logger
+from logs import logger
 from .utils import list_s3_folder
 
 
@@ -27,13 +27,13 @@ class DataFileSystem:
         Initialize the filesystem for a specific project.
         """
         from django.conf import settings
+
         self.project_uuid = project_uuid
         # The base path in S3 for this project's data
         self.root_path = f"{project_uuid}/data/"
         # Use a project-local temporary directory so it can be mounted by Docker
         self.temp_dir = tempfile.mkdtemp(
-            prefix=f"validation_{project_uuid}_",
-            dir=settings.PROJECT_TEMP_DIR
+            prefix=f"validation_{project_uuid}_", dir=settings.PROJECT_TEMP_DIR
         )
         # Cache of files already downloaded to avoid redundant network calls
         self._downloaded_files: Dict[str, str] = {}
@@ -65,11 +65,15 @@ class DataFileSystem:
         """
         # Security: Sanitize path to prevent traversal
         # 1. Remove leading slashes and redundant dots
-        clean_rel_path = os.path.normpath(relative_path).lstrip(os.path.sep + (os.path.altsep or ""))
+        clean_rel_path = os.path.normpath(relative_path).lstrip(
+            os.path.sep + (os.path.altsep or "")
+        )
 
         # 2. Prevent escaping the temp directory
         if clean_rel_path.startswith("..") or os.path.isabs(clean_rel_path):
-            self.log.data.warning(f"Blocked path traversal attempt in DataFileSystem: {relative_path}")
+            self.log.data.warning(
+                f"Blocked path traversal attempt in DataFileSystem: {relative_path}"
+            )
             raise ValueError(f"Invalid relative path: {relative_path}")
 
         if clean_rel_path in self._downloaded_files:
@@ -88,26 +92,24 @@ class DataFileSystem:
 
         # Download the file from S3 to the local path
         try:
-            with default_storage.open(s3_key, 'rb') as s3_file:
-                with open(local_path, 'wb') as local_file:
+            with default_storage.open(s3_key, "rb") as s3_file:
+                with open(local_path, "wb") as local_file:
                     # Use a larger buffer to improve throughput for large datasets.
                     shutil.copyfileobj(s3_file, local_file, length=1024 * 1024)
 
             self._downloaded_files[clean_rel_path] = local_path
-            
+
             # HIPAA Compliance: Log access to specific PHI file
             self.log.access.info(f"Accessed PHI file (downloaded): {clean_rel_path}")
-            
+
             return local_path
         except Exception as e:
-            self.log.data.error(
-                f"Failed to download file {clean_rel_path}: {str(e)}"
-            )
+            self.log.data.error(f"Failed to download file {clean_rel_path}: {str(e)}")
             raise FileNotFoundError(
                 f"Could not download file {clean_rel_path}: {str(e)}"
             )
 
-    def open(self, relative_path: str, mode: str = 'r', **kwargs):
+    def open(self, relative_path: str, mode: str = "r", **kwargs):
         """
         Opens a file from S3 as if it were local.
         Downloads the file first if necessary.
@@ -128,8 +130,8 @@ class DataFileSystem:
         Returns names ending in '/' for directories.
         """
         prefix = f"{self.root_path}{relative_path}"
-        if prefix and not prefix.endswith('/'):
-            prefix += '/'
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
 
         folders, files = list_s3_folder(prefix)
 
@@ -137,13 +139,13 @@ class DataFileSystem:
 
         # Add subfolders, removing the long S3 prefix for the user
         for folder in folders:
-            folder_name = folder[len(prefix):].rstrip('/')
+            folder_name = folder[len(prefix) :].rstrip("/")
             if folder_name:
-                items.append(folder_name + '/')
+                items.append(folder_name + "/")
 
         # Add filenames, removing the long S3 prefix
         for file in files:
-            file_name = file[len(prefix):]
+            file_name = file[len(prefix) :]
             if file_name:
                 items.append(file_name)
 
@@ -162,31 +164,32 @@ class DataFileSystem:
         to the local temporary directory using parallel threads.
         """
         from django.conf import settings
-        from .utils import get_s3_client
+        from common.utils import get_s3_client
 
         s3 = get_s3_client()
-        paginator = s3.get_paginator('list_objects_v2')
+        paginator = s3.get_paginator("list_objects_v2")
 
-        self.log.data.info(f"Starting full data download for project {self.project_uuid}...")
+        self.log.data.info(
+            f"Starting full data download for project {self.project_uuid}..."
+        )
 
         # 1. Collect all files to download first
         files_to_download = []
         for page in paginator.paginate(
-            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
-            Prefix=self.root_path
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=self.root_path
         ):
-            for obj in page.get('Contents', []):
-                key = obj['Key']
-                if key.endswith('/'):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key.endswith("/"):
                     continue
-                
+
                 # Check for hidden files or directories (e.g. .DS_Store, .ipynb_checkpoints)
                 # We check if any segment of the path starts with '.'
-                if any(part.startswith('.') for part in key.split('/')):
-                     continue
+                if any(part.startswith(".") for part in key.split("/")):
+                    continue
 
                 # Calculate relative path within the data directory
-                rel_path = key[len(self.root_path):]
+                rel_path = key[len(self.root_path) :]
                 files_to_download.append(rel_path)
 
         # 2. Download in parallel
@@ -197,14 +200,16 @@ class DataFileSystem:
                 executor.submit(self._ensure_file_downloaded, rel_path): rel_path
                 for rel_path in files_to_download
             }
-            
+
             for future in concurrent.futures.as_completed(future_to_file):
                 rel_path = future_to_file[future]
                 try:
                     future.result()
                     count += 1
                 except Exception as e:
-                    self.log.data.warning(f"Failed to download {rel_path} during sync: {e}")
+                    self.log.data.warning(
+                        f"Failed to download {rel_path} during sync: {e}"
+                    )
 
         self.log.data.info(f"Full download complete. Synced {count} files.")
 
@@ -230,22 +235,20 @@ class ValidationContext:
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
 
     def add_check(
-        self,
-        name: str,
-        status: str,
-        message: str = "",
-        details: dict = None
+        self, name: str, status: str, message: str = "", details: dict = None
     ):
         """
         Records a check result (OK, Warning, or Error).
         This will be saved to the database once the script finishes.
         """
-        self.checks.append({
-            'name': name,
-            'status': status,
-            'message': message,
-            'details': details or {}
-        })
+        self.checks.append(
+            {
+                "name": name,
+                "status": status,
+                "message": message,
+                "details": details or {},
+            }
+        )
 
     def get_data_path(self, relative_path: str = "") -> str:
         """
