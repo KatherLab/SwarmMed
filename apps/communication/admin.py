@@ -7,6 +7,7 @@ allowing administrators to manage Messages and ProjectPosts.
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 from .models import Message, ProjectPost, ProjectBoardAccess
+from common.admin_filters import ProjectFilter_Generic
 
 
 @admin.register(Message)
@@ -38,7 +39,8 @@ class ProjectPostAdmin(ModelAdmin):
     """
 
     list_display = ("project", "author", "created_at")
-    list_filter = ("created_at", "project")
+    # Show project filter as dropdown for ProjectPost
+    list_filter = ("created_at", ProjectFilter_Generic)
     search_fields = ("project__title", "author__username")
     readonly_fields = ("created_at",)
     date_hierarchy = "created_at"

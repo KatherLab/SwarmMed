@@ -9,6 +9,7 @@ from django.contrib import messages
 from unfold.admin import ModelAdmin
 
 from .models import TrainingJob
+from common.admin_filters import ProjectFilter_Generic
 
 
 @admin.register(TrainingJob)
@@ -24,7 +25,8 @@ class TrainingJobAdmin(ModelAdmin):
         "created_at",
         "completed_at",
     )
-    list_filter = ("status", "created_at", "project")
+    # Show project as a dropdown filter
+    list_filter = ("status", "created_at", ProjectFilter_Generic)
     search_fields = ("identifier", "flare_job_id", "project__title")
     readonly_fields = (
         "identifier",

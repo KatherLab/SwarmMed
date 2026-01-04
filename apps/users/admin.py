@@ -51,7 +51,7 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     list_filter = (
         "is_active",
         "is_staff",
-        ("profile__role", DropdownFilter),
+        "profile__role",
         "profile__is_emergency_access",
     )
     readonly_fields = ("date_joined", "last_login")
@@ -114,10 +114,10 @@ class ProfileAdmin(ModelAdmin):
 
     # Enable filtering by role, emergency access, and cookie consent.
     list_filter = (
-        ("role", DropdownFilter),
+        "role",
         "is_emergency_access",
         "cookie_consent",
-        ("country", DropdownFilter),
+        "country",
     )
 
     # Enable searching by username, email, full name and identifiers.

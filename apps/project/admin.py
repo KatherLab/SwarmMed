@@ -73,8 +73,8 @@ class ProjectAdmin(ModelAdmin):
 
     # Enable filtering by status and creation date
     list_filter = (
-        ("status", DropdownFilter),
-        ("author", DropdownFilter),
+        "status",
+        "author",
         "created_at",
     )
 

@@ -51,3 +51,8 @@ if settings.DEBUG:
     ]
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+
+# Use a project-level 403 handler so `templates/403.html` is rendered
+# even during local development (DEBUG=True) and in production.
+handler403 = "apps.common.views.permission_denied_view"

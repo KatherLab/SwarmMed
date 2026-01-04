@@ -67,3 +67,14 @@ def dashboard_callback(request, context):
         }
     )
     return context
+
+
+def permission_denied_view(request, exception=None):
+    """
+    Render a custom 403 (Permission Denied) page.
+
+    This view is registered as the project's `handler403` so the
+    `templates/403.html` file is used even when `DEBUG` is True for
+    easier local development and consistent UX in production.
+    """
+    return render(request, "403.html", status=403)

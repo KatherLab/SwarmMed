@@ -11,6 +11,7 @@ from unfold.admin import ModelAdmin, TabularInline
 
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from training.models import TrainingJob
+from common.admin_filters import ProjectFilter_ByNetwork
 from .tasks import stop_swarm_network_task
 
 
@@ -104,7 +105,9 @@ class SwarmParticipantAdmin(ModelAdmin):
     """
 
     list_display = ("user", "network", "role", "participant_id")
-    list_filter = ("role", "network")
+    # Allow filtering participants by their role, network, and the project
+    # that the network belongs to.
+    list_filter = ("role", "network", ProjectFilter_ByNetwork)
     search_fields = ("participant_id", "user__username")
 
 

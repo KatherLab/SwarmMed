@@ -12,6 +12,7 @@ from .models import (
     ResultsVisualizationRun,
     TrainingResult,
 )
+from common.admin_filters import ProjectFilter_ByJob
 
 
 @admin.register(TrainingResult)
@@ -19,7 +20,8 @@ class TrainingResultAdmin(ModelAdmin):
     """Configuration for managing individual training result files in admin."""
 
     list_display = ("identifier", "job", "file_size", "created_at")
-    list_filter = ("created_at",)
+    # Allow filtering by the project that the associated job belongs to
+    list_filter = ("created_at", ProjectFilter_ByJob)
     search_fields = ("identifier", "file_path", "job__identifier")
     readonly_fields = ("identifier", "created_at")
 

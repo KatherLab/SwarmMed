@@ -532,7 +532,27 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Project Hub",
+                "title": "Access Management",
+                "items": [
+                    {
+                        "title": "Attempts",
+                        "icon": "feedback",
+                        "link": "/admin/axes/accessattempt/",
+                    },
+                    {
+                        "title": "Failures",
+                        "icon": "chat_error",
+                        "link": "/admin/axes/accessfailurelog/",
+                    },
+                     {
+                        "title": "Logins",
+                        "icon": "login",
+                        "link": "/admin/axes/accesslog/",
+                    },
+                ],  
+            },
+            {
+                "title": "Project Management",
                 "items": [
                     {
                         "title": "Projects",
@@ -552,8 +572,13 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Data & Analysis",
+                "title": "Data Management",
                 "items": [
+                    {
+                        "title": "MInIO Database",
+                        "icon": "data_table",
+                        "link": "https://127.0.0.1:9001",
+                    },
                     {
                         "title": "Validation Runs",
                         "icon": "fact_check",
@@ -561,13 +586,39 @@ UNFOLD = {
                     },
                     {
                         "title": "Visualization Runs",
-                        "icon": "monitoring",
+                        "icon": "analytics",
                         "link": "/admin/data/visualizationrun/",
                     },
+                ]
+            },
+            {
+                "title": "Results Management",
+                "items": [
+                    
                     {
                         "title": "Results",
-                        "icon": "analytics",
+                        "icon": "data_object",
                         "link": "/admin/results/trainingresult/",
+                    },
+                    {
+                        "title": "Visualization Runs",
+                        "icon": "analytics",
+                        "link": "/admin/results/resultsvisualizationrun/",
+                    },
+                ],
+            },
+            {
+                "title": "Communication Management",
+                "items": [
+                    {
+                        "title": "Messages",
+                        "icon": "chat",
+                        "link": "/admin/communication/message/",
+                    },
+                    {
+                        "title": "Board posts",
+                        "icon": "comment",
+                        "link": "/admin/communication/projectpost/",
                     },
                 ],
             },
@@ -578,11 +629,6 @@ UNFOLD = {
                         "title": "Audit Logs",
                         "icon": "receipt_long",
                         "link": "/admin/logs/logentry/",
-                    },
-                    {
-                        "title": "Communication",
-                        "icon": "forum",
-                        "link": "/admin/communication/message/",
                     },
                     {
                         "title": "MFA Devices",

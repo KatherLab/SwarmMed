@@ -7,6 +7,7 @@ allowing administrators to manage Validation and Visualization runs.
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
 from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
+from common.admin_filters import ProjectFilter_Generic
 
 
 class ValidationCheckInline(TabularInline):
@@ -25,7 +26,8 @@ class ValidationRunAdmin(ModelAdmin):
     """
 
     list_display = ("id", "project", "user", "status", "success", "created_at")
-    list_filter = ("status", "success", "created_at")
+    # Allow quick filtering by the project this validation run belongs to
+    list_filter = ("status", "success", "created_at", ProjectFilter_Generic)
     search_fields = ("project__title", "user__username", "id")
     readonly_fields = (
         "id",
@@ -82,7 +84,8 @@ class VisualizationRunAdmin(ModelAdmin):
     """
 
     list_display = ("id", "project", "user", "status", "success", "created_at")
-    list_filter = ("status", "success", "created_at")
+    # Allow quick filtering by the project this visualization run belongs to
+    list_filter = ("status", "success", "created_at", ProjectFilter_Generic)
     search_fields = ("project__title", "user__username", "id")
     readonly_fields = (
         "id",
