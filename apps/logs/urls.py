@@ -13,6 +13,8 @@ app_name = "logs"
 urlpatterns = [
     # Main logs dashboard view
     path("", views.logs, name="logs"),
+    # AJAX endpoint for infinite scrolling
+    path("load-more/<str:category_key>/", views.load_more_logs, name="load_more_logs"),
     # Endpoint to download logs for a specific category as a text file
     path(
         "download/<str:category_key>/",

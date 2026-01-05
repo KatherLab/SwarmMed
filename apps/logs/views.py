@@ -13,7 +13,8 @@ import yaml
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
+from django.utils.dateparse import parse_datetime
 
 from project.decorators import project_context_required
 
@@ -63,8 +64,9 @@ def download_log_category(request, category_key):
     if category_key not in valid_categories:
         return HttpResponse("Invalid category.", status=404)
 
-    # Retrieve all matching log entries, ordered by time
-    log_entries = (
+    # Retrieve matching log entries
+    # NOTE: EncryptedTextField doesn't support DB filtering, so we filter in memory
+    log_entries_all = (
         LogEntry.objects.filter(project=project, category=category_key)
         .select_related("user")
         .order_by("timestamp")
@@ -72,11 +74,14 @@ def download_log_category(request, category_key):
 
     # Build the text content for the log file
     log_lines = []
-    for entry in log_entries:
+    for entry in log_entries_all:
+        if entry.message.startswith("Audit:"):
+            continue
+            
         timestamp_str = entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
         line = (
-            f"[{timestamp_str}][{entry.user.email}] {entry.level} - "
-            f"[{entry.source}] {entry.message}"
+            f"[{timestamp_str}][{entry.user.email if entry.user else 'System'}] {entry.level} - "
+            f"{entry.message}"
         )
         log_lines.append(line)
 
@@ -108,14 +113,24 @@ def logs_dashboard(request):
         category_key = category_choice[0]
         category_display = category_choice[1]
 
-        # 1. Fetch recent logs (last 50) from the database
-        recent_logs = list(
+        # 1. Fetch recent logs from the database
+        # NOTE: EncryptedTextField doesn't support DB filtering, so we filter in memory
+        # Fetching a larger batch to account for filtered entries
+        db_logs = list(
             LogEntry.objects.filter(project=project, category=category_key)
             .select_related("user")
-            .order_by("-timestamp")[:50]
+            .order_by("-timestamp")[:200]
         )
+        
+        recent_logs = []
+        for entry in db_logs:
+            if not entry.message.startswith("Audit:"):
+                recent_logs.append(entry)
+            if len(recent_logs) >= 50:
+                break
 
         # 2. Special handling for Training logs: Fetch live Docker logs
+        live_log_count = 0
         if category_key == "training":
             try:
                 from network.models import UserCurrentNetwork
@@ -169,6 +184,11 @@ def logs_dashboard(request):
                                     # Convert raw output lines into mock
                                     # objects for the template
                                     for line in log_output.splitlines():
+                                        # Filter out Audit logs from live stream if applicable
+                                        if line.startswith("Audit:"):
+                                            continue
+                                            
+                                        live_log_count += 1
                                         mock_entry = {
                                             "message": line,
                                             "source": container_name,
@@ -193,15 +213,20 @@ def logs_dashboard(request):
                 logger.project.debug(f"Could not fetch live logs: {e}")
 
         # 3. Calculate statistics for the UI
-        total_count = LogEntry.objects.filter(
-            project=project, category=category_key
-        ).count()
-
-        # Count entries in the last 24 hours
+        # NOTE: Since we can't filter encrypted fields in DB, we have to fetch and filter.
+        # For performance on large logs, this might need an 'is_audit' boolean field in the future.
+        all_category_logs = LogEntry.objects.filter(project=project, category=category_key)
+        
+        # Calculate in-memory for accuracy due to encryption
+        total_count = live_log_count
+        recent_count = live_log_count
         yesterday = timezone.now() - timedelta(days=1)
-        recent_count = LogEntry.objects.filter(
-            project=project, category=category_key, timestamp__gte=yesterday
-        ).count()
+        
+        for entry in all_category_logs:
+            if not entry.message.startswith("Audit:"):
+                total_count += 1
+                if entry.timestamp >= yesterday:
+                    recent_count += 1
 
         categories_list.append(
             {
@@ -219,6 +244,47 @@ def logs_dashboard(request):
         "categories_list": categories_list,
     }
     return render(request, "apps/logs/logs.html", context)
+
+
+@developer_required
+@login_required
+@project_context_required
+def load_more_logs(request, category_key):
+    """
+    AJAX view to fetch older logs for infinite scrolling.
+    """
+    project, _ = get_user_project(request)
+    last_timestamp_str = request.GET.get("last_timestamp")
+    
+    query = LogEntry.objects.filter(project=project, category=category_key)
+    
+    if last_timestamp_str:
+        try:
+            last_timestamp = parse_datetime(last_timestamp_str)
+            if last_timestamp:
+                query = query.filter(timestamp__lt=last_timestamp)
+        except Exception:
+            pass
+            
+    # Fetch a batch and filter in memory
+    db_logs = list(query.select_related("user").order_by("-timestamp")[:100])
+    
+    log_data = []
+    for entry in db_logs:
+        if entry.message.startswith("Audit:"):
+            continue
+            
+        log_data.append({
+            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "raw_timestamp": entry.timestamp.isoformat(),
+            "user": entry.user.email if entry.user else "System",
+            "level": entry.level,
+            "message": entry.message,
+        })
+        if len(log_data) >= 50:
+            break
+        
+    return JsonResponse({"logs": log_data})
 
 
 # Alias to match URL configuration
