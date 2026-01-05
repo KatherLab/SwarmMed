@@ -265,7 +265,7 @@
         </a>
         {% if request.user == project.author %}
         <a href="{% url 'project:project_edit' project.id %}" 
-          class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-orange-700 bg-orange-100 rounded-lg dark:text-orange-300 border border-orange-100 hover:border-orange-700 dark:border-gray-700 dark:hover:border-orange-300 dark:bg-gray-700">
+          class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-3 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
           <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"
             xmlns="http://www.w3.org/2000/svg">
             <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"></path>
@@ -274,7 +274,7 @@
           Edit
         </a>
         <a href="{% url 'project:project_archive' project.id %}" 
-          class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-blue-700 bg-blue-100 rounded-lg dark:text-blue-300 border border-blue-100 hover:border-blue-700 dark:border-gray-700 dark:hover:border-blue-300 dark:bg-gray-700">
+          class="inline-flex items-center bg-blue-100 text-blue-700 border border-blue-100 hover:border-blue-700 font-medium rounded-lg text-sm px-3 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-blue-300 dark:text-blue-300">
           <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
           Archive
         </a>
