@@ -1,5 +1,5 @@
 # Import 
-    from apps.logs import logger
+    from logs import logger
 
 # simple usage
     log = logger.get_logger()
@@ -11,10 +11,10 @@
     log.results.info("Analysis complete", accuracy="95%")
 
 # manual context management
-    from apps.logs import logger
-    from apps.logs.context import set_context
+    from logs import logger
+    from logs.context import set_context
     from django.contrib.auth.models import User
-    from apps.project.models import Project
+    from project.models import Project
 
     # Set context manually
     user = User.objects.get(id=1)

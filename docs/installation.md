@@ -1,22 +1,42 @@
 ---
 title: Installation
-description: Installation instructions for MediSwarmCloud.
+description: Installation instructions for SwarmCloud.
 ---
 
 # Installation
 
-This page provides detailed instructions for installing the MediSwarmCloud platform.
+This page provides detailed instructions for installing the SwarmCloud platform.
 
-## Hardware Requirements
+## System Requirements
 
-Before you begin, ensure that your hardware meets the following requirements:
+Before you begin, ensure that your system meets the following requirements.
 
-*   **CPU:** 4 cores or more
-*   **RAM:** 16 GB or more
-*   **Storage:** 100 GB of free disk space
-*   **GPU:** NVIDIA GPU with CUDA support (optional, for training jobs)
-*   **Network:** Stable internet connection
-*   **Operating System:** Ubuntu 20.04 LTS or later
+### Operating System
+
+*   **Recommended:** Linux (Ubuntu 22.04 LTS or newer)
+    *   The installation guide uses `apt` commands typical for Debian/Ubuntu environments.
+*   **Supported:** macOS, Windows 10/11 (via Docker Desktop)
+    *   *Note: Windows users are recommended to use WSL2 (Windows Subsystem for Linux) to ensure compatibility with helper scripts.*
+
+### Hardware Resources
+
+These specifications are for the **SwarmCloud platform** services only.
+
+*   **Minimum:**
+    *   **CPU:** 2 Cores
+    *   **RAM:** 4 GB
+    *   **Storage:** 20 GB free space
+
+*   **Recommended:**
+    *   **CPU:** 4+ Cores
+    *   **RAM:** 8 GB+
+    *   **Storage:** 50 GB+ (SSD recommended)
+
+!!! note "Machine Learning Workloads"
+    If you intend to run actual **Machine Learning training** on this node (acting as a Training Client), you will need additional resources:
+    
+    *   **RAM:** 16 GB - 64 GB+ (dependent on model/batch size)
+    *   **GPU:** NVIDIA GPU with CUDA support (strongly recommended)
 
 ## 1. Docker
 
@@ -65,40 +85,37 @@ tailscale set --accept-dns=false
 systemctl restart tailscaled
 ```
 
-## 3. MediSwarmCloud
+## 3. SwarmCloud
 
 ### Clone the Repository
 
 ``` bash
-git clone https://github.com/pfeifferis/MediSwarmCloud.git
-cd MediSwarmCloud
+git clone https://github.com/pfeifferis/SwarmCloud.git
+cd SwarmCloud
 ```
 
 ### Environment Variables
 
-Create a `.env` file in the root of the project and add the following variables:
+SwarmCloud uses environment variables for configuration and sensitive information. Copy the provided `.env.template` file to create your local `.env` file:
 
 ``` bash
-SECRET_KEY=your-secret-key
-DEBUG=True
-
-POSTGRES_DB=mediswarm
-POSTGRES_USER=mediswarm
-POSTGRES_PASSWORD=mediswarm
-POSTGRES_HOST=db
-POSTGRES_PORT=5432
-
-AWS_ACCESS_KEY_ID=your-access-key-id
-AWS_SECRET_ACCESS_KEY=your-secret-access-key
-AWS_STORAGE_BUCKET_NAME=your-bucket-name
-AWS_S3_REGION_NAME=your-region
-AWS_S3_ENDPOINT_URL=your-s3-endpoint-url
+cp .env.template .env
 ```
 
-Please replace the placeholder values with your actual configuration. 
+Open the `.env` file and fill in the required values. Key sections include:
 
-!!! tip "Generate Secret Keys"
-    You can generate a secret keys using the following website: [https://randomkeygen.com](https://randomkeygen.com)
+*   **SECRET_KEY:** A unique random string for cryptographic signing.
+*   **Database Settings:** Credentials for PostgreSQL and Redis.
+*   **MinIO / S3 Settings:** Credentials and endpoint for object storage.
+*   **Encryption Keys:** `FERNET_KEYS` and `BACKUP_ENCRYPTION_KEY` used for data-at-rest protection.
+
+!!! tip "Generate Secure Keys"
+    You can generate secure Fernet keys using Python:
+    ```bash
+    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    ```
+
+Please ensure that you **never** commit your `.env` file to version control.
 
 ### Build and Run
 
@@ -110,11 +127,43 @@ docker compose up -d
 ## 4. Create Superuser
 
 ``` bash
-docker exec -it mediswarmcloud python manage.py createsuperuser
+docker exec -it swarmcloud python manage.py createsuperuser
 ```
 
 Follow the prompts to create your superuser account.
 
 !!! info "Superuser"
-    The `superuser` has full access to all features and settings in the MediSwarmCloud platform like an `admin`.
+    The `superuser` has full access to all features and settings in the SwarmCloud platform like an `admin`.
+
+## 5. Trusting the Internal Root CA
+
+When accessing SwarmCloud via `https://localhost:5085`, your browser will show a security warning ("Your connection is not private") because the SSL certificate is issued by an internal, untrusted Certificate Authority (CA).
+
+To resolve this and see the "green lock," you must trust the Root CA on your system.
+
+### macOS
+Run the following command in your terminal:
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain infrastructure/certs/internal/ca.crt
+```
+Alternatively, open `infrastructure/certs/internal/ca.crt` in **Keychain Access**, double-click the **InternalCA** certificate, and set **Trust** to **Always Trust**.
+
+### Windows (PowerShell)
+Run as Administrator:
+```powershell
+Import-Certificate -FilePath "infrastructure\certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+### Linux (Ubuntu/Debian)
+```bash
+sudo cp infrastructure/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt
+sudo update-ca-certificates
+```
+*Note: You may also need to import the certificate manually into your browser settings (e.g., Firefox Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities -> Import).*
+
+### Chrome/Edge "Secret" Bypass
+If you want to skip the installation and just bypass the error screen:
+1. Click anywhere on the error page.
+2. Type `thisisunsafe` on your keyboard.
+3. The page will reload and grant access.
 

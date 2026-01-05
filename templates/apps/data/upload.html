@@ -244,11 +244,16 @@
     });
 
     document.addEventListener("DOMContentLoaded", function() {
-    fetch("/data/folders/")
+    fetch("{% url 'data:list_all_folders' %}")
         .then(response => response.json())
         .then(folders => {
             const select = document.getElementById("destination_folder");
+            // Clear existing options except root
+            select.innerHTML = '<option value="">(root)</option>';
             folders.forEach(folder => {
+                // Skip root if it's already in the list to avoid duplicates
+                if (folder.value === "") return;
+                
                 const option = document.createElement("option");
                 option.value = folder.value;
                 option.textContent = folder.label;

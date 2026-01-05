@@ -1,572 +1,724 @@
+"""
+Views for the data app.
+Handles data management, file uploads, folder navigation,
+and the triggering/monitoring of validation and visualization runs.
+"""
+
 import json
 import os
+from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponse, JsonResponse
+from django.http import (
+    HttpResponse,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
 from django.views.decorators.http import require_POST
-from django.contrib import messages
 from django.urls import reverse
+
+from common.utils import get_safe_referer, format_size, get_s3_client
 from django.utils import timezone
 from celery import current_app
-from ..project.models import UserCurrentProject
-from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
+
+from project.models import UserCurrentProject, Project
+from .models import (
+    ValidationRun,
+    ValidationCheck,
+    VisualizationRun,
+    VisualizationPlot,
+)
 from .tasks import run_validation_task, run_visualization_task
 from .utils import (
-    list_s3_folder, delete_s3_object, rename_s3_object, get_s3_download_url,
-    delete_s3_folder, rename_s3_folder, get_storage_stats, format_size,
-    get_column_prefixes
+    list_s3_folder,
+    delete_s3_object,
+    rename_s3_object,
+    delete_s3_folder,
+    rename_s3_folder,
+    get_storage_stats,
+    get_column_prefixes,
 )
-from apps.logs import logger
+from logs import logger
+from project.decorators import project_context_required, project_membership_required
+
 
 def get_user_project(request):
     """
-    Get the current user's active project identifier.
-    
-    Args:
-        request: Django request object
-        
-    Returns:
-        tuple: (project_uuid, is_valid)
-            - project_uuid: String UUID of the project or None
-            - is_valid: Boolean indicating if a valid project was found
+    Helper function to get the current user's active project identifier.
+    Returns: (project_uuid_string, is_valid_boolean)
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        user_current_project = UserCurrentProject.objects.select_related("project").get(
+            user=request.user
+        )
         if not user_current_project.project:
             return None, False
-        
+
         return str(user_current_project.project.identifier), True
     except UserCurrentProject.DoesNotExist:
         return None, False
 
-@login_required(login_url='/users/signin/')
+
+@login_required
+@project_context_required
 def data(request):
     """
-    View for the main data page showing storage statistics.
+    Main overview page for project data.
+    Shows general statistics like total size and file counts.
     """
-    # Get the current user's active project
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
-    
-    from ..project.models import Project
-    project = get_object_or_404(Project, identifier=current_project_uuid)
+    current_project_uuid, _ = get_user_project(request)
 
-    # Set the root path for the project's data directory
+    project = get_object_or_404(Project, identifier=current_project_uuid)
     root_path = f"{current_project_uuid}/data/"
-    
-    # Get storage statistics for this project
-    total_size, folder_count, file_count = get_storage_stats(root_path)
+
+    # Calculate storage stats for this specific project
+    try:
+        total_size, folder_count, file_count = get_storage_stats(root_path)
+    except Exception as e:
+        # If statistics cannot be retrieved (e.g. MinIO error), use defaults
+        # and log the issue.
+        import logging
+
+        logging.getLogger("app").warning(f"Error getting storage stats: {e}")
+        total_size, folder_count, file_count = 0, 0, 0
+
     formatted_size = format_size(total_size)
-    
+
     context = {
-        'segment': 'data',
-        'project': project,
-        'folder_count': folder_count,
-        'file_count': file_count,
-        'space_used': formatted_size,
+        "segment": "data",
+        "project": project,
+        "folder_count": folder_count,
+        "file_count": file_count,
+        "space_used": formatted_size,
     }
     return render(request, "apps/data/data.html", context)
 
-@login_required(login_url='/users/signin/')
+
+@login_required
+@project_context_required
 def upload_files(request):
     """
-    View for uploading files and folders.
+    Handles multi-file and folder uploads.
+    Preserves the relative directory structure provided by the browser.
     """
-    # Get the current user's active project
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
+    current_project_uuid, _ = get_user_project(request)
 
-    # Initialize logger
     log = logger.get_logger()
 
-    if request.method == 'POST':
-        files = request.FILES.getlist('file_field')
-        directories_json = request.POST.get('directories', '{}')
-        directories = json.loads(directories_json)
-        destination_folder = request.POST.get('destination_folder', '')
-        
-        # Set the root path to be within the project's data directory
+    if request.method == "POST":
+        # Get the list of files from the form
+        files = request.FILES.getlist("file_field")
+
+        # 'directories' is a JSON map of filename keys to their relative paths
+        directories_json = request.POST.get("directories", "{}")
+        try:
+            directories = json.loads(directories_json)
+        except json.JSONDecodeError:
+            return HttpResponse("Invalid directory data", status=400)
+
+        # User can specify a specific folder to upload into
+        destination_folder = request.POST.get("destination_folder", "")
+
+        # Security: Sanitize destination_folder
+        destination_folder = os.path.normpath(destination_folder).lstrip(
+            os.path.sep + (os.path.altsep or "")
+        )
+        if destination_folder == "." or not destination_folder:
+            destination_folder = ""
+        elif destination_folder.startswith(".."):
+            log.data.warning(
+                f"Blocked upload with malicious destination folder: {destination_folder}"
+            )
+            return HttpResponse("Invalid destination folder", status=400)
+
         root_path = f"{current_project_uuid}/data/"
-        
-        # If destination_folder was provided, add it after the root_path
-        if destination_folder:
-            if not destination_folder.endswith('/'):
-                destination_folder += '/'
-            full_destination = f"{root_path}{destination_folder}"
-        else:
-            full_destination = root_path
-            
+        full_destination = os.path.join(root_path, destination_folder).replace(
+            "\\", "/"
+        )
+        if not full_destination.endswith("/"):
+            full_destination += "/"
+
+        # Security: Allowed file extensions
+        ALLOWED_EXTENSIONS = {
+            ".csv",
+            ".txt",
+            ".json",
+            ".parquet",
+            ".npy",
+            ".npz",
+            ".h5",
+            ".pt",
+            ".pth",
+        }
+
         for idx, file in enumerate(files):
-            key = file.name + '_' + str(idx)
+            # Basic security check: Validate file extension
+            _, ext = os.path.splitext(file.name)
+            if ext.lower() not in ALLOWED_EXTENSIONS:
+                log.data.warning(f"Blocked upload of disallowed file type: {file.name}")
+                continue
+
+            # We use an index-based key to match the directory map
+            key = f"{file.name}_{idx}"
             rel_path = directories.get(key, file.name)
-            # Ensure forward slashes for consistency
-            save_path = os.path.join(full_destination, rel_path).replace('\\', '/')
+
+            # Security Check: Prevent path traversal
+            clean_rel_path = os.path.normpath(rel_path).lstrip(
+                os.path.sep + (os.path.altsep or "")
+            )
+            if clean_rel_path.startswith("..") or os.path.isabs(clean_rel_path):
+                log.data.warning(
+                    f"Blocked upload with path traversal attempt: {rel_path}"
+                )
+                continue
+
+            # Combine paths and ensure forward slashes for S3 compatibility
+            save_path = os.path.join(full_destination, clean_rel_path).replace(
+                "\\", "/"
+            )
+
+            # Save the file to S3
             default_storage.save(save_path, file)
 
         log.data.info(f"Files uploaded to {full_destination} successfully.")
-        return HttpResponse('Files uploaded with folder structure preserved!')
-    
-    context = {
-        'segment': 'data',
-    }
-    
-    return render(request, 'apps/data/upload.html', context)
+        return HttpResponse("Files uploaded with folder structure preserved!")
 
-@login_required(login_url='/users/signin/')
+    return render(request, "apps/data/upload.html", {"segment": "data"})
+
+
+@login_required
+@project_context_required
 def list_files(request):
     """
-    View for listing files and folders in a column layout.
+    Displays a file browser interface with a multi-column layout.
     """
-    # Get the current user's active project
-    current_project_uuid, is_valid = get_user_project(request)
-    if not is_valid:
-        return render(request, "apps/data/no_project_selected.html", {"segment": "data"})
+    current_project_uuid, _ = get_user_project(request)
 
-    # Set the root path to be within the project's data directory
     root_path = f"{current_project_uuid}/data/"
-    
-    # Get the current folder from query params, default to root of the project
-    user_prefix = request.GET.get('prefix', '')
-    
-    # Combine the root path with any additional path from query parameters
-    full_prefix = root_path
-    if user_prefix:
-        full_prefix = f"{root_path}{user_prefix}"
-    
-    # Get column prefixes relative to the user's view
+    user_prefix = request.GET.get("prefix", "")
+
+    log = logger.get_logger()
+    log.access.info(
+        f"User listed files in prefix: {user_prefix or '(root)'}", prefix=user_prefix
+    )
+
+    # Calculate full S3 path
+    # Generate prefixes for the column-based view (breadcrumb style)
     column_prefixes = get_column_prefixes(user_prefix)
     columns = []
-    
+
     for col_prefix in column_prefixes:
-        # Convert the relative column prefix to full S3 path within project
-        full_col_prefix = root_path
-        if col_prefix:
-            full_col_prefix = f"{root_path}{col_prefix}"
-        
-        # Get folders and files at this prefix
+        # Full path for S3 listing
+        full_col_prefix = root_path + col_prefix if col_prefix else root_path
+
+        # Get lists of folders and files from S3
         folders, files = list_s3_folder(full_col_prefix)
-        
-        # Process folders - show only folders within this project
+
         processed_folders = []
         for folder in folders:
-            # Skip folders not in this project
             if not folder.startswith(root_path):
                 continue
-                
-            # For display: just show the folder name
-            folder_name = folder[len(full_col_prefix):-1]
-            
-            # For navigation: use the path relative to the project
-            relative_folder_path = folder[len(root_path):]
-            
-            processed_folders.append({
-                'name': folder_name,
-                'key': relative_folder_path,  # for navigation
-                'full_key': folder            # for S3 operations
-            })
 
-        
-        # Process files - show only files within this project
+            # Extract just the folder name for display
+            folder_name = folder[len(full_col_prefix) : -1]
+            # Path relative to project root for navigation links
+            relative_folder_path = folder[len(root_path) :]
+
+            processed_folders.append(
+                {
+                    "name": folder_name,
+                    "key": relative_folder_path,
+                    "full_key": folder,
+                }
+            )
+
         processed_files = []
         for file in files:
-            # Skip files not in this project
             if not file.startswith(root_path):
                 continue
-                
-            # For display: just show the file name
-            file_name = file[len(full_col_prefix):]
-            
-            processed_files.append({
-                'name': file_name,
-                'key': file,  # Keep full path for operations
-                'download_url': get_s3_download_url(file)
-            })
-        
-        columns.append({
-            'prefix': col_prefix,
-            'folders': processed_folders,
-            'files': processed_files
-        })
-    
-    # Build active_prefixes for highlighting
+
+            file_name = file[len(full_col_prefix) :]
+            processed_files.append(
+                {
+                    "name": file_name,
+                    "key": file,
+                }
+            )
+
+        columns.append(
+            {
+                "prefix": col_prefix,
+                "folders": processed_folders,
+                "files": processed_files,
+            }
+        )
+
+    # Identify which prefixes are currently 'active' for UI highlighting
     active_prefixes = set()
     if user_prefix:
-        parts = user_prefix.rstrip('/').split('/')
+        parts = user_prefix.rstrip("/").split("/")
         for i in range(len(parts)):
-            active_prefixes.add('/'.join(parts[:i+1]) + '/')
-    
-    context = {
-        'segment': 'data',
-        'columns': columns,
-        'active_prefix': user_prefix,
-        'active_prefixes': active_prefixes,
-    }
-    return render(request, 'apps/data/files.html', context)
+            active_prefixes.add("/".join(parts[: i + 1]) + "/")
 
+    context = {
+        "segment": "data",
+        "columns": columns,
+        "active_prefix": user_prefix,
+        "active_prefixes": active_prefixes,
+    }
+    return render(request, "apps/data/files.html", context)
+
+
+@login_required
+@project_context_required
+def download_file(request):
+    """
+    Logs the access to a file and proxies the download through Django.
+    """
+    key = request.GET.get("key")
+    current_project_uuid, _ = get_user_project(request)
+
+    if not key or not key.startswith(f"{current_project_uuid}/data/"):
+        return HttpResponse("Unauthorized", status=403)
+
+    log = logger.get_logger()
+    log.access.info(f"User accessed file: {key}", file_key=key)
+
+    # Direct proxying is more reliable for local/self-hosted setups
+    return _proxy_s3_download(key, os.path.basename(key))
+
+
+@login_required
+@project_context_required
 @require_POST
 def delete_file(request):
     """
-    View for deleting files or folders.
+    Deletes a file or an entire folder from the project data.
     """
-    # Initialize logger
+    current_project_uuid, _ = get_user_project(request)
+
     log = logger.get_logger()
-    
-    # Get the key from the request
-    key = request.POST.get('key')
+    key = request.POST.get("key")
+
+    # Security check: Ensure the key belongs to the current project
+    if not key or not key.startswith(f"{current_project_uuid}/data/"):
+        log.data.warning(f"Unauthorized delete attempt for key: {key}")
+        return JsonResponse({"error": "Unauthorized"}, status=403)
 
     try:
-        if key.endswith('/'):
+        if key.endswith("/"):
             delete_s3_folder(key)
-            log.data.info(f"Deleted folder {key}")
-            
+            log.data.info(f"Deleted folder: {key}")
         else:
             delete_s3_object(key)
-            log.data.info(f"Deleted {key}")
-
+            log.data.info(f"Deleted file: {key}")
     except Exception as e:
         log.data.error(f"Error deleting {key}: {e}")
-    return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
 
+    # Redirect back to the page the user came from, or to the file list.
+    # We use get_safe_referer to prevent Open Redirect attacks.
+    return redirect(get_safe_referer(request, reverse("data:list_files")))
+
+
+@login_required
+@project_context_required
 @require_POST
 def rename_file(request):
     """
-    View for renaming files or folders.
+    Renames a file or folder in S3.
     """
-    # Initialize logger
+    current_project_uuid, _ = get_user_project(request)
+
     log = logger.get_logger()
-    
-    # Get the old key and new name from the request
-    old_key = request.POST.get('old_key')
-    new_name = request.POST.get('new_name')
-    
-    # Extract the directory path
-    prefix = '/'.join(old_key.rstrip('/').split('/')[:-1])
-    
-    # Build the new key
+    old_key = request.POST.get("old_key")
+    new_name = request.POST.get("new_name")
+
+    # Security check: Ensure the old_key belongs to the current project
+    if not old_key or not old_key.startswith(f"{current_project_uuid}/data/"):
+        log.data.warning(f"Unauthorized rename attempt for key: {old_key}")
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    # Sanitize new_name to prevent path traversal
+    new_name = os.path.basename(new_name.rstrip("/"))
+
+    # Determine the parent directory
+    prefix = "/".join(old_key.rstrip("/").split("/")[:-1])
+
+    # Construct the new S3 key
     if prefix:
         new_key = f"{prefix}/{new_name}"
-        if old_key.endswith('/'):
-            new_key += '/'
+        if old_key.endswith("/"):
+            new_key += "/"
     else:
-        new_key = new_name
-        if old_key.endswith('/'):
-            new_key += '/'
-    
+        # This case should technically not happen given our root_path structure,
+        # but we handle it for robustness.
+        new_key = new_name + ("/" if old_key.endswith("/") else "")
+
     try:
-        if old_key.endswith('/'):
+        if old_key.endswith("/"):
             rename_s3_folder(old_key, new_key)
             log.data.info(f"Renamed folder {old_key} to {new_key}")
         else:
             rename_s3_object(old_key, new_key)
-            log.data.info(f"Renamed {old_key} to {new_key}")
+            log.data.info(f"Renamed file {old_key} to {new_key}")
     except Exception as e:
         log.data.error(f"Error renaming {old_key}: {e}")
 
-    return redirect(request.META.get('HTTP_REFERER', reverse('list_files')))
+    return redirect(get_safe_referer(request, reverse("data:list_files")))
 
-@login_required(login_url='/users/signin/')
+
+@login_required
 def list_all_folders(request):
     """
-    Return a flat list of all folders (recursively) in the current project's data directory.
+    Returns a recursive flat list of all folders in JSON format.
+    Used for folder-selection dropdowns in the UI.
     """
-    # Get the current user's active project
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
         return JsonResponse([], safe=False)
-    
-    # Set the root path to be within the project's data directory
+
     root_path = f"{current_project_uuid}/data/"
-    
+
     def collect_folders(prefix):
-        """
-        Recursively collect all folders under a prefix.
-        
-        Args:
-            prefix (str): S3 prefix to start from
-            
-        Returns:
-            list: All folder paths
-        """
         folders, _ = list_s3_folder(prefix)
         all_folders = []
         for folder in folders:
-            # Only include folders that start with the root path
             if folder.startswith(root_path):
                 all_folders.append(folder)
                 all_folders.extend(collect_folders(folder))
         return all_folders
 
-    # Start collecting folders from the project's data directory
     all_folders = collect_folders(root_path)
-    
-    # Process the folders to make them relative to the project's data directory
+
+    # Format the folder list for a select2 or similar dropdown
     folder_list = []
     for folder in all_folders:
-        # Create a display name that's relative to the data directory
-        relative_path = folder[len(root_path):]
-        folder_list.append({
-            "label": relative_path if relative_path else "(root)",
-            "value": relative_path
-        })
-    
-    # Always include root
+        relative_path = folder[len(root_path) :]
+        folder_list.append(
+            {
+                "label": relative_path if relative_path else "(root)",
+                "value": relative_path,
+            }
+        )
+
+    # Add the root directory to the list
     if not any(item["value"] == "" for item in folder_list):
         folder_list.insert(0, {"label": "(root)", "value": ""})
-    
+
     return JsonResponse(folder_list, safe=False)
 
-###### New Validation Views ######
-@login_required(login_url='/users/signin/')
+
+# --- Data Validation Views ---
+
+
+@login_required
 @require_POST
 def start_validation(request):
-    """Start a validation run for the current project."""
+    """
+    Triggers the background Celery task for data validation.
+    """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
-        return JsonResponse({'error': 'No project selected'}, status=400)
-    
+        return JsonResponse({"error": "No project selected"}, status=400)
+
     try:
-        from ..project.models import Project
         project = Project.objects.get(identifier=current_project_uuid)
-        
+
         if not project.data_validation_script:
-            return JsonResponse({'error': 'No validation script uploaded'}, status=400)
-        
-        # Cancel any running validation for this project
-        running_validations = ValidationRun.objects.filter(
-            project=project,
-            status__in=['pending', 'running']
+            return JsonResponse({"error": "No validation script found"}, status=400)
+
+        # Stop any existing runs that are still pending or running
+        active_runs = ValidationRun.objects.filter(
+            project=project, status__in=["pending", "running"]
         )
-        
-        for validation in running_validations:
-            if validation.celery_task_id:
-                current_app.control.revoke(validation.celery_task_id, terminate=True)
-            validation.status = 'cancelled'
-            validation.completed_at = timezone.now()
-            validation.save()
-        
-        # Create new validation run
+        for run in active_runs:
+            if run.celery_task_id:
+                current_app.control.revoke(run.celery_task_id, terminate=True)
+            run.status = "cancelled"
+            run.completed_at = timezone.now()
+            run.save()
+
+        # Create a new run record
         validation_run = ValidationRun.objects.create(
-            project=project,
-            user=request.user
+            project=project, user=request.user
         )
-        
-        # Start the task
+
+        # Trigger the Celery task
         task = run_validation_task.delay(str(validation_run.id))
         validation_run.celery_task_id = task.id
         validation_run.save()
-        
-        return JsonResponse({
-            'success': True,
-            'validation_run_id': str(validation_run.id),
-            'task_id': task.id
-        })
-        
-    except Project.DoesNotExist:
-        return JsonResponse({'error': 'Project not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
 
-@login_required(login_url='/users/signin/')
-@require_POST  
+        return JsonResponse(
+            {
+                "success": True,
+                "validation_run_id": str(validation_run.id),
+                "task_id": task.id,
+            }
+        )
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@login_required
+@require_POST
 def stop_validation(request):
-    """Stop the currently running validation."""
+    """
+    Cancels the currently running validation task.
+    """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
-        return JsonResponse({'error': 'No project selected'}, status=400)
-    
-    try:
-        from ..project.models import Project
-        project = Project.objects.get(identifier=current_project_uuid)
-        
-        # Find running validation
-        validation_run = ValidationRun.objects.filter(
-            project=project,
-            status__in=['pending', 'running']
-        ).first()
-        
-        if not validation_run:
-            return JsonResponse({'error': 'No running validation found'}, status=404)
-        
-        # Cancel the Celery task
-        if validation_run.celery_task_id:
-            current_app.control.revoke(validation_run.celery_task_id, terminate=True)
-        
-        # Update status
-        validation_run.status = 'cancelled'
-        validation_run.completed_at = timezone.now()
-        validation_run.save()
-        
-        return JsonResponse({'success': True})
-        
-    except Project.DoesNotExist:
-        return JsonResponse({'error': 'Project not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({"error": "No project selected"}, status=400)
 
-@login_required(login_url='/users/signin/')
+    project = get_object_or_404(Project, identifier=current_project_uuid)
+    log = logger.get_logger(user=request.user, project=project)
+
+    run = ValidationRun.objects.filter(
+        project=project, status__in=["pending", "running"]
+    ).first()
+
+    if run:
+        if run.celery_task_id:
+            current_app.control.revoke(run.celery_task_id, terminate=True)
+            log.data.info(
+                f"Revoked Celery task {run.celery_task_id} for validation run {run.id}"
+            )
+        run.status = "cancelled"
+        run.completed_at = timezone.now()
+        run.save()
+        log.data.warning(f"Validation run {run.id} cancelled by user.")
+        return JsonResponse({"success": True})
+
+    log.data.debug("Stop validation requested but no running validation found.")
+    return JsonResponse({"error": "No running validation found"}, status=404)
+
+
+@login_required
 def validation_status(request):
-    """Get the current validation status for the project."""
+    """
+    Returns the status and results of the latest validation run.
+    """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
-        return JsonResponse({'error': 'No project selected'}, status=400)
-    
-    try:
-        from ..project.models import Project
-        project = Project.objects.get(identifier=current_project_uuid)
-        
-        # Get latest validation run
-        latest_validation = ValidationRun.objects.filter(project=project).first()
-        
-        if not latest_validation:
-            return JsonResponse({
-                'status': 'none',
-                'checks': []
-            })
-        
-        # Get validation checks
-        checks = list(ValidationCheck.objects.filter(
-            validation_run=latest_validation
-        ).values('name', 'status', 'message', 'details'))
-        
-        return JsonResponse({
-            'status': latest_validation.status,
-            'success': latest_validation.success,
-            'output': latest_validation.output,
-            'error_message': latest_validation.error_message,
-            'checks': checks,
-            'started_at': latest_validation.started_at,
-            'completed_at': latest_validation.completed_at
-        })
-        
-    except Project.DoesNotExist:
-        return JsonResponse({'error': 'Project not found'}, status=404)
-    
+        return JsonResponse({"error": "No project selected"}, status=400)
 
-@login_required(login_url='/users/signin/')
+    project = get_object_or_404(Project, identifier=current_project_uuid)
+    latest_run = ValidationRun.objects.filter(project=project).first()
+
+    if not latest_run:
+        return JsonResponse(
+            {
+                "status": "none",
+                "checks": [],
+                "has_script": bool(project.data_validation_script),
+                "project_id": project.id,
+            }
+        )
+
+    checks = list(
+        ValidationCheck.objects.filter(validation_run=latest_run).values(
+            "name", "status", "message", "details"
+        )
+    )
+
+    return JsonResponse(
+        {
+            "status": latest_run.status,
+            "success": latest_run.success,
+            "output": latest_run.output,
+            "error_message": latest_run.error_message,
+            "checks": checks,
+            "started_at": latest_run.started_at,
+            "completed_at": latest_run.completed_at,
+        }
+    )
+
+
+# --- Data Visualization Views ---
+
+
+@login_required
 @require_POST
 def start_visualization(request):
-    """Start a visualization run for the current project."""
+    """
+    Triggers the background Celery task for data visualization.
+    """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
-        return JsonResponse({'error': 'No project selected'}, status=400)
-    
+        return JsonResponse({"error": "No project selected"}, status=400)
+
     try:
-        from ..project.models import Project
         project = Project.objects.get(identifier=current_project_uuid)
-        
+
         if not project.data_visualization_script:
-            return JsonResponse({'error': 'No visualization script uploaded'}, status=400)
-        
-        # Cancel any running visualization for this project
-        running_visualizations = VisualizationRun.objects.filter(
-            project=project,
-            status__in=['pending', 'running']
-        )
-        
-        for visualization in running_visualizations:
-            if visualization.celery_task_id:
-                current_app.control.revoke(visualization.celery_task_id, terminate=True)
-            visualization.status = 'cancelled'
-            visualization.completed_at = timezone.now()
-            visualization.save()
-        
-        # Create new visualization run
-        visualization_run = VisualizationRun.objects.create(
-            project=project,
-            user=request.user
-        )
-        
-        # Start the task
-        task = run_visualization_task.delay(str(visualization_run.id))
-        visualization_run.celery_task_id = task.id
-        visualization_run.save()
-        
-        return JsonResponse({
-            'success': True,
-            'visualization_run_id': str(visualization_run.id),
-            'task_id': task.id
-        })
-        
-    except Project.DoesNotExist:
-        return JsonResponse({'error': 'Project not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+            return JsonResponse({"error": "No visualization script found"}, status=400)
 
-@login_required(login_url='/users/signin/')
-@require_POST  
+        # Stop existing visualization runs
+        active_runs = VisualizationRun.objects.filter(
+            project=project, status__in=["pending", "running"]
+        )
+        for run in active_runs:
+            if run.celery_task_id:
+                current_app.control.revoke(run.celery_task_id, terminate=True)
+            run.status = "cancelled"
+            run.completed_at = timezone.now()
+            run.save()
+
+        viz_run = VisualizationRun.objects.create(project=project, user=request.user)
+
+        task = run_visualization_task.delay(str(viz_run.id))
+        viz_run.celery_task_id = task.id
+        viz_run.save()
+
+        return JsonResponse(
+            {
+                "success": True,
+                "visualization_run_id": str(viz_run.id),
+                "task_id": task.id,
+            }
+        )
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@login_required
+@require_POST
 def stop_visualization(request):
-    """Stop the currently running visualization."""
+    """
+    Cancels the currently running visualization task.
+    """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
-        return JsonResponse({'error': 'No project selected'}, status=400)
-    
-    try:
-        from ..project.models import Project
-        project = Project.objects.get(identifier=current_project_uuid)
-        
-        # Find running visualization
-        visualization_run = VisualizationRun.objects.filter(
-            project=project,
-            status__in=['pending', 'running']
-        ).first()
-        
-        if not visualization_run:
-            return JsonResponse({'error': 'No running visualization found'}, status=404)
-        
-        # Cancel the Celery task
-        if visualization_run.celery_task_id:
-            current_app.control.revoke(visualization_run.celery_task_id, terminate=True)
-        
-        # Update status
-        visualization_run.status = 'cancelled'
-        visualization_run.completed_at = timezone.now()
-        visualization_run.save()
-        
-        return JsonResponse({'success': True})
-        
-    except Project.DoesNotExist:
-        return JsonResponse({'error': 'Project not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({"error": "No project selected"}, status=400)
 
-@login_required(login_url='/users/signin/')
+    project = get_object_or_404(Project, identifier=current_project_uuid)
+    log = logger.get_logger(user=request.user, project=project)
+
+    run = VisualizationRun.objects.filter(
+        project=project, status__in=["pending", "running"]
+    ).first()
+
+    if run:
+        if run.celery_task_id:
+            current_app.control.revoke(run.celery_task_id, terminate=True)
+            log.data.info(
+                f"Revoked Celery task {run.celery_task_id} for visualization run {run.id}"
+            )
+        run.status = "cancelled"
+        run.completed_at = timezone.now()
+        run.save()
+        log.data.warning(f"Visualization run {run.id} cancelled by user.")
+        return JsonResponse({"success": True})
+
+    log.data.debug("Stop visualization requested but no running visualization found.")
+    return JsonResponse({"error": "No running visualization found"}, status=404)
+
+
+@login_required
 def visualization_status(request):
-    """Get the current visualization status for the project."""
+    """
+    Returns the status and generated plots of the latest visualization run.
+    """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
-        return JsonResponse({'error': 'No project selected'}, status=400)
-    
+        return JsonResponse({"error": "No project selected"}, status=400)
+
+    project = get_object_or_404(Project, identifier=current_project_uuid)
+    latest_run = VisualizationRun.objects.filter(project=project).first()
+
+    if not latest_run:
+        return JsonResponse(
+            {
+                "status": "none",
+                "plots": [],
+                "has_script": bool(project.data_visualization_script),
+                "project_id": project.id,
+            }
+        )
+
+    plots_qs = VisualizationPlot.objects.filter(visualization_run=latest_run)
+    plots = []
+    for p in plots_qs:
+        plots.append(
+            {
+                "title": p.title,
+                "plot_number": p.plot_number,
+                "image_url": reverse(
+                    "data:get_visualization_plot", args=[p.id, "image"]
+                )
+                if p.image_data
+                else None,
+                "svg_url": reverse("data:get_visualization_plot", args=[p.id, "svg"])
+                if p.svg_data
+                else None,
+            }
+        )
+
+    return JsonResponse(
+        {
+            "status": latest_run.status,
+            "success": latest_run.success,
+            "output": latest_run.output,
+            "error_message": latest_run.error_message,
+            "plots": plots,
+            "started_at": latest_run.started_at,
+            "completed_at": latest_run.completed_at,
+        }
+    )
+
+
+def _proxy_s3_download(key, filename):
+    """
+    Helper to proxy a file download from S3 through Django using StreamingHttpResponse.
+    """
+    s3 = get_s3_client()
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+
     try:
-        from ..project.models import Project
-        project = Project.objects.get(identifier=current_project_uuid)
-        
-        # Get latest visualization run
-        latest_visualization = VisualizationRun.objects.filter(project=project).first()
-        
-        if not latest_visualization:
-            return JsonResponse({
-                'status': 'none',
-                'plots': []
-            })
-        
-        # Get visualization plots
-        plots = list(VisualizationPlot.objects.filter(
-            visualization_run=latest_visualization
-        ).values('title', 'plot_number', 'image_data', 'svg_data'))
-        
-        return JsonResponse({
-            'status': latest_visualization.status,
-            'success': latest_visualization.success,
-            'output': latest_visualization.output,
-            'error_message': latest_visualization.error_message,
-            'plots': plots,
-            'started_at': latest_visualization.started_at,
-            'completed_at': latest_visualization.completed_at
-        })
-        
-    except Project.DoesNotExist:
-        return JsonResponse({'error': 'Project not found'}, status=404)
-    
+        obj = s3.get_object(Bucket=bucket, Key=key)
+
+        def stream_content():
+            for chunk in obj["Body"].iter_chunks(chunk_size=1024 * 1024):  # 1MB chunks
+                yield chunk
+
+        response = StreamingHttpResponse(
+            stream_content(),
+            content_type=obj.get("ContentType", "application/octet-stream"),
+        )
+        # response['Content-Length'] = obj.get('ContentLength')
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        # Disable Nginx buffering for this stream
+        response["X-Accel-Buffering"] = "no"
+        return response
+    except Exception as e:
+        logger.get_logger().data.error(f"Failed to proxy S3 download for {key}: {e}")
+        return HttpResponse("File download failed", status=500)
+
+
+@login_required
+@project_membership_required
+def get_visualization_plot(request, plot_id, plot_type):
+    """
+    Proxies a visualization plot image from S3 through Django.
+    """
+    plot = get_object_or_404(VisualizationPlot, id=plot_id)
+
+    key = None
+    filename = f"plot_{plot.plot_number}"
+
+    if plot_type == "image" and plot.image_data:
+        key = plot.image_data.name
+        filename += ".png"
+    elif plot_type == "svg" and plot.svg_data:
+        key = plot.svg_data.name
+        filename += ".svg"
+
+    if not key:
+        return HttpResponse("Plot data not found", status=404)
+
+    response = _proxy_s3_download(key, filename)
+    # Ensure plots are displayed inline
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    return response

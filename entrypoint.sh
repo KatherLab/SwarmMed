@@ -1,4 +1,15 @@
 #!/bin/bash
+set -e
+
+# Generate PgBouncer configuration from environment variables
+if [ -f "/app/scripts/setup_pgbouncer.py" ]; then
+  echo "Syncing PgBouncer configuration..."
+  python3 /app/scripts/setup_pgbouncer.py
+fi
+
+# Fix permissions for volume-mounted directories
+echo "Fixing permissions..."
+chown -R appuser:appuser /app/tmp /app/media /app/workspaces /app/staticfiles || echo "Warning: Failed to fix some permissions"
 
 echo "Waiting for postgres..."
 while ! nc -z $DB_HOST $DB_PORT; do
@@ -12,12 +23,21 @@ while ! nc -z redis 6379; do
 done
 echo "Redis started"
 
+echo "Waiting for minio..."
+while ! nc -z minio 9000; do
+  sleep 0.1
+done
+echo "Minio started"
+
 # Apply database migrations
-echo "Applying database migrations..."
-python manage.py collectstatic --no-input
-python manage.py makemigrations
-python manage.py migrate
+if [ -z "$SKIP_MIGRATIONS" ]; then
+  echo "Applying database migrations and collecting static files..."
+  gosu appuser python manage.py collectstatic --no-input || echo "Collectstatic failed, continuing..."
+  gosu appuser python manage.py migrate
+else
+  echo "Skipping migrations and collectstatic as requested..."
+fi
 
 # Start server
 echo "Starting server..."
-exec "$@"
+exec gosu appuser "$@"

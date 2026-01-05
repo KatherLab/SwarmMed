@@ -1,0 +1,97 @@
+{% extends "layouts/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<div class="px-4 pt-6">
+    <div class="mb-4">
+        <nav class="flex mb-5" aria-label="Breadcrumb">
+          <ol class="inline-flex items-center space-x-1 text-sm font-medium md:space-x-2">
+            <li class="inline-flex items-center">
+              <a href="/"
+                class="inline-flex items-center text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">
+                <svg class="w-5 h-5 mr-2.5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M15 4H9v16h6V4Zm2 16h3a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3v16ZM4 4h3v16H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+                </svg>
+                Dashboard
+              </a>
+            </li>
+            <li>
+              <div class="flex items-center">
+                <svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path></svg>
+                <a href="{% url 'users:index' %}" class="ml-1 text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">User</a>
+              </div>
+            </li>
+            <li>
+              <div class="flex items-center">
+                <svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path></svg>
+                <a href="{% url 'users:settings' %}" class="ml-1 text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">Settings</a>
+              </div>
+            </li>
+            <li>
+              <div class="flex items-center">
+                <svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path></svg>
+                <a href="{% url 'users:two_factor:profile' %}" class="ml-1 text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">Two-Factor Authentication</a>
+              </div>
+            </li>
+            <li>
+              <div class="flex items-center">
+                <svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20"
+                  xmlns="http://www.w3.org/2000/svg">
+                  <path fill-rule="evenodd"
+                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                    clip-rule="evenodd"></path>
+                </svg>
+                <span class="ml-1 text-gray-400 md:ml-2 dark:text-gray-500" aria-current="page">Backup Tokens</span>
+              </div>
+            </li>
+          </ol>
+        </nav>
+        <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Backup Tokens</h1>
+    </div>
+
+    <div class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+        <h3 class="text-xl font-semibold dark:text-white mb-4">{% trans "Manage Backup Tokens" %}</h3>
+        
+        <p class="text-gray-500 dark:text-gray-400 mb-6">
+            {% trans "If you don't have your device with you, you can access your account using backup tokens." %}
+            {% trans "A backup token can be used once." %}
+        </p>
+
+        {% if device.token_set.count %}
+            <div class="mb-6">
+                <p class="mb-4 text-sm font-medium text-gray-900 dark:text-white">{% trans "Your active backup tokens:" %}</p>
+                <ul class="grid grid-cols-2 gap-4">
+                    {% for token in device.token_set.all %}
+                        <li class="p-3 bg-gray-50 rounded text-center font-mono text-lg tracking-widest text-gray-900 dark:bg-gray-700 dark:text-white border border-gray-200 dark:border-gray-600">
+                            {{ token.token }}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <div class="mt-4 p-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400 border border-blue-300 dark:border-blue-800" role="alert">
+                    <span class="font-medium">{% trans "Tip:" %}</span> {% trans "Print these tokens and keep them in a safe place." %}
+                </div>
+            </div>
+        {% else %}
+            <div class="mb-6 p-4 text-sm text-yellow-800 border border-yellow-300 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 dark:border-yellow-800" role="alert">
+                {% trans "You have no backup tokens. Generate new ones below to ensure you don't get locked out of your account." %}
+            </div>
+        {% endif %}
+
+        <form action="" method="post" class="border-t border-gray-200 dark:border-gray-700 pt-6">
+            {% csrf_token %}
+            <div class="flex items-center space-x-4">
+                <button type="submit" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+                    {% if device.token_set.count %}
+                        {% trans "Generate New Tokens" %}
+                    {% else %}
+                        {% trans "Generate Tokens" %}
+                    {% endif %}
+                </button>
+                <a href="{% url 'users:two_factor:profile' %}" class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700">
+                    {% trans "Back" %}
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

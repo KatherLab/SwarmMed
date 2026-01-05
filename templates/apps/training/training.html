@@ -58,14 +58,14 @@
     <!-- Controls -->
     <div class="flex items-center" id="trainingControls">
       {% if current_network %}
-        <a id="stopBtn" href="{% url 'stop_training' current_network.identifier %}"
+        <a id="stopBtn" href="{% url 'training:stop_training' current_network.identifier %}"
            class="ml-2 inline-flex items-center px-5 py-2.5 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 dark:bg-gray-700 {% if not is_training_running or training_progress >= 100 %}hidden{% endif %}">
           <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
             <rect width="12" height="12" x="6" y="6" stroke="currentColor" stroke-linejoin="round" stroke-width="2" rx="1"/>
           </svg>
           Stop Training
         </a>
-        <a id="startBtn" href="{% url 'start_training' current_network.identifier %}"
+        <a id="startBtn" href="{% url 'training:start_training' current_network.identifier %}"
            class="inline-flex items-center px-5 py-2.5 text-sm font-medium text-center text-green-700 bg-green-100 rounded-lg dark:text-green-300 border border-green-100 hover:border-green-700 dark:border-gray-700 dark:hover:border-green-300 dark:bg-gray-700 {% if is_training_running and training_progress < 100 %}hidden{% endif %}">
           <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 18V6l8 6-8 6Z"/>
@@ -79,7 +79,7 @@
   <!-- Training Info Grid -->
   <div class="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 md:grid-cols-3">
     <!-- Training Status -->
-    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-100 dark:border-gray-600">
       <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
         <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
   <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 18V6l8 6-8 6Z"/>
@@ -91,7 +91,7 @@
     </div>
 
     <!-- Duration  -->
-    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-100 dark:border-gray-600">
       <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
        <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
   <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3M3.22302 14C4.13247 18.008 7.71683 21 12 21c4.9706 0 9-4.0294 9-9 0-4.97056-4.0294-9-9-9-3.72916 0-6.92858 2.26806-8.29409 5.5M7 9H3V5"/>
@@ -99,11 +99,11 @@
 
         Duration
       </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="Duration">-</p>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="Duration">{{ duration_str|default:"-" }}</p>
     </div>
 
     <!-- Estimated Time -->
-    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded">
+    <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-100 dark:border-gray-600">
       <div class="flex items-center mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
         <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3"/>
@@ -111,21 +111,17 @@
         </svg>
         Estimated Time
       </div>
-      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="EstimatedTime">-</p>
+      <p class="text-lg font-semibold text-gray-900 dark:text-white" id="EstimatedTime">{{ eta_str|default:"-" }}</p>
     </div>
   </div>
 
   <!-- Progress Bar Section -->
   <div class="mt-6">
-    <label for="progress-bar" class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Training Progress</label>
-    <div class="w-full bg-gray-50 dark:bg-gray-700 rounded h-10 relative">
-          <div id="progressBar" class="bg-green-100 dark:bg-green-900 h-10 rounded text-m text-center text-green-500 dark:text-green-300 flex items-center justify-center" style="width: {{ training_progress }}%">
-            <span id="progressText">{{ training_progress }}%</span>
+    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-lg h-10 overflow-hidden shadow-inner relative">
+          <div id="progressBar" class="bg-teal-500 dark:bg-teal-400 h-full rounded-lg transition-all duration-500 ease-out flex items-center justify-center shadow-sm" style="width: {{ training_progress }}%">
+            <span id="progressTextLabel" class="text-sm font-bold text-white dark:text-gray-900">{{ training_progress }}%</span>
           </div>
-          <p class="text-xs text-right text-gray-500 dark:text-gray-400 absolute bottom-0 right-0 mr-1 mb-1">
-            done
-          </p>
-        </div>
+    </div>
   </div>
 
   
@@ -146,8 +142,8 @@
       
               <!-- Dropdown filter -->
               <div>
-                <button id="dropdownLogLevelButton" data-dropdown-toggle="dropdownLogLevel" class="border border-blue-100 text-blue-700 bg-blue-100 hover:border-blue-700  focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 text-center inline-flex items-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-blue-300 dark:text-blue-300" type="button">
-                  Filter Level
+                <button id="dropdownLogLevelButton" data-dropdown-toggle="dropdownLogLevel" class="bg-blue-100 text-blue-700 border border-blue-100 hover:border-blue-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center inline-flex items-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-blue-300 dark:text-blue-300" type="button">
+                  <span id="dropdownLogLevelText">Filter Level</span>
                   <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                   </svg>
@@ -169,20 +165,20 @@
           <!-- Logs table -->
           <div class="overflow-x-auto mt-6 rounded-lg">
             <table class="w-full text-sm text-left text-gray-500 dark:text-gray-300">
-              <thead class="bg-gray-50 dark:bg-gray-700 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
+              <thead class="bg-gray-100 dark:bg-gray-700">
                 <tr>
-                  <th scope="col" class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Timestamp</th>
-                  <th scope="col" class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Level</th>
-                  <th scope="col" class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Message</th>
+                  <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">Timestamp</th>
+                  <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">Level</th>
+                  <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">Message</th>
                 </tr>
               </thead>
-              <tbody id="logsBody">
+              <tbody id="logsBody" class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
                 {% if training_logs %}
                 {% for log in training_logs %}
                 <tr class="border-b dark:border-gray-600" data-level="{{ log.level|lower }}">
-                  <td class="p-2 whitespace-nowrap text-xs">{{ log.timestamp }}</td>
-                  <td class="p-2 whitespace-nowrap text-xs">{{ log.level }}</td>
-                  <td class="p-2 text-xs">{{ log.message }}</td>
+                  <td class="p-4 whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400">{{ log.timestamp }}</td>
+                  <td class="p-4 whitespace-nowrap text-xs {% if log.level|lower == 'error' %}text-red-600 dark:text-red-400 font-bold{% elif log.level|lower == 'warning' %}text-yellow-600 dark:text-yellow-400{% endif %}">{{ log.level }}</td>
+                  <td class="p-4 text-xs text-gray-900 dark:text-white break-words font-mono">{{ log.message }}</td>
                 </tr>
                 {% endfor %}
                 {% else %}
@@ -193,60 +189,80 @@
           </div>
         
 <script>
-(function(){
-  const btn=document.getElementById('dropdownLogLevelButton');
-  let currentLevel = localStorage.getItem('trainingLogLevel') || 'all';
-  window.currentLogLevel = currentLevel;
+  window.currentLogLevel = localStorage.getItem('trainingLogLevel') || 'all';
+
+  function applyFilter(){
+    const rows = document.querySelectorAll('#logsBody tr[data-level]');
+    rows.forEach(r => {
+      if(window.currentLogLevel === 'all'){
+        r.classList.remove('hidden');
+      } else {
+        (r.dataset.level === window.currentLogLevel) ? r.classList.remove('hidden') : r.classList.add('hidden');
+      }
+    });
+    const textEl = document.getElementById('dropdownLogLevelText');
+    if(textEl){
+      textEl.textContent = (window.currentLogLevel === 'all' ? 'Filter Level' : 'Level: ' + window.currentLogLevel.toUpperCase());
+    }
+  }
+
   function setFilter(level){
     window.currentLogLevel = level || 'all';
     localStorage.setItem('trainingLogLevel', window.currentLogLevel);
-    const rows=document.querySelectorAll('#logsBody tr[data-level]');
-    rows.forEach(r=>{
-      if(window.currentLogLevel==='all'){ r.classList.remove('hidden'); }
-      else { (r.dataset.level===window.currentLogLevel)? r.classList.remove('hidden') : r.classList.add('hidden'); }
-    });
-    if(btn){ btn.firstChild && (btn.firstChild.textContent = (window.currentLogLevel==='all'?'Filter Level':'Level: '+window.currentLogLevel.toUpperCase())); }
+    applyFilter();
   }
-  document.addEventListener("DOMContentLoaded",function(){
-    document.querySelectorAll('#dropdownLogLevel .log-filter-item').forEach(a=>{
-      a.addEventListener('click',function(e){ e.preventDefault(); setFilter(this.dataset.level); });
-    });
-    setFilter(window.currentLogLevel);
-  });
-})();
-  function renderLogs(rows){
-    const body=document.getElementById('logsBody');
-    if(!body) return;
-    if(!rows || !rows.length){ body.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500 dark:text-gray-400">No logs found.</td></tr>'; return; }
-    body.innerHTML = rows.map(l=>`<tr class="border-b dark:border-gray-600" data-level="${(l.level||'').toLowerCase()}">`
-      + `<td class="p-2 whitespace-nowrap text-xs">${l.timestamp||''}</td>`
-      + `<td class="p-2 whitespace-nowrap text-xs">${l.level||''}</td>`
-      + `<td class="p-2 text-xs">${l.message||''}</td>`
-      + `</tr>`).join('');
-    if(window.currentLogLevel){
-      const rowsEls=document.querySelectorAll('#logsBody tr[data-level]');
-      rowsEls.forEach(r=>{
-        if(window.currentLogLevel==='all'){ r.classList.remove('hidden'); }
-        else { (r.dataset.level===window.currentLogLevel)? r.classList.remove('hidden') : r.classList.add('hidden'); }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    document.querySelectorAll('#dropdownLogLevel .log-filter-item').forEach(a => {
+      a.addEventListener('click', function(e){
+        e.preventDefault();
+        setFilter(this.dataset.level);
       });
-      const btn=document.getElementById('dropdownLogLevelButton');
-      if(btn){ btn.firstChild && (btn.firstChild.textContent = (window.currentLogLevel==='all'?'Filter Level':'Level: '+window.currentLogLevel.toUpperCase())); }
+    });
+    applyFilter();
+  });
+
+  function renderLogs(rows){
+    const body = document.getElementById('logsBody');
+    if(!body) return;
+    if(!rows || !rows.length){
+      body.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500 dark:text-gray-400">No logs found.</td></tr>';
+      return;
     }
+    
+    body.innerHTML = rows.map(l => {
+      const levelClass = (l.level||'').toLowerCase() === 'error' ? 'text-red-600 dark:text-red-400 font-bold' : 
+                         (l.level||'').toLowerCase() === 'warning' ? 'text-yellow-600 dark:text-yellow-400' : '';
+      
+      return `<tr class="border-b dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700" data-level="${(l.level||'').toLowerCase()}">`
+        + `<td class="p-4 whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400">${l.timestamp||'-'}</td>`
+        + `<td class="p-4 whitespace-nowrap text-xs ${levelClass}">${l.level||'INFO'}</td>`
+        + `<td class="p-4 text-xs text-gray-900 dark:text-white break-words font-mono">${l.message||''}</td>`
+        + `</tr>`;
+    }).join('');
+
+    applyFilter();
   }
   function poll(){
     // status/progress + controls
-    fetch('{% url 'training_status_api' %}')
+    fetch('{% url 'training:training_status_api' %}')
       .then(r=>r.json()).then(d=>{
         const sEl=document.getElementById('TrainingStatus');
+        const durEl=document.getElementById('Duration');
+        const etaEl=document.getElementById('EstimatedTime');
         const bar=document.getElementById('progressBar');
-        const pTxt=document.getElementById('progressText');
+        const pTxtLabel=document.getElementById('progressTextLabel');
         const startBtn=document.getElementById('startBtn');
         const stopBtn=document.getElementById('stopBtn');
+        
         if(sEl && d.status){ sEl.textContent = d.status; }
+        if(durEl && d.duration){ durEl.textContent = d.duration; }
+        if(etaEl && d.eta){ etaEl.textContent = d.eta; }
+        
         if(bar && typeof d.progress==="number"){
           const pct=Math.max(0, Math.min(100, d.progress));
           bar.style.width = pct + '%';
-          if(pTxt) pTxt.textContent = pct + '%';
+          if(pTxtLabel) pTxtLabel.textContent = pct + '%';
         }
         const running = (d.status||'').toLowerCase()==='running' && d.progress<100;
         if(startBtn && stopBtn){
@@ -255,11 +271,12 @@
         }
       }).catch(()=>{});
     // logs
-    fetch('{% url 'training_logs_api' %}')
+    fetch('{% url 'training:training_logs_api' %}')
       .then(r=>r.json()).then(d=>{ renderLogs(d.logs||[]); }).catch(()=>{});
   }
-  setInterval(poll, 1500);
-  poll();
+        // Initial poll
+        poll();
+        setInterval(poll, 3000);
 </script>
 </section>
       

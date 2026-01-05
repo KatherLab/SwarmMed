@@ -1,9 +1,26 @@
+"""
+Configuration for the Users application.
+This module defines the UsersConfig class which Django uses to manage the app's lifecycle.
+"""
+
 from django.apps import AppConfig
 
 
 class UsersConfig(AppConfig):
+    """
+    Standard Django AppConfig for the 'users' application.
+    """
+
+    # Use 64-bit integers for primary keys by default.
     default_auto_field = "django.db.models.BigAutoField"
-    name = "apps.users"
+
+    # Python path to the application.
+    name = "users"
 
     def ready(self):
-        import apps.users.signals
+        """
+        Executed when the application is started.
+        Used to register signal handlers defined in signals.py.
+        """
+        # Importing signals here ensures they are connected to the models.
+        import users.signals  # noqa

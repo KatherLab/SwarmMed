@@ -45,7 +45,7 @@
       <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
         <h2 class="mb-4 text-xl font-semibold dark:text-white">Create New Network</h2>
 
-        <form method="POST" action="{% url 'new_network' %}" class="space-y-6" enctype="multipart/form-data">
+        <form method="POST" action="{% url 'network:new_network' %}" class="space-y-6" enctype="multipart/form-data">
           {% csrf_token %}
           <!-- Title -->
           <div>
@@ -88,7 +88,7 @@
                   class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                 />
                 <button type="button" onclick="addClientEntry()"
-                  class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-4 py-2.5 h-full dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+                  class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 h-full dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
                   Add Client
                 </button>
               </div>
@@ -125,7 +125,7 @@
             <button type="submit" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
               Create Network
             </button>
-            <a href="{% url 'network' %}" class="text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600 dark:text-gray-300">
+            <a href="{% url 'network:network' %}" class="text-gray-900 bg-white border border-gray-200 hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
               Cancel
             </a>
           </div>
@@ -182,7 +182,7 @@
         if (name && ip) {
             const li = document.createElement('li');
             li.className = 'flex justify-between items-center p-2';
-            li.innerHTML = `<span>${name} - ${ip}</span><button type="button" class="text-red-500">Remove</button>`;
+            li.innerHTML = `<span>${name} - ${ip}</span><button type="button" class="text-sm font-medium text-red-600 hover:underline dark:text-red-500">Remove</button>`;
             
             const hiddenInput = document.createElement('input');
             hiddenInput.type = 'hidden';

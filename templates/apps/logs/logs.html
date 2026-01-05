@@ -85,17 +85,81 @@
           </a>
         </div>
         
-        <div class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-mono text-sm rounded-lg p-4 max-h-[400px] overflow-y-auto border border-gray-300 dark:border-gray-700">
+        <div class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-mono text-sm rounded-lg p-4 max-h-[400px] overflow-y-auto border border-gray-300 dark:border-gray-700 log-scroll-container" 
+             data-category="{{ category.key }}" 
+             {% if category.entries %}
+               {% with category.entries|last as last_log %}
+                 data-last-timestamp="{{ last_log.timestamp|date:'c' }}"
+               {% endwith %}
+             {% endif %}
+             data-has-more="{% if category.entries|length >= 50 %}true{% else %}false{% endif %}">
           {% if category.entries %}
-            <pre><code>{% for entry in category.entries %}[{{ entry.timestamp|date:"Y-m-d H:i:s" }}][{{ entry.user.email }}] {{ entry.level }} - [{{ entry.source }}] {{ entry.message }}
+            <pre><code class="log-content">{% for entry in category.entries %}[{{ entry.timestamp|date:"Y-m-d H:i:s" }}][{{ entry.user.email }}] {{ entry.level }} - {{ entry.message }}
 {% endfor %}</code></pre>
           {% else %}
             <pre><code>No log entries available for {{ category.display_name }} yet.</code></pre>
           {% endif %}
+          <div class="loading-indicator hidden text-center py-2 text-gray-500">
+            <svg class="animate-spin h-5 w-5 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          </div>
         </div>
       </section>
       {% endfor %}
     </div>
   </div>
 </main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const containers = document.querySelectorAll('.log-scroll-container');
+    
+    containers.forEach(container => {
+        container.addEventListener('scroll', function() {
+            if (container.scrollTop + container.clientHeight >= container.scrollHeight - 20) {
+                loadMoreLogs(container);
+            }
+        });
+    });
+
+    function loadMoreLogs(container) {
+        const category = container.dataset.category;
+        const lastTimestamp = container.dataset.lastTimestamp;
+        const hasMore = container.dataset.hasMore === 'true';
+        const isLoading = container.dataset.loading === 'true';
+
+        if (!hasMore || isLoading || !lastTimestamp) return;
+
+        container.dataset.loading = 'true';
+        const loadingIndicator = container.querySelector('.loading-indicator');
+        loadingIndicator.classList.remove('hidden');
+
+        fetch(`/logs/load-more/${category}/?last_timestamp=${encodeURIComponent(lastTimestamp)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.logs && data.logs.length > 0) {
+                    const codeBlock = container.querySelector('.log-content');
+                    data.logs.forEach(log => {
+                        const line = `[${log.timestamp}][${log.user}] ${log.level} - ${log.message}\n`;
+                        codeBlock.textContent += line;
+                    });
+                    
+                    container.dataset.lastTimestamp = data.logs[data.logs.length - 1].raw_timestamp;
+                    if (data.logs.length < 50) {
+                        container.dataset.hasMore = 'false';
+                    }
+                } else {
+                    container.dataset.hasMore = 'false';
+                }
+            })
+            .catch(error => console.error('Error loading more logs:', error))
+            .finally(() => {
+                container.dataset.loading = 'false';
+                loadingIndicator.classList.add('hidden');
+            });
+    }
+});
+</script>
 {% endblock content %}

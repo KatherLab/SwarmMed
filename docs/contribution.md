@@ -1,55 +1,133 @@
 ---
 title: Contribution Guide
-description: Guidelines for contributing to the MediSwarmCloud project.
+description: Detailed guidelines for contributing SwarmCloud.
 ---
 
 # Contribution Guide
 
-This guide provides information for developers who want to contribute to the MediSwarmCloud project.
+Welcome to the **SwarmCloud** developer community! This document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
 
-## Local Development Setup
+## 🏗 System Overview
 
-1.  **Create a virtual environment:**
+SwarmCloud is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
+### Core Technology Stack
+- **Backend:** Django 6.0, Celery, Redis.
+- **AI/ML:** NVIDIA FLARE (NVFlare) for Swarm Learning.
+- **Storage:** S3-compatible storage (MinIO for local dev).
+- **Frontend:** Tailwind CSS, Flowbite, Webpack.
+- **Infrastructure:** Docker & Docker Compose.
 
-    ``` bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
+---
 
-2.  **Install dependencies:**
+## 🛠 Local Development Setup
 
-    ``` bash
-    pip install -r requirements.txt
-    npm install
-    ```
+### 1. Python Environment
+Create and activate a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
 
-3. **Setup MediSwarmCloud**
-   
-    Please follow the instructions on the [Setup](/setup) page.
+Install Python dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-4.  **Build static files:**
+### 2. Frontend Assets
+Install Node.js dependencies:
+```bash
+npm install
+```
 
-    In a new terminal, run the following commands to build the CSS and JavaScript files:
+To change CSS files locally and see changes in real-time, run these commands in a new terminal:
+```bash
+npm run build
+npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
+npx webpack --watch
+```
 
-    ``` bash
-    npm i
-    npm run build
-    npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
-    npx webpack --watch
-    ```
+### 3. Services (Docker)
+The project relies on Redis, PostgreSQL, and MinIO. Use the provided `docker-compose.yml` to start these services:
+```bash
+docker compose up -d
+```
 
-## Coding Conventions
+### 4. Django Initialization
+```bash
+python manage.py migrate
+python manage.py runserver
+```
 
-*   **Python:** We follow the [PEP 8](https://www.python.org/dev/peps/pep-0008/) style guide for Python code.
-*   **JavaScript:** We use [Prettier](https://prettier.io/) for formatting JavaScript code.
-*   **Git:** Please follow the conventional commit message format.
+---
 
-## Contributing
+## 💻 Development Workflow
 
-We welcome contributions to the MediSwarm Cloud project. If you would like to contribute, please follow these steps:
+### Docker Configuration
+When working locally with Docker, you often use volumes for live code updates. However, for production, these should be removed:
+```yaml
+# Remove these in production within docker-compose.yml:
+volumes:
+  - ./:/app
+ports:
+  - "8000:8000"
+command: python manage.py runserver 0.0.0.0:8000
+```
 
-1.  Fork the repository.
-2.  Create a new branch for your feature or bug fix.
-3.  Make your changes.
-4.  Write tests for your changes.
-5.  Submit a pull request.
+### When Changing Tasks
+If you modify any Celery tasks in `tasks.py`, you **must** restart the worker to apply the changes:
+```bash
+docker compose restart celery_worker
+```
+
+---
+
+## 📜 Coding Guidelines
+
+### PEP 8 & Python Style
+We strictly adhere to **PEP 8**. Your code should be clean, readable, and well-commented.
+- Use meaningful variable and function names.
+- Provide type hints where possible.
+- **Crucial:** Every function and class must have a docstring.
+- Add detailed comments for logic involving background tasks (Celery) or infrastructure (NVFlare).
+
+### Security Scans
+We prioritize security. Please run these scans before submitting a Pull Request:
+
+**Snyk (Dependency & Code Vulnerabilities):**
+```bash
+snyk test --json-file-output=snyk_report.json
+snyk code test --json-file-output=snyk_code_report.json
+```
+
+**Bandit (Common Python Security Issues):**
+```bash
+bandit -r apps core home manage.py -f json -o bandit_report.json    
+```
+
+### Frontend Standards
+- Use **Tailwind CSS** utility classes for styling.
+- Follow the **Material Design** principles established in the templates.
+- Ensure components are responsive and accessible.
+
+---
+
+## 📂 Project Structure
+
+- `apps/`: Contains all functional modules (users, project, training, etc.).
+- `core/`: Project-wide settings and configuration.
+- `templates/`: HTML templates organized by app.
+- `static/`: Source assets (CSS, JS) before bundling.
+- `workspaces/`: Local directory for NVFlare job data and logs.
+
+---
+
+## 🤝 Contribution Process
+
+1. **Find an issue** or open a new one to discuss your ideas.
+2. **Fork and Branch:** Create a branch like `feature/your-feature-name`.
+3. **Develop & Test:** Ensure your code passes all linting and logic checks.
+4. **Pull Request:** Submit a PR with a clear description of the "why" and "what".
+
+---
+
+For a quick reference, see the [CONTRIBUTING.md](https://github.com/pfeifferis/SwarmCloud/blob/main/CONTRIBUTING.md) file in the root directory.

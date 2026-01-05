@@ -1,0 +1,67 @@
+
+<div id="cookie-banner" tabindex="-1" class="hidden fixed bottom-0 left-0 right-0 z-50 p-4 w-full bg-white border-t border-gray-200 dark:bg-gray-800 dark:border-gray-600 shadow-lg">
+    <div class="md:flex md:items-center md:justify-between w-full max-w-screen-xl mx-auto">
+        <div class="mb-4 md:mb-0 md:mr-4">
+            <h3 class="mb-1 text-lg font-semibold text-gray-900 dark:text-white">We value your privacy</h3>
+            <p class="text-sm font-normal text-gray-500 dark:text-gray-400">
+                We use essential cookies to ensure the security and functionality of our platform. 
+                By default, we do not use third-party analytics or tracking cookies.
+                Read our <a href="{% url 'users:privacy_policy' %}#cookies" class="text-purple-600 hover:underline dark:text-purple-500">Cookie Policy</a>.
+            </p>
+        </div>
+        <div class="flex items-center shrink-0">
+            <button type="button" id="accept-cookies" class="px-5 py-2.5 mr-2 text-sm font-medium text-white bg-purple-700 rounded-lg hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 dark:bg-purple-600 dark:hover:bg-purple-700 dark:focus:ring-purple-900">
+                Accept All
+            </button>
+            <button type="button" id="reject-cookies" class="px-5 py-2.5 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
+                Reject Optional
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const banner = document.getElementById('cookie-banner');
+        const acceptBtn = document.getElementById('accept-cookies');
+        const rejectBtn = document.getElementById('reject-cookies');
+
+        function showBanner() {
+            banner.classList.remove('hidden');
+        }
+
+        function hideBanner() {
+            banner.classList.add('hidden');
+        }
+
+        function setConsent(consent) {
+            localStorage.setItem('cookieConsent', consent);
+            hideBanner();
+            
+            // Persist to profile if logged in
+            {% if user.is_authenticated %}
+            fetch("{% url 'users:update_cookie_consent' %}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({ consent: consent })
+            }).catch(error => console.error('Error persisting cookie consent:', error));
+            {% endif %}
+
+            // Trigger event for other scripts to respond
+            window.dispatchEvent(new CustomEvent('cookieConsentChanged', { detail: consent }));
+        }
+
+        if (!localStorage.getItem('cookieConsent')) {
+            showBanner();
+        }
+
+        acceptBtn.addEventListener('click', () => setConsent('accepted'));
+        rejectBtn.addEventListener('click', () => setConsent('rejected'));
+
+        // Allow other parts of the app to re-open the banner
+        window.addEventListener('openCookieSettings', showBanner);
+    });
+</script>

@@ -1,13 +1,16 @@
 ---
-title: MediSwarmCloud Documentation
-description: Installation and setup instructions for the MediSwarmCloud platform.
+title: SwarmCloud Documentation
+description: Installation and setup instructions for the SwarmCloud platform.
 ---
 
-# Welcome to MediSwarmCloud Documentation
+# Welcome to SwarmCloud Documentation
 
-MediSwarmCloud is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
+!!! warning "Research Use Only"
+    This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-This documentation provides a comprehensive guide to understanding, setting up, and using the MediSwarmCloud platform.
+SwarmCloud is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
+
+This documentation provides a comprehensive guide to understanding, setting up, and using the SwarmCloud platform.
 
 ## Key Features
 <div class="grid cards" markdown>
@@ -43,13 +46,13 @@ This documentation provides a comprehensive guide to understanding, setting up, 
     
     [:octicons-arrow-right-24: Developer](/developer)
 
--   :material-scale-balance:{ .lg .middle } __Open Source, MIT__
+-   :material-scale-balance:{ .lg .middle } __Non-Commercial License__
 
     ---
 
-    MediSwarmCloud is licensed under MIT and available on GitHub.
+    SwarmCloud is licensed under PolyForm Noncommercial 1.0.0 and available on GitHub.
 
-    [:octicons-arrow-right-24: Github](https://github.com/pfeifferis/MediSwarmCloud)
+    [:octicons-arrow-right-24: Github](https://github.com/pfeifferis/SwarmCloud)
     
     [:octicons-arrow-right-24: Contribution](/contribution)
 
@@ -57,18 +60,17 @@ This documentation provides a comprehensive guide to understanding, setting up, 
 
 ## FAQ
 
-### What is MediSwarmCloud?
+### What is SwarmCloud?
 
-MediSwarmCloud is a secure and scalable platform for decentralized learning on medical data. It allows multiple parties to collaboratively train machine learning models without sharing sensitive data via a user-friendly web interface.
+SwarmCloud is a secure and scalable platform for decentralized learning on medical data. It allows multiple parties to collaboratively train machine learning models without sharing sensitive data via a user-friendly web interface.
 
 ### How does Swarm Learning work?
 
 Swarm Learning enables decentralized model training by allowing participants to train models on their local data and share only the model updates, rather than the data itself. This approach helps to maintain data privacy and security.
 
-### What are the system requirements for MediSwarmCloud?
+### What are the system requirements for SwarmCloud?
 
-MediSwarmCloud requires Docker and Docker Compose for deployment. Additionally, a VPN connection (e.g., Tailscale) is recommended for secure communication between participants.
+SwarmCloud requires Docker and Docker Compose for deployment. Additionally, a VPN connection (e.g., Tailscale) is recommended for secure communication between participants.
 
-### How can I contribute to MediSwarmCloud?
-
-We welcome contributions to the MediSwarmCloud project! Please refer to the [Contribution Guide](/contribution) for more information on how to get involved.
+### How can I contribute to SwarmCloud?
+We welcome contributions to the SwarmCloud project! Please refer to the [Contribution Guide](/contribution) for more information on how to get involved.

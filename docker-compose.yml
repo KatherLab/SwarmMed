@@ -1,8 +1,7 @@
-version: "3.8"
 services:
   app:
-    container_name: mediswarmcloud
-    command: python manage.py runserver 0.0.0.0:8000
+    container_name: swarmcloud
+    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 8 --worker-class gthread --access-logfile - --error-logfile - --log-level info --max-requests 1000 --max-requests-jitter 50 core.wsgi:application
     restart: always
     build:
       context: .
@@ -11,20 +10,58 @@ services:
       - web_network
     volumes:
       - ./:/app
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./tmp:/app/tmp
+      - ./media:/app/media
+      - static_data:/app/staticfiles
+      - ./workspaces:/app/workspaces
+      - ./infrastructure/certs/internal/ca.crt:/usr/local/share/ca-certificates/internal-ca.crt:ro
       - /var/run/tailscale:/var/run/tailscale:ro
       - /usr/bin/tailscale:/usr/bin/tailscale:ro
     depends_on:
       - postgres
+      - pgbouncer
       - redis
-    ports:
-      - "8000:8000"
+      - docker-proxy
     env_file:
       - .env
+    environment:
+      - DOCKER_HOST=tcp://docker-proxy:2375
+      - REQUESTS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
+      - SSL_CERT_FILE=/usr/local/share/ca-certificates/internal-ca.crt
+      - AWS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
+      - DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://localhost:5085,https://localhost:5085,http://127.0.0.1:8000,http://127.0.0.1:5085,https://127.0.0.1:5085
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    restart: always
+    ports:
+      - "5085:5085"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/nginx/app.conf:/etc/nginx/conf.d/default.conf
+      - ./infrastructure/certs:/etc/nginx/certs:ro
+      - ./infrastructure/certbot/conf:/etc/letsencrypt
+      - ./infrastructure/certbot/www:/var/www/certbot
+    depends_on:
+      - app
+    networks:
+      - web_network
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - ./infrastructure/certbot/conf:/etc/letsencrypt
+      - ./infrastructure/certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - web_network
 
   celery_worker:
     container_name: celery_worker
-    command: celery -A core worker --loglevel=info --concurrency=2
+    command: celery -A core worker --loglevel=info --concurrency=8 --prefetch-multiplier=2
     restart: always
     build:
       context: .
@@ -32,75 +69,146 @@ services:
       - db_network
     volumes:
       - ./:/app
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./tmp:/app/tmp
+      - ./media:/app/media
+      - static_data:/app/staticfiles
+      - ./workspaces:/app/workspaces
+      - ./infrastructure/certs/internal/ca.crt:/usr/local/share/ca-certificates/internal-ca.crt:ro
     depends_on:
       - postgres
+      - pgbouncer
       - redis
+      - docker-proxy
     env_file:
       - .env
     environment:
-      - C_FORCE_ROOT=1  # Allow Celery to run as root in Docker
+      - DOCKER_HOST=tcp://docker-proxy:2375
+      - REQUESTS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
+      - SSL_CERT_FILE=/usr/local/share/ca-certificates/internal-ca.crt
+      - AWS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
+      - SKIP_MIGRATIONS=1
+      - CELERY_WORKER=1
 
-  nginx:
-    container_name: nginx
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy
+    container_name: docker-proxy
     restart: always
-    image: "nginx:latest"
-    ports:
-      - "5085:5085"
-    volumes:
-      - ./nginx:/etc/nginx/conf.d
     networks:
-      - web_network
-    depends_on:
-      - app
+      - db_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - NETWORKS=1
+      - VOLUMES=1
+      - BUILD=1
+      - VERSION=1
+      - AUTH=1
+      - SECRETS=0
+      - POST=1
+      - EXEC=0
+    # Only allow internal access from the project containers
+    expose:
+      - "2375"
 
   redis:
     image: redis:7.0.12
     container_name: redis
-    command: ["redis-server", "--port", "6379", "--slave-read-only", "no"]
+    command:
+      - redis-server
+      - --port
+      - "0"
+      - --tls-port
+      - "6379"
+      - --tls-cert-file
+      - /etc/redis/certs/redis.crt
+      - --tls-key-file
+      - /etc/redis/certs/redis.key
+      - --tls-ca-cert-file
+      - /etc/redis/certs/ca.crt
+      - --tls-auth-clients
+      - "no"
+      - --requirepass
+      - "${REDIS_PASSWORD:-devpassword}"
+      - --slave-read-only
+      - "no"
     restart: always
     ports:
-      - 6379:6379
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ./infrastructure/certs/internal/redis.crt:/etc/redis/certs/redis.crt:ro
+      - ./infrastructure/certs/internal/redis.key:/etc/redis/certs/redis.key:ro
+      - ./infrastructure/certs/internal/ca.crt:/etc/redis/certs/ca.crt:ro
     networks:
       - db_network
 
+
   postgres:
-    image: postgres:13
+    image: postgres:15
     container_name: postgres
     restart: always
+    entrypoint: /usr/local/bin/custom_entrypoint.sh
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data/
+      - postgres_data:/var/lib/postgresql/data/
+      - ./infrastructure/certs/internal/postgres.crt:/var/lib/postgresql/server.crt:ro
+      - ./infrastructure/certs/internal/postgres.key:/var/lib/postgresql/server.key:ro
+      - ./infrastructure/certs/internal/ca.crt:/var/lib/postgresql/root.crt:ro
+      - ./scripts/init_postgres_ssl.sh:/docker-entrypoint-initdb.d/init_postgres_ssl.sh:ro
+      - ./infrastructure/postgres/entrypoint.sh:/usr/local/bin/custom_entrypoint.sh:ro
+      - ./infrastructure/postgres/update_password.sh:/usr/local/bin/update_password.sh:ro
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/server.crt
+      -c ssl_key_file=/var/lib/postgresql/server.key
+      -c ssl_ca_file=/var/lib/postgresql/root.crt
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     env_file:
       - .env
     networks:
       - db_network
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: pgbouncer
+    restart: always
+    volumes:
+      - ./infrastructure/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini
+      - ./infrastructure/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt
+      - ./infrastructure/certs/internal/ca.crt:/etc/pgbouncer/certs/ca.crt:ro
+      - ./infrastructure/certs/internal/pgbouncer.crt:/etc/pgbouncer/certs/pgbouncer.crt:ro
+      - ./infrastructure/certs/internal/pgbouncer.key:/etc/pgbouncer/certs/pgbouncer.key:ro
+    depends_on:
+      - postgres
+    networks:
+      - db_network
+    expose:
+      - "5432"
 
   minio:
     image: minio/minio
     container_name: minio
     volumes:
       - minio_data:/data
+      - ./infrastructure/certs/internal/minio_certs:/root/.minio/certs:ro
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     env_file:
       - .env
+    environment:
+      - MINIO_KMS_SECRET_KEY=${MINIO_KMS_SECRET_KEY}
     command: server /data --console-address ":9001"
     networks:
       - db_network
-  
-  adminer:
-    image: adminer:latest
-    container_name: adminer
-    restart: always
-    ports:
-      - "8080:8080"
-    networks:
-      - db_network
-    depends_on:
-      - postgres
+
 
 networks:
   db_network:
@@ -109,5 +217,21 @@ networks:
     driver: bridge
 
 volumes:
+
+  # Sensitive data volumes using a placeholder driver for encryption.
+
+  # Change the driver and options according to your host encryption solution 
+
+  # (e.g., LUKS, cloud provider encrypted block storage).
+
   postgres_data:
+
+    driver: local
+
   minio_data:
+
+    driver: local
+
+  static_data:
+
+    driver: local

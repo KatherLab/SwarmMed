@@ -1,25 +1,103 @@
-from django.db import models
+"""
+Database models for the users application.
+Defines the Profile model which extends the standard Django User model
+with additional fields like role and contact information.
+"""
+
+import secrets
+
 from django.contrib.auth.models import User
-import uuid
+from django.db import models
+from common.fields import EncryptedCharField, EncryptedTextField
+from common.models import AbstractBaseModel
 
-# Create your models here.
 
-
+# Define available roles for users in the system.
+# 'admin' has full control, 'developer' can manage projects,
+# and 'user' is a standard participant.
 ROLE_CHOICES = (
-    ('admin'  , 'Admin'),
-    ('developer', 'Developer'),
-    ('user'  , 'User'),
+    ("admin", "Admin"),
+    ("developer", "Developer"),
+    ("user", "User"),
 )
-class Profile(models.Model):
-    user      = models.OneToOneField(User, on_delete=models.CASCADE)
-    identifier = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    role      = models.CharField(max_length=20, choices=ROLE_CHOICES, default='user')
-    full_name = models.CharField(max_length=255, null=True, blank=True)
-    country   = models.CharField(max_length=255, null=True, blank=True)
-    city      = models.CharField(max_length=255, null=True, blank=True)
-    zip_code  = models.CharField(max_length=255, null=True, blank=True)
-    address   = models.CharField(max_length=255, null=True, blank=True)
-    phone     = models.CharField(max_length=255, null=True, blank=True)
+
+# A predefined palette of Tailwind-compatible colors for user avatars.
+AVATAR_COLORS = [
+    "#F87171",  # red-400
+    "#FB923C",  # orange-400
+    "#FBBF24",  # amber-400
+    "#FACC15",  # yellow-400
+    "#A3E635",  # lime-400
+    "#4ADE80",  # green-400
+    "#34D399",  # emerald-400
+    "#2DD4BF",  # teal-400
+    "#22D3EE",  # cyan-400
+    "#38BDF8",  # sky-400
+    "#60A5FA",  # blue-400
+    "#818CF8",  # indigo-400
+    "#A78BFA",  # violet-400
+    "#C084FC",  # purple-400
+    "#E879F9",  # fuchsia-400
+    "#FB7185",  # pink-400
+]
+
+
+class Profile(AbstractBaseModel):
+    """
+    Extends the built-in Django User model with extra application-specific
+    information using a One-to-One relationship.
+    """
+
+    # Link to the standard Django User.
+    # If the User is deleted, the Profile is also deleted (CASCADE).
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+
+    # The user's role in the SwarmCloud system.
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="user")
+
+    # HEX color code for the user's avatar background.
+    color = models.CharField(max_length=7, null=True, blank=True)
+
+    # Optional contact and location information (Encrypted PHI).
+    full_name = EncryptedCharField(max_length=255, null=True, blank=True)
+    country = EncryptedCharField(max_length=255, null=True, blank=True)
+    city = EncryptedCharField(max_length=255, null=True, blank=True)
+    zip_code = EncryptedCharField(max_length=255, null=True, blank=True)
+    address = EncryptedCharField(max_length=255, null=True, blank=True)
+    phone = EncryptedCharField(max_length=255, null=True, blank=True)
+
+    # Compliance: Track user consent to legal documents and cookies.
+    accepted_policy = models.BooleanField(default=False)
+    accepted_policy_date = models.DateTimeField(null=True, blank=True)
+    accepted_terms = models.BooleanField(default=False)
+    accepted_terms_date = models.DateTimeField(null=True, blank=True)
+    cookie_consent = models.CharField(
+        max_length=20,
+        choices=[("accepted", "Accepted"), ("rejected", "Rejected")],
+        null=True,
+        blank=True,
+    )
+    cookie_consent_date = models.DateTimeField(null=True, blank=True)
+
+    # GDPR: Right to Restriction of Processing
+    is_restricted = models.BooleanField(default=False)
+    restriction_date = models.DateTimeField(null=True, blank=True)
+
+    # Break-glass / Emergency Access (HIPAA compliance)
+    is_emergency_access = models.BooleanField(default=False)
+    emergency_access_expiry = models.DateTimeField(null=True, blank=True)
+    emergency_access_justification = EncryptedTextField(null=True, blank=True)
 
     def __str__(self):
+        """Returns the username of the associated user."""
         return self.user.username
+
+    def get_avatar_color(self):
+        """
+        Retrieves the assigned avatar color or picks a random one if none exists.
+        Saves the choice to ensure persistence.
+        """
+        if not self.color:
+            self.color = secrets.choice(AVATAR_COLORS)
+            self.save(update_fields=["color"])
+        return self.color

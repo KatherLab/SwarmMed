@@ -1,4 +1,13 @@
-FROM python:3.10
+# Stage 1: Build static assets
+FROM node:20-slim AS static-builder
+WORKDIR /app
+COPY package.json package-lock.json postcss.config.js tailwind.config.js webpack.config.js ./
+COPY static ./static
+COPY templates ./templates
+RUN npm i && npm run build
+
+# Stage 2: Final image
+FROM python:3.12-slim-bookworm
 
 # set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -6,31 +15,40 @@ ENV PYTHONUNBUFFERED 1
 
 WORKDIR /app
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    gosu \
+    netcat-openbsd \
+    libpq-dev \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian "$( . /etc/os-release && echo "$VERSION_CODENAME")" stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    docker-ce-cli \
+    docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 # install python dependencies
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
-RUN apt-get update && apt-get install -y netcat-openbsd docker-compose
+RUN pip install --upgrade pip --no-cache-dir \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+# Copy built assets from Stage 1
+COPY --from=static-builder /app/static/dist ./static/dist
 
-# Install node 18 and npm
-RUN set -uex; \
-    apt-get update; \
-    apt-get install -y ca-certificates curl gnupg; \
-    mkdir -p /etc/apt/keyrings; \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-     | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
-    NODE_MAJOR=18; \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" \
-     > /etc/apt/sources.list.d/nodesource.list; \
-    apt-get update; \
-    apt-get install -y nodejs npm;
+# Install internal CA certificate and update system trust store
+USER root
+RUN mkdir -p /usr/local/share/ca-certificates/ && \
+    cp infrastructure/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt && \
+    update-ca-certificates
 
-# Install Modules, Webpack and Tailwind set up
-RUN npm i
-RUN npm run build
-RUN npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css
+# Create a non-root user and set permissions
+RUN useradd -m appuser && chown -R appuser:appuser /app
 
 # Add entrypoint script
 COPY entrypoint.sh /entrypoint.sh

@@ -43,7 +43,7 @@
       <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
         <h2 class="mb-4 text-xl font-semibold dark:text-white">{% if edit %}Edit{% else %}Create New{% endif %} Project</h2>
 
-        <form class="space-y-6" method="POST" action="{% if edit %}{% url 'project_edit' form.instance.id %}{% else %}{% url 'project_create' %}{% endif %}" enctype="multipart/form-data">
+        <form class="space-y-6" method="POST" action="{% if edit %}{% url 'project:project_edit' form.instance.id %}{% else %}{% url 'project:project_create' %}{% endif %}" enctype="multipart/form-data">
           {% csrf_token %}
           
           <!-- Title -->
@@ -92,7 +92,7 @@
               {% if form.instance.training_code %}
                 <div class="flex items-center mb-2 gap-2">
                   <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.training_code.name }}</span>
-                  <a href="{{ form.instance.training_code.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                  <a href="{% url 'project:download_file' form.instance.id 'training_code' %}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
                 </div>
               {% endif %}
               <label for="id_training_code" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.training_code.errors %}border-red-500{% endif %}">
@@ -103,7 +103,7 @@
                   <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Upload files or folders</p>
                 </div>
-                <input id="id_training_code" name="training_code" type="file" class="hidden" multiple webkitdirectory directory />
+                <input id="id_training_code" name="training_code" type="file" class="hidden" multiple accept=".py" />
               </label>
               {% if form.training_code.errors %}
               <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.training_code.errors.0 }}</p>
@@ -125,7 +125,7 @@
               {% if form.instance.requirements_file %}
                 <div class="flex items-center mb-2 gap-2">
                   <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.requirements_file.name }}</span>
-                  <a href="{{ form.instance.requirements_file.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                  <a href="{% url 'project:download_file' form.instance.id 'requirements_file' %}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
                 </div>
               {% endif %}
               <label for="id_requirements_file" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.requirements_file.errors %}border-red-500{% endif %}">
@@ -158,7 +158,7 @@
               {% if form.instance.data_validation_script %}
                 <div class="flex items-center mb-2 gap-2">
                   <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.data_validation_script.name }}</span>
-                  <a href="{{ form.instance.data_validation_script.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                  <a href="{% url 'project:download_file' form.instance.id 'data_validation_script' %}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
                 </div>
               {% endif %}
               <label for="id_data_validation_script" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.data_validation_script.errors %}border-red-500{% endif %}">
@@ -191,7 +191,7 @@
               {% if form.instance.data_visualization_script %}
                 <div class="flex items-center mb-2 gap-2">
                   <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.data_visualization_script.name }}</span>
-                  <a href="{{ form.instance.data_visualization_script.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                  <a href="{% url 'project:download_file' form.instance.id 'data_visualization_script' %}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
                 </div>
               {% endif %}
               <label for="id_data_visualization_script" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.data_visualization_script.errors %}border-red-500{% endif %}">
@@ -224,7 +224,7 @@
               {% if form.instance.results_visualization_script %}
                 <div class="flex items-center mb-2 gap-2">
                   <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.results_visualization_script.name }}</span>
-                  <a href="{{ form.instance.results_visualization_script.url }}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                  <a href="{% url 'project:download_file' form.instance.id 'results_visualization_script' %}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
                 </div>
               {% endif %}
               <label for="id_results_visualization_script" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.results_visualization_script.errors %}border-red-500{% endif %}">
@@ -257,7 +257,7 @@
             <button type="submit" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
               {% if edit %}Update{% else %}Save{% endif %} Project
             </button>
-            <a href="{% url 'project_list' %}" class="text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600 dark:text-gray-300">
+            <a href="{% url 'project:project_list' %}" class="text-gray-900 bg-white border border-gray-200 hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
               Cancel
             </a>
           </div>
@@ -270,13 +270,8 @@
 <!-- JavaScript to handle file uploads and display -->
 <script>
   document.addEventListener("DOMContentLoaded", function() {
-    // Handle file selection display for Training Code (multiple files/folders)
-    setupMultipleFileUploadDisplay(
-      "id_training_code", 
-      "training_code_files_container", 
-      "training_code_files_list",
-      "training_code_directories"
-    );
+    // Handle file selection display for Training Code (multiple files AND folders)
+    setupTrainingCodeUploadDisplay();
     
     // Handle file selection display for Data Validation Script (single .py file)
     setupSingleFileUploadDisplay(
@@ -311,6 +306,70 @@
     setupMemberEmailsDisplay();
   });
 
+  function setupTrainingCodeUploadDisplay() {
+    const filesInput = document.getElementById("id_training_code");
+    const container = document.getElementById("training_code_files_container");
+    const list = document.getElementById("training_code_files_list");
+    const dirInput = document.getElementById("training_code_directories");
+
+    if (!filesInput) return;
+    
+    function updateDisplay() {
+      const files = filesInput.files;
+      list.innerHTML = '';
+      let filesByDirectory = {};
+      let directoriesMap = {};
+      let globalIdx = 0;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.name.endsWith('.py')) {
+          const relPath = file.webkitRelativePath || file.name;
+          directoriesMap[file.name + '_' + globalIdx] = relPath;
+          globalIdx++;
+
+          let dirPath = '';
+          if (relPath.includes('/')) {
+            dirPath = relPath.substring(0, relPath.lastIndexOf('/'));
+          }
+          if (!filesByDirectory[dirPath]) filesByDirectory[dirPath] = [];
+          filesByDirectory[dirPath].push(file);
+        }
+      }
+
+      if (globalIdx > 0) {
+        container.classList.remove("hidden");
+        
+        // Add summary
+        const summary = document.createElement('div');
+        summary.className = 'font-medium text-gray-800 dark:text-white mb-2';
+        summary.textContent = `${globalIdx} .py file(s) selected`;
+        list.appendChild(summary);
+
+        for (const [dirPath, dirFiles] of Object.entries(filesByDirectory)) {
+          if (dirPath !== '') {
+            const header = document.createElement('div');
+            header.className = 'font-medium text-purple-700 dark:text-purple-300 mt-2 mb-1';
+            header.textContent = '- ' + dirPath;
+            list.appendChild(header);
+          }
+          dirFiles.forEach(file => {
+            const item = document.createElement('div');
+            item.className = 'text-sm text-gray-700 dark:text-gray-300 pl-4 py-1';
+            item.textContent = file.name + ' (' + formatFileSize(file.size) + ')';
+            list.appendChild(item);
+          });
+        }
+      } else {
+        container.classList.add("hidden");
+      }
+
+      dirInput.value = JSON.stringify(directoriesMap);
+    }
+
+    filesInput.addEventListener("change", updateDisplay);
+  }
+
   function setupMemberEmailsDisplay() {
     const memberInput = document.getElementById('id_member_identifiers');
     const emailsContainer = document.getElementById('member_emails_container');
@@ -328,7 +387,7 @@
         return;
       }
 
-      fetch('{% url "get_user_emails" %}', {
+      fetch('{% url "project:get_user_emails" %}', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -370,80 +429,13 @@
     updateEmails();
   }
 
-  function setupMultipleFileUploadDisplay(inputId, containerId, listId, directoriesInputId) {
-    const fileInput = document.getElementById(inputId);
-    const selectedFilesContainer = document.getElementById(containerId);
-    const selectedFilesList = document.getElementById(listId);
-    const directoriesInput = document.getElementById(directoriesInputId);
-    
-    fileInput.addEventListener("change", function() {
-      var files = fileInput.files;
-      var directories = {};
-      
-      // Clear the previous list
-      selectedFilesList.innerHTML = '';
-      
-      // Display selected files/folders
-      if (files.length > 0) {
-        selectedFilesContainer.classList.remove("hidden");
-        
-        // Group files by directory
-        let filesByDirectory = {};
-        
-        for (var i = 0; i < files.length; i++) {
-          // Use webkitRelativePath if present, else just the file name
-          var relPath = files[i].webkitRelativePath || files[i].name;
-          directories[files[i].name + '_' + i] = relPath;
-          
-          // Extract directory path for grouping
-          let dirPath = '';
-          if (relPath.includes('/')) {
-            dirPath = relPath.substring(0, relPath.lastIndexOf('/'));
-          }
-          
-          if (!filesByDirectory[dirPath]) {
-            filesByDirectory[dirPath] = [];
-          }
-          filesByDirectory[dirPath].push(files[i]);
-        }
-        
-        // Create elements to display files grouped by directory
-        for (const [dirPath, dirFiles] of Object.entries(filesByDirectory)) {
-          // Create directory header if it's not the root
-          if (dirPath !== '') {
-            const dirHeader = document.createElement('div');
-            dirHeader.className = 'font-medium text-purple-700 dark:text-purple-300 mt-2 mb-1';
-            dirHeader.textContent = '- ' + dirPath;
-            selectedFilesList.appendChild(dirHeader);
-          }
-          
-          // Create file list for this directory
-          dirFiles.forEach(file => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'text-sm text-gray-700 dark:text-gray-300 pl-4 py-1';
-            fileItem.textContent = file.name + ' (' + formatFileSize(file.size) + ')';
-            selectedFilesList.appendChild(fileItem);
-          });
-        }
-        
-        // Add summary at the top
-        const summaryElement = document.createElement('div');
-        summaryElement.className = 'font-medium text-gray-800 dark:text-white mb-2';
-        summaryElement.textContent = `${files.length} file(s) selected`;
-        selectedFilesList.insertBefore(summaryElement, selectedFilesList.firstChild);
-      } else {
-        selectedFilesContainer.classList.add("hidden");
-      }
-      
-      directoriesInput.value = JSON.stringify(directories);
-    });
-  }
-  
   function setupSingleFileUploadDisplay(inputId, containerId, listId, requiredFileName) {
     const fileInput = document.getElementById(inputId);
     const selectedFilesContainer = document.getElementById(containerId);
     const selectedFilesList = document.getElementById(listId);
     
+    if (!fileInput) return;
+
     fileInput.addEventListener("change", function() {
       var file = fileInput.files[0];
       

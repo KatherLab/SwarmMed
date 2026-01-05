@@ -161,7 +161,7 @@
       </svg>
       <span class="sr-only">Info</span>
       <div>
-        <span class="font-medium">No validation script!</span> To validate your data, please <a href="{% url 'project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a validation script</a> in the project settings.
+        <span class="font-medium">No validation script!</span> To validate your data, please <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a validation script</a> in the project settings.
       </div>
     </div>
   </div>
@@ -217,7 +217,7 @@
         </svg>
         <span class="sr-only">Info</span>
         <div>
-          <span class="font-medium">No visualization script!</span> To visualize your data, please <a href="{% url 'project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a visualization script</a> in the project settings.
+          <span class="font-medium">No visualization script!</span> To visualize your data, please <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a visualization script</a> in the project settings.
         </div>
       </div>
     </div>
@@ -345,7 +345,23 @@ document.addEventListener('DOMContentLoaded', function() {
     
    function updateUI(data) {
     if (data.status === 'none') {
-        statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">No validation runs yet</p></div>';
+        if (data.has_script) {
+            statusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">Click "Start Validation" to check your data</p></div>';
+        } else {
+            statusDiv.innerHTML = `
+                <div class="p-4 mb-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-700 dark:text-blue-400 border border-blue-100 dark:border-blue-800" role="alert">
+                    <div class="flex items-center">
+                        <svg class="flex-shrink-0 inline w-4 h-4 mr-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
+                        </svg>
+                        <span class="sr-only">Info</span>
+                        <div>
+                            <span class="font-medium">No validation script!</span> To validate your data, please <a href="/project/edit/${data.project_id || ''}" class="font-semibold underline hover:no-underline">upload a validation script</a> in the project settings.
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
         if (startBtn) startBtn.style.display = 'block';
         if (stopBtn) stopBtn.style.display = 'none';
         outputDiv.style.display = 'none';
@@ -506,9 +522,25 @@ document.addEventListener('DOMContentLoaded', function() {
     if (data.status === 'none') {
         // No visualizations yet, show placeholders
         showPlaceholders();
-        if (vizStatusDiv.innerHTML.includes('Generating')) {
-             vizStatusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">Click "Generate Plots" to visualize your data</p></div>';
+        
+        if (data.has_script) {
+            vizStatusDiv.innerHTML = '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">Click "Generate Plots" to visualize your data</p></div>';
+        } else {
+            vizStatusDiv.innerHTML = `
+                <div class="p-4 mb-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-700 dark:text-blue-400 border border-blue-100 dark:border-blue-800" role="alert">
+                    <div class="flex items-center">
+                        <svg class="flex-shrink-0 inline w-4 h-4 mr-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
+                        </svg>
+                        <span class="sr-only">Info</span>
+                        <div>
+                            <span class="font-medium">No visualization script!</span> To visualize your data, please <a href="/project/edit/${data.project_id || ''}" class="font-semibold underline hover:no-underline">upload a visualization script</a> in the project settings.
+                        </div>
+                    </div>
+                </div>
+            `;
         }
+        
         if (startVizBtn) startVizBtn.style.display = 'block';
         if (stopVizBtn) stopVizBtn.style.display = 'none';
         stopVisualizationPolling();
@@ -609,7 +641,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Show image
                 if (image) {
-                    image.src = `data:image/png;base64,${plot.image_data}`;
+                    image.src = plot.image_url;
                     image.style.display = 'block';
                     image.classList.remove('hidden');
                 }
@@ -629,21 +661,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     const pngBtn = actions.querySelector('.download-png');
                     const svgBtn = actions.querySelector('.download-svg');
                     
-                    pngBtn.onclick = () => downloadImage(plot.image_data, `${plot.title.replace(/\s+/g, '_')}.png`, 'image/png');
-                    svgBtn.onclick = () => downloadImage(plot.svg_data, `${plot.title.replace(/\s+/g, '_')}.svg`, 'image/svg+xml');
+                    pngBtn.onclick = () => downloadImage(plot.image_url, `${plot.title.replace(/\s+/g, '_')}.png`);
+                    svgBtn.onclick = () => downloadImage(plot.svg_url, `${plot.title.replace(/\s+/g, '_')}.svg`);
                 }
             }
         });
     }
 
-    function downloadImage(base64, filename, type) {
-        if (!base64) {
+    function downloadImage(url, filename) {
+        if (!url) {
             alert('Data not available for this plot. Please run the visualization again.');
             return;
         }
         const link = document.createElement('a');
-        link.href = `data:${type};base64,${base64}`;
+        link.href = url;
         link.download = filename;
+        link.target = '_blank';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
