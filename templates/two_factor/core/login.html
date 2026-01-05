@@ -75,19 +75,19 @@
                     <div class="flex items-start">
                         <div class="flex items-center h-5">
                             <input id="remember" aria-describedby="remember" name="remember" type="checkbox" 
-                                   class="w-4 h-4 border-gray-300 rounded bg-gray-50 focus:ring-3 focus:ring-primary-300 dark:focus:ring-primary-600 dark:ring-offset-gray-800 dark:bg-gray-700 dark:border-gray-600">
+                                   class="w-4 h-4 border-gray-300 rounded bg-gray-50 focus:ring-3 focus:ring-purple-300 dark:focus:ring-purple-600 dark:ring-offset-gray-800 dark:bg-gray-700 dark:border-gray-600">
                         </div>
                         <div class="ml-3 text-sm">
                             <label for="remember" class="font-medium text-gray-900 dark:text-white">Remember me</label>
                         </div>
-                        <a href="{% url "users:password_reset" %}" class="ml-auto text-sm text-primary-700 hover:underline dark:text-primary-500">Lost Password?</a>
+                        <a href="{% url "users:password_reset" %}" class="ml-auto text-sm text-purple-700 hover:underline dark:text-purple-500">Lost Password?</a>
                     </div>
                 {% endif %}
 
                 {# Action buttons #}
                 <div class="flex items-center justify-between space-x-4">
                     {% if wizard.steps.prev %}
-                        <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.first }}" class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700">
+                        <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.first }}" class="text-gray-900 bg-white border border-gray-200 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700">
                             {% trans "Back" %}
                         </button>
                     {% endif %}
@@ -104,7 +104,7 @@
                 {% if wizard.steps.current == 'token' %}
                     <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">
                         {% trans "Unable to access your device?" %}
-                        <a href="{% url 'users:two_factor:backup_tokens' %}" class="font-medium text-primary-600 hover:underline dark:text-primary-500">
+                        <a href="{% url 'users:two_factor:backup_tokens' %}" class="font-medium text-purple-600 hover:underline dark:text-purple-500">
                             {% trans "Use a backup token" %}
                         </a>
                     </p>

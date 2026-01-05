@@ -165,14 +165,14 @@
           <!-- Logs table -->
           <div class="overflow-x-auto mt-6 rounded-lg">
             <table class="w-full text-sm text-left text-gray-500 dark:text-gray-300">
-              <thead class="bg-gray-50 dark:bg-gray-700 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">
+              <thead class="bg-gray-100 dark:bg-gray-700">
                 <tr>
-                  <th scope="col" class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Timestamp</th>
-                  <th scope="col" class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Level</th>
-                  <th scope="col" class="p-4 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-white">Message</th>
+                  <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">Timestamp</th>
+                  <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">Level</th>
+                  <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">Message</th>
                 </tr>
               </thead>
-              <tbody id="logsBody">
+              <tbody id="logsBody" class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
                 {% if training_logs %}
                 {% for log in training_logs %}
                 <tr class="border-b dark:border-gray-600" data-level="{{ log.level|lower }}">
