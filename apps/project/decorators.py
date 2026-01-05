@@ -25,6 +25,13 @@ def project_membership_required(view_func):
         else:
             project = get_object_or_404(Project, pk=project_id)
 
+        # HIPAA: Allow access if the user has an active emergency access (break-glass)
+        if (
+            hasattr(request.user, "profile")
+            and request.user.profile.is_emergency_access
+        ):
+            return view_func(request, *args, **kwargs)
+
         is_author = project.author == request.user
         is_member = project.members.filter(id=request.user.id).exists()
 
@@ -50,6 +57,13 @@ def project_context_required(view_func):
 
             if not project:
                 raise UserCurrentProject.DoesNotExist()
+
+            # HIPAA: Allow access if the user has an active emergency access (break-glass)
+            if (
+                hasattr(request.user, "profile")
+                and request.user.profile.is_emergency_access
+            ):
+                return view_func(request, *args, **kwargs)
 
             # Verify membership (in case they were removed)
             is_author = project.author == request.user

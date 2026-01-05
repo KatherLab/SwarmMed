@@ -1,4 +1,4 @@
-{% extends "two_factor/_base.html" %}
+{% extends "layouts/base-auth.html" %}
 {% load i18n %}
 {% load static %}
 
@@ -10,7 +10,7 @@
             <span>SwarmCloud</span>  
         </a>
         <!-- Card -->
-        <div class="w-full max-w-xl p-6 space-y-8 sm:p-8 bg-white rounded-lg shadow dark:bg-gray-800">
+        <div class="w-full max-w-xl p-6 space-y-8 sm:p-8 bg-white rounded-lg shadow dark:bg-gray-800 auth-card">
             <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
                 {% block title %}{% trans "Login" %}{% endblock %}
             </h2>
@@ -20,7 +20,7 @@
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                     <span>ADMIN: admin</span>
                     <br />
-                    <span>USER: test12345</span>
+                    <span>USER: REMOVED-SAMPLE-CREDENTIAL</span>
                 </p>
             {% elif wizard.steps.current == 'token' %}
                 <p class="text-gray-500 dark:text-gray-400">
@@ -87,11 +87,11 @@
                 {# Action buttons #}
                 <div class="flex items-center justify-between space-x-4">
                     {% if wizard.steps.prev %}
-                        <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.first }}" class="px-5 py-3 text-base font-medium text-center text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 focus:ring-4 focus:ring-primary-300 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:focus:ring-gray-700">
+                        <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.first }}" class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700">
                             {% trans "Back" %}
                         </button>
                     {% endif %}
-                    <button type="submit" class="w-full px-5 py-3 text-base font-medium text-center text-white bg-primary-700 rounded-lg hover:bg-primary-800 focus:ring-4 focus:ring-primary-300 sm:w-auto dark:bg-primary-600 dark:hover:bg-primary-700 dark:focus:ring-primary-800">
+                    <button type="submit" class="w-full bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300 sm:w-auto">
                         {% if wizard.steps.current == 'auth' %}
                             {% trans "Login" %}
                         {% else %}
@@ -104,7 +104,7 @@
                 {% if wizard.steps.current == 'token' %}
                     <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">
                         {% trans "Unable to access your device?" %}
-                        <a href="{% url 'two_factor:backup_tokens' %}" class="font-medium text-primary-600 hover:underline dark:text-primary-500">
+                        <a href="{% url 'users:two_factor:backup_tokens' %}" class="font-medium text-primary-600 hover:underline dark:text-primary-500">
                             {% trans "Use a backup token" %}
                         </a>
                     </p>

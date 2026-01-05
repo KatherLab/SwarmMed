@@ -24,7 +24,14 @@ def admin_required(view_func):
             return view_func(request, *args, **kwargs)
 
         has_profile = hasattr(request.user, "profile")
-        if not has_profile or request.user.profile.role != "admin":
+        if not has_profile:
+            raise PermissionDenied
+
+        # HIPAA: Allow access if the user has an active emergency access (break-glass)
+        if request.user.profile.is_emergency_access:
+            return view_func(request, *args, **kwargs)
+
+        if request.user.profile.role != "admin":
             raise PermissionDenied
 
         return view_func(request, *args, **kwargs)
@@ -46,7 +53,14 @@ def developer_required(view_func):
             return view_func(request, *args, **kwargs)
 
         has_profile = hasattr(request.user, "profile")
-        if not has_profile or request.user.profile.role not in ["admin", "developer"]:
+        if not has_profile:
+            raise PermissionDenied
+
+        # HIPAA: Allow access if the user has an active emergency access (break-glass)
+        if request.user.profile.is_emergency_access:
+            return view_func(request, *args, **kwargs)
+
+        if request.user.profile.role not in ["admin", "developer"]:
             raise PermissionDenied
 
         return view_func(request, *args, **kwargs)

@@ -19,7 +19,7 @@
             <li>
               <div class="flex items-center">
                 <svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path></svg>
-                <a href="/users" class="ml-1 text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">Users</a>
+                <a href="{% url 'users:user_list' %}" class="ml-1 text-gray-700 dark:text-gray-300 hover:text-purple-700 dark:hover:text-purple-300">Users</a>
               </div>
             </li>
             <li>
@@ -63,7 +63,7 @@
                 <div class="grid grid-cols-6 gap-6">
                     {% for field in form %}
                     <div class="col-span-6 sm:col-span-3">
-                        <label for="first-name" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">{{ field.label }}</label>
+                        <label for="{{ field.id_for_label }}" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">{{ field.label }}</label>
                         {{ field }}
                     </div>
                     {% endfor %}
@@ -75,105 +75,133 @@
             </form>
         </div>
                 <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Password information</h3>
-                    <form method="post" action="{% url "users:change_password" %}">
-                        {% csrf_token %}
-        
-                        <div class="grid grid-cols-6 gap-6">
-                            <div class="col-span-6 sm:col-span-3">
-                                <label for="current_password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Current password</label>
-                                <div class="relative w-full">
-                                    <input type="password" id="current_password" name="current_password" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Current password" required>
-                                    <button type="button" id="show_current_password" class="absolute top-0 right-0 p-2.5 h-full text-sm font-thin text-white rounded-r-lg">
-                                        <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 14">
-                                            <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                                              <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
-                                              <path d="M10 13c4.97 0 9-2.686 9-6s-4.03-6-9-6-9 2.686-9 6 4.03 6 9 6Z"/>
-                                            </g>
-                                        </svg>
-                                    </button>
+                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Security</h3>
+                    
+                    <!-- Password Section -->
+                    <div class="mb-6">
+                        <h4 class="mb-4 text-lg font-medium text-gray-900 dark:text-white">Change Password</h4>
+                        <form method="post" action="{% url "users:change_password" %}">
+                            {% csrf_token %}
+            
+                            <div class="grid grid-cols-6 gap-6">
+                                <div class="col-span-6 sm:col-span-3">
+                                    <label for="current_password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Current password</label>
+                                    <div class="relative w-full">
+                                        <input type="password" id="current_password" name="current_password" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Current password" required>
+                                        <button type="button" id="show_current_password" class="absolute top-0 right-0 p-2.5 h-full text-sm font-thin text-white rounded-r-lg">
+                                            <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 14">
+                                                <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                                                  <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+                                                  <path d="M10 13c4.97 0 9-2.686 9-6s-4.03-6-9-6-9 2.686-9 6 4.03 6 9 6Z"/>
+                                                </g>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-span-6 sm:col-span-3">
+                                    <label for="new_password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">New password</label>
+                                    <div class="relative w-full">
+                                        <input type="password" id="new_password" name="new_password" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="New password" required>
+                                        <button type="button" id="show_new_password" class="absolute top-0 right-0 p-2.5 h-full text-sm font-thin text-white rounded-r-lg">
+                                            <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 14">
+                                                <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                                                  <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+                                                  <path d="M10 13c4.97 0 9-2.686 9-6s-4.03-6-9-6-9 2.686-9 6 4.03 6 9 6Z"/>
+                                                </g>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-span-6">
+                                    <button class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300" type="submit">Update password</button>
                                 </div>
                             </div>
-                            <div class="col-span-6 sm:col-span-3">
-                                <label for="new_password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Current password</label>
-                                <div class="relative w-full">
-                                    <input type="password" id="new_password" name="new_password" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="New password" required>
-                                    <button type="button" id="show_new_password" class="absolute top-0 right-0 p-2.5 h-full text-sm font-thin text-white rounded-r-lg">
-                                        <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 14">
-                                            <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                                              <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
-                                              <path d="M10 13c4.97 0 9-2.686 9-6s-4.03-6-9-6-9 2.686-9 6 4.03 6 9 6Z"/>
-                                            </g>
-                                        </svg>
-                                    </button>
+                        </form>
+                    </div>
+
+                    <hr class="my-6 border-gray-200 dark:border-gray-700">
+
+                    <!-- 2FA Section -->
+                    <div>
+                        <h4 class="mb-2 text-lg font-medium text-gray-900 dark:text-white">Two-Factor Authentication</h4>
+                        <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                            Two-factor authentication adds an additional layer of security to your account by requiring more than just a password to log in.
+                        </p>
+                        <div class="flex items-center gap-4">
+                            {% if request.user.is_verified %}
+                                <div class="flex items-center">
+                                    <span class="flex w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                                    <span class="text-sm font-medium text-gray-900 dark:text-white">Enabled</span>
                                 </div>
-                            </div>
-                            <div class="col-span-6 sm:col-full">
-                                <button class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300" type="submit">Save all</button>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-                <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Privacy & Cookies</h3>
-                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                        <div>
-                            <p class="mb-1 text-sm text-gray-900 dark:text-white font-medium">Current Status:
-                                <span id="cookie-status-display" class="font-bold">
-                                    {% if request.user.profile.cookie_consent %}
-                                        {{ request.user.profile.get_cookie_consent_display }}
-                                    {% else %}
-                                        Not Set
-                                    {% endif %}
-                                </span>
-                            </p>
-                            <p class="text-sm text-gray-500 dark:text-gray-400">
-                                Manage your consent for optional cookies and data processing.
-                            </p>
-                        </div>
-                        <div class="flex gap-3">
-                            <button type="button" id="profile-accept-cookies" class="px-4 py-2 text-sm font-medium text-white bg-purple-700 rounded-lg hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 dark:bg-purple-600 dark:hover:bg-purple-700 dark:focus:ring-purple-900">
-                                Accept All
-                            </button>
-                            <button type="button" id="profile-reject-cookies" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
-                                Reject Optional
-                            </button>
+                                <a href="{% url 'users:two_factor:profile' %}" class="text-sm font-medium text-purple-600 hover:underline dark:text-purple-500">Manage 2FA Settings</a>
+                            {% else %}
+                                <div class="flex items-center">
+                                    <span class="flex w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                                    <span class="text-sm font-medium text-gray-900 dark:text-white">Disabled</span>
+                                </div>
+                                <a href="{% url 'users:two_factor:setup' %}" class="text-white bg-purple-700 hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-purple-600 dark:hover:bg-purple-700 focus:outline-none dark:focus:ring-purple-800">Enable 2FA</a>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
                 <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Data Portability</h3>
-                    <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                        In compliance with GDPR (Article 20), you can request a copy of your personal data in a structured, machine-readable format.
-                    </p>
-                    <a href="{% url 'users:export_data' %}" class="text-purple-700 hover:text-white border border-purple-700 hover:bg-purple-800 focus:ring-4 focus:outline-none focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:border-purple-500 dark:text-purple-500 dark:hover:text-white dark:hover:bg-purple-600 dark:focus:ring-purple-900">
-                        Export My Data (JSON)
-                    </a>
-                </div>
-                <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Exercise Your Rights</h3>
-                    <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                        Under GDPR, you have the right to <strong>object</strong> to processing or request the <strong>restriction</strong> of your personal data. 
-                        To exercise these rights, please contact our Data Protection Officer.
-                    </p>
-                    <a href="mailto:dpo@swarmcloud.example.com?subject=GDPR Right Exercise Request - {{ request.user.username }}" class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
-                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"></path><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"></path></svg>
-                        Contact DPO
-                    </a>
-                </div>
-                <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Security & Two-Factor Authentication</h3>
-                    <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                        Two-factor authentication adds an additional layer of security to your account by requiring more than just a password to log in.
-                    </p>
-                    <div class="flex items-center gap-4">
-                        {% if request.user.is_verified %}
-                            <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">Enabled</span>
-                            <a href="{% url 'two_factor:profile' %}" class="text-sm font-medium text-purple-600 hover:underline dark:text-purple-500">Manage 2FA Settings</a>
-                        {% else %}
-                            <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">Disabled</span>
-                            <a href="{% url 'two_factor:setup' %}" class="text-white bg-purple-700 hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-purple-600 dark:hover:bg-purple-700 focus:outline-none dark:focus:ring-purple-800">Enable 2FA</a>
-                        {% endif %}
+                    <h3 class="mb-4 text-xl font-semibold dark:text-white">Privacy & Data</h3>
+                    
+                    <!-- Privacy & Cookies -->
+                    <div class="mb-6">
+                        <h4 class="mb-4 text-lg font-medium text-gray-900 dark:text-white">Cookies</h4>
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                            <div>
+                                <p class="mb-1 text-sm text-gray-900 dark:text-white font-medium">Current Status:
+                                    <span id="cookie-status-display" class="font-bold">
+                                        {% if request.user.profile.cookie_consent %}
+                                            {{ request.user.profile.get_cookie_consent_display }}
+                                        {% else %}
+                                            Not Set
+                                        {% endif %}
+                                    </span>
+                                </p>
+                                <p class="text-sm text-gray-500 dark:text-gray-400">
+                                    Manage your consent for optional cookies and data processing.
+                                </p>
+                            </div>
+                            <div class="flex gap-3">
+                                <button type="button" id="settings-accept-cookies" class="px-4 py-2 text-sm font-medium text-white bg-purple-700 rounded-lg hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 dark:bg-purple-600 dark:hover:bg-purple-700 dark:focus:ring-purple-900">
+                                    Accept All
+                                </button>
+                                <button type="button" id="settings-reject-cookies" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
+                                    Reject Optional
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-6 border-gray-200 dark:border-gray-700">
+
+                    <!-- Data Portability -->
+                    <div class="mb-6">
+                        <h4 class="mb-4 text-lg font-medium text-gray-900 dark:text-white">Data Portability</h4>
+                        <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                            In compliance with GDPR (Article 20), you can request a copy of your personal data in a structured, machine-readable format.
+                        </p>
+                        <a href="{% url 'users:export_data' %}" class="text-purple-700 hover:text-white border border-purple-700 hover:bg-purple-800 focus:ring-4 focus:outline-none focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:border-purple-500 dark:text-purple-500 dark:hover:text-white dark:hover:bg-purple-600 dark:focus:ring-purple-900">
+                            Export My Data (JSON)
+                        </a>
+                    </div>
+
+                    <hr class="my-6 border-gray-200 dark:border-gray-700">
+
+                    <!-- Exercise Your Rights -->
+                    <div>
+                        <h4 class="mb-4 text-lg font-medium text-gray-900 dark:text-white">Exercise Your Rights</h4>
+                        <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                            Under GDPR, you have the right to <strong>object</strong> to processing or request the <strong>restriction</strong> of your personal data. 
+                            To exercise these rights, please contact our Data Protection Officer.
+                        </p>
+                        <a href="mailto:{{ admin_email }}?subject=GDPR Right Exercise Request - {{ request.user.username }}" class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
+                            <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"></path><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"></path></svg>
+                            Contact DPO
+                        </a>
                     </div>
                 </div>
                 <div class="p-4 mb-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
@@ -263,8 +291,8 @@
         }
 
         // Cookie Preferences Logic
-        const profileAcceptBtn = document.getElementById('profile-accept-cookies');
-        const profileRejectBtn = document.getElementById('profile-reject-cookies');
+        const profileAcceptBtn = document.getElementById('settings-accept-cookies');
+        const profileRejectBtn = document.getElementById('settings-reject-cookies');
         const statusDisplay = document.getElementById('cookie-status-display');
 
         function updateCookieStatus(consent) {

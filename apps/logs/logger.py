@@ -73,6 +73,18 @@ def log(level, message, category="project", user=None, project=None, **extra):
     # Prepare the 'extra' dictionary for the internal Python logger
     log_extra = extra.copy()
 
+    # HIPAA: Detect emergency access and flag the log entry
+    is_emergency = False
+    if final_user and hasattr(final_user, "profile"):
+        is_emergency = final_user.profile.is_emergency_access
+
+    if is_emergency:
+        log_extra["is_emergency"] = True
+        message = f"[EMERGENCY] {message}"
+        # Force minimum level INFO for emergency logs to ensure database persistence
+        if level == "DEBUG":
+            level = "INFO"
+
     # Pop special keys that should not go into context_data
     exc_info = log_extra.pop("exc_info", None)
     object_id = log_extra.pop("object_id", None)

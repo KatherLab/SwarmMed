@@ -9,7 +9,6 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from common.views import privacy_policy, terms_and_conditions, license, imprint, contact
-from two_factor.urls import urlpatterns as tf_urls
 
 # List of root URL patterns for the entire project.
 urlpatterns = [
@@ -25,8 +24,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # User authentication, profile, and management.
     path("users/", include("users.urls")),
-    # Multi-Factor Authentication
-    path("auth/mfa/", include((tf_urls[0], "two_factor"))),
     # Collaborative project management and configuration.
     path("project/", include("project.urls")),
     # Dataset management and file uploads.

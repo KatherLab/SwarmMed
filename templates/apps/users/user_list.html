@@ -79,6 +79,9 @@
                       Role
                     </th>
                     <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                      Emergency
+                    </th>
+                    <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                       First Name
                     </th>
                     <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
@@ -107,6 +110,13 @@
                       class="max-w-sm p-4 overflow-hidden text-base font-normal text-gray-500 truncate xl:max-w-xs dark:text-gray-400">
                       {{ user.profile.role }}
                     </td>
+                    <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
+                      {% if user.profile.is_emergency_access %}
+                        <span class="bg-red-100 text-red-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">Active</span>
+                      {% else %}
+                        <span class="bg-gray-100 text-gray-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">Inactive</span>
+                      {% endif %}
+                    </td>
                     <td
                       class="max-w-sm p-4 overflow-hidden text-base font-normal text-gray-500 truncate xl:max-w-xs dark:text-gray-400">
                       {{ user.first_name }}
@@ -121,6 +131,15 @@
                     </td>
 
                     <td class="p-4 space-x-2 whitespace-nowrap">
+                      <button type="button" id="emergencyAccessButton" data-drawer-target="drawer-emergency-access-default{{user.id}}"
+                        data-drawer-show="drawer-emergency-access-default{{user.id}}" aria-controls="drawer-emergency-access-default{{user.id}}"
+                        data-drawer-placement="right"
+                        class="inline-flex items-center bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-3 py-2 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
+                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                        </svg>
+                        Emergency
+                      </button>
                       <button type="button" id="updateProductButton" data-drawer-target="drawer-update-product-default{{user.id}}"
                         data-drawer-show="drawer-update-product-default{{user.id}}" aria-controls="drawer-update-product-default{{user.id}}"
                         data-drawer-placement="right"
@@ -336,6 +355,82 @@
                     </form>
                   </div>
 
+
+                  <!-- Emergency Access Drawer -->
+                  <div id="drawer-emergency-access-default{{user.id}}"
+                    class="fixed top-0 right-0 z-40 w-full h-screen max-w-xs p-4 overflow-y-auto transition-transform translate-x-full bg-white dark:bg-gray-800"
+                    tabindex="-1" aria-labelledby="drawer-label" aria-hidden="true">
+                    <h5 id="drawer-label"
+                      class="inline-flex items-center mb-6 text-sm font-semibold text-gray-500 uppercase dark:text-gray-400">
+                      Emergency Access</h5>
+                    <button type="button" data-drawer-dismiss="drawer-emergency-access-default{{user.id}}"
+                      aria-controls="drawer-emergency-access-default{{user.id}}"
+                      class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm p-1.5 absolute top-2.5 right-2.5 inline-flex items-center dark:hover:bg-gray-600 dark:hover:text-white">
+                      <svg aria-hidden="true" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path fill-rule="evenodd"
+                          d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                          clip-rule="evenodd"></path>
+                      </svg>
+                      <span class="sr-only">Close menu</span>
+                    </button>
+                    
+                    <div class="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                      <p class="mb-2"><strong>User:</strong> {{ user.username }}</p>
+                      <p class="mb-2"><strong>Current Status:</strong> 
+                        {% if user.profile.is_emergency_access %}
+                          <span class="text-red-600 font-bold">Active</span> (Expires: {{ user.profile.emergency_access_expiry }})
+                        {% else %}
+                          <span class="text-gray-500">Inactive</span>
+                        {% endif %}
+                      </p>
+                    </div>
+
+                    <form method="post" action="{% url "users:toggle_emergency_access" user.id %}">
+                      {% csrf_token %}
+
+                      <div class="space-y-4">
+                        {% if not user.profile.is_emergency_access %}
+                        <div>
+                          <label for="justification{{user.id}}"
+                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Justification (HIPAA Requirement)</label>
+                          <textarea name="justification" id="justification{{user.id}}" rows="4"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-primary-500 dark:focus:border-primary-500"
+                            placeholder="Enter justification for emergency access..." required></textarea>
+                        </div>
+                        <div>
+                          <label for="duration{{user.id}}"
+                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Duration (Hours)</label>
+                          <input type="number" name="duration" id="duration{{user.id}}" min="1" max="24" value="4"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-primary-500 dark:focus:border-primary-500">
+                        </div>
+                        {% else %}
+                        <div class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300" role="alert">
+                          Revoking emergency access will immediately restore normal permission levels for this user.
+                        </div>
+                        {% endif %}
+                      </div>
+                      
+                      <div class="bottom-0 left-0 flex justify-center w-full pb-4 mt-6 space-x-4 sm:absolute sm:px-4 sm:mt-0">
+                        {% if not user.profile.is_emergency_access %}
+                        <button type="submit"
+                          class="w-full inline-flex justify-center bg-red-600 text-white hover:bg-red-800 font-medium rounded-lg text-sm px-3 py-2 text-center dark:bg-red-500 dark:hover:bg-red-600">
+                          Grant Access
+                        </button>
+                        {% else %}
+                        <button type="submit"
+                          class="w-full inline-flex justify-center bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200 font-medium rounded-lg text-sm px-3 py-2 text-center dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600">
+                          Revoke Access
+                        </button>
+                        {% endif %}
+                        <button type="button" data-drawer-dismiss="drawer-emergency-access-default{{user.id}}"
+                          class="w-full inline-flex justify-center px-3 py-2 text-sm font-medium text-center text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
                   {% endfor %}
 
                 </tbody>
@@ -375,7 +470,7 @@
           <div class="flex items-center space-x-3">
             {% if users.has_previous %}
             <a href="?page={{ users.previous_page_number }}"
-              class="inline-flex items-center justify-center flex-1 px-3 py-2 text-sm font-medium text-center text-white rounded-lg bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-primary-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-primary-800">
+              class="inline-flex items-center justify-center flex-1 px-3 py-2 text-sm font-medium text-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 rounded-lg dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
               <svg class="w-5 h-5 mr-1 -ml-1" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                 <path fill-rule="evenodd"
                   d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
@@ -386,7 +481,7 @@
             {% endif %}
             {% if users.has_next %}
             <a href="?page={{ users.next_page_number }}"
-              class="inline-flex items-center justify-center flex-1 px-3 py-2 text-sm font-medium text-center text-white rounded-lg bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-primary-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-primary-800">
+              class="inline-flex items-center justify-center flex-1 px-3 py-2 text-sm font-medium text-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 rounded-lg dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
               Next
               <svg class="w-5 h-5 ml-1 -mr-1" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                 <path fill-rule="evenodd"

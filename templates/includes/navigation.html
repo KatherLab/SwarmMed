@@ -25,6 +25,15 @@
             <span
               class="self-center text-xl font-semibold sm:text-2xl whitespace-nowrap dark:text-white">SwarmCloud</span>
           </a>
+          
+          {% if request.user.is_authenticated and request.user.profile.is_emergency_access %}
+          <div class="hidden md:flex items-center ml-4">
+              <span class="bg-red-100 text-red-800 text-xs font-bold mr-2 px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300 border border-red-400 animate-pulse">
+                EMERGENCY ACCESS ACTIVE
+              </span>
+          </div>
+          {% endif %}
+
           <!-- Search form 
           <form action="#" method="GET" class="hidden lg:block lg:pl-3.5">
             <label for="topbar-search" class="sr-only">Search</label>
@@ -115,9 +124,12 @@
                 </li>
                 <li>
                   {% if request.user.is_authenticated %}
-                    <a href="{% url 'users:signout' %}"
-                      class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-white"
-                      role="menuitem">Sign Out</a>                  
+                    <form action="{% url 'users:signout' %}" method="post" class="block">
+                      {% csrf_token %}
+                      <button type="submit" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-white" role="menuitem">
+                        Sign Out
+                      </button>
+                    </form>
                   {% else %}
                     <a href="{% url 'users:signin' %}"
                       class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-white"

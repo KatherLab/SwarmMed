@@ -11,7 +11,6 @@ from django.contrib.auth.hashers import check_password
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.views import (
-    LoginView,
     PasswordChangeView,
     PasswordResetConfirmView,
     PasswordResetView,
@@ -21,13 +20,12 @@ from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, RedirectView
 
 from users.forms import (
     ProfileForm,
-    SigninForm,
-    SignupForm,
     AdminAddUserForm,
     UserPasswordChangeForm,
     UserPasswordResetForm,
@@ -47,32 +45,6 @@ def index(request):
     return HttpResponse("INDEX Users")
 
 
-class RedirectToTwoFactorLogin(RedirectView):
-    """
-    Redirects users from the legacy /users/signin/ URL to the
-    enforced 2FA login flow.
-    """
-
-    permanent = False
-    query_string = True
-    pattern_name = "two_factor:login"
-
-
-class SignInView(LoginView):
-    """Standard Django LoginView customized with our SigninForm and template."""
-
-    form_class = SigninForm
-    template_name = "apps/users/auth/sign-in.html"
-
-
-class SignUpView(CreateView):
-    """Standard Django CreateView for user registration."""
-
-    form_class = SignupForm
-    template_name = "apps/users/auth/sign-up.html"
-    success_url = reverse_lazy("users:signin")
-
-
 class UserPasswordChangeView(PasswordChangeView):
     """View to allow users to change their password while logged in."""
 
@@ -85,24 +57,22 @@ class UserPasswordResetView(PasswordResetView):
 
     template_name = "apps/users/auth/forgot-password.html"
     form_class = UserPasswordResetForm
+    success_url = reverse_lazy("users:password_reset_done")
+    email_template_name = "apps/users/auth/password_reset_email.html"
+    subject_template_name = "apps/users/auth/password_reset_subject.txt"
 
 
-class UserPasswrodResetConfirmView(PasswordResetConfirmView):
+class UserPasswordResetConfirmView(PasswordResetConfirmView):
     """View to finalize password reset after clicking the email link."""
 
     template_name = "apps/users/auth/reset-password.html"
     form_class = UserSetPasswordForm
-
-
-def signout_view(request):
-    """Logs out the current user and redirects to the sign-in page."""
-    logout(request)
-    return redirect(reverse("users:signin"))
+    success_url = reverse_lazy("users:password_reset_complete")
 
 
 @login_required
-def profile(request):
-    """Displays and handles updates for the logged-in user's profile."""
+def settings(request):
+    """Displays and handles updates for the logged-in user's settings."""
     # Retrieve or create the Profile associated with the current user.
     user_profile, created = Profile.objects.get_or_create(
         user=request.user,
@@ -114,16 +84,21 @@ def profile(request):
         form = ProfileForm(request.POST, instance=user_profile)
         if form.is_valid():
             form.save()
-            messages.success(request, "Profile updated successfully")
+            messages.success(request, "Settings updated successfully")
     else:
         # If it's a GET request, pre-populate the form with current data.
         form = ProfileForm(instance=user_profile)
 
+    # Get the email of the first superuser as the DPO/Admin contact.
+    admin_user = User.objects.filter(is_superuser=True).order_by("id").first()
+    admin_email = admin_user.email if admin_user else "admin@swarmcloud.example.com"
+
     context = {
         "form": form,
-        "segment": "profile",
+        "segment": "settings",
+        "admin_email": admin_email,
     }
-    return render(request, "apps/users/profile.html", context)
+    return render(request, "apps/users/settings.html", context)
 
 
 @login_required
@@ -408,7 +383,7 @@ def delete_own_account(request):
         user.delete()
         messages.success(request, "Your account has been successfully deleted.")
         return redirect(reverse("users:signin"))
-    return redirect(reverse("users:profile"))
+    return redirect(reverse("users:settings"))
 
 
 @login_required

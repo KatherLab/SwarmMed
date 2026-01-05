@@ -113,7 +113,6 @@ MIDDLEWARE = [
     "logs.context.RequestContextMiddleware",  # Custom context logging.
     "logs.middleware.AuditLogMiddleware",  # Audit logging for write requests.
     "axes.middleware.AxesMiddleware",  # Brute-force protection
-    "users.middleware.MFAEnforcementMiddleware",  # Strict MFA enforcement
     "common.middleware.GDPRRestrictionMiddleware",  # GDPR Right to Restriction
     "common.middleware.LegalAcceptanceMiddleware",  # Ensure legal terms are accepted
 ]
@@ -268,8 +267,16 @@ AXES_LOCK_OUT_PARAMETERS = ["username", "ip_address"]
 AXES_RESET_ON_SUCCESS = True
 
 # Enforce MFA Login Flow
-LOGIN_URL = "two_factor:login"
+LOGIN_URL = "users:two_factor:login"
 LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "users:two_factor:login"
+TWO_FACTOR_URL_NAMESPACE = "users:two_factor"
+
+# Explicitly set namespaced URLs for 2FA flow
+TWO_FACTOR_LOGIN_URL = "users:two_factor:login"
+TWO_FACTOR_SETUP_SUCCESS_URL = "users:two_factor:setup_complete"
+TWO_FACTOR_BACKUP_TOKENS_URL = "users:two_factor:backup_tokens"
+TWO_FACTOR_PROFILE_URL = "users:two_factor:profile"
 
 # Email configuration for password resets and notifications.
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
