@@ -19,14 +19,6 @@ from users.models import Profile
 from logs import logger
 
 
-@shared_task(name="logs.tasks.scheduled_backup")
-def scheduled_backup():
-    """
-    Automated task to perform a full database backup.
-    """
-    call_command("secure_backup")
-
-
 @shared_task(name="logs.tasks.purge_expired_data")
 def purge_expired_data():
     """

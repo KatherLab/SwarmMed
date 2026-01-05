@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     "results",
     "logs",
     "communication",
+    "backup",
     # Third-party extensions.
     "storages",
     "axes",

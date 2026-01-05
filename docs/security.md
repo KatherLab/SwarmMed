@@ -87,9 +87,9 @@ In accordance with HIPAA §164.312(a)(2)(ii), SwarmCloud supports emergency acce
 
 SwarmCloud implements automated data retention policies to comply with HIPAA and GDPR requirements:
 
-*   **PHI Retention:** Records containing PHI are retained for 6 years (2190 days) by default, after which they are automatically purged from the database and associated storage via the `purge_expired_data` task.
-*   **Backup Retention:** Database backups are retained in S3 for 30 days.
-*   **Configuration:** These periods can be adjusted in `core/settings.py` using `DATA_RETENTION_DAYS` and `BACKUP_RETENTION_DAYS`.
+*   **Data Retention:** Standard datasets and PHI metadata are retained for 6 years, as per HIPAA guidelines.
+*   **Configuration:** These periods can be adjusted in `core/settings.py` using `DATA_RETENTION_DAYS`.
+---
 
 #### Encryption Key Rotation
 
