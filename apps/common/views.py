@@ -74,7 +74,22 @@ def permission_denied_view(request, exception=None):
     Render a custom 403 (Permission Denied) page.
 
     This view is registered as the project's `handler403` so the
-    `templates/403.html` file is used even when `DEBUG` is True for
+    `templates/errors/403.html` file is used even when `DEBUG` is True for
     easier local development and consistent UX in production.
     """
-    return render(request, "403.html", status=403)
+    return render(request, "errors/403.html", status=403)
+
+
+def page_not_found_view(request, exception=None):
+    """Render a custom 404 (Not Found) page."""
+    return render(request, "errors/404.html", status=404)
+
+
+def server_error_view(request):
+    """Render a custom 500 (Server Error) page."""
+    return render(request, "errors/500.html", status=500)
+
+
+def bad_request_view(request, exception=None):
+    """Render a custom 400 (Bad Request) page."""
+    return render(request, "errors/400.html", status=400)

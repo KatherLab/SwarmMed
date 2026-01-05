@@ -50,6 +50,9 @@ if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 
-# Use a project-level 403 handler so `templates/403.html` is rendered
+# Use project-level error handlers so custom templates are rendered
 # even during local development (DEBUG=True) and in production.
 handler403 = "apps.common.views.permission_denied_view"
+handler404 = "apps.common.views.page_not_found_view"
+handler500 = "apps.common.views.server_error_view"
+handler400 = "apps.common.views.bad_request_view"

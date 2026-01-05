@@ -2849,6 +2849,11 @@ input:checked + .toggle-bg {
   color: rgb(114 59 19 / var(--tw-text-opacity, 1));
 }
 
+.text-orange-500 {
+  --tw-text-opacity: 1;
+  color: rgb(255 90 31 / var(--tw-text-opacity, 1));
+}
+
 .underline {
   text-decoration-line: underline;
 }
