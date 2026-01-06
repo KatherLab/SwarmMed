@@ -668,18 +668,31 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function downloadImage(url, filename) {
-        if (!url) {
-            alert('Data not available for this plot. Please run the visualization again.');
-            return;
+    async function downloadImage(url, filename) {
+      if (!url) {
+        alert('Data not available for this plot. Please run the visualization again.');
+        return;
+      }
+      try {
+        const response = await fetch(url, { credentials: 'same-origin' });
+        if (!response.ok) {
+          throw new Error(`Download failed (${response.status})`);
         }
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+
         const link = document.createElement('a');
-        link.href = url;
+        link.href = objectUrl;
         link.download = filename;
-        link.target = '_blank';
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
+        link.remove();
+
+        URL.revokeObjectURL(objectUrl);
+      } catch (e) {
+        console.error('Plot download failed:', e);
+        alert('Download failed. Please try again.');
+      }
     }
     
     function startVisualizationPolling() {

@@ -83,7 +83,8 @@
       </div>
       <div class="mt-4">
         <a href="{% if result.id %}{% url 'results:download_result' result.id %}{% else %}{% url 'results:download_result_by_key' %}?key={{ result.file_path }}{% endif %}" download="{{ result.cleaned_filename }}"
-           class="w-full inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-800 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
+           data-filename="{{ result.cleaned_filename }}"
+           class="result-download w-full inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-800 dark:border-gray-700 dark:hover-border-purple-300 dark:text-purple-300">
           <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg">
               <path stroke-linecap="round" stroke-linejoin="round"
@@ -393,18 +394,31 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function downloadImage(url, filename) {
-        if (!url) {
-            alert('Data not available for this plot. Please run the visualization again.');
-            return;
+    async function downloadImage(url, filename) {
+      if (!url) {
+        alert('Data not available for this plot. Please run the visualization again.');
+        return;
+      }
+      try {
+        const response = await fetch(url, { credentials: 'same-origin' });
+        if (!response.ok) {
+          throw new Error(`Download failed (${response.status})`);
         }
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+
         const link = document.createElement('a');
-        link.href = url;
+        link.href = objectUrl;
         link.download = filename;
-        link.target = '_blank';
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
+        link.remove();
+
+        URL.revokeObjectURL(objectUrl);
+      } catch (e) {
+        console.error('Plot download failed:', e);
+        alert('Download failed. Please try again.');
+      }
     }
 
     async function pollStatus() {
@@ -471,6 +485,37 @@ document.addEventListener('DOMContentLoaded', function() {
             updateUIForState('failed');
         }
     });
+
+    // Reliable download handler for single result files (avoids Chrome navigation issues)
+    function attachResultDownloadHandlers() {
+      document.querySelectorAll('.result-download').forEach(link => {
+        link.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const url = link.getAttribute('href');
+          const filename = link.dataset.filename || 'download';
+          try {
+            const resp = await fetch(url, { credentials: 'same-origin' });
+            if (!resp.ok) {
+              throw new Error(`Download failed (${resp.status})`);
+            }
+            const blob = await resp.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objectUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(objectUrl);
+          } catch (err) {
+            console.error('Result download failed:', err);
+            alert('Download failed. Please try again.');
+          }
+        });
+      });
+    }
+
+    attachResultDownloadHandlers();
 
     stopBtn.addEventListener('click', async () => {
         const runIdToStop = stopBtn.dataset.runId;

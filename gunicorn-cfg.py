@@ -14,7 +14,7 @@ errorlog = "-"
 loglevel = "info"
 capture_output = True
 enable_stdio_inheritance = True
-timeout = 120
+timeout = int(os.environ.get("GUNICORN_TIMEOUT", "600"))
 keepalive = 5
 
 # Restart workers after handling this many requests (prevents memory leaks)

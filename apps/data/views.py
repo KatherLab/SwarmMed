@@ -6,12 +6,14 @@ and the triggering/monitoring of validation and visualization runs.
 
 import json
 import os
+import re
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import (
     HttpResponse,
     JsonResponse,
     StreamingHttpResponse,
+    FileResponse,
 )
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
@@ -286,7 +288,7 @@ def download_file(request):
     log.access.info(f"User accessed file: {key}", file_key=key)
 
     # Direct proxying is more reliable for local/self-hosted setups
-    return _proxy_s3_download(key, os.path.basename(key))
+    return _proxy_s3_download_file(key, os.path.basename(key))
 
 
 @login_required
@@ -669,7 +671,7 @@ def visualization_status(request):
     )
 
 
-def _proxy_s3_download(key, filename):
+def _proxy_s3_download(request, key, filename):
     """
     Helper to proxy a file download from S3 through Django using StreamingHttpResponse.
     """
@@ -677,23 +679,137 @@ def _proxy_s3_download(key, filename):
     bucket = settings.AWS_STORAGE_BUCKET_NAME
 
     try:
-        obj = s3.get_object(Bucket=bucket, Key=key)
+        head = s3.head_object(Bucket=bucket, Key=key)
+        total_size = head.get("ContentLength")
+
+        range_header = request.META.get("HTTP_RANGE")
+        range_start = 0
+        range_end = (
+            (total_size - 1)
+            if isinstance(total_size, int) and total_size > 0
+            else None
+        )
+        status_code = 200
+
+        if range_header and isinstance(total_size, int) and total_size > 0:
+            match = re.match(r"^bytes=(\d+)-(\d*)$", range_header.strip())
+            if match:
+                requested_start = int(match.group(1))
+                requested_end = (
+                    int(match.group(2)) if match.group(2) else (total_size - 1)
+                )
+                if 0 <= requested_start < total_size:
+                    range_start = requested_start
+                    range_end = min(requested_end, total_size - 1)
+                    status_code = 206
+
+        target_end_exclusive = None
+        if range_end is not None:
+            target_end_exclusive = range_end + 1
+        elif isinstance(total_size, int) and total_size > 0:
+            target_end_exclusive = total_size
 
         def stream_content():
-            for chunk in obj["Body"].iter_chunks(chunk_size=1024 * 1024):  # 1MB chunks
-                yield chunk
+            bytes_sent = range_start
+            attempts = 0
+            max_attempts = 5
 
+            while True:
+                had_progress = False
+                try:
+                    get_kwargs = {"Bucket": bucket, "Key": key}
+                    if range_end is not None:
+                        get_kwargs["Range"] = f"bytes={bytes_sent}-{range_end}"
+                    elif bytes_sent:
+                        get_kwargs["Range"] = f"bytes={bytes_sent}-"
+
+                    obj = s3.get_object(**get_kwargs)
+
+                    for chunk in obj["Body"].iter_chunks(chunk_size=1024 * 1024):  # 1MB
+                        if not chunk:
+                            continue
+                        had_progress = True
+                        bytes_sent += len(chunk)
+                        yield chunk
+
+                        if target_end_exclusive is not None and bytes_sent >= target_end_exclusive:
+                            break
+
+                    if target_end_exclusive is None or bytes_sent >= target_end_exclusive:
+                        break
+
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        break
+                except Exception:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        break
+                finally:
+                    if had_progress:
+                        attempts = 0
+
+        # Force application/octet-stream to prevent Nginx from gzipping/transcoding the
+        # content in-flight. When combined with streaming responses, Chrome can surface
+        # a "Check internet connection" / "Network error" if a proxy modifies bytes.
         response = StreamingHttpResponse(
             stream_content(),
-            content_type=obj.get("ContentType", "application/octet-stream"),
+            content_type="application/octet-stream",
+            status=status_code,
         )
-        # response['Content-Length'] = obj.get('ContentLength')
+
+        response["Accept-Ranges"] = "bytes"
+
+        # Some clients (notably Chrome) are sensitive to mismatches between headers and
+        # bytes received. If S3 provides a ContentLength, pass it through.
+        if isinstance(total_size, int) and total_size > 0:
+            if status_code == 206 and range_end is not None:
+                response["Content-Length"] = str(range_end - range_start + 1)
+                response["Content-Range"] = (
+                    f"bytes {range_start}-{range_end}/{total_size}"
+                )
+            else:
+                response["Content-Length"] = str(total_size)
+
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        # Disable Nginx buffering for this stream
+
+        # Prevent intermediaries from modifying the payload.
+        response["Cache-Control"] = "no-transform"
+
+        # Disable Nginx buffering for this stream.
         response["X-Accel-Buffering"] = "no"
         return response
     except Exception as e:
         logger.get_logger().data.error(f"Failed to proxy S3 download for {key}: {e}")
+        return HttpResponse("File download failed", status=500)
+
+
+def _proxy_s3_download_file(key, filename, inline=False):
+    """
+    Fully buffer the S3 object and return a plain HttpResponse to avoid streaming
+    or chunked responses that Chrome may reject with self-signed TLS.
+    """
+    s3 = get_s3_client()
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        data = obj["Body"].read()
+        content_type = obj.get("ContentType", "application/octet-stream")
+        size = len(data)
+
+        response = HttpResponse(data, content_type=content_type)
+        if inline:
+            response["Content-Disposition"] = f'inline; filename="{filename}"'
+        else:
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Content-Length"] = str(size)
+        response["Cache-Control"] = "no-transform"
+        return response
+    except Exception as e:
+        logger.get_logger().data.error(
+            f"Failed to download S3 file {key} via buffered HttpResponse: {e}"
+        )
         return HttpResponse("File download failed", status=500)
 
 
@@ -718,7 +834,5 @@ def get_visualization_plot(request, plot_id, plot_type):
     if not key:
         return HttpResponse("Plot data not found", status=404)
 
-    response = _proxy_s3_download(key, filename)
-    # Ensure plots are displayed inline
-    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response = _proxy_s3_download_file(key, filename, inline=True)
     return response
