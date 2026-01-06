@@ -2,5 +2,5 @@ pandas
 numpy
 scikit-learn
 torch
-tensorflow
-keras
+#tensorflow
+#keras

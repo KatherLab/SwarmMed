@@ -1,6 +1,6 @@
 import base64
 import threading
-from cryptography.fernet import Fernet, MultiFernet
+from cryptography.fernet import Fernet, MultiFernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from django.conf import settings
@@ -80,7 +80,7 @@ class EncryptedFieldMixin:
             return value
         try:
             return force_str(self.fernet.decrypt(force_bytes(value)))
-        except Exception:
+        except (InvalidToken, TypeError, ValueError):
             # In case of decryption failure, return the raw value
             # This can happen during migrations or if the key changed
             return value
@@ -97,8 +97,8 @@ class EncryptedFieldMixin:
                 b"gAAAA"
             ):
                 return force_str(self.fernet.decrypt(force_bytes(value)))
-        except Exception:
-            pass
+        except (InvalidToken, TypeError, ValueError):
+            return value
 
         return super().to_python(value)
 

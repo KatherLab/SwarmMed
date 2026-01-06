@@ -117,12 +117,62 @@ Open the `.env` file and fill in the required values. Key sections include:
 
 Please ensure that you **never** commit your `.env` file to version control.
 
+### Prepare Secret Directories
+
+The compose stack expects a few host directories where generated secrets will be written. Create them before launching the containers:
+
+```bash
+mkdir -p .secrets/certs .secrets/docker .secrets/pgbouncer
+```
+
+!!! warning "Directory vs Files"
+    Only create the top-level directories listed above. **Do not** create subdirectories named after individual certificates (like `ca.crt`), as this will prevent the generation scripts from writing the actual certificate files.
+
+#### Generate Internal TLS Certificates
+
+Run the provided script to generate the internal Certificate Authority and service-specific certificates:
+
+```bash
+# You can set a passphrase for the CA or leave it empty for the prompt
+export CA_PASSPHRASE=yoursecurepassphrase
+./scripts/generate_internal_certs.sh
+```
+
+- `.secrets/certs` will store the internal CA and leaf certificates.
+- `.secrets/docker` is populated automatically with TLS material for the sandbox daemon.
+- `.secrets/pgbouncer` receives PgBouncer credentials.
+
+#### Pre-render PgBouncer Configuration
+
+You can pre-render the PgBouncer artifacts to catch configuration mistakes early:
+
+```bash
+python scripts/setup_pgbouncer.py
+```
+
+!!! info "PgBouncer Setup Script"
+    The script reads your `DB_USER`, `DB_PASS`, and `DB_NAME` from the `.env` file to generate secure SCRAM-hashed credentials. 
+    
+    If the containers are not already running, you will see an error message at the end: `Error response from daemon: cannot kill container: pgbouncer: No such container`. **This is normal and safe to ignore**; it simply means the script couldn't signal a running container to reload its configuration. The files themselves are generated correctly.
+
 ### Build and Run
 
 ``` bash
 docker compose build
 docker compose up -d
 ```
+
+!!! tip "Manual Database Creation"
+    If you see errors indicating that the `swarmcloud` database does not exist, you can create it manually while the containers are running:
+    ```bash
+    docker exec -it postgres psql -U swarmcloud -d postgres -c "CREATE DATABASE swarmcloud;"
+    ```
+
+The first startup may take a little longer because:
+
+1. `sandbox-dind` generates a private CA and client certificates under `.secrets/docker/`.
+2. `tailscale-status` boots alongside your host Tailscale daemon to serve read-only status metrics.
+3. The main `app` container now waits for the sandbox daemon before applying migrations, ensuring all background jobs have a secure Docker endpoint.
 
 ## 4. Create Superuser
 
@@ -144,9 +194,9 @@ To resolve this and see the "green lock," you must trust the Root CA on your sys
 ### macOS
 Run the following command in your terminal:
 ```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain infrastructure/certs/internal/ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain .secrets/certs/internal/ca.crt
 ```
-Alternatively, open `infrastructure/certs/internal/ca.crt` in **Keychain Access**, double-click the **InternalCA** certificate, and set **Trust** to **Always Trust**.
+Alternatively, open `.secrets/certs/internal/ca.crt` in **Keychain Access**, double-click the **InternalCA** certificate, and set **Trust** to **Always Trust**.
 
 ### Windows (PowerShell)
 Run as Administrator:
@@ -156,7 +206,7 @@ Import-Certificate -FilePath "infrastructure\certs\internal\ca.crt" -CertStoreLo
 
 ### Linux (Ubuntu/Debian)
 ```bash
-sudo cp infrastructure/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt
+sudo cp .secrets/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt
 sudo update-ca-certificates
 ```
 *Note: You may also need to import the certificate manually into your browser settings (e.g., Firefox Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities -> Import).*

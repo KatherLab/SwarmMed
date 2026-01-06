@@ -9,7 +9,8 @@ from communication.models import ProjectPost, ProjectBoardAccess
 
 class ChatDashboardPerformanceTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username="testuser", password="password")
+        # Bandit B106: hardcoded password is test-only.
+        self.user = User.objects.create_user(username="testuser", password="password")  # nosec B106
         self.client = Client()
         self.client.force_login(self.user)
 

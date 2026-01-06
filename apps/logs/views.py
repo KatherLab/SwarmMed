@@ -5,6 +5,7 @@ historical logs and real-time container logs.
 """
 
 import os
+# Bandit B404: subprocess is required for optional docker log streaming; no shell=True usage.
 import subprocess  # nosec B404
 import shutil
 from datetime import timedelta
@@ -17,6 +18,7 @@ from django.http import HttpResponse, JsonResponse
 from django.utils.dateparse import parse_datetime
 
 from project.decorators import project_context_required
+from common.utils import get_safe_slug
 
 from users.decorators import developer_required
 from .models import LogEntry, LogCategory
@@ -89,7 +91,9 @@ def download_log_category(request, category_key):
 
     # Create the HTTP response with appropriate headers for a file download
     response = HttpResponse(log_content, content_type="text/plain")
-    filename = f"{project.title.replace(' ', '_')}_{category_key}_logs.txt"
+    project_identifier = project.identifier if project else "project"
+    project_slug = get_safe_slug(getattr(project, "title", ""), project_identifier)
+    filename = f"{project_slug.replace('-', '_')}_{category_key}_logs.txt"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
 
     return response
@@ -141,7 +145,7 @@ def logs_dashboard(request):
                 if user_network:
                     # Construct path to the docker-compose file for this
                     # network
-                    project_name = project.title.replace(" ", "_")
+                    project_name = get_safe_slug(project.title, project.identifier).replace("-", "_")
                     compose_path = os.path.join(
                         "workspaces",
                         str(project.identifier),
@@ -167,6 +171,7 @@ def logs_dashboard(request):
                                 # Execute 'docker logs' to get live output
                                 docker_path = shutil.which("docker") or "docker"
                                 try:
+                                    # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
                                     result = subprocess.run(  # nosec B603
                                         [
                                             docker_path,
@@ -259,12 +264,13 @@ def load_more_logs(request, category_key):
     query = LogEntry.objects.filter(project=project, category=category_key)
     
     if last_timestamp_str:
+        last_timestamp = None
         try:
             last_timestamp = parse_datetime(last_timestamp_str)
-            if last_timestamp:
-                query = query.filter(timestamp__lt=last_timestamp)
-        except Exception:
-            pass
+        except (TypeError, ValueError, OverflowError):
+            last_timestamp = None
+        if last_timestamp:
+            query = query.filter(timestamp__lt=last_timestamp)
             
     # Fetch a batch and filter in memory
     db_logs = list(query.select_related("user").order_by("-timestamp")[:100])

@@ -4,5 +4,14 @@ venv
 staticfiles
 nvflare_swarm_learning
 .env
+.secrets
 node_modules
 tmp
+
+# Certificate/private key material (must not be committed)
+infrastructure/certs/
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.csr

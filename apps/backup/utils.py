@@ -1,9 +1,11 @@
 import os
-import subprocess
+# Bandit B404: subprocess is required for pg_* client tooling; no shell=True usage.
+import subprocess  # nosec B404
 import base64
 import hashlib
 import tarfile
 import shutil
+from pathlib import Path
 from datetime import datetime
 from django.conf import settings
 from django.core.files.storage import default_storage
@@ -11,6 +13,27 @@ from django.core.files.base import ContentFile
 from cryptography.fernet import Fernet
 from storages.backends.s3boto3 import S3Boto3Storage
 from .models import StorageBackend, BackupStatus
+
+
+def _is_within_directory(base_path, target_path):
+    base = os.path.realpath(base_path)
+    target = os.path.realpath(target_path)
+    return target == base or target.startswith(f"{base}{os.sep}")
+
+
+def safe_extract_tar(archive, destination):
+    """Safely extract tar files without allowing traversal or symlink abuse."""
+    dest = Path(destination).resolve()
+    for member in archive.getmembers():
+        member_path = dest / member.name
+        if member.islnk() or member.issym():
+            raise Exception(f"Refusing to extract symbolic link '{member.name}' from backup")
+        if not _is_within_directory(dest, member_path):
+            raise Exception(
+                f"Archive member '{member.name}' would extract outside of {dest}. Aborting restore."
+            )
+    # Bandit B202: members are validated for traversal and symlinks above.
+    archive.extractall(path=dest)  # nosec B202
 
 def get_fernet():
     key = base64.urlsafe_b64encode(
@@ -61,7 +84,8 @@ def backup_database(db_alias, output_path):
         db_settings["NAME"],
     ]
     try:
-        subprocess.run(cmd, env=env, check=True, capture_output=True)
+        # Bandit B603: args are a fixed list; shell=False; inputs come from settings.
+        subprocess.run(cmd, env=env, check=True, capture_output=True)  # nosec B603
     except subprocess.CalledProcessError as e:
         raise Exception(f"pg_dump failed: {e.stderr.decode()}")
 
@@ -74,23 +98,28 @@ def restore_database(db_alias, input_path):
     # Drop and recreate database to ensure a clean restore
     terminate_cmd = [
         "psql", "-h", db_settings["HOST"], "-p", str(db_settings["PORT"]),
-        "-U", db_settings["USER"], "-d", "postgres", "-c",
-        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_settings['NAME']}' AND pid <> pg_backend_pid();"
+        "-U", db_settings["USER"], "-d", "postgres",
+        "-v", f"dbname={db_settings['NAME']}",
+        "-c",
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :'dbname' AND pid <> pg_backend_pid();",
     ]
     # We don't check=True here because it might fail if the DB doesn't exist yet, which is fine
-    subprocess.run(terminate_cmd, env=env, check=False, capture_output=True)
+    # Bandit B603: args are a fixed list; shell=False; inputs come from settings.
+    subprocess.run(terminate_cmd, env=env, check=False, capture_output=True)  # nosec B603
     
     drop_cmd = [
         "dropdb", "-h", db_settings["HOST"], "-p", str(db_settings["PORT"]),
         "-U", db_settings["USER"], "--if-exists", db_settings["NAME"]
     ]
-    subprocess.run(drop_cmd, env=env, check=True, capture_output=True)
+    # Bandit B603: args are a fixed list; shell=False; inputs come from settings.
+    subprocess.run(drop_cmd, env=env, check=True, capture_output=True)  # nosec B603
     
     create_cmd = [
         "createdb", "-h", db_settings["HOST"], "-p", str(db_settings["PORT"]),
         "-U", db_settings["USER"], db_settings["NAME"]
     ]
-    subprocess.run(create_cmd, env=env, check=True, capture_output=True)
+    # Bandit B603: args are a fixed list; shell=False; inputs come from settings.
+    subprocess.run(create_cmd, env=env, check=True, capture_output=True)  # nosec B603
 
     restore_cmd = [
         "pg_restore",
@@ -102,7 +131,8 @@ def restore_database(db_alias, input_path):
         input_path,
     ]
     try:
-        subprocess.run(restore_cmd, env=env, check=True, capture_output=True)
+        # Bandit B603: args are a fixed list; shell=False; inputs come from settings.
+        subprocess.run(restore_cmd, env=env, check=True, capture_output=True)  # nosec B603
     except subprocess.CalledProcessError as e:
         raise Exception(f"pg_restore failed: {e.stderr.decode()}")
 
@@ -280,7 +310,7 @@ def perform_restore(log_obj):
             
         # 3. Extract
         with tarfile.open(tar_path, "r:gz") as tar:
-            tar.extractall(path=temp_dir)
+            safe_extract_tar(tar, temp_dir)
             
         extract_dir = None
         for item in os.listdir(temp_dir):

@@ -56,8 +56,8 @@ def _get_total_rounds(project_id: str, network_id: str) -> int:
             for workflow in cfg.get("workflows", []):
                 if workflow.get("id") == "swarm_controller":
                     return int(workflow.get("args", {}).get("num_rounds", 10))
-    except Exception:
-        pass
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return 10
     return 10
 
 
@@ -189,8 +189,8 @@ def monitor_training_jobs():
                         "progress_updated_at",
                     ]
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log.training.debug(format_exception(e))
 
             # Step 4: If the job is complete, upload participant results to S3.
             if ended:

@@ -112,8 +112,8 @@ class DatabaseLogHandler(logging.Handler):
                         )
                         if project:
                             log_entry.project_id = project.id
-                except Exception:
-                    pass
+                except Exception as e:
+                    _internal_logger.debug(f"Could not resolve project_id for logging: {e}")
 
             log_entry.save()
 

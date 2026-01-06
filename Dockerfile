@@ -4,14 +4,14 @@ WORKDIR /app
 COPY package.json package-lock.json postcss.config.js tailwind.config.js webpack.config.js ./
 COPY static ./static
 COPY templates ./templates
-RUN npm i && npm run build
+RUN npm ci && npm run build
 
 # Stage 2: Final image
 FROM python:3.12-slim-bookworm
 
 # set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
@@ -40,12 +40,6 @@ RUN pip install --upgrade pip --no-cache-dir \
 COPY . .
 # Copy built assets from Stage 1
 COPY --from=static-builder /app/static/dist ./static/dist
-
-# Install internal CA certificate and update system trust store
-USER root
-RUN mkdir -p /usr/local/share/ca-certificates/ && \
-    cp infrastructure/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt && \
-    update-ca-certificates
 
 # Create a non-root user and set permissions
 RUN useradd -m appuser && chown -R appuser:appuser /app

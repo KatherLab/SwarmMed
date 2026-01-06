@@ -501,7 +501,15 @@ def download_result(request, result_id):
     This avoids issues with self-signed certificates or inaccessible S3 hosts (e.g. Docker network).
     """
     try:
-        result = get_object_or_404(TrainingResult, id=result_id)
+        current_project_uuid, _ = get_user_project(request)
+        if not current_project_uuid:
+            return render(request, "404.html")
+
+        result = get_object_or_404(
+            TrainingResult,
+            id=result_id,
+            job__project__identifier=current_project_uuid,
+        )
 
         log = logger.get_logger()
         log.access.info(
@@ -609,7 +617,15 @@ def get_visualization_plot(request, plot_id, plot_type):
     """
     Proxies a visualization plot image from S3 through Django.
     """
-    plot = get_object_or_404(ResultsVisualizationPlot, id=plot_id)
+    current_project_uuid, _ = get_user_project(request)
+    if not current_project_uuid:
+        return HttpResponse("Plot data not found", status=404)
+
+    plot = get_object_or_404(
+        ResultsVisualizationPlot,
+        id=plot_id,
+        visualization_run__project__identifier=current_project_uuid,
+    )
 
     key = None
     filename = f"plot_{plot.plot_number}"

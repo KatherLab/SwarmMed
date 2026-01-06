@@ -53,9 +53,11 @@ def purge_expired_data():
             try:
                 # Avoid extra network calls: delete() is typically idempotent.
                 default_storage.delete(res.file_path)
-            except Exception:
+            except Exception as e:
                 # Log error but continue purging other records
-                pass
+                logger.get_logger().project.debug(
+                    f"Failed to delete stored file during purge: {e}"
+                )
 
     # Bulk delete the records after file cleanup
     TrainingResult.objects.filter(created_at__lt=cutoff_date).delete()

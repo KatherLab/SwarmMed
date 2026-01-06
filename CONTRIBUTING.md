@@ -38,16 +38,6 @@ source venv/bin/activate
 deactivate
 ```
 
-If you are using Docker for development, note the differences in `docker-compose.yml`. For production, you should **remove** these development-specific settings:
-```yaml
-# Remove these in production within docker-compose.yml:
-volumes:
-  - ./:/app
-ports:
-  - "8000:8000"
-command: python manage.py runserver 0.0.0.0:8000
-```
-
 ### Frontend Development (CSS & JS)
 
 To change CSS files locally and see changes in real-time, run these commands in a new terminal:
@@ -118,7 +108,7 @@ We prioritize security. Please run these scans before submitting a Pull Request:
   ```
 - **Bandit** (Common Python Security Issues):
   ```bash
-  bandit -r apps core home manage.py -f json -o bandit_report.json    
+  bandit -r apps core manage.py -f json -o bandit_report.json    
   ```
 
 ### 3. Documentation & Style

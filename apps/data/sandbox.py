@@ -11,39 +11,30 @@ import tempfile
 import docker
 from django.conf import settings
 from logs import logger
-
-
-def get_docker_client():
-    """
-    Returns a Docker client configured to use the proxy if DOCKER_HOST is set,
-    otherwise falls back to the local socket.
-    """
-    docker_host = os.environ.get("DOCKER_HOST")
-    if docker_host:
-        return docker.DockerClient(base_url=docker_host)
-    return docker.from_env()
+from common.utils import get_docker_client
 
 
 def get_host_path(container_path):
     """
-    Translates a path inside the container to its absolute path on the host.
-    This is required for Docker volume mounting when running 'Docker-in-Docker'.
+    Translates a path inside the container to its absolute path on the 'host'
+    (which is the sandbox-dind container itself).
+    The project is mounted at /workspace inside sandbox-dind.
     """
-    # BASE_DIR is /app inside the container
+    # BASE_DIR is /app inside the django/worker container
     rel_path = os.path.relpath(container_path, settings.BASE_DIR)
-    # Join the host's project root with the relative path
-    host_path = os.path.join(settings.HOST_PROJECT_PATH, rel_path)
+    # The sandbox-dind container has the project root at /workspace
+    host_path = os.path.join("/workspace", rel_path)
     # Ensure forward slashes for cross-platform compatibility
     return host_path.replace("\\", "/")
 
 
 def ensure_sandbox_image():
     """
-    Checks if the 'swarmcloud-sandbox' image exists locally.
+    Checks if the 'swarmcloud-sandbox' image exists locally on the sandbox daemon.
     If not, it builds it from the Dockerfile.sandbox in the project root.
     """
     log = logger.get_logger()
-    client = get_docker_client()
+    client = get_docker_client(target="sandbox")
 
     try:
         client.images.get("swarmcloud-sandbox")
@@ -87,12 +78,12 @@ def run_script_in_sandbox(
     script_content, data_dir, project_uuid, run_type="validation"
 ):
     """
-    Runs a Python script inside an ephemeral Docker container.
+    Runs a Python script inside an ephemeral Docker container on the isolated daemon.
     """
     log = logger.get_logger()
     ensure_sandbox_image()
 
-    client = get_docker_client()
+    client = get_docker_client(target="sandbox")
 
     # Create a unique temporary directory within the project root for this execution
     # This ensures the directory is visible to the host Docker daemon via existing mounts.

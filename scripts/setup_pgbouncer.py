@@ -5,6 +5,22 @@ import hmac
 import base64
 import subprocess
 from pathlib import Path
+from dotenv import load_dotenv
+
+
+SECRET_DIR = Path(os.environ.get("PGBOUNCER_SECRET_DIR", Path(__file__).parent.parent / ".secrets/pgbouncer"))
+
+
+def ensure_secret_dir():
+    SECRET_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(SECRET_DIR, 0o700)
+    return SECRET_DIR
+
+
+def write_secret_file(path: Path, content: str):
+    path.write_text(content)
+    os.chmod(path, 0o600)
+    return path
 
 def generate_scram_hash(password, salt=None, iterations=4096):
     if salt is None:
@@ -22,19 +38,26 @@ def generate_scram_hash(password, salt=None, iterations=4096):
     return auth_str
 
 def main():
-    db_user = os.environ.get("DB_USER", "swarmcloud")
-    db_pass = os.environ.get("DB_PASS", "swarmcloud")
-    db_name = os.environ.get("DB_NAME", "swarmcloud")
+    load_dotenv()
+    db_user = os.environ.get("DB_USER")
+    db_pass = os.environ.get("DB_PASS")
+    db_name = os.environ.get("DB_NAME")
     db_host = os.environ.get("BACKEND_DB_HOST", "postgres")
     db_port = os.environ.get("BACKEND_DB_PORT", "5432")
 
-    config_dir = Path("/app/infrastructure/pgbouncer")
+    if not db_user or not db_pass or not db_name:
+        raise RuntimeError("DB_USER, DB_PASS, and DB_NAME must be set for PgBouncer setup")
+
+    if db_pass == "swarmcloud" and os.environ.get("ALLOW_INSECURE_PGBOUNCER") != "1":
+        raise RuntimeError("Default database password detected. Refusing to write insecure PgBouncer config.")
+
+    config_dir = ensure_secret_dir()
     
     # Generate userlist.txt
     print(f"Generating userlist.txt for user: {db_user}")
     scram_hash = generate_scram_hash(db_pass)
     userlist_content = f'"{db_user}" "{scram_hash}"\n'
-    (config_dir / "userlist.txt").write_text(userlist_content)
+    write_secret_file(config_dir / "userlist.txt", userlist_content)
 
     # Generate pgbouncer.ini
     print(f"Generating pgbouncer.ini")
@@ -67,13 +90,14 @@ client_tls_key_file = /etc/pgbouncer/certs/pgbouncer.key
 client_tls_cert_file = /etc/pgbouncer/certs/pgbouncer.crt
 client_tls_ca_file = /etc/pgbouncer/certs/ca.crt
 """
-    (config_dir / "pgbouncer.ini").write_text(ini_content)
+    write_secret_file(config_dir / "pgbouncer.ini", ini_content)
     print("PgBouncer configuration generated successfully.")
 
     # Reload PgBouncer
     print("Reloading PgBouncer...")
+    pgbouncer_container = os.environ.get("PGBOUNCER_CONTAINER_NAME", "pgbouncer")
     try:
-        subprocess.run(["docker", "kill", "-s", "HUP", "pgbouncer"], check=True)
+        subprocess.run(["docker", "kill", "-s", "HUP", pgbouncer_container], check=True)
         print("PgBouncer reloaded.")
     except subprocess.CalledProcessError as e:
         print(f"Failed to reload PgBouncer: {e}")

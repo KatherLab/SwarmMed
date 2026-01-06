@@ -1,9 +1,3 @@
-"""
-View functions for the training application.
-Handles the training dashboard, job submission via NVIDIA FLARE API,
-status polling, and log streaming.
-"""
-
 import json
 import os
 import re
@@ -20,6 +14,7 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.utils import timezone
 
+from common.utils import get_safe_slug
 from logs.logger import get_logger
 from network.models import SwarmNetwork, UserCurrentNetwork
 from project.models import UserCurrentProject
@@ -154,8 +149,8 @@ def get_training_progress_info(training_job, current_network):
                     if training_progress >= 100:
                         training_progress = 99
                     have_cached_progress = True
-        except Exception:
-            pass
+        except (TypeError, ValueError):
+            have_cached_progress = False
 
         try:
             # STEP A: Find out how many rounds the user configured.
@@ -410,9 +405,8 @@ def start_training(request, network_id):
     job_dir = os.path.join(
         "workspaces", str(project.identifier), str(network.identifier), "job"
     )
-    project_name = project.title.replace(" ", "_")
+    project_name = get_safe_slug(project.title, project.identifier).replace("-", "_")
     admin_user_dir = os.path.join(
-        "/app",
         "workspaces",
         str(project.identifier),
         str(network.identifier),
@@ -595,7 +589,7 @@ def start_training(request, network_id):
         sess = new_secure_session(
             username="admin@nvidia.com", startup_kit_location=admin_user_dir
         )
-        job_path_absolute = os.path.join("/app", job_dir)
+        job_path_absolute = os.path.abspath(job_dir)
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
 
         job_id = None
@@ -637,12 +631,16 @@ def stop_training(request, network_id):
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
 
+        project_name = get_safe_slug(job.project.title, job.project.identifier).replace("-", "_")
         admin_user_dir = os.path.join(
             "workspaces",
             str(job.project.identifier),
             str(network.identifier),
-            "startup",
+            "workspace",
+            project_name,
+            "prod_00",
             "admin@nvidia.com",
+            "startup",
         )
         sess = new_secure_session(
             username="admin@nvidia.com", startup_kit_location=admin_user_dir

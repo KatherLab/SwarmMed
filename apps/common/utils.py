@@ -2,11 +2,61 @@
 Shared utility functions for the entire application.
 """
 
+import os
 import boto3
+import docker
 from urllib.parse import urlparse
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
+
+
+def get_docker_client(target="host"):
+    """
+    Returns a Docker client configured for a specific target.
+    'host' -> talk to the host via docker-proxy (Infra/Flare)
+    'sandbox' -> talk to sandbox-dind (User scripts)
+    """
+    # Temporarily remove these to avoid interference
+    cert_file = os.environ.pop("SSL_CERT_FILE", None)
+    ca_bundle = os.environ.pop("REQUESTS_CA_BUNDLE", None)
+
+    try:
+        if target == "sandbox":
+            # Explicitly target the DIND daemon with its TLS certs
+            client = docker.DockerClient(
+                base_url="tcp://sandbox-dind:2376",
+                tls=docker.tls.TLSConfig(
+                    client_cert=("/certs/client/cert.pem", "/certs/client/key.pem"),
+                    ca_cert="/certs/client/ca.pem",
+                    verify=True
+                )
+            )
+        else:
+            # Default to DOCKER_HOST (which points to docker-proxy)
+            client = docker.from_env()
+        
+        client.api.trust_env = False
+        client.ping()
+        return client
+    finally:
+        if cert_file is not None: os.environ["SSL_CERT_FILE"] = cert_file
+        if ca_bundle is not None: os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
+
+
+def get_host_path(container_path):
+    """
+    Translates a path inside the container to its absolute path on the host.
+    Required for Docker volume mounting when running in a DIND environment.
+    """
+    host_project_path = os.getenv("HOST_PROJECT_PATH")
+    if not host_project_path:
+        return container_path
+
+    rel_path = os.path.relpath(container_path, settings.BASE_DIR)
+    host_path = os.path.join(host_project_path, rel_path)
+    return host_path.replace("\\", "/")
 
 
 def get_s3_client():
@@ -150,3 +200,11 @@ def api_error(message, errors=None, status=400):
     if errors is not None:
         payload["errors"] = errors
     return JsonResponse(payload, status=status)
+
+
+def get_safe_slug(source_value, fallback):
+    """Return a filesystem-safe slug, falling back to provided identifier."""
+    slug = slugify(source_value or "")
+    if not slug:
+        slug = str(fallback)
+    return slug

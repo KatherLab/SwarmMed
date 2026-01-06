@@ -140,9 +140,21 @@ def handle_training_code_upload(project, request):
             # Default to the filename if not found.
             rel_path = directories.get(key, file_obj.name)
 
+            # Security: prevent path traversal and absolute paths.
+            clean_rel_path = os.path.normpath(rel_path).lstrip(
+                os.path.sep + (os.path.altsep or "")
+            )
+            if (
+                not clean_rel_path
+                or clean_rel_path == "."
+                or clean_rel_path.startswith("..")
+                or os.path.isabs(clean_rel_path)
+            ):
+                continue
+
             # Combine the root path with the relative path, ensuring forward
             # slashes.
-            save_path = os.path.join(root_path, rel_path).replace("\\", "/")
+            save_path = os.path.join(root_path, clean_rel_path).replace("\\", "/")
 
             # Save the file to the configured storage (Local or S3).
             default_storage.save(save_path, file_obj)

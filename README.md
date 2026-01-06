@@ -13,7 +13,7 @@ SwarmCloud is a decentralized medical data storage and collaborative training pl
 Ensure you have [Docker](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
 
 ### 2. VPN Network (Tailscale)
-MediSwarmCloud uses Tailscale for secure peer-to-peer networking.
+SwarmCloud uses Tailscale for secure peer-to-peer networking.
 
 ```bash
 # Install Tailscale (example for Ubuntu)
@@ -27,12 +27,21 @@ sudo tailscale up
 
 ### 3. Deploy Application
 ```bash
-git clone https://github.com/pfeifferis/MediSwarmCloud.git
-cd MediSwarmCloud
+git clone https://github.com/pfeifferis/SwarmCloud.git
+cd SwarmCloud
 
+
+# Prepare secret directories for TLS, PgBouncer, and Docker client certs
+mkdir -p .secrets/certs .secrets/docker .secrets/pgbouncer
 # Setup environment variables
 cp .env.template .env
 # Edit .env with your secrets
+
+# (Optional) Pre-render PgBouncer config before containers start
+python scripts/setup_pgbouncer.py || true
+
+# Generate internal TLS material (stored in .secrets/ and not committed)
+./scripts/generate_internal_certs.sh
 
 # Build and start containers
 docker compose build
@@ -47,8 +56,20 @@ docker exec -it swarmcloud python manage.py createsuperuser
 ---
 ### Documentation
 ```bash
+pip install mkdocs mkdocs-material
 mkdocs serve --dev-addr localhost:9999
 ```
+
+---
+
+## 🔐 Security Architecture Highlights
+
+- **TLS-isolated sandboxing:** User code runs against the `sandbox-dind` service rather than the host Docker socket. Client certificates generated in `.secrets/docker/client` are mounted read-only and validated automatically by the entrypoint before any workloads run.
+- **Read-only Tailscale telemetry:** The application now queries a dedicated `tailscale-status` sidecar over HTTP instead of mounting `/var/run/tailscale` directly, eliminating write access to the host VPN daemon.
+- **Locked-down PgBouncer configuration:** `scripts/setup_pgbouncer.py` now writes SCRAM credentials and config files into `.secrets/pgbouncer/` with `0600` permissions and refuses to run with default passwords. Mounts in the compose files are read-only by default.
+- **Safe backup restoration:** Encrypted backup archives are inspected for symlinks and path traversal before extraction, preventing crafted tarballs from overwriting files outside the restore directory.
+
+These protections are enabled automatically when using the provided compose files, but you can review [SECURITY.md](SECURITY.md) for operational guidance.
 
 ---
 
@@ -71,12 +92,12 @@ Since the platform uses an internal Certificate Authority (CA) for `localhost`, 
 
 **macOS:**
 ```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain infrastructure/certs/internal/ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain .secrets/certs/internal/ca.crt
 ```
 
 **Windows (PowerShell as Admin):**
 ```powershell
-Import-Certificate -FilePath "infrastructure\certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath ".secrets\certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
 **Chrome/Edge Bypass:**
