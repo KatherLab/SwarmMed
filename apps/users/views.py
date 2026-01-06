@@ -5,7 +5,7 @@ profile updates, and administrative user management.
 """
 
 from django.contrib import messages
-from django.contrib.auth import logout
+from django.contrib.auth import logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import check_password
 from django.contrib.auth.models import User
@@ -78,16 +78,47 @@ def settings(request):
         user=request.user,
         defaults={"role": "admin" if request.user.is_superuser else "user"},
     )
+    
+    password_errors = {}
+    
+    # Initialize form with instance (default for GET)
+    form = ProfileForm(instance=user_profile)
 
     if request.method == "POST":
-        # If the form was submitted, process the POST data.
-        form = ProfileForm(request.POST, instance=user_profile)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Settings updated successfully")
-    else:
-        # If it's a GET request, pre-populate the form with current data.
-        form = ProfileForm(instance=user_profile)
+        if "update_profile" in request.POST:
+            # If the form was submitted, process the POST data.
+            form = ProfileForm(request.POST, instance=user_profile)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Settings updated successfully")
+                return redirect("users:settings")
+        
+        elif "update_password" in request.POST:
+            current_pwd = request.POST.get("current_password")
+            new_pwd = request.POST.get("new_password")
+            user = request.user
+            
+            password_valid = True
+            
+            # Verify current password
+            if not check_password(current_pwd, user.password):
+                password_errors["current_password"] = ["Current password doesn't match!"]
+                password_valid = False
+            
+            if password_valid:
+                try:
+                    validate_password(new_pwd, user)
+                    user.set_password(new_pwd)
+                    user.save()
+                    # Important: Keep the user logged in
+                    update_session_auth_hash(request, user)
+                    messages.success(request, "Password changed successfully")
+                    return redirect("users:settings")
+                except ValidationError as e:
+                    password_errors["new_password"] = e.messages
+            
+            if password_errors:
+                messages.error(request, "Please correct the errors below.")
 
     # Get the email of the first superuser as the DPO/Admin contact.
     admin_user = User.objects.filter(is_superuser=True).order_by("id").first()
@@ -97,6 +128,7 @@ def settings(request):
         "form": form,
         "segment": "settings",
         "admin_email": admin_email,
+        "password_errors": password_errors,
     }
     return render(request, "apps/users/settings.html", context)
 

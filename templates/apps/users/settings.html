@@ -68,7 +68,7 @@
                     </div>
                     {% endfor %}
                     <div class="col-span-6 sm:col-full">
-                        <button class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300" type="submit">Save all</button>
+                        <button class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300" type="submit" name="update_profile">Save all</button>
                     </div>
                 </div>
                 
@@ -80,7 +80,7 @@
                     <!-- Password Section -->
                     <div class="mb-6">
                         <h4 class="mb-4 text-lg font-medium text-gray-900 dark:text-white">Change Password</h4>
-                        <form method="post" action="{% url "users:change_password" %}">
+                        <form method="post" action="">
                             {% csrf_token %}
             
                             <div class="grid grid-cols-6 gap-6">
@@ -97,6 +97,11 @@
                                             </svg>
                                         </button>
                                     </div>
+                                    {% if password_errors.current_password %}
+                                        {% for error in password_errors.current_password %}
+                                            <p class="mt-2 text-sm text-red-600 dark:text-red-500">{{ error }}</p>
+                                        {% endfor %}
+                                    {% endif %}
                                 </div>
                                 <div class="col-span-6 sm:col-span-3">
                                     <label for="new_password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">New password</label>
@@ -111,9 +116,14 @@
                                             </svg>
                                         </button>
                                     </div>
+                                    {% if password_errors.new_password %}
+                                        {% for error in password_errors.new_password %}
+                                            <p class="mt-2 text-sm text-red-600 dark:text-red-500">{{ error }}</p>
+                                        {% endfor %}
+                                    {% endif %}
                                 </div>
                                 <div class="col-span-6">
-                                    <button class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300" type="submit">Update password</button>
+                                    <button class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300" type="submit" name="update_password">Update password</button>
                                 </div>
                             </div>
                         </form>
