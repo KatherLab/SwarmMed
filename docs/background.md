@@ -7,14 +7,45 @@ description: Background information about SwarmCloud and Swarm Learning.
 
 SwarmCloud was developed to address the challenges of applying **secure machine learning** to **large scale sensitive medical data** with **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in the medical field due to privacy concerns and data governance regulations.
 
-Decentralized learning offers a solution by allowing machine learning models to be trained on decentralized data. Instead of moving the data to a central server, the model is sent to the data. This way, sensitive information never leaves the premises of the data owner.
+## System Architecture
 
-SwarmCloud provides the infrastructure and tools to facilitate decentralized learning in a **secure** and **user-friendly** manner. It leverages _NVIDIA FLARE_[^1] to handle the complexities of the swarm learning process, _MINIO_[^2] for object storage, and provides a _DJANGO_[^3]-based web interface for managing projects, data, and training jobs while securely connected peer via _TAILSCALE_[^4] VPN.
+SwarmCloud is composed of several integrated components that work together to provide a secure and scalable decentralized learning environment.
 
-[^1]: [https://developer.nvidia.com/flare](https://developer.nvidia.com/flare)
-[^2]: [https://min.io/](https://min.io/)
-[^3]: [https://www.djangoproject.com/](https://www.djangoproject.com/)
-[^4]: [https://tailscale.com/](https://tailscale.com/)
+``` mermaid
+graph TD
+    User((User)) -->|HTTPS| Web[Django Web Interface]
+    Web <-->|ORM| DB[(PostgreSQL)]
+    Web <-->|S3 API| Storage[MinIO Object Storage]
+    Web -->|Enqueue Task| TaskQueue[Redis]
+    TaskQueue <--> Worker[Celery Worker]
+    
+    subgraph "Secure Sandbox"
+        Worker -->|mTLS| SandboxDaemon[Sandbox-dind]
+        SandboxDaemon -->|Run| SandboxContainer[Ephemeral Container]
+        SandboxContainer -->|Read-only| DataMount[Local Data Files]
+    end
+    
+    subgraph "Swarm Learning (NVIDIA FLARE)"
+        Worker -->|Job Submission| FlareServer[FLARE Server]
+        FlareServer <-->|Control| FlareClient[FLARE Client]
+        FlareClient <-->|mTLS / WireGuard| PeerClients[Peer FLARE Clients]
+    end
+    
+    subgraph "Networking"
+        Web & Worker & FlareClient <-->|VPN Overlay| Tailscale[Tailscale / WireGuard]
+    end
+```
+
+### Key Components
+
+*   **Django Web Interface:** The central hub for project management, data upload, and training orchestration.
+*   **Celery Worker:** Handles long-running background tasks such as data synchronization, script execution, and training job monitoring.
+*   **MinIO:** Provides S3-compatible object storage for all datasets, models, and scripts.
+*   **Sandbox-dind:** An isolated Docker-in-Docker environment used to execute user-provided Python scripts securely.
+*   **NVIDIA FLARE:** The core engine for federated and swarm learning. It handles model aggregation and decentralized training workflows.
+*   **Tailscale:** Creates a secure, encrypted peer-to-peer overlay network (VPN) between all participants, enabling direct communication even behind restrictive firewalls.
+
+---
 
 ## Swarm Learning
 

@@ -10,6 +10,35 @@ Security is a foundational aspect of the SwarmCloud platform, designed to protec
 !!! warning "Shared Responsibility"
     While SwarmCloud provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
 
+## Infrastructure Security
+
+SwarmCloud employs several layers of infrastructure security to isolate workloads and protect the host system.
+
+### TLS-Isolated Sandboxing
+
+User-provided Python scripts (validation and visualization) are executed in ephemeral Docker containers. 
+- **Isolation:** Workloads run against a dedicated `sandbox-dind` (Docker-in-Docker) service rather than the host Docker socket.
+- **Mutual TLS:** Communication between the application and the sandbox daemon is secured via mutual TLS. Client certificates generated in `.secrets/docker/client` are mounted read-only and validated automatically before any workloads run.
+- **Resource Limits:** Containers are strictly limited in terms of memory (1GB) and CPU (1 core), and have no network access.
+
+### Secure Network Telemetry
+
+To monitor the VPN status without exposing the host system:
+- **Sidecar Architecture:** The application queries a dedicated `tailscale-status` sidecar over HTTP.
+- **Reduced Privilege:** This eliminates the need to mount the host's `/var/run/tailscale` socket into the application container, preventing any write access to the host VPN daemon.
+
+### Database Proxy (PgBouncer)
+
+Access to the PostgreSQL database is mediated by PgBouncer for connection pooling and security.
+- **Locked-down Config:** The `scripts/setup_pgbouncer.py` utility generates SCRAM credentials and configuration files with restricted (`0600`) permissions.
+- **Credential Validation:** The system refuses to start with default or weak passwords, ensuring a baseline of credential security.
+
+### Safe Backup and Restore
+
+The backup system is designed to prevent exploitation via malicious archives:
+- **Archive Inspection:** Encrypted backup archives are inspected for symbolic links and potential path traversal attacks before extraction.
+- **Path Validation:** The restoration process ensures that files cannot be overwritten outside of the designated restore directory.
+
 ## Application Security
 
 ### Access Control

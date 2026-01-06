@@ -10,14 +10,14 @@ This guide provides information for developers who write scripts to be run on th
 *   Data Validation Scripts
 *   Data Visualization Scripts
 *   Training Scripts for NVIDIA FLARE
-*   Results Visualization Scripts (coming soon)
+*   Results Visualization Scripts
 
 
 !!! tip "Example Code"
-    You can find an example scripts [here](https://github.com/pfeifferis/SwarmCloud/tree/main/examples).
+    You can find example scripts [here](https://github.com/pfeifferis/SwarmCloud/tree/main/examples).
 
 !!! tip "Testing Locally"
-    You can test your validation and visualization scripts locally selecting `Test in local environment` in the network settings and reviewing the logs on the logs page.
+    You can test your validation and visualization scripts locally by selecting `Test in local environment` in the network settings and reviewing the logs on the logs page.
 
 ## Validation Scripts
 
@@ -292,7 +292,52 @@ This module provides a set of helper functions to handle the communication with 
     print("Training round completed.")
     ```
 
-    ```bash title="requirements.txt"
-    torch
-    scikit-learn
-    ```
+        ```bash title="requirements.txt"
+
+        torch
+
+        scikit-learn
+
+        ```
+
+    
+
+    ## Customizing the Sandbox Environment
+
+    
+
+    The execution environment for validation and visualization scripts is defined by a Docker image (`swarmcloud-sandbox`).
+
+    
+
+    ### For Users
+
+    If your script requires a Python package that is not currently available in the sandbox, please contact your platform administrator. The standard set of packages is chosen to balance functionality and security.
+
+    
+
+    ### For Administrators
+
+    To add additional packages to the sandbox environment:
+
+    
+
+    1.  Open `Dockerfile.sandbox` in the project root.
+
+    2.  Add the desired packages to the `RUN pip install` command.
+
+    3.  Rebuild and restart the containers:
+
+        ```bash
+
+        docker compose build sandbox-dind
+
+        docker compose up -d sandbox-dind
+
+        ```
+
+    
+
+    The platform will automatically detect the changes and rebuild the internal `swarmcloud-sandbox` image during the next script execution.
+
+    
