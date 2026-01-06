@@ -12,80 +12,277 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('project', '0001_initial'),
+        ("project", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='ValidationRun',
+            name="ValidationRun",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed'), ('cancelled', 'Cancelled')], db_index=True, default='pending', max_length=20)),
-                ('started_at', models.DateTimeField(blank=True, null=True)),
-                ('completed_at', models.DateTimeField(blank=True, null=True)),
-                ('success', models.BooleanField(blank=True, null=True)),
-                ('output', models.TextField(blank=True)),
-                ('error_message', models.TextField(blank=True)),
-                ('celery_task_id', models.CharField(blank=True, max_length=255)),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='validation_runs', to='project.project')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("running", "Running"),
+                            ("completed", "Completed"),
+                            ("failed", "Failed"),
+                            ("cancelled", "Cancelled"),
+                        ],
+                        db_index=True,
+                        default="pending",
+                        max_length=20,
+                    ),
+                ),
+                ("started_at", models.DateTimeField(blank=True, null=True)),
+                ("completed_at", models.DateTimeField(blank=True, null=True)),
+                ("success", models.BooleanField(blank=True, null=True)),
+                ("output", models.TextField(blank=True)),
+                ("error_message", models.TextField(blank=True)),
+                (
+                    "celery_task_id",
+                    models.CharField(blank=True, max_length=255),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="validation_runs",
+                        to="project.project",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ['-created_at'],
+                "ordering": ["-created_at"],
             },
         ),
         migrations.CreateModel(
-            name='ValidationCheck',
+            name="ValidationCheck",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=255)),
-                ('status', models.CharField(choices=[('ok', 'OK'), ('warning', 'Warning'), ('error', 'Error')], db_index=True, max_length=20)),
-                ('message', models.TextField(blank=True)),
-                ('details', models.JSONField(blank=True, default=dict)),
-                ('validation_run', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='checks', to='data.validationrun')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=255)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("ok", "OK"),
+                            ("warning", "Warning"),
+                            ("error", "Error"),
+                        ],
+                        db_index=True,
+                        max_length=20,
+                    ),
+                ),
+                ("message", models.TextField(blank=True)),
+                ("details", models.JSONField(blank=True, default=dict)),
+                (
+                    "validation_run",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="checks",
+                        to="data.validationrun",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='VisualizationRun',
+            name="VisualizationRun",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed'), ('cancelled', 'Cancelled')], db_index=True, default='pending', max_length=20)),
-                ('started_at', models.DateTimeField(blank=True, null=True)),
-                ('completed_at', models.DateTimeField(blank=True, null=True)),
-                ('success', models.BooleanField(blank=True, null=True)),
-                ('output', models.TextField(blank=True)),
-                ('error_message', models.TextField(blank=True)),
-                ('celery_task_id', models.CharField(blank=True, max_length=255)),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='visualization_runs', to='project.project')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("running", "Running"),
+                            ("completed", "Completed"),
+                            ("failed", "Failed"),
+                            ("cancelled", "Cancelled"),
+                        ],
+                        db_index=True,
+                        default="pending",
+                        max_length=20,
+                    ),
+                ),
+                ("started_at", models.DateTimeField(blank=True, null=True)),
+                ("completed_at", models.DateTimeField(blank=True, null=True)),
+                ("success", models.BooleanField(blank=True, null=True)),
+                ("output", models.TextField(blank=True)),
+                ("error_message", models.TextField(blank=True)),
+                (
+                    "celery_task_id",
+                    models.CharField(blank=True, max_length=255),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="visualization_runs",
+                        to="project.project",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ['-created_at'],
+                "ordering": ["-created_at"],
             },
         ),
         migrations.CreateModel(
-            name='VisualizationPlot',
+            name="VisualizationPlot",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('title', models.CharField(max_length=255)),
-                ('plot_number', models.IntegerField()),
-                ('image_data', models.ImageField(max_length=512, upload_to=data.models.visualization_plot_path)),
-                ('svg_data', models.FileField(blank=True, max_length=512, null=True, upload_to=data.models.visualization_plot_path)),
-                ('visualization_run', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='plots', to='data.visualizationrun')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                ("title", models.CharField(max_length=255)),
+                ("plot_number", models.IntegerField()),
+                (
+                    "image_data",
+                    models.ImageField(
+                        max_length=512,
+                        upload_to=data.models.visualization_plot_path,
+                    ),
+                ),
+                (
+                    "svg_data",
+                    models.FileField(
+                        blank=True,
+                        max_length=512,
+                        null=True,
+                        upload_to=data.models.visualization_plot_path,
+                    ),
+                ),
+                (
+                    "visualization_run",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="plots",
+                        to="data.visualizationrun",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['plot_number'],
-                'unique_together': {('visualization_run', 'plot_number')},
+                "ordering": ["plot_number"],
+                "unique_together": {("visualization_run", "plot_number")},
             },
         ),
     ]

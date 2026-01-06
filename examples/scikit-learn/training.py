@@ -1,12 +1,13 @@
-import flare_adapter
-import pandas as pd
 import glob
 import os
+
+import flare_adapter
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+import pandas as pd
+from dotenv import find_dotenv, load_dotenv
 from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import log_loss
-from dotenv import load_dotenv, find_dotenv
+from sklearn.preprocessing import StandardScaler
 
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
@@ -24,13 +25,17 @@ def load_data(data_dir):
     file_list = glob.glob(file_pattern, recursive=True)
 
     if not file_list:
-        raise RuntimeError(f"No CSV files found in '{data_dir}' or its subdirectories.")
+        raise RuntimeError(
+            f"No CSV files found in '{data_dir}' or its subdirectories."
+        )
 
     print(f"Found {len(file_list)} CSV files in {data_dir}.")
     df_list = [pd.read_csv(f) for f in file_list]
     full_df = pd.concat(df_list, ignore_index=True)
 
-    X = full_df.drop(columns=["patient_id", "diagnosis"]).values.astype("float32")
+    X = full_df.drop(columns=["patient_id", "diagnosis"]).values.astype(
+        "float32"
+    )
     y = full_df["diagnosis"].values.astype("float32")  # 1D for sklearn
 
     scaler = StandardScaler()
@@ -53,7 +58,9 @@ def main(project_id: str):
 
         # Initialize Model (using SGDClassifier for online/incremental
         # learning)
-        model = SGDClassifier(loss="log_loss", learning_rate="constant", eta0=0.01)
+        model = SGDClassifier(
+            loss="log_loss", learning_rate="constant", eta0=0.01
+        )
 
         # Load Data
         try:
@@ -100,7 +107,9 @@ def main(project_id: str):
             # Scikit-learn parameters are typically coef_ and intercept_
             params_dict = {"coef": model.coef_, "intercept": model.intercept_}
 
-            flare_adapter.send_model(params=params_dict, metrics={"loss": float(loss)})
+            flare_adapter.send_model(
+                params=params_dict, metrics={"loss": float(loss)}
+            )
 
 
 if __name__ == "__main__":

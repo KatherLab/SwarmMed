@@ -5,24 +5,25 @@ historical logs and real-time container logs.
 """
 
 import os
+import shutil
+
 # Bandit B404: subprocess is required for optional docker log streaming; no shell=True usage.
 import subprocess  # nosec B404
-import shutil
 from datetime import timedelta
 
 import yaml
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from django.utils import timezone
-from django.http import HttpResponse, JsonResponse
-from django.utils.dateparse import parse_datetime
-
-from project.decorators import project_context_required
 from common.utils import get_safe_slug
-
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from project.decorators import project_context_required
 from users.decorators import developer_required
-from .models import LogEntry, LogCategory
+
 from logs.logger import get_logger
+
+from .models import LogCategory, LogEntry
 
 logger = get_logger()
 
@@ -41,9 +42,9 @@ def get_user_project(request):
         return None, False
 
     try:
-        user_current_project = UserCurrentProject.objects.select_related("project").get(
-            user=request.user
-        )
+        user_current_project = UserCurrentProject.objects.select_related(
+            "project"
+        ).get(user=request.user)
         if not user_current_project.project:
             return None, False
         return user_current_project.project, True
@@ -79,7 +80,7 @@ def download_log_category(request, category_key):
     for entry in log_entries_all:
         if entry.message.startswith("Audit:"):
             continue
-            
+
         timestamp_str = entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
         line = (
             f"[{timestamp_str}][{entry.user.email if entry.user else 'System'}] {entry.level} - "
@@ -92,7 +93,9 @@ def download_log_category(request, category_key):
     # Create the HTTP response with appropriate headers for a file download
     response = HttpResponse(log_content, content_type="text/plain")
     project_identifier = project.identifier if project else "project"
-    project_slug = get_safe_slug(getattr(project, "title", ""), project_identifier)
+    project_slug = get_safe_slug(
+        getattr(project, "title", ""), project_identifier
+    )
     filename = f"{project_slug.replace('-', '_')}_{category_key}_logs.txt"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
 
@@ -125,7 +128,7 @@ def logs_dashboard(request):
             .select_related("user")
             .order_by("-timestamp")[:200]
         )
-        
+
         recent_logs = []
         for entry in db_logs:
             if not entry.message.startswith("Audit:"):
@@ -140,12 +143,16 @@ def logs_dashboard(request):
                 from network.models import UserCurrentNetwork
 
                 # Check if the user has a currently active network
-                user_network = UserCurrentNetwork.objects.get(user=request.user).network
+                user_network = UserCurrentNetwork.objects.get(
+                    user=request.user
+                ).network
 
                 if user_network:
                     # Construct path to the docker-compose file for this
                     # network
-                    project_name = get_safe_slug(project.title, project.identifier).replace("-", "_")
+                    project_name = get_safe_slug(
+                        project.title, project.identifier
+                    ).replace("-", "_")
                     compose_path = os.path.join(
                         "workspaces",
                         str(project.identifier),
@@ -157,7 +164,7 @@ def logs_dashboard(request):
                     )
 
                     if os.path.exists(compose_path):
-                        with open(compose_path, "r") as f:
+                        with open(compose_path) as f:
                             compose_data = yaml.safe_load(f)
 
                         # Identify all services defined in the compose file
@@ -169,7 +176,9 @@ def logs_dashboard(request):
                                 ].get("container_name", service_name)
 
                                 # Execute 'docker logs' to get live output
-                                docker_path = shutil.which("docker") or "docker"
+                                docker_path = (
+                                    shutil.which("docker") or "docker"
+                                )
                                 try:
                                     # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
                                     result = subprocess.run(  # nosec B603
@@ -192,7 +201,7 @@ def logs_dashboard(request):
                                         # Filter out Audit logs from live stream if applicable
                                         if line.startswith("Audit:"):
                                             continue
-                                            
+
                                         live_log_count += 1
                                         mock_entry = {
                                             "message": line,
@@ -208,7 +217,9 @@ def logs_dashboard(request):
                                             def __init__(self, **kwargs):
                                                 self.__dict__.update(kwargs)
 
-                                        recent_logs.insert(0, LogMock(**mock_entry))
+                                        recent_logs.insert(
+                                            0, LogMock(**mock_entry)
+                                        )
                                 except Exception as e:
                                     # Log if Docker command fails
                                     logger.project.warning(
@@ -220,13 +231,15 @@ def logs_dashboard(request):
         # 3. Calculate statistics for the UI
         # NOTE: Since we can't filter encrypted fields in DB, we have to fetch and filter.
         # For performance on large logs, this might need an 'is_audit' boolean field in the future.
-        all_category_logs = LogEntry.objects.filter(project=project, category=category_key)
-        
+        all_category_logs = LogEntry.objects.filter(
+            project=project, category=category_key
+        )
+
         # Calculate in-memory for accuracy due to encryption
         total_count = live_log_count
         recent_count = live_log_count
         yesterday = timezone.now() - timedelta(days=1)
-        
+
         for entry in all_category_logs:
             if not entry.message.startswith("Audit:"):
                 total_count += 1
@@ -260,9 +273,9 @@ def load_more_logs(request, category_key):
     """
     project, _ = get_user_project(request)
     last_timestamp_str = request.GET.get("last_timestamp")
-    
+
     query = LogEntry.objects.filter(project=project, category=category_key)
-    
+
     if last_timestamp_str:
         last_timestamp = None
         try:
@@ -271,25 +284,27 @@ def load_more_logs(request, category_key):
             last_timestamp = None
         if last_timestamp:
             query = query.filter(timestamp__lt=last_timestamp)
-            
+
     # Fetch a batch and filter in memory
     db_logs = list(query.select_related("user").order_by("-timestamp")[:100])
-    
+
     log_data = []
     for entry in db_logs:
         if entry.message.startswith("Audit:"):
             continue
-            
-        log_data.append({
-            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "raw_timestamp": entry.timestamp.isoformat(),
-            "user": entry.user.email if entry.user else "System",
-            "level": entry.level,
-            "message": entry.message,
-        })
+
+        log_data.append(
+            {
+                "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "raw_timestamp": entry.timestamp.isoformat(),
+                "user": entry.user.email if entry.user else "System",
+                "level": entry.level,
+                "message": entry.message,
+            }
+        )
         if len(log_data) >= 50:
             break
-        
+
     return JsonResponse({"logs": log_data})
 
 

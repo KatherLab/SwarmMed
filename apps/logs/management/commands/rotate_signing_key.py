@@ -5,7 +5,9 @@ Usage: python manage.py rotate_signing_key
 
 import secrets
 import string
+
 from django.core.management.base import BaseCommand
+
 from logs.models import LogSigningKey
 
 

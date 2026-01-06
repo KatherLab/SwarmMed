@@ -4,11 +4,17 @@ This module maps top-level URL paths to their respective application-specific
 URL configurations. It also handles serving static and media files.
 """
 
+from common.views import (
+    contact,
+    imprint,
+    license,
+    privacy_policy,
+    terms_and_conditions,
+)
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
-from common.views import privacy_policy, terms_and_conditions, license, imprint, contact
 
 # List of root URL patterns for the entire project.
 urlpatterns = [
@@ -46,8 +52,12 @@ if settings.DEBUG:
     urlpatterns += [
         path("__debug__/", include("debug_toolbar.urls")),
     ]
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(
+        settings.MEDIA_URL, document_root=settings.MEDIA_ROOT
+    )
+    urlpatterns += static(
+        settings.STATIC_URL, document_root=settings.STATIC_ROOT
+    )
 
 
 # Use project-level error handlers so custom templates are rendered

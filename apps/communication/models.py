@@ -4,11 +4,11 @@ This file defines the database structure for direct messages,
 project board posts, and tracking board access.
 """
 
-from django.db import models
-from django.contrib.auth.models import User
-from project.models import Project
 from common.fields import EncryptedCharField, EncryptedTextField
 from common.models import AbstractBaseModel
+from django.contrib.auth.models import User
+from django.db import models
+from project.models import Project
 
 
 class Message(AbstractBaseModel):
@@ -53,7 +53,9 @@ class ProjectPost(AbstractBaseModel):
     """
 
     # The project this post belongs to
-    project = models.ForeignKey(Project, related_name="posts", on_delete=models.CASCADE)
+    project = models.ForeignKey(
+        Project, related_name="posts", on_delete=models.CASCADE
+    )
     # The user who wrote the post
     author = models.ForeignKey(
         User, related_name="project_posts", on_delete=models.CASCADE

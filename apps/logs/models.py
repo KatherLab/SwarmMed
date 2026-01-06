@@ -4,14 +4,15 @@ Defines how log entries are stored in the database, including categories
 like project, data, network, training, and results.
 """
 
-import uuid
 import hashlib
 import hmac
-from django.conf import settings
-from django.db import models
-from django.contrib.auth.models import User
-from django.utils import timezone
+import uuid
+
 from common.fields import EncryptedTextField
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.db import models
+from django.utils import timezone
 
 
 class LogCategory(models.TextChoices):
@@ -175,7 +176,7 @@ class LogEntry(models.Model):
         data = f"{self.id}{ts_str}{user_id}{self.category}{self.message}{self.previous_hash}"
 
         # Combine database-stored key with environment-stored SECRET_KEY
-        combined_key = f"{key_obj.key}{settings.SECRET_KEY}".encode("utf-8")
+        combined_key = f"{key_obj.key}{settings.SECRET_KEY}".encode()
         signature = hmac.new(
             combined_key, data.encode("utf-8"), hashlib.sha256
         ).hexdigest()

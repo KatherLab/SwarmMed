@@ -10,6 +10,7 @@ import string
 from pathlib import Path
 from urllib.parse import urlparse
 
+from celery.schedules import crontab
 from django.contrib import messages
 from dotenv import load_dotenv
 from str2bool import str2bool
@@ -50,7 +51,9 @@ BACKUP_ENCRYPTION_KEY = os.environ.get("BACKUP_ENCRYPTION_KEY", SECRET_KEY)
 
 # ALLOWED_HOSTS defines which domain names can access this server.
 # It should be restricted to your production domains.
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = os.environ.get(
+    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"
+).split(",")
 
 # CSRF_TRUSTED_ORIGINS is required for cross-site request forgery protection
 # when running on specific domains or ports.
@@ -175,7 +178,9 @@ DATABASES = {
 # Configures Redis connection parameters used by CACHES and Celery.
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
 if not REDIS_PASSWORD and not DEBUG:
-    raise ValueError("REDIS_PASSWORD MUST be set in environment when DEBUG is False.")
+    raise ValueError(
+        "REDIS_PASSWORD MUST be set in environment when DEBUG is False."
+    )
 
 # For development only: permit an empty password locally but do not
 # overwrite a missing production secret.
@@ -220,8 +225,12 @@ AUTH_PASSWORD_VALIDATORS = [
             "min_length": 12,
         },
     },
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"
+    },
 ]
 
 # --- Internationalization ---
@@ -326,7 +335,9 @@ MESSAGE_TAGS = {
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 if not DEBUG and (not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY):
-    raise ValueError("AWS credentials MUST be set in environment when DEBUG is False.")
+    raise ValueError(
+        "AWS credentials MUST be set in environment when DEBUG is False."
+    )
 
 # For development only: allow local default credentials but do not overwrite
 # production environment variables. This prevents accidental use of
@@ -334,10 +345,16 @@ if not DEBUG and (not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY):
 if DEBUG:
     AWS_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID or "minioadmin"
     AWS_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY or "minioadmin"
-AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "swarmcloud")
-AWS_S3_ENDPOINT_URL = os.environ.get("AWS_S3_ENDPOINT_URL", "https://minio:9000")
+AWS_STORAGE_BUCKET_NAME = os.environ.get(
+    "AWS_STORAGE_BUCKET_NAME", "swarmcloud"
+)
+AWS_S3_ENDPOINT_URL = os.environ.get(
+    "AWS_S3_ENDPOINT_URL", "https://minio:9000"
+)
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://localhost:9000")
-AWS_S3_CUSTOM_DOMAIN = f"{urlparse(PUBLIC_URL).netloc}/{AWS_STORAGE_BUCKET_NAME}"
+AWS_S3_CUSTOM_DOMAIN = (
+    f"{urlparse(PUBLIC_URL).netloc}/{AWS_STORAGE_BUCKET_NAME}"
+)
 AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "eu-central-1")
 AWS_S3_ADDRESSING_STYLE = "path"
 AWS_S3_SIGNATURE_VERSION = "s3v4"
@@ -381,7 +398,9 @@ BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", 30))
 # Retention period for PHI and related records (in days). Default: 6 years (2190 days)
 DATA_RETENTION_DAYS = int(os.environ.get("DATA_RETENTION_DAYS", 2190))
 # Retention period for standard security logs (in days). Default: 1 year (365 days)
-SECURITY_LOG_RETENTION_DAYS = int(os.environ.get("SECURITY_LOG_RETENTION_DAYS", 365))
+SECURITY_LOG_RETENTION_DAYS = int(
+    os.environ.get("SECURITY_LOG_RETENTION_DAYS", 365)
+)
 # Period after which IP addresses are anonymized (in days). Default: 90 days
 IP_ANONYMIZATION_DAYS = int(os.environ.get("IP_ANONYMIZATION_DAYS", 90))
 
@@ -390,7 +409,9 @@ IP_ANONYMIZATION_DAYS = int(os.environ.get("IP_ANONYMIZATION_DAYS", 90))
 # Configures Celery to use Redis as the message broker and result backend.
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
 if not REDIS_PASSWORD and not DEBUG:
-    raise ValueError("REDIS_PASSWORD MUST be set in environment when DEBUG is False.")
+    raise ValueError(
+        "REDIS_PASSWORD MUST be set in environment when DEBUG is False."
+    )
 
 # For development only: permit an empty password locally but do not
 # overwrite a missing production secret.
@@ -414,7 +435,6 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_BROKER_POOL_LIMIT = 10  # Limit Redis connection pool size
 
 # Automation Schedule (Celery Beat)
-from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
     "daily-secure-backup": {
@@ -552,12 +572,12 @@ UNFOLD = {
                         "icon": "chat_error",
                         "link": "/admin/axes/accessfailurelog/",
                     },
-                     {
+                    {
                         "title": "Logins",
                         "icon": "login",
                         "link": "/admin/axes/accesslog/",
                     },
-                ],  
+                ],
             },
             {
                 "title": "Project Management",
@@ -597,12 +617,11 @@ UNFOLD = {
                         "icon": "analytics",
                         "link": "/admin/data/visualizationrun/",
                     },
-                ]
+                ],
             },
             {
                 "title": "Results Management",
                 "items": [
-                    
                     {
                         "title": "Results",
                         "icon": "data_object",

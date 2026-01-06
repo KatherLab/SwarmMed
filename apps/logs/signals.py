@@ -3,8 +3,9 @@ Signal handlers for the logs application.
 Listen for data-modifying events in other applications to create audit entries.
 """
 
-from django.db.models.signals import post_save, post_delete, m2m_changed
+from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
+
 from .logger import get_logger
 
 # We import models dynamically within handlers to avoid circular imports
@@ -36,7 +37,9 @@ def log_model_save(sender, instance, created, **kwargs):
         if category == "project":
             category = "project"
 
-        message = f"Audit: {action} {model_name} '{instance}' (ID: {instance.pk})"
+        message = (
+            f"Audit: {action} {model_name} '{instance}' (ID: {instance.pk})"
+        )
 
         # Determine log level
         level = "INFO"
@@ -80,7 +83,9 @@ def log_model_delete(sender, instance, **kwargs):
 
     if app_label in AUDITED_MODELS and model_name in AUDITED_MODELS[app_label]:
         logger = get_logger()
-        message = f"Audit: Deleted {model_name} '{instance}' (ID: {instance.pk})"
+        message = (
+            f"Audit: Deleted {model_name} '{instance}' (ID: {instance.pk})"
+        )
 
         context = {
             "model": model_name,
@@ -89,7 +94,9 @@ def log_model_delete(sender, instance, **kwargs):
             "action": "delete",
         }
 
-        logger.log(level="WARNING", message=message, category=app_label, **context)
+        logger.log(
+            level="WARNING", message=message, category=app_label, **context
+        )
 
 
 @receiver(m2m_changed)
@@ -102,9 +109,7 @@ def log_m2m_changes(sender, instance, action, pk_set, **kwargs):
     if model_name == "project" and "members" in str(sender):
         if action in ["post_add", "post_remove", "post_clear"]:
             logger = get_logger()
-            message = (
-                f"Audit: Project members changed for '{instance}' - Action: {action}"
-            )
+            message = f"Audit: Project members changed for '{instance}' - Action: {action}"
 
             logger.project.info(
                 message,

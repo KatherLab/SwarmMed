@@ -4,14 +4,14 @@ This module registers the project-related models with the Django admin interface
 allowing administrators to manage projects and user-project relations.
 """
 
+from data.models import ValidationRun, VisualizationRun
 from django.contrib import admin
-from unfold.admin import ModelAdmin, TabularInline
-from unfold.contrib.filters.admin import DropdownFilter
-from .models import Project, UserCurrentProject
+from logs.models import LogEntry
 from network.models import SwarmNetwork
 from training.models import TrainingJob
-from data.models import ValidationRun, VisualizationRun
-from logs.models import LogEntry
+from unfold.admin import ModelAdmin, TabularInline
+
+from .models import Project, UserCurrentProject
 
 
 class SwarmNetworkInline(TabularInline):
@@ -86,7 +86,7 @@ class ProjectAdmin(ModelAdmin):
     readonly_fields = ("identifier", "created_at")
 
     date_hierarchy = "created_at"
-    
+
     compressed_fields = True
     warn_unsaved_changes = True
 
@@ -104,7 +104,15 @@ class ProjectAdmin(ModelAdmin):
     fieldsets = (
         (
             "Project Details",
-            {"fields": ("title", "description", "author", "status", "members")},
+            {
+                "fields": (
+                    "title",
+                    "description",
+                    "author",
+                    "status",
+                    "members",
+                )
+            },
         ),
         ("System Metadata", {"fields": ("identifier", "created_at")}),
         (

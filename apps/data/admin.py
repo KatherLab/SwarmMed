@@ -4,10 +4,16 @@ This file registers the models with the Django admin interface,
 allowing administrators to manage Validation and Visualization runs.
 """
 
+from common.admin_filters import ProjectFilter_Generic
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
-from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
-from common.admin_filters import ProjectFilter_Generic
+
+from .models import (
+    ValidationCheck,
+    ValidationRun,
+    VisualizationPlot,
+    VisualizationRun,
+)
 
 
 class ValidationCheckInline(TabularInline):
@@ -42,7 +48,10 @@ class ValidationRunAdmin(ModelAdmin):
     inlines = [ValidationCheckInline]
 
     fieldsets = (
-        ("Run Information", {"fields": ("project", "user", "id", "celery_task_id")}),
+        (
+            "Run Information",
+            {"fields": ("project", "user", "id", "celery_task_id")},
+        ),
         (
             "Status & Outcome",
             {"fields": ("status", "success", "output", "error_message")},
@@ -100,7 +109,10 @@ class VisualizationRunAdmin(ModelAdmin):
     inlines = [VisualizationPlotInline]
 
     fieldsets = (
-        ("Run Information", {"fields": ("project", "user", "id", "celery_task_id")}),
+        (
+            "Run Information",
+            {"fields": ("project", "user", "id", "celery_task_id")},
+        ),
         (
             "Status & Outcome",
             {"fields": ("status", "success", "output", "error_message")},

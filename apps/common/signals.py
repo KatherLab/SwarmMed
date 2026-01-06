@@ -1,6 +1,8 @@
 import logging
+
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
 from .models import AbstractBaseModel
 
 # We use a standard logger for the signal itself
@@ -23,8 +25,8 @@ def audit_log_save(sender, instance, created, **kwargs):
         return
 
     try:
-        from logs.logger import get_logger
         from logs.context import RequestContextMiddleware
+        from logs.logger import get_logger
 
         # Get the current request context (IP, User, etc.) if available
         context = RequestContextMiddleware.get_context()

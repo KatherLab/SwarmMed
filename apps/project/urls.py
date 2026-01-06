@@ -24,7 +24,9 @@ urlpatterns = [
     path("delete/<int:pk>/", views.project_delete, name="project_delete"),
     # Sets a project as the 'active' context for the logged-in user.
     path(
-        "set-current/<int:pk>/", views.set_current_project, name="set_current_project"
+        "set-current/<int:pk>/",
+        views.set_current_project,
+        name="set_current_project",
     ),
     # Marks a project's status as 'Archived'.
     path("archive/<int:pk>/", views.project_archive, name="project_archive"),

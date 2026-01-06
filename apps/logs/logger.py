@@ -28,7 +28,9 @@ def _setup_logger():
 
     # 1. Console Handler: Prints logs to the terminal/standard output
     console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    console.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
     _logger.addHandler(console)
 
     # 2. Database Handler: Saves logs to the Django database
@@ -43,7 +45,9 @@ def _setup_logger():
     except Exception as e:
         # Fallback if database logging is not available (e.g., during
         # migration)
-        _logger.debug(f"Database logging handler could not be initialized: {e}")
+        _logger.debug(
+            f"Database logging handler could not be initialized: {e}"
+        )
 
     # Disable propagation to the root logger to avoid duplicate entries in
     # some setups
@@ -184,7 +188,13 @@ class Logger:
         self.project_obj = project
 
     def log(
-        self, level, message, category="project", user=None, project=None, **kwargs
+        self,
+        level,
+        message,
+        category="project",
+        user=None,
+        project=None,
+        **kwargs,
     ):
         """
         Generic log method that allows specifying a category string.
@@ -201,37 +211,51 @@ class Logger:
     @property
     def project(self):
         """Logs related to general project actions."""
-        return CategoryLogger(LogCategory.PROJECT, self.user_obj, self.project_obj)
+        return CategoryLogger(
+            LogCategory.PROJECT, self.user_obj, self.project_obj
+        )
 
     @property
     def data(self):
         """Logs related to data management and validation."""
-        return CategoryLogger(LogCategory.DATA, self.user_obj, self.project_obj)
+        return CategoryLogger(
+            LogCategory.DATA, self.user_obj, self.project_obj
+        )
 
     @property
     def network(self):
         """Logs related to swarm network provisioning and status."""
-        return CategoryLogger(LogCategory.NETWORK, self.user_obj, self.project_obj)
+        return CategoryLogger(
+            LogCategory.NETWORK, self.user_obj, self.project_obj
+        )
 
     @property
     def training(self):
         """Logs related to FL training execution and container logs."""
-        return CategoryLogger(LogCategory.TRAINING, self.user_obj, self.project_obj)
+        return CategoryLogger(
+            LogCategory.TRAINING, self.user_obj, self.project_obj
+        )
 
     @property
     def results(self):
         """Logs related to result generation and analysis."""
-        return CategoryLogger(LogCategory.RESULTS, self.user_obj, self.project_obj)
+        return CategoryLogger(
+            LogCategory.RESULTS, self.user_obj, self.project_obj
+        )
 
     @property
     def auth(self):
         """Logs related to authentication (login/logout). Re-mapped to project."""
-        return CategoryLogger(LogCategory.PROJECT, self.user_obj, self.project_obj)
+        return CategoryLogger(
+            LogCategory.PROJECT, self.user_obj, self.project_obj
+        )
 
     @property
     def access(self):
         """Logs related to access control and permission checks. Re-mapped to project."""
-        return CategoryLogger(LogCategory.PROJECT, self.user_obj, self.project_obj)
+        return CategoryLogger(
+            LogCategory.PROJECT, self.user_obj, self.project_obj
+        )
 
 
 def get_logger(user=None, project=None) -> Logger:

@@ -9,54 +9,172 @@ class Migration(migrations.Migration):
 
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='BackupConfiguration',
+            name="BackupConfiguration",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('name', models.CharField(default='Default Configuration', max_length=255)),
-                ('storage_backend', models.CharField(choices=[('local', 'Local Filesystem'), ('s3', 'S3 / MinIO Storage')], default='s3', max_length=20)),
-                ('local_path', models.CharField(blank=True, help_text='Local directory path if storage is Local.', max_length=512)),
-                ('s3_bucket', models.CharField(blank=True, help_text='S3 Bucket name if storage is S3.', max_length=255)),
-                ('s3_prefix', models.CharField(default='backups/', help_text='Prefix/Folder within the bucket.', max_length=255)),
-                ('include_databases', models.BooleanField(default=True)),
-                ('include_media', models.BooleanField(default=True)),
-                ('is_active', models.BooleanField(default=True)),
-                ('retention_days', models.PositiveIntegerField(default=30)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        default="Default Configuration", max_length=255
+                    ),
+                ),
+                (
+                    "storage_backend",
+                    models.CharField(
+                        choices=[
+                            ("local", "Local Filesystem"),
+                            ("s3", "S3 / MinIO Storage"),
+                        ],
+                        default="s3",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "local_path",
+                    models.CharField(
+                        blank=True,
+                        help_text="Local directory path if storage is Local.",
+                        max_length=512,
+                    ),
+                ),
+                (
+                    "s3_bucket",
+                    models.CharField(
+                        blank=True,
+                        help_text="S3 Bucket name if storage is S3.",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "s3_prefix",
+                    models.CharField(
+                        default="backups/",
+                        help_text="Prefix/Folder within the bucket.",
+                        max_length=255,
+                    ),
+                ),
+                ("include_databases", models.BooleanField(default=True)),
+                ("include_media", models.BooleanField(default=True)),
+                ("is_active", models.BooleanField(default=True)),
+                ("retention_days", models.PositiveIntegerField(default=30)),
             ],
             options={
-                'verbose_name': 'Backup Configuration',
-                'verbose_name_plural': 'Backup Configurations',
+                "verbose_name": "Backup Configuration",
+                "verbose_name_plural": "Backup Configurations",
             },
         ),
         migrations.CreateModel(
-            name='BackupLog',
+            name="BackupLog",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('running', 'Running'), ('success', 'Success'), ('failed', 'Failed'), ('restoring', 'Restoring')], default='pending', max_length=20)),
-                ('filename', models.CharField(blank=True, max_length=255)),
-                ('file_size', models.BigIntegerField(blank=True, null=True)),
-                ('storage_location', models.CharField(blank=True, max_length=1024)),
-                ('started_at', models.DateTimeField(auto_now_add=True)),
-                ('finished_at', models.DateTimeField(blank=True, null=True)),
-                ('error_message', models.TextField(blank=True)),
-                ('included_databases', models.JSONField(default=list)),
-                ('has_media', models.BooleanField(default=False)),
-                ('config', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='logs', to='backup.backupconfiguration')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("running", "Running"),
+                            ("success", "Success"),
+                            ("failed", "Failed"),
+                            ("restoring", "Restoring"),
+                        ],
+                        default="pending",
+                        max_length=20,
+                    ),
+                ),
+                ("filename", models.CharField(blank=True, max_length=255)),
+                ("file_size", models.BigIntegerField(blank=True, null=True)),
+                (
+                    "storage_location",
+                    models.CharField(blank=True, max_length=1024),
+                ),
+                ("started_at", models.DateTimeField(auto_now_add=True)),
+                ("finished_at", models.DateTimeField(blank=True, null=True)),
+                ("error_message", models.TextField(blank=True)),
+                ("included_databases", models.JSONField(default=list)),
+                ("has_media", models.BooleanField(default=False)),
+                (
+                    "config",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="logs",
+                        to="backup.backupconfiguration",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Backup Log',
-                'verbose_name_plural': 'Backup Logs',
-                'ordering': ['-started_at'],
+                "verbose_name": "Backup Log",
+                "verbose_name_plural": "Backup Logs",
+                "ordering": ["-started_at"],
             },
         ),
     ]

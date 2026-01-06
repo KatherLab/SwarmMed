@@ -17,35 +17,144 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Profile',
+            name="Profile",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('role', models.CharField(choices=[('admin', 'Admin'), ('developer', 'Developer'), ('user', 'User')], default='user', max_length=20)),
-                ('color', models.CharField(blank=True, max_length=7, null=True)),
-                ('full_name', common.fields.EncryptedCharField(blank=True, max_length=255, null=True)),
-                ('country', common.fields.EncryptedCharField(blank=True, max_length=255, null=True)),
-                ('city', common.fields.EncryptedCharField(blank=True, max_length=255, null=True)),
-                ('zip_code', common.fields.EncryptedCharField(blank=True, max_length=255, null=True)),
-                ('address', common.fields.EncryptedCharField(blank=True, max_length=255, null=True)),
-                ('phone', common.fields.EncryptedCharField(blank=True, max_length=255, null=True)),
-                ('accepted_policy', models.BooleanField(default=False)),
-                ('accepted_policy_date', models.DateTimeField(blank=True, null=True)),
-                ('accepted_terms', models.BooleanField(default=False)),
-                ('accepted_terms_date', models.DateTimeField(blank=True, null=True)),
-                ('cookie_consent', models.CharField(blank=True, choices=[('accepted', 'Accepted'), ('rejected', 'Rejected')], max_length=20, null=True)),
-                ('cookie_consent_date', models.DateTimeField(blank=True, null=True)),
-                ('is_restricted', models.BooleanField(default=False)),
-                ('restriction_date', models.DateTimeField(blank=True, null=True)),
-                ('is_emergency_access', models.BooleanField(default=False)),
-                ('emergency_access_expiry', models.DateTimeField(blank=True, null=True)),
-                ('emergency_access_justification', common.fields.EncryptedTextField(blank=True, null=True)),
-                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[
+                            ("admin", "Admin"),
+                            ("developer", "Developer"),
+                            ("user", "User"),
+                        ],
+                        default="user",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "color",
+                    models.CharField(blank=True, max_length=7, null=True),
+                ),
+                (
+                    "full_name",
+                    common.fields.EncryptedCharField(
+                        blank=True, max_length=255, null=True
+                    ),
+                ),
+                (
+                    "country",
+                    common.fields.EncryptedCharField(
+                        blank=True, max_length=255, null=True
+                    ),
+                ),
+                (
+                    "city",
+                    common.fields.EncryptedCharField(
+                        blank=True, max_length=255, null=True
+                    ),
+                ),
+                (
+                    "zip_code",
+                    common.fields.EncryptedCharField(
+                        blank=True, max_length=255, null=True
+                    ),
+                ),
+                (
+                    "address",
+                    common.fields.EncryptedCharField(
+                        blank=True, max_length=255, null=True
+                    ),
+                ),
+                (
+                    "phone",
+                    common.fields.EncryptedCharField(
+                        blank=True, max_length=255, null=True
+                    ),
+                ),
+                ("accepted_policy", models.BooleanField(default=False)),
+                (
+                    "accepted_policy_date",
+                    models.DateTimeField(blank=True, null=True),
+                ),
+                ("accepted_terms", models.BooleanField(default=False)),
+                (
+                    "accepted_terms_date",
+                    models.DateTimeField(blank=True, null=True),
+                ),
+                (
+                    "cookie_consent",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("accepted", "Accepted"),
+                            ("rejected", "Rejected"),
+                        ],
+                        max_length=20,
+                        null=True,
+                    ),
+                ),
+                (
+                    "cookie_consent_date",
+                    models.DateTimeField(blank=True, null=True),
+                ),
+                ("is_restricted", models.BooleanField(default=False)),
+                (
+                    "restriction_date",
+                    models.DateTimeField(blank=True, null=True),
+                ),
+                ("is_emergency_access", models.BooleanField(default=False)),
+                (
+                    "emergency_access_expiry",
+                    models.DateTimeField(blank=True, null=True),
+                ),
+                (
+                    "emergency_access_justification",
+                    common.fields.EncryptedTextField(blank=True, null=True),
+                ),
+                (
+                    "user",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'abstract': False,
+                "abstract": False,
             },
         ),
     ]

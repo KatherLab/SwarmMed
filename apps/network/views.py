@@ -9,25 +9,28 @@ import os
 import zipfile
 
 import yaml
-from django.shortcuts import render, redirect, get_object_or_404
-from django.utils.text import slugify
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST
 from django.http import HttpResponse, JsonResponse
-
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.text import slugify
+from django.views.decorators.http import require_POST
+from logs import logger
+from project.decorators import (
+    project_context_required,
+    project_membership_required,
+)
 from project.models import UserCurrentProject
+
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .provision import generate_flare_startup_kit
 from .tasks import start_swarm_network_task, stop_swarm_network_task
 from .utils import (
+    create_startup_kits_zip,
+    get_hostname,
     get_tailscale_ip,
     is_tailscale_connected,
-    get_hostname,
-    create_startup_kits_zip,
 )
-from project.decorators import project_context_required, project_membership_required
-from logs import logger
 
 
 def get_user_project(request):
@@ -38,9 +41,9 @@ def get_user_project(request):
         tuple: (project_uuid_string, is_valid_boolean)
     """
     try:
-        user_current_project = UserCurrentProject.objects.select_related("project").get(
-            user=request.user
-        )
+        user_current_project = UserCurrentProject.objects.select_related(
+            "project"
+        ).get(user=request.user)
         if not user_current_project.project:
             return None, False
 
@@ -60,16 +63,16 @@ def network(request):
 
     # Get the project object from the user's current project relation
     # Optimization: select_related to fetch project in one query
-    current_project_relation = UserCurrentProject.objects.select_related("project").get(
-        user=request.user
-    )
+    current_project_relation = UserCurrentProject.objects.select_related(
+        "project"
+    ).get(user=request.user)
     project = current_project_relation.project
 
     # List all networks associated with this specific project
     # Optimization: select_related to fetch related fields in one query
-    swarm_networks = SwarmNetwork.objects.filter(project=project).select_related(
-        "project", "author"
-    )
+    swarm_networks = SwarmNetwork.objects.filter(
+        project=project
+    ).select_related("project", "author")
 
     # Identify which network the user is currently focusing on
     try:
@@ -98,7 +101,7 @@ def network(request):
         # Security check: Ensure path is within workspaces directory
         if project_yml_path.startswith(os.path.join(base_workspace, "")):
             if os.path.exists(project_yml_path):
-                with open(project_yml_path, "r") as f:
+                with open(project_yml_path) as f:
                     project_yml = yaml.safe_load(f)
                     # Parse the list of participants defined in NVFlare lighter
                     # config
@@ -109,7 +112,9 @@ def network(request):
                                 "org": participant.get("org"),
                                 # NVFlare uses 'listening_host' for static IP
                                 # assignments
-                                "ip": participant.get("listening_host", "dynamic"),
+                                "ip": participant.get(
+                                    "listening_host", "dynamic"
+                                ),
                             }
                         )
 
@@ -142,7 +147,9 @@ def new_network(request):
         network_name = request.POST.get("title")
         description = request.POST.get("description")
 
-        current_project_relation = UserCurrentProject.objects.get(user=request.user)
+        current_project_relation = UserCurrentProject.objects.get(
+            user=request.user
+        )
         project = current_project_relation.project
         log = logger.get_logger(user=request.user, project=project)
 
@@ -165,8 +172,12 @@ def new_network(request):
                 try:
                     c_data = json.loads(c_json)
                     # Sanitize client name immediately
-                    safe_name = slugify(c_data.get("name", "client")).replace("-", "_")
-                    clients.append({"name": safe_name, "ip": c_data.get("ip", "")})
+                    safe_name = slugify(c_data.get("name", "client")).replace(
+                        "-", "_"
+                    )
+                    clients.append(
+                        {"name": safe_name, "ip": c_data.get("ip", "")}
+                    )
                 except (json.JSONDecodeError, TypeError):
                     continue
 
@@ -221,7 +232,9 @@ def new_network(request):
                         # Determine the absolute target path for the member
                         # We use normpath and check if it's within the intended directory
                         member_path = os.path.normpath(member.filename)
-                        if member_path.startswith("/") or member_path.startswith(".."):
+                        if member_path.startswith(
+                            "/"
+                        ) or member_path.startswith(".."):
                             # Skip absolute paths or path traversal attempts in filename
                             continue
 
@@ -245,7 +258,9 @@ def new_network(request):
                 )
 
         elif creation_method == "local_test":
-            log.network.info(f"Provisioning local testing network '{network_name}'.")
+            log.network.info(
+                f"Provisioning local testing network '{network_name}'."
+            )
             # Generate a network intended for development/testing on a single
             # machine
             generate_flare_startup_kit(
@@ -269,11 +284,15 @@ def set_current_network(request, network_id):
     Sets the specified network as the 'active' network for the current user.
     """
     network_obj = get_object_or_404(SwarmNetwork, identifier=network_id)
-    current_project_relation = UserCurrentProject.objects.get(user=request.user)
+    current_project_relation = UserCurrentProject.objects.get(
+        user=request.user
+    )
 
     # Security check: Ensure the network belongs to the user's active project
     if network_obj.project == current_project_relation.project:
-        current_network, _ = UserCurrentNetwork.objects.get_or_create(user=request.user)
+        current_network, _ = UserCurrentNetwork.objects.get_or_create(
+            user=request.user
+        )
         current_network.network = network_obj
         current_network.save()
 
@@ -296,7 +315,9 @@ def download_startup_kits(request, network_id):
 
     zip_buffer = create_startup_kits_zip(swarm_network)
 
-    response = HttpResponse(zip_buffer.getvalue(), content_type="application/zip")
+    response = HttpResponse(
+        zip_buffer.getvalue(), content_type="application/zip"
+    )
     filename = f"{swarm_network.name.replace(' ', '_')}_startup_kits.zip"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
 
@@ -378,7 +399,8 @@ def delete_swarm_network(request, network_id):
             )
         else:
             messages.success(
-                request, f"Network '{swarm_network.name}' deleted successfully."
+                request,
+                f"Network '{swarm_network.name}' deleted successfully.",
             )
 
         log.network.warning(
@@ -392,6 +414,8 @@ def delete_swarm_network(request, network_id):
         log.access.warning(
             f"Unauthorized delete attempt for network '{swarm_network.name}' by user {request.user.username}."
         )
-        messages.error(request, "You do not have permission to delete this network.")
+        messages.error(
+            request, "You do not have permission to delete this network."
+        )
 
     return redirect("network:network")

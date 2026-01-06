@@ -4,14 +4,13 @@ This file registers the models with the Django admin interface,
 allowing administrators to manage Swarm Networks and Participants.
 """
 
-from django.contrib import admin
+from common.admin_filters import ProjectFilter_ByNetwork
+from django.contrib import admin, messages
 from django.utils.translation import ngettext
-from django.contrib import messages
+from training.models import TrainingJob
 from unfold.admin import ModelAdmin, TabularInline
 
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
-from training.models import TrainingJob
-from common.admin_filters import ProjectFilter_ByNetwork
 from .tasks import stop_swarm_network_task
 
 
@@ -75,7 +74,9 @@ class SwarmNetworkAdmin(ModelAdmin):
                 # Note: This requires the network author's ID, but we might be admin.
                 # Ideally, we should use the admin's ID or the network author's.
                 # For safety, we'll use the network author if available, else current user.
-                user_id = network.author.id if network.author else request.user.id
+                user_id = (
+                    network.author.id if network.author else request.user.id
+                )
                 stop_swarm_network_task.delay(str(network.identifier), user_id)
                 count += 1
 

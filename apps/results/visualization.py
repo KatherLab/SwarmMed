@@ -4,9 +4,6 @@ Provides the bridge between user-written Python scripts and the project's
 stored data and model weights.
 """
 
-from training.models import TrainingJob
-from logs import logger
-from data.filesystem import DataFileSystem
 import base64
 import io
 import os
@@ -15,6 +12,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from data.filesystem import DataFileSystem
+from logs import logger
+from training.models import TrainingJob
 
 # Use a non-interactive backend for Matplotlib to work in background tasks.
 matplotlib.use("Agg")
@@ -76,7 +76,9 @@ class ResultsVisualizationContext:
                 f"Results visualization context exited with error: {str(exc_val)}"
             )
         else:
-            self.log.results.info("Results visualization context exited successfully")
+            self.log.results.info(
+                "Results visualization context exited successfully"
+            )
 
         # Clean up the filesystem.
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
@@ -98,16 +100,26 @@ class ResultsVisualizationContext:
             # Capture plot as PNG (Base64 encoded)
             png_buffer = io.BytesIO()
             plt.savefig(
-                png_buffer, format="png", dpi=100, bbox_inches="tight", transparent=True
+                png_buffer,
+                format="png",
+                dpi=100,
+                bbox_inches="tight",
+                transparent=True,
             )
             png_buffer.seek(0)
-            png_base64 = base64.b64encode(png_buffer.getvalue()).decode("utf-8")
+            png_base64 = base64.b64encode(png_buffer.getvalue()).decode(
+                "utf-8"
+            )
 
             # Capture plot as SVG (Base64 encoded)
             svg_buffer = io.BytesIO()
-            plt.savefig(svg_buffer, format="svg", bbox_inches="tight", transparent=True)
+            plt.savefig(
+                svg_buffer, format="svg", bbox_inches="tight", transparent=True
+            )
             svg_buffer.seek(0)
-            svg_base64 = base64.b64encode(svg_buffer.getvalue()).decode("utf-8")
+            svg_base64 = base64.b64encode(svg_buffer.getvalue()).decode(
+                "utf-8"
+            )
 
             self.plots.append(
                 {
@@ -141,7 +153,9 @@ class ResultsVisualizationContext:
             # Ensure all values are converted to tensors.
             state_dict = {k: torch.as_tensor(v) for k, v in weights.items()}
             model.load_state_dict(state_dict, strict=False)
-            self.log.results.info("Successfully loaded weights into PyTorch model.")
+            self.log.results.info(
+                "Successfully loaded weights into PyTorch model."
+            )
             return True
 
         # 2. Keras / TensorFlow model handling
@@ -155,7 +169,9 @@ class ResultsVisualizationContext:
                 except (ValueError, TypeError):
                     weights = [np.array(v) for k, v in sorted(weights.items())]
             model.set_weights(weights)
-            self.log.results.info("Successfully loaded weights into Keras/TF model.")
+            self.log.results.info(
+                "Successfully loaded weights into Keras/TF model."
+            )
             return True
 
         # 3. Scikit-learn model handling
@@ -170,7 +186,9 @@ class ResultsVisualizationContext:
                 )
                 return True
 
-        raise TypeError(f"Unsupported model type for load_weights: {type(model)}")
+        raise TypeError(
+            f"Unsupported model type for load_weights: {type(model)}"
+        )
 
     def get_model(self, client_name=None, model_filename=None):
         """
@@ -181,6 +199,7 @@ class ResultsVisualizationContext:
         import ast
         import shutil
         import tempfile
+
         from django.core.files.storage import default_storage
 
         # 1. Determine the clean NVFlare job ID.
@@ -198,7 +217,9 @@ class ResultsVisualizationContext:
                             and item.get("type") == "string"
                             and "Submitted job:" in item.get("data", "")
                         ):
-                            flare_id = item.get("data", "").split(":")[-1].strip()
+                            flare_id = (
+                                item.get("data", "").split(":")[-1].strip()
+                            )
                             break
             except (ValueError, SyntaxError):
                 pass
@@ -278,7 +299,9 @@ class ResultsVisualizationContext:
 
                             # Handle NVFlare DXO structures.
                             if isinstance(model_data, dict):
-                                model_data = model_data.get("numpy_key", model_data)
+                                model_data = model_data.get(
+                                    "numpy_key", model_data
+                                )
 
                     elif local_path.endswith(".npy"):
                         # Load Numpy weights.
@@ -294,7 +317,9 @@ class ResultsVisualizationContext:
                             except (ValueError, TypeError):
                                 pass
                         elif isinstance(model_data, dict):
-                            model_data = model_data.get("numpy_key", model_data)
+                            model_data = model_data.get(
+                                "numpy_key", model_data
+                            )
 
                     elif local_path.endswith(".npz"):
                         # Load Numpy compressed weights.
@@ -305,22 +330,24 @@ class ResultsVisualizationContext:
 
                     if model_data is not None:
                         # Clean up temporary file if created.
-                        if path.startswith(self.project_uuid) and os.path.exists(
-                            local_path
-                        ):
+                        if path.startswith(
+                            self.project_uuid
+                        ) and os.path.exists(local_path):
                             try:
                                 os.unlink(local_path)
                             except OSError:
                                 pass
                         return model_data
             except Exception as e:
-                self.log.results.warning(f"Failed to load model from {path}: {e}")
+                self.log.results.warning(
+                    f"Failed to load model from {path}: {e}"
+                )
                 continue
 
         # 4. Fallback: Scan S3 results directory for ANY supported model file.
         try:
-            from django.conf import settings
             from common.utils import get_s3_client
+            from django.conf import settings
 
             s3 = get_s3_client()
             results_prefix = f"{self.project_uuid}/results/{flare_id}/"
@@ -343,7 +370,9 @@ class ResultsVisualizationContext:
                             client_name=client_name,
                         )
         except Exception as scan_err:
-            self.log.results.error(f"Error scanning results folder: {scan_err}")
+            self.log.results.error(
+                f"Error scanning results folder: {scan_err}"
+            )
 
         raise FileNotFoundError(
             f"Could not find model weights for job {flare_id}. "
@@ -358,6 +387,7 @@ class ResultsVisualizationContext:
         import ast
         import shutil
         import tempfile
+
         from django.core.files.storage import default_storage
 
         # Parse flare_job_id
@@ -373,7 +403,9 @@ class ResultsVisualizationContext:
                             and item.get("type") == "string"
                             and "Submitted job:" in item.get("data", "")
                         ):
-                            flare_id = item.get("data", "").split(":")[-1].strip()
+                            flare_id = (
+                                item.get("data", "").split(":")[-1].strip()
+                            )
                             break
             except (ValueError, SyntaxError):
                 pass
@@ -383,9 +415,7 @@ class ResultsVisualizationContext:
         if not model_filename:
             model_filename = "model.pt"
 
-        s3_path = (
-            f"{self.project_uuid}/results/{flare_id}/{client_name}/{model_filename}"
-        )
+        s3_path = f"{self.project_uuid}/results/{flare_id}/{client_name}/{model_filename}"
 
         if default_storage.exists(s3_path):
             with default_storage.open(s3_path, "rb") as s3_file:

@@ -8,16 +8,15 @@ import json
 import os
 import re
 
+from common.utils import format_size
+from data.utils import get_storage_stats
 from django.contrib.auth.decorators import login_required
 from django.db import models
 from django.shortcuts import render
-
-from common.utils import format_size
-from data.utils import get_storage_stats
+from logs.logger import get_logger
 from network.models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from project.models import Project, UserCurrentProject
 from training.models import TrainingJob
-from logs.logger import get_logger
 
 logger = get_logger()
 
@@ -33,7 +32,9 @@ def get_user_project_uuid(request):
         tuple: (project_uuid as string, success_flag as boolean)
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        user_current_project = UserCurrentProject.objects.get(
+            user=request.user
+        )
         if not user_current_project.project:
             return None, False
 
@@ -70,7 +71,9 @@ def index(request):
     # Calculate simple project counts for the dashboard cards.
     total_projects = user_projects.count()
     projects_as_author = user_projects.filter(author=user).count()
-    projects_as_member = user_projects.filter(members=user).exclude(author=user).count()
+    projects_as_member = (
+        user_projects.filter(members=user).exclude(author=user).count()
+    )
 
     user_display_name = user.get_full_name() or user.username
 
@@ -86,7 +89,9 @@ def index(request):
 
         try:
             # Query S3 (via our utility) for usage stats.
-            total_size_bytes, folder_count, file_count = get_storage_stats(data_prefix)
+            total_size_bytes, folder_count, file_count = get_storage_stats(
+                data_prefix
+            )
             total_files = file_count
             total_storage = format_size(total_size_bytes)
             total_folders = folder_count
@@ -103,7 +108,9 @@ def index(request):
     for project in user_projects:
         data_prefix = f"{str(project.identifier)}/data/"
         try:
-            size_bytes, folder_count, file_count = get_storage_stats(data_prefix)
+            size_bytes, folder_count, file_count = get_storage_stats(
+                data_prefix
+            )
             total_files_all_projects += file_count
             total_storage_all_projects += size_bytes
             total_folders_all_projects += folder_count
@@ -117,14 +124,18 @@ def index(request):
 
     # 4. Networking Statistics
     # Total networks available across all the user's projects.
-    total_networks = SwarmNetwork.objects.filter(project__in=user_projects).count()
+    total_networks = SwarmNetwork.objects.filter(
+        project__in=user_projects
+    ).count()
 
     current_network_obj = None
     network_partners = 0
 
     try:
         # Try to find the specific network the user has currently selected.
-        user_current_network = UserCurrentNetwork.objects.get(user=request.user)
+        user_current_network = UserCurrentNetwork.objects.get(
+            user=request.user
+        )
         if (
             user_current_network.network
             and user_current_network.network.project in user_projects
@@ -182,7 +193,9 @@ def index(request):
                         for workflow in cfg.get("workflows", []):
                             if workflow.get("id") == "swarm_controller":
                                 total_rounds = int(
-                                    workflow.get("args", {}).get("num_rounds", 0)
+                                    workflow.get("args", {}).get(
+                                        "num_rounds", 0
+                                    )
                                 )
                                 break
 
@@ -199,7 +212,7 @@ def index(request):
                 # Check logs for both default clients.
                 for client in ("fl-client-1", "fl-client-2"):
                     base_client = None
-                    for root, dirs, files in os.walk(workspace_root):
+                    for root, _dirs, _files in os.walk(workspace_root):
                         if os.path.basename(root) == client:
                             base_client = root
                             break
@@ -217,7 +230,9 @@ def index(request):
                         continue
 
                     runs.sort(
-                        key=lambda d: os.path.getmtime(os.path.join(base_client, d)),
+                        key=lambda d: os.path.getmtime(
+                            os.path.join(base_client, d)
+                        ),
                         reverse=True,
                     )
                     client_dir = os.path.join(base_client, runs[0])
@@ -226,7 +241,7 @@ def index(request):
                         fpath = os.path.join(client_dir, fname)
                         if os.path.exists(fpath):
                             try:
-                                with open(fpath, "r") as lf:
+                                with open(fpath) as lf:
                                     data = lf.read()
                                     # Use regex to find the highest 'finished
                                     # round' number.
@@ -239,7 +254,8 @@ def index(request):
 
                                     # Check for completion markers.
                                     if (
-                                        "ending workflow swarm_controller" in data
+                                        "ending workflow swarm_controller"
+                                        in data
                                         or "finished with RC 0" in data
                                     ):
                                         ended = True
@@ -259,7 +275,9 @@ def index(request):
     except Exception as e:
         # Training tracking is secondary; if it fails, we just show "Not
         # started" and log the error for debugging.
-        logger.project.debug(f"Error tracking training progress on dashboard: {e}")
+        logger.project.debug(
+            f"Error tracking training progress on dashboard: {e}"
+        )
 
     # 6. Assemble the Context for the template.
     context = {
@@ -281,7 +299,9 @@ def index(request):
         "total_networks": total_networks,
         "current_network": current_network_name,
         "current_network_status": (
-            current_network_obj.get_status_display() if current_network_obj else None
+            current_network_obj.get_status_display()
+            if current_network_obj
+            else None
         ),
         "network_partners": network_partners,
         # Real-time training metrics.

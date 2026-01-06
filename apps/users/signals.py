@@ -4,17 +4,17 @@ Listens for database events related to the User model to automatically
 manage associated Profile instances.
 """
 
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import Group, User
 from django.contrib.auth.signals import (
     user_logged_in,
     user_logged_out,
     user_login_failed,
 )
-from django.db.models.signals import post_save, m2m_changed
+from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
 from logs.logger import get_logger
 
-from .models import Profile, ROLE_CHOICES
+from .models import ROLE_CHOICES, Profile
 
 
 @receiver(post_save, sender=User)
@@ -111,7 +111,9 @@ def log_user_login(sender, request, user, **kwargs):
     """
     logger = get_logger(user=user)
     ip_address = request.META.get("REMOTE_ADDR")
-    logger.auth.info(f"User logged in from {ip_address}", ip_address=ip_address)
+    logger.auth.info(
+        f"User logged in from {ip_address}", ip_address=ip_address
+    )
 
 
 @receiver(user_logged_out)

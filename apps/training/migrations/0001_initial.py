@@ -10,30 +10,109 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('network', '0001_initial'),
-        ('project', '0001_initial'),
+        ("network", "0001_initial"),
+        ("project", "0001_initial"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='TrainingJob',
+            name="TrainingJob",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('status', models.CharField(choices=[('PENDING', 'Pending'), ('STARTING', 'Starting'), ('RUNNING', 'Running'), ('COMPLETED', 'Completed'), ('FAILED', 'Failed'), ('STOPPED', 'Stopped')], db_index=True, default='PENDING', max_length=20)),
-                ('flare_job_id', models.CharField(blank=True, help_text='The unique job ID assigned by NVIDIA FLARE.', max_length=255, null=True)),
-                ('completed_at', models.DateTimeField(blank=True, null=True)),
-                ('total_rounds', models.PositiveIntegerField(blank=True, null=True)),
-                ('rounds_finished', models.PositiveIntegerField(blank=True, null=True)),
-                ('progress_percent', models.PositiveSmallIntegerField(blank=True, null=True)),
-                ('progress_updated_at', models.DateTimeField(blank=True, db_index=True, null=True)),
-                ('network', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='training_jobs', to='network.swarmnetwork')),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='training_jobs', to='project.project')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("PENDING", "Pending"),
+                            ("STARTING", "Starting"),
+                            ("RUNNING", "Running"),
+                            ("COMPLETED", "Completed"),
+                            ("FAILED", "Failed"),
+                            ("STOPPED", "Stopped"),
+                        ],
+                        db_index=True,
+                        default="PENDING",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "flare_job_id",
+                    models.CharField(
+                        blank=True,
+                        help_text="The unique job ID assigned by NVIDIA FLARE.",
+                        max_length=255,
+                        null=True,
+                    ),
+                ),
+                ("completed_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "total_rounds",
+                    models.PositiveIntegerField(blank=True, null=True),
+                ),
+                (
+                    "rounds_finished",
+                    models.PositiveIntegerField(blank=True, null=True),
+                ),
+                (
+                    "progress_percent",
+                    models.PositiveSmallIntegerField(blank=True, null=True),
+                ),
+                (
+                    "progress_updated_at",
+                    models.DateTimeField(blank=True, db_index=True, null=True),
+                ),
+                (
+                    "network",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="training_jobs",
+                        to="network.swarmnetwork",
+                    ),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="training_jobs",
+                        to="project.project",
+                    ),
+                ),
             ],
             options={
-                'abstract': False,
+                "abstract": False,
             },
         ),
     ]

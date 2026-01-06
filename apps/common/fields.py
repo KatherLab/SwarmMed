@@ -1,6 +1,7 @@
 import base64
 import threading
-from cryptography.fernet import Fernet, MultiFernet, InvalidToken
+
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from django.conf import settings
@@ -29,8 +30,6 @@ class EncryptedFieldMixin:
         Retrieves a cached MultiFernet instance or creates a new one.
         Thread-safe caching ensures HKDF is only run once per unique set of keys.
         """
-        global _fernet_cache
-
         # We use the keys themselves (or their hash) as the cache key
         keys = getattr(settings, "FERNET_KEYS", [settings.SECRET_KEY])
         if isinstance(keys, (str, bytes)):
@@ -59,7 +58,9 @@ class EncryptedFieldMixin:
                     salt=None,
                     info=b"django-fernet-fields",
                 )
-                derived_key = base64.urlsafe_b64encode(hkdf.derive(force_bytes(key)))
+                derived_key = base64.urlsafe_b64encode(
+                    hkdf.derive(force_bytes(key))
+                )
                 fernet_keys.append(Fernet(derived_key))
             else:
                 # If not using HKDF, the key must already be a valid Fernet key
@@ -93,9 +94,9 @@ class EncryptedFieldMixin:
         # attempting to decrypt it will fail.
         try:
             # We try to decrypt only if it looks like a Fernet token (usually starts with gAAAA)
-            if isinstance(value, (str, bytes)) and force_bytes(value).startswith(
-                b"gAAAA"
-            ):
+            if isinstance(value, (str, bytes)) and force_bytes(
+                value
+            ).startswith(b"gAAAA"):
                 return force_str(self.fernet.decrypt(force_bytes(value)))
         except (InvalidToken, TypeError, ValueError):
             return value

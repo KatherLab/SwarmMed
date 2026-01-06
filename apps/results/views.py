@@ -7,11 +7,11 @@ and downloading result files from S3.
 import io
 import logging
 import os
-import zipfile
 import re
+import zipfile
 
-from django.urls import reverse
 from celery import current_app
+from common.utils import get_s3_client
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import models
@@ -19,17 +19,19 @@ from django.http import (
     HttpResponse,
     JsonResponse,
     StreamingHttpResponse,
-    FileResponse,
 )
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
-
-from common.utils import get_s3_client
+from logs import logger
+from project.decorators import (
+    project_context_required,
+    project_membership_required,
+)
 from project.models import Project, UserCurrentProject
 from training.models import TrainingJob
-from logs import logger
 
 from .models import (
     ResultsVisualizationPlot,
@@ -37,7 +39,6 @@ from .models import (
     TrainingResult,
 )
 from .tasks import run_results_visualization_task, sync_project_results
-from project.decorators import project_context_required, project_membership_required
 
 # Standard Python logger for this module.
 _logger = logging.getLogger(__name__)
@@ -51,9 +52,9 @@ def get_user_project(request):
         (str or None, bool): (Project UUID string, Success flag)
     """
     try:
-        user_current_project = UserCurrentProject.objects.select_related("project").get(
-            user=request.user
-        )
+        user_current_project = UserCurrentProject.objects.select_related(
+            "project"
+        ).get(user=request.user)
         if not user_current_project.project:
             return None, False
         return str(user_current_project.project.identifier), True
@@ -76,7 +77,9 @@ def results(request):
 
     # Trigger a background sync task to ensure the database matches S3.
     sync_project_results.delay(current_project_uuid)
-    log.results.debug(f"Triggered results sync for project {current_project_uuid}")
+    log.results.debug(
+        f"Triggered results sync for project {current_project_uuid}"
+    )
 
     # Initialize S3 client to list objects (source of truth for existence).
     s3 = get_s3_client()
@@ -128,20 +131,21 @@ def results(request):
 
     # Match database results by file_path for efficient lookup
     db_results = {
-        r.file_path: r for r in TrainingResult.objects.filter(job__project=project)
+        r.file_path: r
+        for r in TrainingResult.objects.filter(job__project=project)
     }
 
     # Build a list of job options for the dropdown selector.
     job_options = []
     for job_id_s3 in list(job_ids_in_s3):
         # Match S3 job_id against flare_job_id in DB
-        db_job = all_project_jobs.filter(flare_job_id__icontains=job_id_s3).first()
+        db_job = all_project_jobs.filter(
+            flare_job_id__icontains=job_id_s3
+        ).first()
         lm = job_last_modified.get(job_id_s3)
 
         if db_job:
-            label = (
-                f"{db_job.created_at.strftime('%Y-%m-%d %H:%M:%S')} ({job_id_s3[:8]})"
-            )
+            label = f"{db_job.created_at.strftime('%Y-%m-%d %H:%M:%S')} ({job_id_s3[:8]})"
             sort_time = db_job.created_at
         else:
             label = lm.strftime("%Y-%m-%d %H:%M:%S") if lm else job_id_s3
@@ -162,7 +166,9 @@ def results(request):
     # Filter items for selected job.
     if selected_job_id:
         s3_items = [
-            it for it in s3_items if f"/results/{selected_job_id}/" in it["key"]
+            it
+            for it in s3_items
+            if f"/results/{selected_job_id}/" in it["key"]
         ]
 
     # Prepare results for display, matching S3 items with DB records where possible.
@@ -177,11 +183,12 @@ def results(request):
                 "id": db_rec.id if db_rec else None,
                 "file_path": key,
                 "file_size": item["size"],
-                "file_type": os.path.splitext(key)[1].lstrip(".").lower() or "unknown",
+                "file_type": os.path.splitext(key)[1].lstrip(".").lower()
+                or "unknown",
                 "cleaned_filename": os.path.basename(key),
-                "uploaded_at": db_rec.created_at
-                if db_rec
-                else item.get("last_modified"),
+                "uploaded_at": (
+                    db_rec.created_at if db_rec else item.get("last_modified")
+                ),
                 "client_name": parts[3] if len(parts) > 3 else "unknown",
             }
         )
@@ -221,7 +228,9 @@ def results(request):
         "job_options": job_options,
         "selected_job_id": selected_job_id,
         "selected_job_details": selected_job_details,
-        "has_jobs": bool(job_options),  # Check job_options which includes S3-only jobs
+        "has_jobs": bool(
+            job_options
+        ),  # Check job_options which includes S3-only jobs
     }
     return render(request, "apps/results/results.html", context)
 
@@ -241,7 +250,8 @@ def start_results_visualization(request, job_id):
 
         # 1. Try to find the job in DB by identifier (UUID) or flare_job_id.
         job = TrainingJob.objects.filter(
-            models.Q(identifier=job_id) | models.Q(flare_job_id__icontains=job_id),
+            models.Q(identifier=job_id)
+            | models.Q(flare_job_id__icontains=job_id),
             project=project,
         ).first()
 
@@ -263,7 +273,9 @@ def start_results_visualization(request, job_id):
                             and item.get("type") == "string"
                             and "Submitted job:" in item.get("data", "")
                         ):
-                            flare_id = item.get("data", "").split(":")[-1].strip()
+                            flare_id = (
+                                item.get("data", "").split(":")[-1].strip()
+                            )
                             break
             except (ValueError, SyntaxError):
                 pass
@@ -297,7 +309,9 @@ def start_results_visualization(request, job_id):
         # Cancel any existing visualization tasks for this specific flare_id to
         # avoid overlap.
         running_query = ResultsVisualizationRun.objects.filter(
-            project=project, status__in=["pending", "running"], flare_job_id=flare_id
+            project=project,
+            status__in=["pending", "running"],
+            flare_job_id=flare_id,
         )
 
         for viz in running_query:
@@ -306,7 +320,9 @@ def start_results_visualization(request, job_id):
             viz.status = "cancelled"
             viz.completed_at = timezone.now()
             viz.save()
-            log.results.info(f"Cancelled previous results visualization run {viz.id}")
+            log.results.info(
+                f"Cancelled previous results visualization run {viz.id}"
+            )
 
         # Create a new run record in the database.
         visualization_run = ResultsVisualizationRun.objects.create(
@@ -315,7 +331,9 @@ def start_results_visualization(request, job_id):
 
         # Dispatch the task to Celery.
         # We pass flare_id to the task so it knows which S3 folder to download.
-        task = run_results_visualization_task.delay(str(visualization_run.id), flare_id)
+        task = run_results_visualization_task.delay(
+            str(visualization_run.id), flare_id
+        )
         visualization_run.celery_task_id = task.id
         visualization_run.save()
 
@@ -348,7 +366,9 @@ def stop_results_visualization(request):
         visualization_run = ResultsVisualizationRun.objects.get(
             id=run_id, user=request.user
         )
-        log = logger.get_logger(user=request.user, project=visualization_run.project)
+        log = logger.get_logger(
+            user=request.user, project=visualization_run.project
+        )
 
         if visualization_run.status not in ["pending", "running"]:
             log.results.debug(
@@ -360,7 +380,9 @@ def stop_results_visualization(request):
 
         if visualization_run.celery_task_id:
             # Signal Celery to terminate the task process.
-            current_app.control.revoke(visualization_run.celery_task_id, terminate=True)
+            current_app.control.revoke(
+                visualization_run.celery_task_id, terminate=True
+            )
             log.results.info(
                 f"Revoked Celery task {visualization_run.celery_task_id} for visualization run {run_id}"
             )
@@ -368,12 +390,16 @@ def stop_results_visualization(request):
         visualization_run.status = "cancelled"
         visualization_run.completed_at = timezone.now()
         visualization_run.save()
-        log.results.warning(f"Results visualization run {run_id} cancelled by user.")
+        log.results.warning(
+            f"Results visualization run {run_id} cancelled by user."
+        )
 
         return JsonResponse({"success": True})
 
     except ResultsVisualizationRun.DoesNotExist:
-        return JsonResponse({"error": "Visualization run not found"}, status=404)
+        return JsonResponse(
+            {"error": "Visualization run not found"}, status=404
+        )
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
@@ -392,7 +418,8 @@ def results_visualization_status(request, job_id):
         # Frontend might pass a UUID if DB record exists, or a string flare_id.
         flare_id = job_id
         job = TrainingJob.objects.filter(
-            models.Q(identifier=job_id) | models.Q(flare_job_id__icontains=job_id),
+            models.Q(identifier=job_id)
+            | models.Q(flare_job_id__icontains=job_id),
             project=project,
         ).first()
 
@@ -409,7 +436,9 @@ def results_visualization_status(request, job_id):
                             and item.get("type") == "string"
                             and "Submitted job:" in item.get("data", "")
                         ):
-                            flare_id = item.get("data", "").split(":")[-1].strip()
+                            flare_id = (
+                                item.get("data", "").split(":")[-1].strip()
+                            )
                             break
             except (ValueError, SyntaxError):
                 pass
@@ -432,16 +461,22 @@ def results_visualization_status(request, job_id):
                 {
                     "title": p.title,
                     "plot_number": p.plot_number,
-                    "image_url": reverse(
-                        "results:get_visualization_plot", args=[p.id, "image"]
-                    )
-                    if p.image_data
-                    else None,
-                    "svg_url": reverse(
-                        "results:get_visualization_plot", args=[p.id, "svg"]
-                    )
-                    if p.svg_data
-                    else None,
+                    "image_url": (
+                        reverse(
+                            "results:get_visualization_plot",
+                            args=[p.id, "image"],
+                        )
+                        if p.image_data
+                        else None
+                    ),
+                    "svg_url": (
+                        reverse(
+                            "results:get_visualization_plot",
+                            args=[p.id, "svg"],
+                        )
+                        if p.svg_data
+                        else None
+                    ),
                 }
             )
 
@@ -477,14 +512,20 @@ def _proxy_s3_download(request, key, filename):
 
         range_header = request.META.get("HTTP_RANGE")
         range_start = 0
-        range_end = (total_size - 1) if isinstance(total_size, int) and total_size > 0 else None
+        range_end = (
+            (total_size - 1)
+            if isinstance(total_size, int) and total_size > 0
+            else None
+        )
         status_code = 200
 
         if range_header and isinstance(total_size, int) and total_size > 0:
             match = re.match(r"^bytes=(\d+)-(\d*)$", range_header.strip())
             if match:
                 requested_start = int(match.group(1))
-                requested_end = int(match.group(2)) if match.group(2) else (total_size - 1)
+                requested_end = (
+                    int(match.group(2)) if match.group(2) else (total_size - 1)
+                )
                 if 0 <= requested_start < total_size:
                     range_start = requested_start
                     range_end = min(requested_end, total_size - 1)
@@ -512,7 +553,9 @@ def _proxy_s3_download(request, key, filename):
 
                     obj = s3.get_object(**get_kwargs)
 
-                    for chunk in obj["Body"].iter_chunks(chunk_size=1024 * 1024):  # 1MB
+                    for chunk in obj["Body"].iter_chunks(
+                        chunk_size=1024 * 1024
+                    ):  # 1MB
                         if not chunk:
                             continue
                         had_progress = True
@@ -520,11 +563,17 @@ def _proxy_s3_download(request, key, filename):
                         yield chunk
 
                         # Stop exactly at the requested range end (or full size).
-                        if target_end_exclusive is not None and bytes_sent >= target_end_exclusive:
+                        if (
+                            target_end_exclusive is not None
+                            and bytes_sent >= target_end_exclusive
+                        ):
                             break
 
                     # Completed normally.
-                    if target_end_exclusive is None or bytes_sent >= target_end_exclusive:
+                    if (
+                        target_end_exclusive is None
+                        or bytes_sent >= target_end_exclusive
+                    ):
                         break
 
                     # Upstream ended early; retry with Range.
@@ -544,7 +593,9 @@ def _proxy_s3_download(request, key, filename):
         # If Nginx gzips, it changes the content length but might not strip the header
         # when buffering is disabled, leading to "Network Error" in Chrome.
         response = StreamingHttpResponse(
-            stream_content(), content_type="application/octet-stream", status=status_code
+            stream_content(),
+            content_type="application/octet-stream",
+            status=status_code,
         )
         response["Accept-Ranges"] = "bytes"
 
@@ -552,7 +603,9 @@ def _proxy_s3_download(request, key, filename):
         if isinstance(total_size, int) and total_size > 0:
             if status_code == 206 and range_end is not None:
                 response["Content-Length"] = str(range_end - range_start + 1)
-                response["Content-Range"] = f"bytes {range_start}-{range_end}/{total_size}"
+                response["Content-Range"] = (
+                    f"bytes {range_start}-{range_end}/{total_size}"
+                )
             else:
                 response["Content-Length"] = str(total_size)
 
@@ -587,7 +640,9 @@ def _proxy_s3_download_file(key, filename):
         response["Cache-Control"] = "no-transform"
         return response
     except Exception as e:
-        _logger.error(f"Failed to download S3 file {key} via buffered HttpResponse: {e}")
+        _logger.error(
+            f"Failed to download S3 file {key} via buffered HttpResponse: {e}"
+        )
         return HttpResponse("File download failed", status=500)
 
 
@@ -616,7 +671,9 @@ def download_result(request, result_id):
         )
 
         # Direct proxying is more reliable for local/self-hosted setups
-        return _proxy_s3_download_file(result.file_path, os.path.basename(result.file_path))
+        return _proxy_s3_download_file(
+            result.file_path, os.path.basename(result.file_path)
+        )
 
     except TrainingResult.DoesNotExist:
         return render(request, "404.html")
@@ -661,12 +718,18 @@ def download_all_results(request, project_id):
 
         # Create the ZIP archive in memory.
         zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        with zipfile.ZipFile(
+            zip_buffer, "w", zipfile.ZIP_DEFLATED
+        ) as zip_file:
             for key in keys:
                 # Remove project prefix from paths inside the ZIP for cleaner
                 # structure.
-                rel_name = key[len(prefix) :] if key.startswith(prefix) else key
-                obj = s3.get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key)
+                rel_name = (
+                    key[len(prefix) :] if key.startswith(prefix) else key
+                )
+                obj = s3.get_object(
+                    Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key
+                )
                 zip_file.writestr(rel_name, obj["Body"].read())
 
         zip_buffer.seek(0)
@@ -694,7 +757,7 @@ def download_result_by_key(request):
     """
     current_project_uuid, _ = get_user_project(request)
 
-    project = get_object_or_404(Project, identifier=current_project_uuid)
+    get_object_or_404(Project, identifier=current_project_uuid)
 
     key = request.GET.get("key", "")
     # Security check: Ensure the requested key belongs to the user's active
@@ -703,7 +766,9 @@ def download_result_by_key(request):
         return render(request, "404.html")
 
     log = logger.get_logger()
-    log.access.info(f"User downloading result file by key: {key}", file_key=key)
+    log.access.info(
+        f"User downloading result file by key: {key}", file_key=key
+    )
 
     # Direct proxying is more reliable for local/self-hosted setups
     return _proxy_s3_download_file(key, os.path.basename(key))

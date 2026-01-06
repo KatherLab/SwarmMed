@@ -5,9 +5,10 @@ individual validation checks, visualization runs, and generated plots.
 """
 
 import os
-from django.db import models
-from django.contrib.auth.models import User
+
 from common.models import AbstractBaseModel
+from django.contrib.auth.models import User
+from django.db import models
 from project.models import Project
 
 
@@ -171,7 +172,10 @@ class VisualizationPlot(AbstractBaseModel):
         upload_to=visualization_plot_path, max_length=512
     )  # PNG format
     svg_data = models.FileField(
-        upload_to=visualization_plot_path, max_length=512, blank=True, null=True
+        upload_to=visualization_plot_path,
+        max_length=512,
+        blank=True,
+        null=True,
     )  # SVG format
 
     class Meta:

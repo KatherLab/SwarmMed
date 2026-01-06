@@ -1,6 +1,8 @@
 from celery import shared_task
-from .models import BackupLog, BackupConfiguration
+
+from .models import BackupConfiguration, BackupLog
 from .utils import perform_backup, perform_restore
+
 
 @shared_task(name="backup.tasks.run_backup")
 def run_backup(log_id):
@@ -13,6 +15,7 @@ def run_backup(log_id):
     except Exception as e:
         return f"Backup {log_id} failed: {str(e)}"
 
+
 @shared_task(name="backup.tasks.run_restore")
 def run_restore(log_id):
     try:
@@ -23,6 +26,7 @@ def run_restore(log_id):
         return f"BackupLog {log_id} not found."
     except Exception as e:
         return f"Restore from {log_id} failed: {str(e)}"
+
 
 @shared_task(name="backup.tasks.scheduled_backup")
 def scheduled_backup():

@@ -6,18 +6,21 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('backup', '0001_initial'),
+        ("backup", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='backupconfiguration',
-            name='include_s3_storage',
-            field=models.BooleanField(default=True, help_text='Include all objects from the default S3/MinIO bucket.'),
+            model_name="backupconfiguration",
+            name="include_s3_storage",
+            field=models.BooleanField(
+                default=True,
+                help_text="Include all objects from the default S3/MinIO bucket.",
+            ),
         ),
         migrations.AddField(
-            model_name='backuplog',
-            name='has_s3_storage',
+            model_name="backuplog",
+            name="has_s3_storage",
             field=models.BooleanField(default=False),
         ),
     ]

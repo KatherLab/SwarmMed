@@ -11,54 +11,203 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('project', '0001_initial'),
+        ("project", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='SwarmNetwork',
+            name="SwarmNetwork",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('name', models.CharField(max_length=255)),
-                ('description', models.TextField(blank=True, null=True)),
-                ('status', models.CharField(choices=[('INITIALIZING', 'Initializing'), ('PROVISIONED', 'Provisioned'), ('STARTING', 'Starting'), ('RUNNING', 'Running'), ('STOPPING', 'Stopping'), ('STOPPED', 'Stopped'), ('ERROR', 'Error')], db_index=True, default='INITIALIZING', max_length=20)),
-                ('author', models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='authored_swarm_networks', to=settings.AUTH_USER_MODEL)),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='swarm_networks', to='project.project')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                ("name", models.CharField(max_length=255)),
+                ("description", models.TextField(blank=True, null=True)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("INITIALIZING", "Initializing"),
+                            ("PROVISIONED", "Provisioned"),
+                            ("STARTING", "Starting"),
+                            ("RUNNING", "Running"),
+                            ("STOPPING", "Stopping"),
+                            ("STOPPED", "Stopped"),
+                            ("ERROR", "Error"),
+                        ],
+                        db_index=True,
+                        default="INITIALIZING",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "author",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="authored_swarm_networks",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="swarm_networks",
+                        to="project.project",
+                    ),
+                ),
             ],
             options={
-                'abstract': False,
+                "abstract": False,
             },
         ),
         migrations.CreateModel(
-            name='SwarmParticipant',
+            name="SwarmParticipant",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('role', models.CharField(choices=[('SERVER', 'Server'), ('CLIENT', 'Client')], max_length=10)),
-                ('participant_id', models.CharField(help_text="Unique identifier used by FLARE (e.g., 'server', 'client-1')", max_length=100)),
-                ('network', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='participants', to='network.swarmnetwork')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='swarm_participations', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[("SERVER", "Server"), ("CLIENT", "Client")],
+                        max_length=10,
+                    ),
+                ),
+                (
+                    "participant_id",
+                    models.CharField(
+                        help_text="Unique identifier used by FLARE (e.g., 'server', 'client-1')",
+                        max_length=100,
+                    ),
+                ),
+                (
+                    "network",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="participants",
+                        to="network.swarmnetwork",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="swarm_participations",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'indexes': [models.Index(fields=['user', 'network'], name='network_swa_user_id_169a8f_idx'), models.Index(fields=['network', 'role'], name='network_swa_network_3be9c1_idx')],
-                'unique_together': {('network', 'participant_id')},
+                "indexes": [
+                    models.Index(
+                        fields=["user", "network"],
+                        name="network_swa_user_id_169a8f_idx",
+                    ),
+                    models.Index(
+                        fields=["network", "role"],
+                        name="network_swa_network_3be9c1_idx",
+                    ),
+                ],
+                "unique_together": {("network", "participant_id")},
             },
         ),
         migrations.CreateModel(
-            name='UserCurrentNetwork',
+            name="UserCurrentNetwork",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('network', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='current_for_users', to='network.swarmnetwork')),
-                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='current_network_relation', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                (
+                    "network",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="current_for_users",
+                        to="network.swarmnetwork",
+                    ),
+                ),
+                (
+                    "user",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="current_network_relation",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'unique_together': {('user', 'network')},
+                "unique_together": {("user", "network")},
             },
         ),
     ]

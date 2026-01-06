@@ -4,6 +4,7 @@ Maps web addresses to the view functions for managing swarm networks.
 """
 
 from django.urls import path
+
 from . import views
 
 # Standard application namespace
@@ -22,7 +23,9 @@ urlpatterns = [
     ),
     # Action: Stop and remove the docker-compose deployment
     path(
-        "<uuid:network_id>/stop/", views.stop_swarm_network, name="stop_swarm_network"
+        "<uuid:network_id>/stop/",
+        views.stop_swarm_network,
+        name="stop_swarm_network",
     ),
     # Action: Delete the network configuration and files
     path(

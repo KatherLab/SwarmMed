@@ -1,11 +1,12 @@
-import flare_adapter
-import tensorflow as tf
-import pandas as pd
 import glob
 import os
+
+import flare_adapter
 import numpy as np
+import pandas as pd
+import tensorflow as tf
+from dotenv import find_dotenv, load_dotenv
 from sklearn.preprocessing import StandardScaler
-from dotenv import load_dotenv, find_dotenv
 
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
@@ -23,13 +24,17 @@ def load_data(data_dir):
     file_list = glob.glob(file_pattern, recursive=True)
 
     if not file_list:
-        raise RuntimeError(f"No CSV files found in '{data_dir}' or its subdirectories.")
+        raise RuntimeError(
+            f"No CSV files found in '{data_dir}' or its subdirectories."
+        )
 
     print(f"Found {len(file_list)} CSV files in {data_dir}.")
     df_list = [pd.read_csv(f) for f in file_list]
     full_df = pd.concat(df_list, ignore_index=True)
 
-    X = full_df.drop(columns=["patient_id", "diagnosis"]).values.astype("float32")
+    X = full_df.drop(columns=["patient_id", "diagnosis"]).values.astype(
+        "float32"
+    )
     y = full_df["diagnosis"].values.astype("float32").reshape(-1, 1)
 
     scaler = StandardScaler()
@@ -44,7 +49,9 @@ def load_data(data_dir):
 def create_model(input_dim):
     model = tf.keras.Sequential(
         [
-            tf.keras.layers.Dense(64, activation="relu", input_shape=(input_dim,)),
+            tf.keras.layers.Dense(
+                64, activation="relu", input_shape=(input_dim,)
+            ),
             tf.keras.layers.BatchNormalization(),
             tf.keras.layers.Dropout(0.3),
             tf.keras.layers.Dense(32, activation="relu"),
@@ -126,7 +133,9 @@ def main(project_id: str):
             print("Training finished for round. Sending updates to server...")
 
             # Convert Keras weights to a dictionary for the adapter
-            params_dict = {str(i): w for i, w in enumerate(model.get_weights())}
+            params_dict = {
+                str(i): w for i, w in enumerate(model.get_weights())
+            }
 
             flare_adapter.send_model(
                 params=params_dict, metrics={"loss": float(avg_loss)}

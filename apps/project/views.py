@@ -8,19 +8,23 @@ import json
 import re
 import uuid
 
+from common.utils import get_s3_download_url
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import models
-from django.http import JsonResponse, HttpResponseRedirect, HttpResponseForbidden
-from django.shortcuts import render, redirect, get_object_or_404
+from django.http import (
+    HttpResponseForbidden,
+    HttpResponseRedirect,
+    JsonResponse,
+)
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
-
 from logs import logger
-from users.models import Profile
 from network.models import UserCurrentNetwork
-from data.utils import get_s3_download_url
+from users.models import Profile
+
 from .forms import ProjectForm
 from .models import Project, UserCurrentProject
 from .utils import handle_training_code_upload, process_member_identifiers
@@ -314,12 +318,20 @@ def get_user_emails(request):
                 # Lookup the Profile to find the associated User's email.
                 profile = Profile.objects.get(identifier=profile_uuid)
                 emails.append(
-                    {"uuid": identifier_str, "email": profile.user.email, "found": True}
+                    {
+                        "uuid": identifier_str,
+                        "email": profile.user.email,
+                        "found": True,
+                    }
                 )
             except (ValueError, Profile.DoesNotExist):
                 # If the UUID is invalid or doesn't exist, inform the frontend.
                 emails.append(
-                    {"uuid": identifier_str, "email": "Not found", "found": False}
+                    {
+                        "uuid": identifier_str,
+                        "email": "Not found",
+                        "found": False,
+                    }
                 )
 
     return JsonResponse({"emails": emails})
@@ -361,8 +373,9 @@ def download_project_file(request, pk, file_type):
     ]
 
     # Allow configured S3 hosts or standard AWS S3 domains
-    if parsed_url.netloc not in allowed_hosts and not parsed_url.netloc.endswith(
-        "amazonaws.com"
+    if (
+        parsed_url.netloc not in allowed_hosts
+        and not parsed_url.netloc.endswith("amazonaws.com")
     ):
         return HttpResponseForbidden("External URL forbidden")
 

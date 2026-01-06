@@ -1,3 +1,7 @@
+import os
+
+from str2bool import str2bool
+
 from .base import *
 
 DEBUG = False
@@ -6,9 +10,9 @@ DEBUG = False
 DATABASES["default"]["OPTIONS"]["sslmode"] = "verify-full"
 
 # Production-specific storage (e.g., WhiteNoise for static files)
-STORAGES["staticfiles"]["BACKEND"] = (
-    "whitenoise.storage.CompressedManifestStaticFilesStorage"
-)
+STORAGES["staticfiles"][
+    "BACKEND"
+] = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # Enable cached template loader in production for performance
 TEMPLATES[0]["OPTIONS"]["loaders"] = [

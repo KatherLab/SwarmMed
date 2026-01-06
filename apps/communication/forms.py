@@ -5,6 +5,7 @@ Defines how users input data for direct messages and project board posts.
 
 from django import forms
 from django.contrib.auth.models import User
+
 from .models import Message, ProjectPost
 
 
@@ -68,7 +69,7 @@ class MessageForm(forms.ModelForm):
         # Pop user and project from kwargs before calling super()
         user = kwargs.pop("user", None)
         project = kwargs.pop("project", None)
-        super(MessageForm, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # If a project is provided, restrict recipients to members and the
         # author

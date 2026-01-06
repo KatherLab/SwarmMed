@@ -1,16 +1,20 @@
-from django.test import TestCase, Client
+from datetime import timedelta
+
 from django.contrib.auth.models import User
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
-from datetime import timedelta
 from project.models import Project
-from communication.models import ProjectPost, ProjectBoardAccess
+
+from communication.models import ProjectBoardAccess, ProjectPost
 
 
 class ChatDashboardPerformanceTests(TestCase):
     def setUp(self):
         # Bandit B106: hardcoded password is test-only.
-        self.user = User.objects.create_user(username="testuser", password="password")  # nosec B106
+        self.user = User.objects.create_user(
+            username="testuser", password="password"
+        )  # nosec B106
         self.client = Client()
         self.client.force_login(self.user)
 
@@ -33,7 +37,9 @@ class ChatDashboardPerformanceTests(TestCase):
             user=self.user, project=self.project1
         )
         # Use update() to force a past timestamp on an auto_now field
-        ProjectBoardAccess.objects.filter(id=access.id).update(updated_at=past_time)
+        ProjectBoardAccess.objects.filter(id=access.id).update(
+            updated_at=past_time
+        )
 
         # Old post (read)
         ProjectPost.objects.create(
@@ -48,10 +54,14 @@ class ChatDashboardPerformanceTests(TestCase):
         # Since access log was set to yesterday, any post created NOW is unread.
 
         ProjectPost.objects.create(
-            project=self.project1, author=self.user, content="New unread post 1"
+            project=self.project1,
+            author=self.user,
+            content="New unread post 1",
         )
         ProjectPost.objects.create(
-            project=self.project1, author=self.user, content="New unread post 2"
+            project=self.project1,
+            author=self.user,
+            content="New unread post 2",
         )
 
         # Create posts for Project 2 (User NEVER visited)
@@ -120,7 +130,9 @@ class ChatDashboardPerformanceTests(TestCase):
         # Create MORE projects and ensure query count doesn't jump
         for i in range(5):
             p = Project.objects.create(title=f"Extra {i}", author=self.user)
-            ProjectPost.objects.create(project=p, author=self.user, content="Content")
+            ProjectPost.objects.create(
+                project=p, author=self.user, content="Content"
+            )
 
         with self.assertNumQueries(8):
             self.client.get(reverse("communication:chat_dashboard"))

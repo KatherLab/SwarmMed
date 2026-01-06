@@ -3,9 +3,10 @@ Shared utility functions for the entire application.
 """
 
 import os
+from urllib.parse import urlparse
+
 import boto3
 import docker
-from urllib.parse import urlparse
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -28,21 +29,26 @@ def get_docker_client(target="host"):
             client = docker.DockerClient(
                 base_url="tcp://sandbox-dind:2376",
                 tls=docker.tls.TLSConfig(
-                    client_cert=("/certs/client/cert.pem", "/certs/client/key.pem"),
+                    client_cert=(
+                        "/certs/client/cert.pem",
+                        "/certs/client/key.pem",
+                    ),
                     ca_cert="/certs/client/ca.pem",
-                    verify=True
-                )
+                    verify=True,
+                ),
             )
         else:
             # Default to DOCKER_HOST (which points to docker-proxy)
             client = docker.from_env()
-        
+
         client.api.trust_env = False
         client.ping()
         return client
     finally:
-        if cert_file is not None: os.environ["SSL_CERT_FILE"] = cert_file
-        if ca_bundle is not None: os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
+        if cert_file is not None:
+            os.environ["SSL_CERT_FILE"] = cert_file
+        if ca_bundle is not None:
+            os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
 
 
 def get_host_path(container_path):

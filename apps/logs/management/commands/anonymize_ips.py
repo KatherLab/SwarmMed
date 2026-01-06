@@ -1,7 +1,9 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from datetime import timedelta
-from django.conf import settings
+
 from logs.models import LogEntry
 
 
@@ -33,5 +35,7 @@ class Command(BaseCommand):
             )
         else:
             self.stdout.write(
-                self.style.NOTICE("No log entries found that require anonymization.")
+                self.style.NOTICE(
+                    "No log entries found that require anonymization."
+                )
             )

@@ -4,7 +4,8 @@ Defines a handler that writes log records directly into the Django database.
 """
 
 import logging
-from .utils import redact_phi, redact_message
+
+from .utils import redact_message, redact_phi
 
 _internal_logger = logging.getLogger("app")
 
@@ -27,6 +28,7 @@ class DatabaseLogHandler(logging.Handler):
             object_id = getattr(record, "object_id", None)
 
             from django.apps import apps
+
             from .context import _thread_locals
 
             # Use dynamic model loading to avoid circular imports during
@@ -113,7 +115,9 @@ class DatabaseLogHandler(logging.Handler):
                         if project:
                             log_entry.project_id = project.id
                 except Exception as e:
-                    _internal_logger.debug(f"Could not resolve project_id for logging: {e}")
+                    _internal_logger.debug(
+                        f"Could not resolve project_id for logging: {e}"
+                    )
 
             log_entry.save()
 

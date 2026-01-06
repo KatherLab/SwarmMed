@@ -16,7 +16,9 @@ urlpatterns = [
     # Main training dashboard.
     path("", views.training, name="training"),
     # Endpoint to initiate training on a specific swarm network.
-    path("start/<uuid:network_id>/", views.start_training, name="start_training"),
+    path(
+        "start/<uuid:network_id>/", views.start_training, name="start_training"
+    ),
     # Endpoint to manually abort a running training job.
     path("stop/<uuid:network_id>/", views.stop_training, name="stop_training"),
     # AJAX endpoint for polling the current job status and progress.

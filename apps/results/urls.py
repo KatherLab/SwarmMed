@@ -29,7 +29,9 @@ urlpatterns = [
     ),
     # Download a result using its S3 key.
     path(
-        "download/by-key/", views.download_result_by_key, name="download_result_by_key"
+        "download/by-key/",
+        views.download_result_by_key,
+        name="download_result_by_key",
     ),
     # --- Results Visualization Endpoints ---
     # Start a visualization background task for a specific job.

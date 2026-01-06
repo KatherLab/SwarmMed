@@ -6,8 +6,8 @@ automatic cleanup of related resources.
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
-
 from network.models import SwarmNetwork
+
 from .models import Project
 
 

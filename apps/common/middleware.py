@@ -24,11 +24,15 @@ class GDPRRestrictionMiddleware:
             profile = getattr(request.user, "profile", None)
             if profile and profile.is_restricted:
                 path = request.path
-                is_exempt = any(path.startswith(exempt) for exempt in exempt_paths)
+                is_exempt = any(
+                    path.startswith(exempt) for exempt in exempt_paths
+                )
 
                 if not is_exempt:
                     # Return a dedicated 'Account Restricted' page or 403
-                    return render(request, "errors/restricted.html", status=403)
+                    return render(
+                        request, "errors/restricted.html", status=403
+                    )
 
         return self.get_response(request)
 

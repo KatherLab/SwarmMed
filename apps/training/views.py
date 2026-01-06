@@ -4,24 +4,25 @@ import re
 import shutil
 import socket
 import time
-from typing import Optional
 
+from common.utils import get_safe_slug
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.http import JsonResponse
-from django.shortcuts import redirect, render, get_object_or_404
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-
-from common.utils import get_safe_slug
 from logs.logger import get_logger
 from network.models import SwarmNetwork, UserCurrentNetwork
+from project.decorators import (
+    project_context_required,
+    project_membership_required,
+)
 from project.models import UserCurrentProject
 
 from .models import TrainingJob
 from .utils import download_s3_folder
-from project.decorators import project_context_required, project_membership_required
 
 logger = get_logger()
 
@@ -45,7 +46,7 @@ def _find_latest_training_log(
     network_id: str,
     job_uuid: str,
     cache_ttl_seconds: int = 60,
-) -> Optional[str]:
+) -> str | None:
     """Locate the most relevant log file for a given NVFlare job.
 
     Uses a short cache to avoid repeated directory walks.
@@ -55,14 +56,18 @@ def _find_latest_training_log(
     if cached_path and os.path.exists(cached_path):
         return cached_path
 
-    workspace_root = os.path.join("workspaces", project_id, network_id, "workspace")
+    workspace_root = os.path.join(
+        "workspaces", project_id, network_id, "workspace"
+    )
     if not os.path.exists(workspace_root):
         return None
 
     latest_log = None
     for root, dirs, files in os.walk(workspace_root):
         # Prune obviously irrelevant/hidden directories.
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
+        dirs[:] = [
+            d for d in dirs if not d.startswith(".") and d != "__pycache__"
+        ]
 
         if job_uuid in root:
             for cand in ("log_fl.txt", "log.txt"):
@@ -84,7 +89,9 @@ def get_user_project(request):
     Helper function to retrieve the user's currently active project.
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(user=request.user)
+        user_current_project = UserCurrentProject.objects.get(
+            user=request.user
+        )
         if not user_current_project.project:
             return None, False
         return str(user_current_project.project.identifier), True
@@ -204,9 +211,9 @@ def get_training_progress_info(training_job, current_network):
                 data = _tail_text(fpath)
                 if not data:
                     return
-                if ("ending workflow" in data and "swarm_controller" in data) or (
-                    "child worker process finished with RC 0" in data
-                ):
+                if (
+                    "ending workflow" in data and "swarm_controller" in data
+                ) or ("child worker process finished with RC 0" in data):
                     ended = True
                 for m in round_re.finditer(data):
                     rnum = int(m.group(1))
@@ -225,7 +232,9 @@ def get_training_progress_info(training_job, current_network):
                         ]
                         if job_uuid in root:
                             for fname in files:
-                                if fname.startswith("log") and fname.endswith(".txt"):
+                                if fname.startswith("log") and fname.endswith(
+                                    ".txt"
+                                ):
                                     scan_log_tail(os.path.join(root, fname))
                                     if ended:
                                         break
@@ -241,9 +250,13 @@ def get_training_progress_info(training_job, current_network):
                     training_job.completed_at = timezone.now()
                     training_job.save()
             elif not have_cached_progress and total_rounds > 0:
-                training_progress = min(99, int(rounds_finished * 100 / total_rounds))
+                training_progress = min(
+                    99, int(rounds_finished * 100 / total_rounds)
+                )
         except Exception as e:
-            logger.training.debug(f"Failed to calculate training progress: {e}")
+            logger.training.debug(
+                f"Failed to calculate training progress: {e}"
+            )
             training_progress = 0
 
     elif training_job.status == "COMPLETED":
@@ -290,7 +303,9 @@ def training(request):
     Main training dashboard view.
     """
     try:
-        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+        current_network = UserCurrentNetwork.objects.get(
+            user=request.user
+        ).network
         if not current_network or current_network.status != "RUNNING":
             return render(
                 request,
@@ -299,7 +314,9 @@ def training(request):
             )
     except UserCurrentNetwork.DoesNotExist:
         return render(
-            request, "apps/training/no_network_started.html", {"segment": "training"}
+            request,
+            "apps/training/no_network_started.html",
+            {"segment": "training"},
         )
 
     is_training_running = False
@@ -356,7 +373,8 @@ def training(request):
                         msg = line
                         logger_name = ""
                         ts_match = re.match(
-                            r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})", line
+                            r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})",
+                            line,
                         )
                         if ts_match:
                             ts = ts_match.group(1)
@@ -405,7 +423,9 @@ def start_training(request, network_id):
     job_dir = os.path.join(
         "workspaces", str(project.identifier), str(network.identifier), "job"
     )
-    project_name = get_safe_slug(project.title, project.identifier).replace("-", "_")
+    project_name = get_safe_slug(project.title, project.identifier).replace(
+        "-", "_"
+    )
     admin_user_dir = os.path.join(
         "workspaces",
         str(project.identifier),
@@ -427,9 +447,13 @@ def start_training(request, network_id):
     source_code_prefix = f"{project.identifier}/code/training/"
     try:
         download_s3_folder(
-            settings.AWS_STORAGE_BUCKET_NAME, source_code_prefix, app_client_custom_dir
+            settings.AWS_STORAGE_BUCKET_NAME,
+            source_code_prefix,
+            app_client_custom_dir,
         )
-        log.training.info(f"Downloaded training code from S3: {source_code_prefix}")
+        log.training.info(
+            f"Downloaded training code from S3: {source_code_prefix}"
+        )
     except Exception as e:
         log.training.error(f"Failed to download training code: {e}")
 
@@ -437,7 +461,8 @@ def start_training(request, network_id):
         settings.BASE_DIR, "apps", "training", "flare_adapter.py"
     )
     shutil.copyfile(
-        flare_adapter_src, os.path.join(app_client_custom_dir, "flare_adapter.py")
+        flare_adapter_src,
+        os.path.join(app_client_custom_dir, "flare_adapter.py"),
     )
 
     from common.utils import get_internal_s3_download_url, get_s3_client
@@ -448,7 +473,9 @@ def start_training(request, network_id):
     root_data_prefix = f"{project.identifier}/data/"
     paginator = s3.get_paginator("list_objects_v2")
 
-    log.training.debug(f"Building data manifest for prefix: {root_data_prefix}")
+    log.training.debug(
+        f"Building data manifest for prefix: {root_data_prefix}"
+    )
     data_manifest = {}
     file_count = 0
     for page in paginator.paginate(
@@ -479,11 +506,15 @@ def start_training(request, network_id):
 
     training_py_path = os.path.join(app_client_custom_dir, "training.py")
     if os.path.exists(training_py_path):
-        with open(training_py_path, "r") as f:
+        with open(training_py_path) as f:
             content = f.read()
         replacement = f'main(project_id="{str(project.identifier)}")'
-        content = content.replace('main(project_id="default_project")', replacement)
-        content = content.replace("main(project_id='default_project')", replacement)
+        content = content.replace(
+            'main(project_id="default_project")', replacement
+        )
+        content = content.replace(
+            "main(project_id='default_project')", replacement
+        )
         with open(training_py_path, "w") as f:
             f.write(content)
 
@@ -504,16 +535,17 @@ def start_training(request, network_id):
 
     framework = "pt"
     if os.path.exists(training_py_path):
-        with open(training_py_path, "r") as f:
+        with open(training_py_path) as f:
             script_text = f.read()
-            if "import tensorflow" in script_text or "import keras" in script_text:
+            if (
+                "import tensorflow" in script_text
+                or "import keras" in script_text
+            ):
                 framework = "tf"
             elif "import sklearn" in script_text:
                 framework = "np"
 
-    executor_path = (
-        "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor"
-    )
+    executor_path = "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor"
     if framework == "tf":
         executor_path = "nvflare.app_opt.tf.in_process_client_api_executor.TFInProcessClientAPIExecutor"
     elif framework == "np":
@@ -558,7 +590,10 @@ def start_training(request, network_id):
                 "id": "persistor",
                 "path": "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor",
             },
-            {"id": "shareable_generator", "name": "FullModelShareableGenerator"},
+            {
+                "id": "shareable_generator",
+                "name": "FullModelShareableGenerator",
+            },
             {
                 "id": "aggregator",
                 "name": "InTimeAccumulateWeightedAggregator",
@@ -594,7 +629,9 @@ def start_training(request, network_id):
 
         job_id = None
         if isinstance(response, dict):
-            job_id = response.get("job_id") or response.get("data") or str(response)
+            job_id = (
+                response.get("job_id") or response.get("data") or str(response)
+            )
         else:
             job_id = getattr(response, "job_id", None) or str(response)
 
@@ -608,7 +645,10 @@ def start_training(request, network_id):
     except Exception as e:
         log.training.error(f"Submit job via FLARE API failed: {e}")
         TrainingJob.objects.create(
-            project=project, network=network, status="FAILED", flare_job_id="error"
+            project=project,
+            network=network,
+            status="FAILED",
+            flare_job_id="error",
         )
         messages.error(request, f"Failed to submit job: {e}")
 
@@ -631,7 +671,9 @@ def stop_training(request, network_id):
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
 
-        project_name = get_safe_slug(job.project.title, job.project.identifier).replace("-", "_")
+        project_name = get_safe_slug(
+            job.project.title, job.project.identifier
+        ).replace("-", "_")
         admin_user_dir = os.path.join(
             "workspaces",
             str(job.project.identifier),
@@ -667,7 +709,9 @@ def training_status_api(request):
     AJAX endpoint to poll the current training status.
     """
     try:
-        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+        current_network = UserCurrentNetwork.objects.get(
+            user=request.user
+        ).network
     except UserCurrentNetwork.DoesNotExist:
         return JsonResponse({"status": "no_network"})
 
@@ -699,7 +743,9 @@ def training_logs_api(request):
     AJAX endpoint returning the last 100 log lines as a JSON list.
     """
     try:
-        current_network = UserCurrentNetwork.objects.get(user=request.user).network
+        current_network = UserCurrentNetwork.objects.get(
+            user=request.user
+        ).network
     except UserCurrentNetwork.DoesNotExist:
         return JsonResponse({"logs": []})
 
@@ -751,7 +797,7 @@ def training_logs_api(request):
                     break
 
         if latest_log and os.path.exists(latest_log):
-            with open(latest_log, "r") as lf:
+            with open(latest_log) as lf:
                 lines = lf.readlines()[-100:]
             for line in lines:
                 line = line.strip()

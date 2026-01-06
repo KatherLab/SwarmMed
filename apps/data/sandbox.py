@@ -4,14 +4,15 @@ Handles the secure execution of user-provided Python scripts using ephemeral
 Docker containers to provide isolation and resource control.
 """
 
-import os
 import json
+import os
 import shutil
 import tempfile
+
 import docker
+from common.utils import get_docker_client
 from django.conf import settings
 from logs import logger
-from common.utils import get_docker_client
 
 
 def get_host_path(container_path):
@@ -45,7 +46,9 @@ def ensure_sandbox_image():
         )
         dockerfile_path = os.path.join(settings.BASE_DIR, "Dockerfile.sandbox")
         if not os.path.exists(dockerfile_path):
-            log.data.error(f"Dockerfile.sandbox not found at {dockerfile_path}")
+            log.data.error(
+                f"Dockerfile.sandbox not found at {dockerfile_path}"
+            )
             raise FileNotFoundError(
                 "Dockerfile.sandbox is missing. Cannot build sandbox."
             )
@@ -66,12 +69,14 @@ def ensure_sandbox_image():
                     print(chunk["stream"].strip())
                 elif "error" in chunk:
                     log.data.error(f"Docker build error: {chunk['error']}")
-                    raise docker.errors.BuildError(chunk["error"], generator)
+                    raise docker.errors.BuildError(
+                        chunk["error"], generator
+                    ) from None
 
             log.data.info("Sandbox image built successfully.")
         except Exception as e:
             log.data.error(f"Failed to build sandbox image: {e}")
-            raise
+            raise RuntimeError(f"Sandbox build failed: {e}") from e
 
 
 def run_script_in_sandbox(
@@ -88,7 +93,8 @@ def run_script_in_sandbox(
     # Create a unique temporary directory within the project root for this execution
     # This ensures the directory is visible to the host Docker daemon via existing mounts.
     sandbox_dir = tempfile.mkdtemp(
-        prefix=f"sandbox_{run_type}_{project_uuid}_", dir=settings.PROJECT_TEMP_DIR
+        prefix=f"sandbox_{run_type}_{project_uuid}_",
+        dir=settings.PROJECT_TEMP_DIR,
     )
 
     try:
@@ -141,7 +147,7 @@ def run_script_in_sandbox(
             results_data = {}
             if os.path.exists(results_path):
                 try:
-                    with open(results_path, "r") as f:
+                    with open(results_path) as f:
                         results_data = json.load(f)
                 except Exception as e:
                     log.data.warning(f"Failed to parse results.json: {e}")
@@ -152,7 +158,9 @@ def run_script_in_sandbox(
                 for plot_file in sorted(os.listdir(plots_dir)):
                     if plot_file.endswith(".json"):
                         try:
-                            with open(os.path.join(plots_dir, plot_file), "r") as f:
+                            with open(
+                                os.path.join(plots_dir, plot_file)
+                            ) as f:
                                 captured_plots.append(json.load(f))
                         except Exception as e:
                             log.data.warning(
@@ -163,9 +171,11 @@ def run_script_in_sandbox(
                 "success": exit_code == 0,
                 "output": logs,
                 "exit_code": exit_code,
-                "results": results_data.get("checks", [])
-                if run_type == "validation"
-                else results_data,
+                "results": (
+                    results_data.get("checks", [])
+                    if run_type == "validation"
+                    else results_data
+                ),
                 "plots": captured_plots,
             }
 
@@ -178,10 +188,14 @@ def run_script_in_sandbox(
                     container.remove(force=True)
                 except Exception as e:
                     # Best effort removal
-                    log.data.warning(f"Failed to remove sandbox container: {e}")
+                    log.data.warning(
+                        f"Failed to remove sandbox container: {e}"
+                    )
     finally:
         # Clean up the temporary workspace
         try:
             shutil.rmtree(sandbox_dir)
         except Exception as e:
-            log.data.warning(f"Failed to cleanup sandbox directory {sandbox_dir}: {e}")
+            log.data.warning(
+                f"Failed to cleanup sandbox directory {sandbox_dir}: {e}"
+            )

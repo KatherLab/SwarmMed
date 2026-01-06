@@ -5,9 +5,10 @@ without having to pass them explicitly in every view.
 """
 
 from django.core.cache import cache
-from django.db.models import Q, Count, OuterRef, Subquery, F
-from .models import Message, ProjectBoardAccess
+from django.db.models import Count, F, OuterRef, Q, Subquery
 from project.models import Project
+
+from .models import Message, ProjectBoardAccess
 
 
 def unread_messages(request):
@@ -37,7 +38,9 @@ def unread_messages(request):
     # 2. Project Board Posts Count
     # We need to find new posts in projects where the user is either the
     # author or a member
-    user_projects = Project.objects.filter(Q(author=user) | Q(members=user)).distinct()
+    user_projects = Project.objects.filter(
+        Q(author=user) | Q(members=user)
+    ).distinct()
 
     # Subquery for the user's last access time to each project board
     last_access_subquery = ProjectBoardAccess.objects.filter(

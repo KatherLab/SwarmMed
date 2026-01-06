@@ -7,9 +7,9 @@ with the NVFlare system and the project's S3 data storage.
 import json
 import os
 import shutil
+import ssl
 import tempfile
 import urllib.request
-import ssl
 
 import numpy as np
 import nvflare.client as flare
@@ -70,7 +70,7 @@ class FlareDataFileSystem:
 
         if manifest_path:
             try:
-                with open(manifest_path, "r") as f:
+                with open(manifest_path) as f:
                     self.manifest = json.load(f)
                 print(
                     f"FlareDataFileSystem: Loaded manifest from {manifest_path} with {len(self.manifest)} files."
@@ -93,7 +93,9 @@ class FlareDataFileSystem:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Ensure cleanup of temporary files when the context is closed."""
         if exc_type:
-            print(f"FlareDataFileSystem: Exiting context with error: {exc_val}")
+            print(
+                f"FlareDataFileSystem: Exiting context with error: {exc_val}"
+            )
         self.cleanup()
 
     def cleanup(self):
@@ -153,7 +155,9 @@ class FlareDataFileSystem:
         if file_count == 0:
             print("FlareDataFileSystem: WARNING - No files were downloaded.")
         else:
-            print(f"FlareDataFileSystem: Successfully downloaded {file_count} files.")
+            print(
+                f"FlareDataFileSystem: Successfully downloaded {file_count} files."
+            )
 
     def get_data_path(self) -> str:
         """

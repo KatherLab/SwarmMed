@@ -17,37 +17,155 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Project',
+            name="Project",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('identifier', models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, help_text='Unique identifier for this object across the system.', unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='The date and time this object was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='The date and time this object was last updated.')),
-                ('title', models.CharField(max_length=255)),
-                ('description', models.TextField(blank=True)),
-                ('status', models.CharField(choices=[('IN_PROGRESS', 'In Progress'), ('ARCHIVED', 'Archived')], db_index=True, default='IN_PROGRESS', max_length=20)),
-                ('training_code', models.FileField(blank=True, max_length=512, null=True, upload_to=project.utils.training_code_path)),
-                ('requirements_file', models.FileField(blank=True, max_length=512, null=True, upload_to=project.utils.requirements_path)),
-                ('data_validation_script', models.FileField(blank=True, max_length=512, null=True, upload_to=project.utils.data_validation_path)),
-                ('data_visualization_script', models.FileField(blank=True, max_length=512, null=True, upload_to=project.utils.data_visualization_path)),
-                ('results_visualization_script', models.FileField(blank=True, max_length=512, null=True, upload_to=project.utils.results_visualization_path)),
-                ('is_current', models.BooleanField(default=False)),
-                ('author', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='created_projects', to=settings.AUTH_USER_MODEL)),
-                ('members', models.ManyToManyField(blank=True, related_name='member_projects', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "identifier",
+                    models.UUIDField(
+                        db_index=True,
+                        default=uuid.uuid4,
+                        editable=False,
+                        help_text="Unique identifier for this object across the system.",
+                        unique=True,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="The date and time this object was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="The date and time this object was last updated.",
+                    ),
+                ),
+                ("title", models.CharField(max_length=255)),
+                ("description", models.TextField(blank=True)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("IN_PROGRESS", "In Progress"),
+                            ("ARCHIVED", "Archived"),
+                        ],
+                        db_index=True,
+                        default="IN_PROGRESS",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "training_code",
+                    models.FileField(
+                        blank=True,
+                        max_length=512,
+                        null=True,
+                        upload_to=project.utils.training_code_path,
+                    ),
+                ),
+                (
+                    "requirements_file",
+                    models.FileField(
+                        blank=True,
+                        max_length=512,
+                        null=True,
+                        upload_to=project.utils.requirements_path,
+                    ),
+                ),
+                (
+                    "data_validation_script",
+                    models.FileField(
+                        blank=True,
+                        max_length=512,
+                        null=True,
+                        upload_to=project.utils.data_validation_path,
+                    ),
+                ),
+                (
+                    "data_visualization_script",
+                    models.FileField(
+                        blank=True,
+                        max_length=512,
+                        null=True,
+                        upload_to=project.utils.data_visualization_path,
+                    ),
+                ),
+                (
+                    "results_visualization_script",
+                    models.FileField(
+                        blank=True,
+                        max_length=512,
+                        null=True,
+                        upload_to=project.utils.results_visualization_path,
+                    ),
+                ),
+                ("is_current", models.BooleanField(default=False)),
+                (
+                    "author",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="created_projects",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "members",
+                    models.ManyToManyField(
+                        blank=True,
+                        related_name="member_projects",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'abstract': False,
+                "abstract": False,
             },
         ),
         migrations.CreateModel(
-            name='UserCurrentProject',
+            name="UserCurrentProject",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('project', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='current_for_users', to='project.project')),
-                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='current_project_relation', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="current_for_users",
+                        to="project.project",
+                    ),
+                ),
+                (
+                    "user",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="current_project_relation",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'unique_together': {('user', 'project')},
+                "unique_together": {("user", "project")},
             },
         ),
     ]

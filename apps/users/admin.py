@@ -7,10 +7,13 @@ it into the standard User admin for a unified view.
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
-from unfold.admin import ModelAdmin, StackedInline
-from unfold.forms import UserChangeForm, UserCreationForm, AdminPasswordChangeForm
-from unfold.contrib.filters.admin import DropdownFilter
 from django.utils.translation import gettext_lazy as _
+from unfold.admin import ModelAdmin, StackedInline
+from unfold.forms import (
+    AdminPasswordChangeForm,
+    UserChangeForm,
+    UserCreationForm,
+)
 
 from .models import Profile
 
@@ -158,7 +161,10 @@ class ProfileAdmin(ModelAdmin):
 
     # Logical groupings for the detail view.
     fieldsets = (
-        ("Basic Information", {"fields": ("user", "identifier", "role", "full_name")}),
+        (
+            "Basic Information",
+            {"fields": ("user", "identifier", "role", "full_name")},
+        ),
         (
             "Contact & Location",
             {"fields": ("phone", "address", "zip_code", "city", "country")},

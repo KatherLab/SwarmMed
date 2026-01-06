@@ -4,14 +4,14 @@ Provides a virtual filesystem layer that bridges Django's S3 storage
 with local script execution, handling on-demand downloads and cleanup.
 """
 
-import os
-import tempfile
-import shutil
 import concurrent.futures
-from typing import Dict, List
+import os
+import shutil
+import tempfile
 
 from django.core.files.storage import default_storage
 from logs import logger
+
 from .utils import list_s3_folder
 
 
@@ -36,7 +36,7 @@ class DataFileSystem:
             prefix=f"validation_{project_uuid}_", dir=settings.PROJECT_TEMP_DIR
         )
         # Cache of files already downloaded to avoid redundant network calls
-        self._downloaded_files: Dict[str, str] = {}
+        self._downloaded_files: dict[str, str] = {}
         self.log = logger.get_logger()
 
     def __enter__(self):
@@ -78,7 +78,9 @@ class DataFileSystem:
 
         if clean_rel_path in self._downloaded_files:
             # HIPAA Compliance: Log access to specific PHI file even on cache hit
-            self.log.access.info(f"Accessed PHI file (cached): {clean_rel_path}")
+            self.log.access.info(
+                f"Accessed PHI file (cached): {clean_rel_path}"
+            )
             return self._downloaded_files[clean_rel_path]
 
         # The full key in S3
@@ -100,14 +102,18 @@ class DataFileSystem:
             self._downloaded_files[clean_rel_path] = local_path
 
             # HIPAA Compliance: Log access to specific PHI file
-            self.log.access.info(f"Accessed PHI file (downloaded): {clean_rel_path}")
+            self.log.access.info(
+                f"Accessed PHI file (downloaded): {clean_rel_path}"
+            )
 
             return local_path
         except Exception as e:
-            self.log.data.error(f"Failed to download file {clean_rel_path}: {str(e)}")
+            self.log.data.error(
+                f"Failed to download file {clean_rel_path}: {str(e)}"
+            )
             raise FileNotFoundError(
                 f"Could not download file {clean_rel_path}: {str(e)}"
-            )
+            ) from e
 
     def open(self, relative_path: str, mode: str = "r", **kwargs):
         """
@@ -124,7 +130,7 @@ class DataFileSystem:
         s3_key = f"{self.root_path}{relative_path}"
         return default_storage.exists(s3_key)
 
-    def listdir(self, relative_path: str = "") -> List[str]:
+    def listdir(self, relative_path: str = "") -> list[str]:
         """
         Lists files and subdirectories in the given relative path.
         Returns names ending in '/' for directories.
@@ -139,13 +145,13 @@ class DataFileSystem:
 
         # Add subfolders, removing the long S3 prefix for the user
         for folder in folders:
-            folder_name = folder[len(prefix) :].rstrip("/")
+            folder_name = folder[len(prefix):].rstrip("/")
             if folder_name:
                 items.append(folder_name + "/")
 
         # Add filenames, removing the long S3 prefix
         for file in files:
-            file_name = file[len(prefix) :]
+            file_name = file[len(prefix):]
             if file_name:
                 items.append(file_name)
 
@@ -163,8 +169,8 @@ class DataFileSystem:
         Recursively downloads ALL files from the project's S3 data directory
         to the local temporary directory using parallel threads.
         """
-        from django.conf import settings
         from common.utils import get_s3_client
+        from django.conf import settings
 
         s3 = get_s3_client()
         paginator = s3.get_paginator("list_objects_v2")
@@ -197,7 +203,9 @@ class DataFileSystem:
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             # Map the download function to the files
             future_to_file = {
-                executor.submit(self._ensure_file_downloaded, rel_path): rel_path
+                executor.submit(
+                    self._ensure_file_downloaded, rel_path
+                ): rel_path
                 for rel_path in files_to_download
             }
 

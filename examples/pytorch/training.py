@@ -1,13 +1,14 @@
+import glob
+import os
+
 import flare_adapter
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import pandas as pd
-import glob
-import os
+from dotenv import find_dotenv, load_dotenv
 from sklearn.preprocessing import StandardScaler
-from dotenv import load_dotenv, find_dotenv
+from torch.utils.data import DataLoader, Dataset
 
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
@@ -34,10 +35,12 @@ class BiomedTabularDataset(Dataset):
         df_list = [pd.read_csv(f) for f in file_list]
         self.full_df = pd.concat(df_list, ignore_index=True)
 
-        self.X = self.full_df.drop(columns=["patient_id", "diagnosis"]).values.astype(
-            "float32"
+        self.X = self.full_df.drop(
+            columns=["patient_id", "diagnosis"]
+        ).values.astype("float32")
+        self.y = (
+            self.full_df["diagnosis"].values.astype("float32").reshape(-1, 1)
         )
-        self.y = self.full_df["diagnosis"].values.astype("float32").reshape(-1, 1)
 
         self.scaler = StandardScaler()
         self.X = self.scaler.fit_transform(self.X)
@@ -54,7 +57,7 @@ class BiomedTabularDataset(Dataset):
 
 class BioMedNet(nn.Module):
     def __init__(self, input_dim):
-        super(BioMedNet, self).__init__()
+        super().__init__()
         self.layer_1 = nn.Linear(input_dim, 64)
         self.batch_norm1 = nn.BatchNorm1d(64)
         self.layer_2 = nn.Linear(64, 32)
@@ -99,7 +102,9 @@ def main(project_id: str):
         # Load Data from the local path provided by the adapter
         try:
             dataset = BiomedTabularDataset(data_dir)
-            train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+            train_loader = DataLoader(
+                dataset, batch_size=batch_size, shuffle=True
+            )
             input_dim = dataset.X.shape[1]
         except Exception as e:
             print(f"Data loading error in training script: {e}")
@@ -123,7 +128,9 @@ def main(project_id: str):
             if input_model.params:
                 # Use helper to convert dict back to Tensors (handles received
                 # NumPy arrays)
-                state_dict = flare_adapter.get_pytorch_state_dict(input_model.params)
+                state_dict = flare_adapter.get_pytorch_state_dict(
+                    input_model.params
+                )
                 model.load_state_dict(state_dict)
                 print(
                     f"Received and loaded global model for round: {input_model.current_round}"

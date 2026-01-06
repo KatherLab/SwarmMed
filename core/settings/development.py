@@ -7,7 +7,9 @@ if "debug_toolbar" not in INSTALLED_APPS:
 
 if "debug_toolbar.middleware.DebugToolbarMiddleware" not in MIDDLEWARE:
     index = MIDDLEWARE.index("django.middleware.common.CommonMiddleware")
-    MIDDLEWARE.insert(index + 1, "debug_toolbar.middleware.DebugToolbarMiddleware")
+    MIDDLEWARE.insert(
+        index + 1, "debug_toolbar.middleware.DebugToolbarMiddleware"
+    )
 
 # Development-specific database options
 DATABASES["default"]["OPTIONS"]["sslmode"] = "require"

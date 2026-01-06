@@ -3,13 +3,12 @@ Admin configuration for the training application.
 Registers training jobs with the Django admin interface.
 """
 
-from django.contrib import admin
+from common.admin_filters import ProjectFilter_Generic
+from django.contrib import admin, messages
 from django.utils.translation import ngettext
-from django.contrib import messages
 from unfold.admin import ModelAdmin
 
 from .models import TrainingJob
-from common.admin_filters import ProjectFilter_Generic
 
 
 @admin.register(TrainingJob)
@@ -44,7 +43,10 @@ class TrainingJobAdmin(ModelAdmin):
             "Identification",
             {"fields": ("identifier", "project", "network", "flare_job_id")},
         ),
-        ("Status & Timing", {"fields": ("status", "created_at", "completed_at")}),
+        (
+            "Status & Timing",
+            {"fields": ("status", "created_at", "completed_at")},
+        ),
         (
             "Progress Details",
             {
@@ -66,7 +68,9 @@ class TrainingJobAdmin(ModelAdmin):
         Updates status to STOPPED for jobs that are active.
         """
         # Filter for jobs that can actually be stopped
-        stoppable_jobs = queryset.filter(status__in=["STARTING", "RUNNING", "PENDING"])
+        stoppable_jobs = queryset.filter(
+            status__in=["STARTING", "RUNNING", "PENDING"]
+        )
         updated_count = stoppable_jobs.update(status="STOPPED")
 
         if updated_count:
@@ -82,7 +86,9 @@ class TrainingJobAdmin(ModelAdmin):
             )
         else:
             self.message_user(
-                request, "No active jobs selected for stopping.", messages.WARNING
+                request,
+                "No active jobs selected for stopping.",
+                messages.WARNING,
             )
 
     stop_selected_jobs.short_description = "Stop selected training jobs"

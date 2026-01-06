@@ -5,7 +5,6 @@ including custom logic for handling project member identifiers.
 """
 
 from django import forms
-
 from users.models import Profile
 
 from .models import Project
@@ -75,4 +74,6 @@ class ProjectForm(forms.ModelForm):
 
             # Join the UUIDs into a single comma-separated string for the text
             # area field.
-            self.initial["member_identifiers"] = ", ".join(current_member_uuids)
+            self.initial["member_identifiers"] = ", ".join(
+                current_member_uuids
+            )

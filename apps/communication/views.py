@@ -4,18 +4,18 @@ Contains the logic for displaying the chat dashboard, individual chat rooms,
 and project discussion boards.
 """
 
-from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.db.models import Q, OuterRef, Subquery, Count, F
-from django.utils import timezone
 from django.core.cache import cache
-
-from .models import Message, ProjectPost, ProjectBoardAccess
-from .forms import ProjectPostForm
-from project.models import Project
-from project.decorators import project_membership_required
+from django.db.models import Count, F, OuterRef, Q, Subquery
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from logs import logger
+from project.decorators import project_membership_required
+from project.models import Project
+
+from .forms import ProjectPostForm
+from .models import Message, ProjectBoardAccess, ProjectPost
 
 
 @login_required
@@ -28,11 +28,14 @@ def chat_dashboard(request):
 
     # --- 1. Available Users for New Chat ---
     # Find all users currently in projects with the current user efficiently
-    user_projects = Project.objects.filter(Q(author=user) | Q(members=user)).distinct()
+    user_projects = Project.objects.filter(
+        Q(author=user) | Q(members=user)
+    ).distinct()
 
     available_users = (
         User.objects.filter(
-            Q(created_projects__in=user_projects) | Q(member_projects__in=user_projects)
+            Q(created_projects__in=user_projects)
+            | Q(member_projects__in=user_projects)
         )
         .exclude(id=user.id)
         .distinct()
@@ -42,7 +45,8 @@ def chat_dashboard(request):
     # Find everyone this user has interacted with
     contact_users = (
         User.objects.filter(
-            Q(received_messages__sender=user) | Q(sent_messages__recipient=user)
+            Q(received_messages__sender=user)
+            | Q(sent_messages__recipient=user)
         )
         .exclude(id=user.id)
         .distinct()
@@ -63,14 +67,18 @@ def chat_dashboard(request):
     contact_users = contact_users.annotate(
         unread_count_annotated=Count(
             "sent_messages",
-            filter=Q(sent_messages__recipient=user, sent_messages__is_read=False),
+            filter=Q(
+                sent_messages__recipient=user, sent_messages__is_read=False
+            ),
         ),
         last_msg_id=Subquery(last_msg_subquery),
     )
 
     # Bulk fetch the last messages to avoid N+1 in the loop
     last_msg_ids = [c.last_msg_id for c in contact_users if c.last_msg_id]
-    messages_dict = {m.id: m for m in Message.objects.filter(id__in=last_msg_ids)}
+    messages_dict = {
+        m.id: m for m in Message.objects.filter(id__in=last_msg_ids)
+    }
 
     contacts = []
     for contact in contact_users:
@@ -85,9 +93,11 @@ def chat_dashboard(request):
 
     # Sort the list of contacts so the most recent conversation is at the top
     contacts.sort(
-        key=lambda x: x["last_message"].created_at
-        if x["last_message"]
-        else timezone.now(),
+        key=lambda x: (
+            x["last_message"].created_at
+            if x["last_message"]
+            else timezone.now()
+        ),
         reverse=True,
     )
 
@@ -124,8 +134,12 @@ def chat_dashboard(request):
     )
 
     # Bulk fetch last posts
-    last_post_ids = [p.last_post_id for p in user_projects_annotated if p.last_post_id]
-    posts_dict = {p.id: p for p in ProjectPost.objects.filter(id__in=last_post_ids)}
+    last_post_ids = [
+        p.last_post_id for p in user_projects_annotated if p.last_post_id
+    ]
+    posts_dict = {
+        p.id: p for p in ProjectPost.objects.filter(id__in=last_post_ids)
+    }
 
     project_boards = []
     for project in user_projects_annotated:
@@ -166,9 +180,9 @@ def chat_room(request, user_id):
     )
 
     # Automatically mark all incoming messages from this user as read
-    Message.objects.filter(sender=other_user, recipient=user, is_read=False).update(
-        is_read=True
-    )
+    Message.objects.filter(
+        sender=other_user, recipient=user, is_read=False
+    ).update(is_read=True)
 
     # Invalidate unread count cache for the current user
     cache.delete(f"unread_messages_count_{user.id}")
@@ -194,7 +208,8 @@ def chat_room(request, user_id):
     # Retrieve the full message history between these two users
     messages_history = (
         Message.objects.filter(
-            Q(sender=user, recipient=other_user) | Q(sender=other_user, recipient=user)
+            Q(sender=user, recipient=other_user)
+            | Q(sender=other_user, recipient=user)
         )
         .select_related("sender", "recipient")
         .order_by("created_at")
@@ -225,7 +240,9 @@ def project_board(request, project_id):
 
     # Update the user's access log for this board to mark current posts as
     # 'read'
-    ProjectBoardAccess.objects.update_or_create(user=request.user, project=project)
+    ProjectBoardAccess.objects.update_or_create(
+        user=request.user, project=project
+    )
 
     # Handle a new post submission
     if request.method == "POST":
@@ -245,7 +262,9 @@ def project_board(request, project_id):
             ProjectBoardAccess.objects.update_or_create(
                 user=request.user, project=project
             )
-            return redirect("communication:project_board", project_id=project.id)
+            return redirect(
+                "communication:project_board", project_id=project.id
+            )
     else:
         # Provide a blank form for GET requests
         form = ProjectPostForm()
@@ -253,5 +272,10 @@ def project_board(request, project_id):
     # Fetch all posts belonging to this project
     posts = project.posts.select_related("author").all()
 
-    context = {"segment": "project", "project": project, "posts": posts, "form": form}
+    context = {
+        "segment": "project",
+        "project": project,
+        "posts": posts,
+        "form": form,
+    }
     return render(request, "apps/communication/project_board.html", context)

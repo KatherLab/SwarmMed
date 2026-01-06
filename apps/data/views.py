@@ -7,42 +7,44 @@ and the triggering/monitoring of validation and visualization runs.
 import json
 import os
 import re
+
+from celery import current_app
+from common.utils import format_size, get_s3_client, get_safe_referer
 from django.conf import settings
-from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import default_storage
 from django.http import (
     HttpResponse,
     JsonResponse,
     StreamingHttpResponse,
-    FileResponse,
 )
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import default_storage
-from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-
-from common.utils import get_safe_referer, format_size, get_s3_client
 from django.utils import timezone
-from celery import current_app
+from django.views.decorators.http import require_POST
+from logs import logger
+from project.decorators import (
+    project_context_required,
+    project_membership_required,
+)
+from project.models import Project, UserCurrentProject
 
-from project.models import UserCurrentProject, Project
 from .models import (
-    ValidationRun,
     ValidationCheck,
-    VisualizationRun,
+    ValidationRun,
     VisualizationPlot,
+    VisualizationRun,
 )
 from .tasks import run_validation_task, run_visualization_task
 from .utils import (
-    list_s3_folder,
-    delete_s3_object,
-    rename_s3_object,
     delete_s3_folder,
-    rename_s3_folder,
-    get_storage_stats,
+    delete_s3_object,
     get_column_prefixes,
+    get_storage_stats,
+    list_s3_folder,
+    rename_s3_folder,
+    rename_s3_object,
 )
-from logs import logger
-from project.decorators import project_context_required, project_membership_required
 
 
 def get_user_project(request):
@@ -51,9 +53,9 @@ def get_user_project(request):
     Returns: (project_uuid_string, is_valid_boolean)
     """
     try:
-        user_current_project = UserCurrentProject.objects.select_related("project").get(
-            user=request.user
-        )
+        user_current_project = UserCurrentProject.objects.select_related(
+            "project"
+        ).get(user=request.user)
         if not user_current_project.project:
             return None, False
 
@@ -158,7 +160,9 @@ def upload_files(request):
             # Basic security check: Validate file extension
             _, ext = os.path.splitext(file.name)
             if ext.lower() not in ALLOWED_EXTENSIONS:
-                log.data.warning(f"Blocked upload of disallowed file type: {file.name}")
+                log.data.warning(
+                    f"Blocked upload of disallowed file type: {file.name}"
+                )
                 continue
 
             # We use an index-based key to match the directory map
@@ -169,7 +173,9 @@ def upload_files(request):
             clean_rel_path = os.path.normpath(rel_path).lstrip(
                 os.path.sep + (os.path.altsep or "")
             )
-            if clean_rel_path.startswith("..") or os.path.isabs(clean_rel_path):
+            if clean_rel_path.startswith("..") or os.path.isabs(
+                clean_rel_path
+            ):
                 log.data.warning(
                     f"Blocked upload with path traversal attempt: {rel_path}"
                 )
@@ -202,7 +208,8 @@ def list_files(request):
 
     log = logger.get_logger()
     log.access.info(
-        f"User listed files in prefix: {user_prefix or '(root)'}", prefix=user_prefix
+        f"User listed files in prefix: {user_prefix or '(root)'}",
+        prefix=user_prefix,
     )
 
     # Calculate full S3 path
@@ -223,9 +230,9 @@ def list_files(request):
                 continue
 
             # Extract just the folder name for display
-            folder_name = folder[len(full_col_prefix) : -1]
+            folder_name = folder[len(full_col_prefix):-1]
             # Path relative to project root for navigation links
-            relative_folder_path = folder[len(root_path) :]
+            relative_folder_path = folder[len(root_path):]
 
             processed_folders.append(
                 {
@@ -428,7 +435,9 @@ def start_validation(request):
         project = Project.objects.get(identifier=current_project_uuid)
 
         if not project.data_validation_script:
-            return JsonResponse({"error": "No validation script found"}, status=400)
+            return JsonResponse(
+                {"error": "No validation script found"}, status=400
+            )
 
         # Stop any existing runs that are still pending or running
         active_runs = ValidationRun.objects.filter(
@@ -492,7 +501,9 @@ def stop_validation(request):
         log.data.warning(f"Validation run {run.id} cancelled by user.")
         return JsonResponse({"success": True})
 
-    log.data.debug("Stop validation requested but no running validation found.")
+    log.data.debug(
+        "Stop validation requested but no running validation found."
+    )
     return JsonResponse({"error": "No running validation found"}, status=404)
 
 
@@ -554,7 +565,9 @@ def start_visualization(request):
         project = Project.objects.get(identifier=current_project_uuid)
 
         if not project.data_visualization_script:
-            return JsonResponse({"error": "No visualization script found"}, status=400)
+            return JsonResponse(
+                {"error": "No visualization script found"}, status=400
+            )
 
         # Stop existing visualization runs
         active_runs = VisualizationRun.objects.filter(
@@ -567,7 +580,9 @@ def start_visualization(request):
             run.completed_at = timezone.now()
             run.save()
 
-        viz_run = VisualizationRun.objects.create(project=project, user=request.user)
+        viz_run = VisualizationRun.objects.create(
+            project=project, user=request.user
+        )
 
         task = run_visualization_task.delay(str(viz_run.id))
         viz_run.celery_task_id = task.id
@@ -614,8 +629,12 @@ def stop_visualization(request):
         log.data.warning(f"Visualization run {run.id} cancelled by user.")
         return JsonResponse({"success": True})
 
-    log.data.debug("Stop visualization requested but no running visualization found.")
-    return JsonResponse({"error": "No running visualization found"}, status=404)
+    log.data.debug(
+        "Stop visualization requested but no running visualization found."
+    )
+    return JsonResponse(
+        {"error": "No running visualization found"}, status=404
+    )
 
 
 @login_required
@@ -647,14 +666,18 @@ def visualization_status(request):
             {
                 "title": p.title,
                 "plot_number": p.plot_number,
-                "image_url": reverse(
-                    "data:get_visualization_plot", args=[p.id, "image"]
-                )
-                if p.image_data
-                else None,
-                "svg_url": reverse("data:get_visualization_plot", args=[p.id, "svg"])
-                if p.svg_data
-                else None,
+                "image_url": (
+                    reverse(
+                        "data:get_visualization_plot", args=[p.id, "image"]
+                    )
+                    if p.image_data
+                    else None
+                ),
+                "svg_url": (
+                    reverse("data:get_visualization_plot", args=[p.id, "svg"])
+                    if p.svg_data
+                    else None
+                ),
             }
         )
 
@@ -725,17 +748,25 @@ def _proxy_s3_download(request, key, filename):
 
                     obj = s3.get_object(**get_kwargs)
 
-                    for chunk in obj["Body"].iter_chunks(chunk_size=1024 * 1024):  # 1MB
+                    for chunk in obj["Body"].iter_chunks(
+                        chunk_size=1024 * 1024
+                    ):  # 1MB
                         if not chunk:
                             continue
                         had_progress = True
                         bytes_sent += len(chunk)
                         yield chunk
 
-                        if target_end_exclusive is not None and bytes_sent >= target_end_exclusive:
+                        if (
+                            target_end_exclusive is not None
+                            and bytes_sent >= target_end_exclusive
+                        ):
                             break
 
-                    if target_end_exclusive is None or bytes_sent >= target_end_exclusive:
+                    if (
+                        target_end_exclusive is None
+                        or bytes_sent >= target_end_exclusive
+                    ):
                         break
 
                     attempts += 1
@@ -780,7 +811,9 @@ def _proxy_s3_download(request, key, filename):
         response["X-Accel-Buffering"] = "no"
         return response
     except Exception as e:
-        logger.get_logger().data.error(f"Failed to proxy S3 download for {key}: {e}")
+        logger.get_logger().data.error(
+            f"Failed to proxy S3 download for {key}: {e}"
+        )
         return HttpResponse("File download failed", status=500)
 
 
@@ -802,7 +835,9 @@ def _proxy_s3_download_file(key, filename, inline=False):
         if inline:
             response["Content-Disposition"] = f'inline; filename="{filename}"'
         else:
-            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            response["Content-Disposition"] = (
+                f'attachment; filename="{filename}"'
+            )
         response["Content-Length"] = str(size)
         response["Cache-Control"] = "no-transform"
         return response

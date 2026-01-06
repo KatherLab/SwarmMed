@@ -1,5 +1,7 @@
 from functools import wraps
+
 from django.shortcuts import get_object_or_404, redirect, render
+
 from .models import Project, UserCurrentProject
 
 
@@ -12,12 +14,16 @@ def project_membership_required(view_func):
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
         project_id = (
-            kwargs.get("pk") or kwargs.get("identifier") or kwargs.get("project_id")
+            kwargs.get("pk")
+            or kwargs.get("identifier")
+            or kwargs.get("project_id")
         )
 
         if not project_id:
             # Fallback to checking the active project in session/DB
-            return project_context_required(view_func)(request, *args, **kwargs)
+            return project_context_required(view_func)(
+                request, *args, **kwargs
+            )
 
         # Handle both UUID and integer IDs
         if isinstance(project_id, str) and len(project_id) > 10:  # Likely UUID
@@ -52,7 +58,9 @@ def project_context_required(view_func):
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
         try:
-            current_project_relation = UserCurrentProject.objects.get(user=request.user)
+            current_project_relation = UserCurrentProject.objects.get(
+                user=request.user
+            )
             project = current_project_relation.project
 
             if not project:
@@ -86,7 +94,9 @@ def project_context_required(view_func):
                 segment = "logs"
 
             return render(
-                request, "apps/project/no_project_selected.html", {"segment": segment}
+                request,
+                "apps/project/no_project_selected.html",
+                {"segment": segment},
             )
 
         return view_func(request, *args, **kwargs)

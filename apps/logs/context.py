@@ -5,8 +5,8 @@ making it easier to associate log entries with specific users or projects
 without passing objects through every function call.
 """
 
-import threading
 import logging
+import threading
 
 # Thread-local storage to keep track of context within a single request/thread
 _thread_locals = threading.local()
@@ -38,7 +38,11 @@ def get_context():
         try:
             request = getattr(_thread_locals, "request", None)
 
-            if request and hasattr(request, "user") and request.user.is_authenticated:
+            if (
+                request
+                and hasattr(request, "user")
+                and request.user.is_authenticated
+            ):
                 if not user:
                     user = request.user
 
@@ -56,7 +60,9 @@ def get_context():
         except Exception as e:
             # We fail gracefully here to ensure logging never crashes the
             # application, but we record the failure in the internal log.
-            _internal_logger.debug(f"Failed to auto-detect logging context: {e}")
+            _internal_logger.debug(
+                f"Failed to auto-detect logging context: {e}"
+            )
 
     return user, project
 

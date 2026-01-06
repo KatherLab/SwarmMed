@@ -4,6 +4,9 @@ Handles authentication (sign in, sign up, sign out), password management,
 profile updates, and administrative user management.
 """
 
+import json
+
+from common.utils import get_safe_referer
 from django.contrib import messages
 from django.contrib.auth import logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -16,26 +19,26 @@ from django.contrib.auth.views import (
     PasswordResetView,
 )
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
+from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.decorators.http import require_POST
-from django.views.generic import CreateView, RedirectView
+from logs import logger
 
 from users.forms import (
-    ProfileForm,
     AdminAddUserForm,
+    ProfileForm,
     UserPasswordChangeForm,
     UserPasswordResetForm,
     UserSetPasswordForm,
     UserUpdateForm,
 )
 from users.models import Profile
-from users.utils import user_filter, anonymize_user_data
-from common.utils import get_safe_referer
-from logs import logger
+from users.utils import anonymize_user_data, user_filter
 
 from .decorators import admin_required
 
@@ -78,9 +81,9 @@ def settings(request):
         user=request.user,
         defaults={"role": "admin" if request.user.is_superuser else "user"},
     )
-    
+
     password_errors = {}
-    
+
     # Initialize form with instance (default for GET)
     form = ProfileForm(instance=user_profile)
 
@@ -92,19 +95,21 @@ def settings(request):
                 form.save()
                 messages.success(request, "Settings updated successfully")
                 return redirect("users:settings")
-        
+
         elif "update_password" in request.POST:
             current_pwd = request.POST.get("current_password")
             new_pwd = request.POST.get("new_password")
             user = request.user
-            
+
             password_valid = True
-            
+
             # Verify current password
             if not check_password(current_pwd, user.password):
-                password_errors["current_password"] = ["Current password doesn't match!"]
+                password_errors["current_password"] = [
+                    "Current password doesn't match!"
+                ]
                 password_valid = False
-            
+
             if password_valid:
                 try:
                     validate_password(new_pwd, user)
@@ -116,13 +121,15 @@ def settings(request):
                     return redirect("users:settings")
                 except ValidationError as e:
                     password_errors["new_password"] = e.messages
-            
+
             if password_errors:
                 messages.error(request, "Please correct the errors below.")
 
     # Get the email of the first superuser as the DPO/Admin contact.
     admin_user = User.objects.filter(is_superuser=True).order_by("id").first()
-    admin_email = admin_user.email if admin_user else "admin@swarmcloud.example.com"
+    admin_email = (
+        admin_user.email if admin_user else "admin@swarmcloud.example.com"
+    )
 
     context = {
         "form": form,
@@ -192,12 +199,15 @@ def user_list(request):
             # Manually set the role from the form's cleaned data.
             new_user.profile.role = form.cleaned_data["role"]
             new_user.profile.save()
-            messages.success(request, f"User {new_user.username} created successfully.")
+            messages.success(
+                request, f"User {new_user.username} created successfully."
+            )
             return redirect(reverse("users:user_list"))
         else:
             form_errors = True
             messages.error(
-                request, "Error creating user. Please check the form for details."
+                request,
+                "Error creating user. Please check the form for details.",
             )
 
     context = {
@@ -275,12 +285,18 @@ def user_change_password(request, id):
             except ValidationError as e:
                 for error in e.messages:
                     messages.error(request, error, extra_tags="password_error")
-                return redirect(reverse("users:user_list") + f"?password_error={id}")
+                return redirect(
+                    reverse("users:user_list") + f"?password_error={id}"
+                )
         else:
             messages.error(
-                request, "Password cannot be empty.", extra_tags="password_error"
+                request,
+                "Password cannot be empty.",
+                extra_tags="password_error",
             )
-            return redirect(reverse("users:user_list") + f"?password_error={id}")
+            return redirect(
+                reverse("users:user_list") + f"?password_error={id}"
+            )
 
     # Return redirect with referer check
     return redirect(get_safe_referer(request))
@@ -297,7 +313,9 @@ def toggle_emergency_access(request, id):
     profile = user_to_elevate.profile
     log = logger.get_logger()
 
-    justification = request.POST.get("justification", "No justification provided.")
+    justification = request.POST.get(
+        "justification", "No justification provided."
+    )
     try:
         duration_hours = int(request.POST.get("duration", 4))
     except (ValueError, TypeError):
@@ -333,7 +351,8 @@ def toggle_emergency_access(request, id):
             target_user=user_to_elevate.username,
         )
         messages.success(
-            request, f"Emergency access revoked for {user_to_elevate.username}."
+            request,
+            f"Emergency access revoked for {user_to_elevate.username}.",
         )
 
     return redirect(get_safe_referer(request))
@@ -362,18 +381,16 @@ def accept_terms(request):
             profile.accepted_policy = True
             profile.accepted_policy_date = timezone.now()
             profile.save()
-            messages.success(request, "Thank you for accepting our legal terms.")
+            messages.success(
+                request, "Thank you for accepting our legal terms."
+            )
             return redirect("home:dashboard")
         else:
-            messages.error(request, "You must accept both documents to continue.")
+            messages.error(
+                request, "You must accept both documents to continue."
+            )
 
     return render(request, "apps/users/accept_terms.html")
-
-
-import json
-from django.core.serializers.json import DjangoJSONEncoder
-from django.utils import timezone
-from django.core.files.storage import default_storage
 
 
 def cleanup_user_resources(user):
@@ -391,9 +408,12 @@ def cleanup_user_resources(user):
             # Local storage cleanup
             import os
             import shutil
+
             from django.conf import settings
 
-            project_path = os.path.join(settings.MEDIA_ROOT, str(project.identifier))
+            project_path = os.path.join(
+                settings.MEDIA_ROOT, str(project.identifier)
+            )
             if os.path.exists(project_path):
                 shutil.rmtree(project_path)
 
@@ -413,7 +433,9 @@ def delete_own_account(request):
 
         logout(request)
         user.delete()
-        messages.success(request, "Your account has been successfully deleted.")
+        messages.success(
+            request, "Your account has been successfully deleted."
+        )
         return redirect(reverse("users:signin"))
     return redirect(reverse("users:settings"))
 
@@ -496,7 +518,9 @@ def export_user_data(request):
             "level": entry.level,
             "source": entry.source,
             "message": entry.message,
-            "context_data": entry.context_data.copy() if entry.context_data else {},
+            "context_data": (
+                entry.context_data.copy() if entry.context_data else {}
+            ),
         }
 
         # Redact third-party info from context_data
@@ -508,9 +532,9 @@ def export_user_data(request):
 
             # Redact other potential identifiers in context
             for key in ["email", "full_name"]:
-                if key in log_data["context_data"] and log_data["context_data"][
-                    key
-                ] != getattr(user, key, None):
+                if key in log_data["context_data"] and log_data[
+                    "context_data"
+                ][key] != getattr(user, key, None):
                     log_data["context_data"][key] = "REDACTED"
 
         # Basic message redaction: if it contains another user's name, it's hard to
@@ -553,21 +577,31 @@ def export_user_data(request):
             "description": project.description,
             "status": project.status,
             "files": {
-                "training_code": project.training_code.name
-                if project.training_code
-                else None,
-                "requirements_file": project.requirements_file.name
-                if project.requirements_file
-                else None,
-                "data_validation_script": project.data_validation_script.name
-                if project.data_validation_script
-                else None,
-                "data_visualization_script": project.data_visualization_script.name
-                if project.data_visualization_script
-                else None,
-                "results_visualization_script": project.results_visualization_script.name
-                if project.results_visualization_script
-                else None,
+                "training_code": (
+                    project.training_code.name
+                    if project.training_code
+                    else None
+                ),
+                "requirements_file": (
+                    project.requirements_file.name
+                    if project.requirements_file
+                    else None
+                ),
+                "data_validation_script": (
+                    project.data_validation_script.name
+                    if project.data_validation_script
+                    else None
+                ),
+                "data_visualization_script": (
+                    project.data_visualization_script.name
+                    if project.data_visualization_script
+                    else None
+                ),
+                "results_visualization_script": (
+                    project.results_visualization_script.name
+                    if project.results_visualization_script
+                    else None
+                ),
             },
         }
         data["authored_projects"].append(project_data)

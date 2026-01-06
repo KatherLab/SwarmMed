@@ -93,7 +93,7 @@ All Python code must adhere to [PEP 8](https://peps.python.org/pep-0008/) standa
   ```
 - **flake8** (Final compliance verification):
   ```bash
-  python -m flake8 . --exclude=venv,node_modules,migrations,postgres_data,staticfiles,staticfiles_build,nvflare_swarm_learning,workspaces,example --max-line-length=120 --statistics --count
+  python -m flake8 . --exclude=.venv,node_modules,migrations,postgres_data,staticfiles,staticfiles_build,nvflare_swarm_learning,workspaces,example --max-line-length=120 --statistics --count
   ```
 
 *Note: While standard PEP 8 suggests 79-88 characters, this project allows up to **120 characters** for better readability.*

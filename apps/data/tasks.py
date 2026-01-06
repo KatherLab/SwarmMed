@@ -5,27 +5,23 @@ to keep the web interface responsive during long-running computations.
 """
 
 import base64
-
 import traceback
 
 from celery import shared_task
-
-from django.utils import timezone
-
 from django.core.files.base import ContentFile
-
-
-from .models import ValidationRun, ValidationCheck, VisualizationRun, VisualizationPlot
+from django.utils import timezone
+from logs import logger
+from logs.context import set_context
+from logs.utils import format_exception
 
 from .filesystem import DataFileSystem
-
+from .models import (
+    ValidationCheck,
+    ValidationRun,
+    VisualizationPlot,
+    VisualizationRun,
+)
 from .sandbox import run_script_in_sandbox
-
-from logs import logger
-
-from logs.context import set_context
-
-from logs.utils import format_exception
 
 
 @shared_task(bind=True)
@@ -212,7 +208,8 @@ validation = ValidationHelper('/home/sandboxuser/data', 'results.json')
             log = logger.get_logger()
 
             log.data.error(
-                f"Error in run_validation_task: {str(e)}", extra=format_exception(e)
+                f"Error in run_validation_task: {str(e)}",
+                extra=format_exception(e),
             )
 
             validation_run = ValidationRun.objects.get(id=validation_run_id)
@@ -246,7 +243,9 @@ def run_visualization_task(self, visualization_run_id):
     """
 
     try:
-        visualization_run = VisualizationRun.objects.get(id=visualization_run_id)
+        visualization_run = VisualizationRun.objects.get(
+            id=visualization_run_id
+        )
 
         project = visualization_run.project
 
@@ -442,7 +441,8 @@ visualization = VisualizationHelper('/home/sandboxuser/data', 'plots')
                     img_name = f"plot_{plot_data['plot_number']}.png"
 
                     img_content = ContentFile(
-                        base64.b64decode(plot_data["image_data"]), name=img_name
+                        base64.b64decode(plot_data["image_data"]),
+                        name=img_name,
                     )
 
                     plot_obj.image_data.save(img_name, img_content, save=False)
@@ -479,10 +479,13 @@ visualization = VisualizationHelper('/home/sandboxuser/data', 'plots')
             log = logger.get_logger()
 
             log.data.error(
-                f"Error in run_visualization_task: {str(e)}", extra=format_exception(e)
+                f"Error in run_visualization_task: {str(e)}",
+                extra=format_exception(e),
             )
 
-            visualization_run = VisualizationRun.objects.get(id=visualization_run_id)
+            visualization_run = VisualizationRun.objects.get(
+                id=visualization_run_id
+            )
 
             visualization_run.status = "failed"
 

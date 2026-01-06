@@ -1,37 +1,18 @@
-import torch
-import torch.nn as nn
-import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import (
-    confusion_matrix,
-    roc_curve,
-    auc,
-    precision_recall_curve,
-    average_precision_score,
-)
-import seaborn as sns
 import os
 
-# --- Linter Fallback ---
-# 'visualization' is injected by the SwarmCloud sandbox.
-# We define a dummy here to avoid F821 linting errors.
-if "visualization" not in globals():
-
-    class DummyVisualization:
-        def listdir(self, *args, **kwargs):
-            return []
-
-        def open(self, *args, **kwargs):
-            pass
-
-        def load_weights(self, *args, **kwargs):
-            pass
-
-        def save_plot(self, *args, **kwargs):
-            pass
-
-    visualization = DummyVisualization()
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import torch
+import torch.nn as nn
+from sklearn.metrics import (
+    auc,
+    average_precision_score,
+    confusion_matrix,
+    precision_recall_curve,
+    roc_curve,
+)
+from sklearn.preprocessing import StandardScaler
 
 
 # --- 1. Define Model Architecture (Must match training.py) ---
@@ -39,7 +20,7 @@ if "visualization" not in globals():
 
 class BioMedNet(nn.Module):
     def __init__(self, input_dim):
-        super(BioMedNet, self).__init__()
+        super().__init__()
         self.layer_1 = nn.Linear(input_dim, 64)
         self.batch_norm1 = nn.BatchNorm1d(64)
         self.layer_2 = nn.Linear(64, 32)
@@ -77,7 +58,9 @@ def main():
             files = visualization.listdir(folder)
             csv_files = [f for f in files if f.endswith(".csv")]
             for csv_file in csv_files:
-                with visualization.open(os.path.join(folder, csv_file), "r") as f:
+                with visualization.open(
+                    os.path.join(folder, csv_file), "r"
+                ) as f:
                     df_list.append(pd.read_csv(f))
             if df_list:
                 break
@@ -128,7 +111,9 @@ def main():
     # ROC Curve
     plt.figure(figsize=(8, 6))
     fpr, tpr, _ = roc_curve(y_true, y_probs)
-    plt.plot(fpr, tpr, color="darkorange", lw=2, label=f"AUC = {auc(fpr, tpr):.2f}")
+    plt.plot(
+        fpr, tpr, color="darkorange", lw=2, label=f"AUC = {auc(fpr, tpr):.2f}"
+    )
     plt.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
     plt.title("ROC Curve")
     plt.legend(loc="lower right")
@@ -152,8 +137,16 @@ def main():
 
     # Confidence Scores
     plt.figure(figsize=(8, 6))
-    plt.hist(y_probs[y_true == 0], bins=15, alpha=0.5, label="Healthy", color="blue")
-    plt.hist(y_probs[y_true == 1], bins=15, alpha=0.5, label="Diagnosed", color="red")
+    plt.hist(
+        y_probs[y_true == 0], bins=15, alpha=0.5, label="Healthy", color="blue"
+    )
+    plt.hist(
+        y_probs[y_true == 1],
+        bins=15,
+        alpha=0.5,
+        label="Diagnosed",
+        color="red",
+    )
     plt.title("Confidence Distribution")
     plt.legend()
     plt.tight_layout()

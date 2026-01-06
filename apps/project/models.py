@@ -5,13 +5,12 @@ Defines the structure for projects, file storage paths, and current project trac
 
 import os
 
+from common.models import AbstractBaseModel
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import models
-from django.db.models.signals import post_save, post_delete, m2m_changed
+from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
-
-from common.models import AbstractBaseModel
 
 # Import local utility functions for generating dynamic file paths
 from .utils import (
@@ -48,14 +47,19 @@ class Project(AbstractBaseModel):
 
     # members: Other users who can view or participate in this project.
     # This is a Many-to-Many relationship, allowing multiple users per project.
-    members = models.ManyToManyField(User, related_name="member_projects", blank=True)
+    members = models.ManyToManyField(
+        User, related_name="member_projects", blank=True
+    )
 
     # Optional detailed description of the project's purpose.
     description = models.TextField(blank=True)
 
     # Current status of the project, defaulting to 'In Progress'.
     status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="IN_PROGRESS", db_index=True
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="IN_PROGRESS",
+        db_index=True,
     )
 
     # File fields for different types of scripts required by the platform.
@@ -79,12 +83,18 @@ class Project(AbstractBaseModel):
 
     # Script for visualizing the training dataset.
     data_visualization_script = models.FileField(
-        upload_to=data_visualization_path, max_length=512, blank=True, null=True
+        upload_to=data_visualization_path,
+        max_length=512,
+        blank=True,
+        null=True,
     )
 
     # Script for visualizing the final training results (e.g., loss curves).
     results_visualization_script = models.FileField(
-        upload_to=results_visualization_path, max_length=512, blank=True, null=True
+        upload_to=results_visualization_path,
+        max_length=512,
+        blank=True,
+        null=True,
     )
 
     # UI helper to mark a project as globally active (deprecated in favor of
@@ -117,17 +127,25 @@ class Project(AbstractBaseModel):
                     """
                     # Check if an old file exists and is being replaced by a
                     # different file.
-                    if old_file and new_file and str(old_file) != str(new_file):
+                    if (
+                        old_file
+                        and new_file
+                        and str(old_file) != str(new_file)
+                    ):
                         # Construct the relative directory path for this
                         # specific script type.
-                        folder_path = os.path.join(str(self.identifier), subfolder)
+                        folder_path = os.path.join(
+                            str(self.identifier), subfolder
+                        )
 
                         # Trigger background task for deletion
                         cleanup_project_files.delay(folder_path)
 
                 # Check each file field and trigger cleanup if it has changed.
                 trigger_cleanup(
-                    old_instance.training_code, self.training_code, "code/training/"
+                    old_instance.training_code,
+                    self.training_code,
+                    "code/training/",
                 )
                 trigger_cleanup(
                     old_instance.requirements_file,
@@ -187,7 +205,10 @@ class UserCurrentProject(models.Model):
     # The project they are currently working on. Can be null if no project is
     # active.
     project = models.ForeignKey(
-        Project, on_delete=models.SET_NULL, null=True, related_name="current_for_users"
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="current_for_users",
     )
 
     class Meta:
@@ -215,7 +236,9 @@ def invalidate_project_cache(sender, instance, **kwargs):
 
 
 @receiver(m2m_changed, sender=Project.members.through)
-def invalidate_project_cache_on_member_change(sender, instance, action, **kwargs):
+def invalidate_project_cache_on_member_change(
+    sender, instance, action, **kwargs
+):
     """Invalidate cache when project members are added or removed."""
     if action in ["post_add", "post_remove", "post_clear"]:
         # Clear cache for project author

@@ -40,7 +40,9 @@ def anonymize_user_data(user):
     username = user.username
     email = user.email
     full_name = (
-        getattr(user.profile, "full_name", "") if hasattr(user, "profile") else ""
+        getattr(user.profile, "full_name", "")
+        if hasattr(user, "profile")
+        else ""
     )
 
     # Replacement string
@@ -68,9 +70,13 @@ def anonymize_user_data(user):
             for key, value in new_context.items():
                 if isinstance(value, str):
                     if username and username in value:
-                        new_context[key] = value.replace(username, anonymized_id)
+                        new_context[key] = value.replace(
+                            username, anonymized_id
+                        )
                     if email and email in value:
-                        new_context[key] = value.replace(email, "[EMAIL_REDACTED]")
+                        new_context[key] = value.replace(
+                            email, "[EMAIL_REDACTED]"
+                        )
             entry.context_data = new_context
 
         # Save the modified entry.

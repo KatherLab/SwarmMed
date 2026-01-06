@@ -1,23 +1,6 @@
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
-
-# --- Linter Fallback ---
-# 'visualization' is injected by the SwarmCloud sandbox.
-# We define a dummy here to avoid F821 linting errors.
-if "visualization" not in globals():
-
-    class DummyVisualization:
-        def exists(self, *args, **kwargs):
-            return False
-
-        def open(self, *args, **kwargs):
-            pass
-
-        def save_plot(self, *args, **kwargs):
-            pass
-
-    visualization = DummyVisualization()
 
 # Define the directory where data generation script saved files
 data_folder = "biomed_data"
@@ -50,7 +33,9 @@ try:
 
         # --- Plot 1: Age Distribution (Histogram with KDE) ---
         plt.figure(figsize=(10, 6))
-        sns.histplot(data=df, x="age", kde=True, color="teal", bins=20, alpha=0.6)
+        sns.histplot(
+            data=df, x="age", kde=True, color="teal", bins=20, alpha=0.6
+        )
 
         plt.title("Patient Age Distribution", fontsize=16, pad=20)
         plt.xlabel("Age (Years)")
@@ -64,7 +49,11 @@ try:
         plt.figure(figsize=(8, 6))
         ax = sns.countplot(data=df, x="diagnosis", palette="viridis")
 
-        plt.title("Target Class Balance (0=Healthy, 1=Diagnosed)", fontsize=16, pad=20)
+        plt.title(
+            "Target Class Balance (0=Healthy, 1=Diagnosed)",
+            fontsize=16,
+            pad=20,
+        )
         plt.xlabel("Diagnosis Group")
         plt.ylabel("Patient Count")
         plt.bar_label(ax.containers[0])  # Add numbers on top of bars

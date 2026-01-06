@@ -12,7 +12,6 @@ import uuid
 
 from django.conf import settings
 from django.core.files.storage import default_storage
-
 from users.models import Profile
 
 
@@ -90,11 +89,15 @@ def process_member_identifiers(project, member_identifiers):
                 if profile.user != project.author:
                     project.members.add(profile.user)
             except Profile.DoesNotExist:
-                log.project.warning(f"Profile not found for UUID: {identifier_uuid}")
+                log.project.warning(
+                    f"Profile not found for UUID: {identifier_uuid}"
+                )
 
         except ValueError:
             # Log a warning if the string isn't a valid UUID.
-            log.project.warning(f"Invalid UUID format provided: {identifier_str}")
+            log.project.warning(
+                f"Invalid UUID format provided: {identifier_str}"
+            )
 
 
 def handle_training_code_upload(project, request):
@@ -110,7 +113,9 @@ def handle_training_code_upload(project, request):
         bool: True if files were processed and saved, False otherwise.
     """
     # 'training_code_directories' is a JSON string mapping file keys to relative paths.
-    training_code_directories_json = request.POST.get("training_code_directories", "{}")
+    training_code_directories_json = request.POST.get(
+        "training_code_directories", "{}"
+    )
     try:
         directories = json.loads(training_code_directories_json)
     except json.JSONDecodeError:
@@ -154,7 +159,9 @@ def handle_training_code_upload(project, request):
 
             # Combine the root path with the relative path, ensuring forward
             # slashes.
-            save_path = os.path.join(root_path, clean_rel_path).replace("\\", "/")
+            save_path = os.path.join(root_path, clean_rel_path).replace(
+                "\\", "/"
+            )
 
             # Save the file to the configured storage (Local or S3).
             default_storage.save(save_path, file_obj)

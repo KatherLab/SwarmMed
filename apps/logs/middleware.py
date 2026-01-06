@@ -6,6 +6,7 @@ to ensure a complete audit trail for HIPAA/GDPR compliance.
 
 import json
 import logging
+
 from .logger import get_logger
 from .utils import redact_phi
 
@@ -100,8 +101,16 @@ class AuditLogMiddleware:
         if response.status_code >= 500:
             level = "ERROR"
 
-        message = f"Audit: {request.method} {path} - Status: {response.status_code}"
+        message = (
+            f"Audit: {request.method} {path} - Status: {response.status_code}"
+        )
 
         from .logger import log
 
-        log(level=level, message=message, category=category, user=user, **context)
+        log(
+            level=level,
+            message=message,
+            category=category,
+            user=user,
+            **context,
+        )

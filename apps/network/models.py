@@ -4,13 +4,11 @@ Defines the structure for Swarm Learning Networks, participants,
 and tracking active networks for users.
 """
 
-
+from common.models import AbstractBaseModel
 from django.contrib.auth.models import User
 from django.db import models
-
-from common.models import AbstractBaseModel
-from project.models import Project
 from logs.logger import get_logger
+from project.models import Project
 
 logger = get_logger()
 
@@ -54,7 +52,10 @@ class SwarmNetwork(AbstractBaseModel):
 
     # Current lifecycle status
     status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="INITIALIZING", db_index=True
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="INITIALIZING",
+        db_index=True,
     )
 
     def __str__(self):
@@ -69,7 +70,10 @@ class SwarmNetwork(AbstractBaseModel):
         If the network is running, it transitions to STOPPING and
         triggers an async task to stop and then delete the record.
         """
-        from .tasks import cleanup_network_resources, stop_and_delete_network_task
+        from .tasks import (
+            cleanup_network_resources,
+            stop_and_delete_network_task,
+        )
 
         # If the network is in a state where it might be running,
         # we don't delete the DB record immediately.
@@ -137,9 +141,7 @@ class SwarmParticipant(models.Model):
 
     def __str__(self):
         """Returns a string representation of the participant."""
-        return (
-            f"{self.user.username} as {self.get_role_display()} in {self.network.name}"
-        )
+        return f"{self.user.username} as {self.get_role_display()} in {self.network.name}"
 
 
 class UserCurrentNetwork(AbstractBaseModel):

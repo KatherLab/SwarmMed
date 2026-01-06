@@ -4,13 +4,14 @@ These functions are automatically triggered by specific database events,
 such as sending an email notification when a new message is saved.
 """
 
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-from django.core.mail import send_mail
 from django.conf import settings
 from django.core.cache import cache
-from .models import Message, ProjectPost, ProjectBoardAccess
+from django.core.mail import send_mail
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from logs.logger import get_logger
+
+from .models import Message, ProjectBoardAccess, ProjectPost
 
 logger = get_logger()
 
@@ -50,7 +51,9 @@ def send_message_notification(sender, instance, created, **kwargs):
         except Exception as e:
             # If email sending fails (e.g., bad config), we log it
             # to prevent the application from crashing.
-            logger.project.error(f"Failed to send message notification email: {e}")
+            logger.project.error(
+                f"Failed to send message notification email: {e}"
+            )
 
 
 @receiver(post_save, sender=ProjectPost)

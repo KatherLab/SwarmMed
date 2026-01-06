@@ -2,11 +2,11 @@
 Common views for the application, including legal and static pages.
 """
 
-from django.shortcuts import render
 from django.contrib.auth.models import User
+from django.shortcuts import render
+from logs.models import LogEntry
 from project.models import Project
 from training.models import TrainingJob
-from logs.models import LogEntry
 
 
 def privacy_policy(request):

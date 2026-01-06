@@ -5,15 +5,14 @@ and synchronization of result files (weights/logs) to S3 storage.
 """
 
 import ast
-import os
-import shutil
 import json
+import os
 import re
+import shutil
 
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
-
 from logs import logger
 from logs.utils import format_exception
 
@@ -51,7 +50,7 @@ def _get_total_rounds(project_id: str, network_id: str) -> int:
     )
     try:
         if os.path.exists(cfg_path):
-            with open(cfg_path, "r") as f:
+            with open(cfg_path) as f:
                 cfg = json.load(f)
             for workflow in cfg.get("workflows", []):
                 if workflow.get("id") == "swarm_controller":
@@ -105,7 +104,9 @@ def monitor_training_jobs():
                             and item.get("type") == "string"
                             and "Submitted job:" in item.get("data", "")
                         ):
-                            flare_job_uuid = item.get("data", "").split(":")[-1].strip()
+                            flare_job_uuid = (
+                                item.get("data", "").split(":")[-1].strip()
+                            )
                             break
                 if not flare_job_uuid:
                     flare_job_uuid = flare_job_id_raw
@@ -152,14 +153,18 @@ def monitor_training_jobs():
                     # specific job.
                     if flare_job_uuid in root:
                         for fname in files:
-                            if fname.startswith("log") and fname.endswith(".txt"):
+                            if fname.startswith("log") and fname.endswith(
+                                ".txt"
+                            ):
                                 fpath = os.path.join(root, fname)
                                 try:
                                     content = _tail_text(fpath)
                                     # Specific log markers indicating NVFlare finished.
                                     if (
-                                        "ending workflow swarm_controller" in content
-                                        or "child worker process finished" in content
+                                        "ending workflow swarm_controller"
+                                        in content
+                                        or "child worker process finished"
+                                        in content
                                     ):
                                         ended = True
                                         break
@@ -215,11 +220,11 @@ def monitor_training_jobs():
                     for participant, local_path in found_folders:
                         # S3 path structure:
                         # <project>/results/<job_uuid>/<client_name>/
-                        s3_prefix = (
-                            f"{project_id}/results/{flare_job_uuid}/{participant}"
-                        )
+                        s3_prefix = f"{project_id}/results/{flare_job_uuid}/{participant}"
                         upload_folder_to_s3(
-                            settings.AWS_STORAGE_BUCKET_NAME, local_path, s3_prefix
+                            settings.AWS_STORAGE_BUCKET_NAME,
+                            local_path,
+                            s3_prefix,
                         )
 
                     # Update job status in database to trigger UI updates.

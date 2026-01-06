@@ -7,13 +7,14 @@ and packaging startup kits into zip files.
 import io
 import json
 import os
+import shutil
 import socket
+
 # Bandit B404: subprocess is required for tailscale CLI integration; no shell=True usage.
 import subprocess  # nosec B404
 import urllib.error
 import urllib.request
 import zipfile
-import shutil
 from pathlib import Path
 
 from django.core.cache import cache
@@ -33,7 +34,9 @@ def _fetch_tailscale_status():
 
     try:
         # Bandit B310: url is validated as http(s) and points at a configured sidecar; short timeout.
-        with urllib.request.urlopen(status_url, timeout=2) as response:  # nosec B310
+        with urllib.request.urlopen(
+            status_url, timeout=2
+        ) as response:  # nosec B310
             data = response.read().decode("utf-8")
             return json.loads(data)
     except (urllib.error.URLError, ValueError, TimeoutError):
@@ -96,13 +99,17 @@ def is_tailscale_connected():
         tailscale_path = shutil.which("tailscale") or "tailscale"
         # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
         result = subprocess.run(  # nosec B603
-            [tailscale_path, "status"], capture_output=True, text=True, check=True
+            [tailscale_path, "status"],
+            capture_output=True,
+            text=True,
+            check=True,
         )
 
         # Logic: If status is not empty and we are not in a restricted
         # 'peerapi' state
         is_connected = (
-            bool(result.stdout.strip()) and "peerapi" not in result.stdout.lower()
+            bool(result.stdout.strip())
+            and "peerapi" not in result.stdout.lower()
         )
 
         status = "connected" if is_connected else "disconnected"
@@ -164,7 +171,11 @@ def create_startup_kits_zip(swarm_network):
         # NVFlare creates a directory for each participant
         for item in os.scandir(str(abs_base_prod_path)):
             # We only want to package client kits (not server or admin)
-            if item.is_dir() and item.name != "server" and "admin" not in item.name:
+            if (
+                item.is_dir()
+                and item.name != "server"
+                and "admin" not in item.name
+            ):
                 # Ensure client_dir_path is strictly within base_prod_path
                 client_dir = Path(item.path).resolve()
                 if not client_dir.is_relative_to(abs_base_prod_path):
@@ -176,11 +187,15 @@ def create_startup_kits_zip(swarm_network):
                     client_zip_buffer, "w", zipfile.ZIP_DEFLATED
                 ) as client_zip:
                     # os.walk is safe here as client_dir is validated
-                    for root, _, files in os.walk(str(client_dir), followlinks=False):
+                    for root, _, files in os.walk(
+                        str(client_dir), followlinks=False
+                    ):
                         for file in files:
                             file_path = Path(root) / file
                             # Ensure individual files are also within the client directory
-                            if not file_path.resolve().is_relative_to(client_dir):
+                            if not file_path.resolve().is_relative_to(
+                                client_dir
+                            ):
                                 continue
 
                             # Relative path inside the client-specific zip
@@ -188,7 +203,9 @@ def create_startup_kits_zip(swarm_network):
                             client_zip.write(str(file_path), str(arcname))
 
                 # Add the client's zip file into the main zip buffer
-                main_zip.writestr(f"{item.name}.zip", client_zip_buffer.getvalue())
+                main_zip.writestr(
+                    f"{item.name}.zip", client_zip_buffer.getvalue()
+                )
 
     zip_buffer.seek(0)
     return zip_buffer

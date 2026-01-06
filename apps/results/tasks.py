@@ -5,23 +5,22 @@ visualization scripts in an isolated environment.
 """
 
 import ast
-import os
-import traceback
-import re
 import base64
+import os
+import re
+import traceback
 
 import boto3
 from celery import shared_task
+from common.utils import get_s3_client
+from data.sandbox import run_script_in_sandbox
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
-
 from logs import logger
 from logs.context import set_context
 from project.models import Project
 from training.models import TrainingJob
-from common.utils import get_s3_client
-from data.sandbox import run_script_in_sandbox
 
 from .models import (
     ResultsVisualizationPlot,
@@ -29,7 +28,6 @@ from .models import (
     TrainingResult,
 )
 from .visualization import ResultsVisualizationContext
-
 
 _UUID_RE = re.compile(
     r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
@@ -131,7 +129,8 @@ def sync_project_results(project_uuid):
                     # Backward-compatible fallback (rare): try icontains once.
                     job = (
                         TrainingJob.objects.filter(
-                            project=project, flare_job_id__icontains=job_id_from_s3_key
+                            project=project,
+                            flare_job_id__icontains=job_id_from_s3_key,
                         )
                         .only("id", "flare_job_id", "project")
                         .first()
@@ -205,7 +204,9 @@ def run_results_visualization_task(self, run_id, job_id):
                 Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=script_prefix
             )
             contents = response.get("Contents", [])
-            py_scripts = [obj["Key"] for obj in contents if obj["Key"].endswith(".py")]
+            py_scripts = [
+                obj["Key"] for obj in contents if obj["Key"].endswith(".py")
+            ]
 
             if not py_scripts:
                 raise Exception(f"No .py scripts found at {script_prefix}")
@@ -243,18 +244,22 @@ def run_results_visualization_task(self, run_id, job_id):
                                 if (
                                     isinstance(item, dict)
                                     and item.get("type") == "string"
-                                    and "Submitted job:" in item.get("data", "")
+                                    and "Submitted job:"
+                                    in item.get("data", "")
                                 ):
                                     flare_id = (
-                                        item.get("data", "").split(":")[-1].strip()
+                                        item.get("data", "")
+                                        .split(":")[-1]
+                                        .strip()
                                     )
                                     break
                     except (ValueError, SyntaxError, TypeError):
                         pass
 
                 # Check S3 for the most likely model file
-                from django.core.files.storage import default_storage
                 import shutil
+
+                from django.core.files.storage import default_storage
 
                 s3 = get_s3_client()
                 results_prefix = f"{project.identifier}/results/{flare_id}/"
@@ -262,7 +267,8 @@ def run_results_visualization_task(self, run_id, job_id):
 
                 found_key = None
                 for page in paginator.paginate(
-                    Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=results_prefix
+                    Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+                    Prefix=results_prefix,
                 ):
                     for obj in page.get("Contents", []):
                         key = obj["Key"]
@@ -284,7 +290,9 @@ def run_results_visualization_task(self, run_id, job_id):
                         f"Pre-downloaded model weights from S3: {found_key}"
                     )
             except Exception as e:
-                log.results.warning(f"Could not pre-download model weights: {e}")
+                log.results.warning(
+                    f"Could not pre-download model weights: {e}"
+                )
 
             script_wrapper = f"""
 import sys
@@ -448,7 +456,8 @@ visualization = ResultsVisualizationHelper('/home/sandboxuser/data', 'plots')
                 if plot_data.get("image_data"):
                     img_name = f"plot_{plot_data['plot_number']}.png"
                     img_content = ContentFile(
-                        base64.b64decode(plot_data["image_data"]), name=img_name
+                        base64.b64decode(plot_data["image_data"]),
+                        name=img_name,
                     )
                     plot_obj.image_data.save(img_name, img_content, save=False)
 

@@ -4,10 +4,11 @@ This file registers the models with the Django admin interface,
 allowing administrators to manage Messages and ProjectPosts.
 """
 
+from common.admin_filters import ProjectFilter_Generic
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from .models import Message, ProjectPost, ProjectBoardAccess
-from common.admin_filters import ProjectFilter_Generic
+
+from .models import Message, ProjectBoardAccess, ProjectPost
 
 
 @admin.register(Message)
@@ -16,7 +17,13 @@ class MessageAdmin(ModelAdmin):
     Configuration for the Message model in the admin panel.
     """
 
-    list_display = ("sender", "recipient", "created_at", "is_read", "subject_preview")
+    list_display = (
+        "sender",
+        "recipient",
+        "created_at",
+        "is_read",
+        "subject_preview",
+    )
     list_filter = ("is_read", "created_at")
     search_fields = ("sender__username", "recipient__username")
     readonly_fields = ("created_at",)

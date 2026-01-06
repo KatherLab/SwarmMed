@@ -4,6 +4,7 @@ Registers the models with the Django admin interface to allow
 administrators to manage training results and visualization runs.
 """
 
+from common.admin_filters import ProjectFilter_ByJob
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
@@ -12,7 +13,6 @@ from .models import (
     ResultsVisualizationRun,
     TrainingResult,
 )
-from common.admin_filters import ProjectFilter_ByJob
 
 
 @admin.register(TrainingResult)

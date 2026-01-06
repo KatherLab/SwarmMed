@@ -24,15 +24,18 @@ class DataConfig(AppConfig):
         We use it to ensure the necessary storage infrastructure is ready.
         """
         # We import here to avoid circular dependencies during startup
-        from .utils import create_minio_bucket
-        from logs.logger import get_logger
         from django.conf import settings
+        from logs.logger import get_logger
+
+        from .utils import create_minio_bucket
 
         logger = get_logger()
 
         # Ensure the default bucket exists in S3/Minio
         # This is where all project data and scripts will be stored.
-        bucket_name = getattr(settings, "AWS_STORAGE_BUCKET_NAME", "swarmcloud")
+        bucket_name = getattr(
+            settings, "AWS_STORAGE_BUCKET_NAME", "swarmcloud"
+        )
         if not bucket_name:
             bucket_name = "swarmcloud"
 

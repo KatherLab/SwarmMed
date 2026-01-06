@@ -3,9 +3,10 @@ Celery tasks for the project application.
 Handles background tasks like asynchronous file deletion to improve web response times.
 """
 
+import logging
 import os
 import shutil
-import logging
+
 from celery import shared_task
 from django.conf import settings
 from django.core.files.storage import default_storage

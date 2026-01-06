@@ -3,20 +3,22 @@ Celery tasks for system maintenance, including automated backups and data retent
 """
 
 from datetime import timedelta
-from django.utils import timezone
-from django.core.management import call_command
-from django.conf import settings
-from django.core.files.storage import default_storage
+
 from celery import shared_task
 
 # Import models to purge
 from data.models import ValidationRun, VisualizationRun
-from results.models import TrainingResult, ResultsVisualizationRun
-from logs.models import LogEntry, LogCategory
-from training.models import TrainingJob
+from django.conf import settings
+from django.core.files.storage import default_storage
+from django.core.management import call_command
+from django.utils import timezone
 from network.models import SwarmNetwork
+from results.models import ResultsVisualizationRun, TrainingResult
+from training.models import TrainingJob
 from users.models import Profile
+
 from logs import logger
+from logs.models import LogCategory, LogEntry
 
 
 @shared_task(name="logs.tasks.purge_expired_data")
@@ -35,17 +37,21 @@ def purge_expired_data():
     security_cutoff = timezone.now() - timedelta(days=security_retention_days)
 
     # 1. Purge Validation Runs (Bulk delete is safe, signals/cascades will run)
-    val_count, _ = ValidationRun.objects.filter(created_at__lt=cutoff_date).delete()
+    val_count, _ = ValidationRun.objects.filter(
+        created_at__lt=cutoff_date
+    ).delete()
 
     # 2. Purge Visualization Runs
-    viz_count, _ = VisualizationRun.objects.filter(created_at__lt=cutoff_date).delete()
+    viz_count, _ = VisualizationRun.objects.filter(
+        created_at__lt=cutoff_date
+    ).delete()
 
     # 3. Purge Training Results
     # We need to handle file cleanup.
     # Optimization: Fetch only necessary fields to reduce memory usage.
-    training_results = TrainingResult.objects.filter(created_at__lt=cutoff_date).only(
-        "file_path", "id"
-    )
+    training_results = TrainingResult.objects.filter(
+        created_at__lt=cutoff_date
+    ).only("file_path", "id")
     res_count = training_results.count()
 
     for res in training_results.iterator():
@@ -68,7 +74,9 @@ def purge_expired_data():
     ).delete()
 
     # 5. Purge Training Jobs
-    job_count, _ = TrainingJob.objects.filter(created_at__lt=cutoff_date).delete()
+    job_count, _ = TrainingJob.objects.filter(
+        created_at__lt=cutoff_date
+    ).delete()
 
     # 6. Purge Swarm Networks
     # These models likely have custom delete logic (e.g. stopping containers).

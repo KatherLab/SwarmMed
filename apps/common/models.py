@@ -3,6 +3,7 @@ Shared abstract models for the entire project.
 """
 
 import uuid
+
 from django.db import models
 
 
@@ -27,7 +28,8 @@ class AbstractBaseModel(models.Model):
     )
 
     updated_at = models.DateTimeField(
-        auto_now=True, help_text="The date and time this object was last updated."
+        auto_now=True,
+        help_text="The date and time this object was last updated.",
     )
 
     class Meta:

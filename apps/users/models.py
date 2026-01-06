@@ -6,11 +6,10 @@ with additional fields like role and contact information.
 
 import secrets
 
-from django.contrib.auth.models import User
-from django.db import models
 from common.fields import EncryptedCharField, EncryptedTextField
 from common.models import AbstractBaseModel
-
+from django.contrib.auth.models import User
+from django.db import models
 
 # Define available roles for users in the system.
 # 'admin' has full control, 'developer' can manage projects,
@@ -53,7 +52,9 @@ class Profile(AbstractBaseModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
     # The user's role in the SwarmCloud system.
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="user")
+    role = models.CharField(
+        max_length=20, choices=ROLE_CHOICES, default="user"
+    )
 
     # HEX color code for the user's avatar background.
     color = models.CharField(max_length=7, null=True, blank=True)

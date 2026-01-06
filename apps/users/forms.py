@@ -6,18 +6,14 @@ and password management, with custom styling for the Tailwind CSS UI.
 
 from django import forms
 from django.contrib.auth.forms import (
-    AuthenticationForm,
     PasswordChangeForm,
     PasswordResetForm,
     SetPasswordForm,
     UserCreationForm,
-    UsernameField,
 )
 from django.contrib.auth.models import User
-from django.utils.translation import gettext_lazy as _
 
 from users.models import ROLE_CHOICES, Profile
-
 
 # Standard CSS classes for consistent styling across all authentication forms.
 # These classes target the custom Tailwind CSS dashboard theme.
@@ -27,6 +23,7 @@ AUTH_INPUT_CLASSES = (
     "dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 "
     "dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300"
 )
+
 
 class AdminAddUserForm(UserCreationForm):
     """Form used by admins to add new users without requiring legal agreement at creation."""
@@ -50,7 +47,7 @@ class AdminAddUserForm(UserCreationForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field_name, field in self.fields.items():
+        for _field_name, field in self.fields.items():
             if not field.widget.attrs.get("placeholder"):
                 field.widget.attrs["placeholder"] = field.label
             field.widget.attrs["class"] = AUTH_INPUT_CLASSES
@@ -84,7 +81,10 @@ class UserPasswordResetForm(PasswordResetForm):
 
     email = forms.EmailField(
         widget=forms.EmailInput(
-            attrs={"class": AUTH_INPUT_CLASSES, "placeholder": "name@company.com"}
+            attrs={
+                "class": AUTH_INPUT_CLASSES,
+                "placeholder": "name@company.com",
+            }
         )
     )
 
@@ -103,7 +103,10 @@ class UserSetPasswordForm(SetPasswordForm):
         max_length=50,
         label="Confirm New Password",
         widget=forms.PasswordInput(
-            attrs={"class": AUTH_INPUT_CLASSES, "placeholder": "Confirm New Password"}
+            attrs={
+                "class": AUTH_INPUT_CLASSES,
+                "placeholder": "Confirm New Password",
+            }
         ),
     )
 
@@ -129,7 +132,10 @@ class UserPasswordChangeForm(PasswordChangeForm):
         max_length=50,
         label="Confirm New Password",
         widget=forms.PasswordInput(
-            attrs={"class": AUTH_INPUT_CLASSES, "placeholder": "Confirm New Password"}
+            attrs={
+                "class": AUTH_INPUT_CLASSES,
+                "placeholder": "Confirm New Password",
+            }
         ),
     )
 
@@ -164,7 +170,7 @@ class ProfileForm(forms.ModelForm):
         """Standardize widget attributes for the profile form."""
         super().__init__(*args, **kwargs)
 
-        for field_name, field in self.fields.items():
+        for _field_name, field in self.fields.items():
             field.widget.attrs["placeholder"] = field.label
             # Profile form uses slightly different classes (shadow-sm).
             field.widget.attrs["class"] = (

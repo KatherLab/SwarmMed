@@ -1,21 +1,5 @@
 import pandas as pd
 
-# --- Linter Fallback ---
-# 'validation' is injected by the SwarmCloud sandbox.
-# We define a dummy here to avoid F821 linting errors.
-if "validation" not in globals():
-
-    class DummyValidation:
-        def add_check(self, *args, **kwargs):
-            pass
-
-        def listdir(self, *args, **kwargs):
-            return []
-
-        def open(self, *args, **kwargs):
-            pass
-
-    validation = DummyValidation()
 
 # Initialize counters for the summary
 validation_results = {"critical_errors": 0, "warnings": 0, "info_checks": 0}
@@ -32,7 +16,9 @@ def add_check_with_count(name, status, message, details=None):
         validation_results["info_checks"] += 1
 
 
-validation.add_check("Validation Started", "ok", "Beginning biomedical data validation")
+validation.add_check(
+    "Validation Started", "ok", "Beginning biomedical data validation"
+)
 
 # 1. FOLDER AND FILE STRUCTURE
 data_folder = "biomed_data"
@@ -52,7 +38,9 @@ try:
         )
     else:
         add_check_with_count(
-            "Batch Files", "error", f"No batch_*.csv files found in {data_folder}"
+            "Batch Files",
+            "error",
+            f"No batch_*.csv files found in {data_folder}",
         )
 
     # 2. DATA CONTENT VALIDATION
@@ -80,7 +68,9 @@ try:
             missing = [c for c in required_cols if c not in df.columns]
             if missing:
                 add_check_with_count(
-                    f"Schema: {file_name}", "error", f"Missing columns: {missing}"
+                    f"Schema: {file_name}",
+                    "error",
+                    f"Missing columns: {missing}",
                 )
             else:
                 add_check_with_count(
@@ -110,12 +100,16 @@ try:
                 )
             else:
                 add_check_with_count(
-                    f"Completeness: {file_name}", "ok", "No missing values found"
+                    f"Completeness: {file_name}",
+                    "ok",
+                    "No missing values found",
                 )
 
         except Exception as e:
             add_check_with_count(
-                f"Read Error: {file_name}", "error", f"Could not parse CSV: {str(e)}"
+                f"Read Error: {file_name}",
+                "error",
+                f"Could not parse CSV: {str(e)}",
             )
 
     add_check_with_count(
@@ -124,7 +118,9 @@ try:
 
 except Exception as e:
     add_check_with_count(
-        "Directory Access", "error", f"Could not access '{data_folder}': {str(e)}"
+        "Directory Access",
+        "error",
+        f"Could not access '{data_folder}': {str(e)}",
     )
 
 # Summary

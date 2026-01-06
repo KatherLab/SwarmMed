@@ -5,6 +5,7 @@ uploads, validation, and visualization.
 """
 
 from django.urls import path
+
 from . import views
 
 # Set the namespace for this app's URLs
@@ -24,12 +25,24 @@ urlpatterns = [
     # Data Validation control and status
     path("validation/start/", views.start_validation, name="start_validation"),
     path("validation/stop/", views.stop_validation, name="stop_validation"),
-    path("validation/status/", views.validation_status, name="validation_status"),
-    # Data Visualization control and status
-    path("visualization/start/", views.start_visualization, name="start_visualization"),
-    path("visualization/stop/", views.stop_visualization, name="stop_visualization"),
     path(
-        "visualization/status/", views.visualization_status, name="visualization_status"
+        "validation/status/", views.validation_status, name="validation_status"
+    ),
+    # Data Visualization control and status
+    path(
+        "visualization/start/",
+        views.start_visualization,
+        name="start_visualization",
+    ),
+    path(
+        "visualization/stop/",
+        views.stop_visualization,
+        name="stop_visualization",
+    ),
+    path(
+        "visualization/status/",
+        views.visualization_status,
+        name="visualization_status",
     ),
     # Serve visualization plots via Django proxy
     path(

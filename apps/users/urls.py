@@ -4,26 +4,45 @@ Maps web addresses to view functions for authentication, profile management,
 and administrative user control.
 """
 
+from common import views as common_views
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
 from django.views.generic.base import RedirectView
-# from two_factor.urls import urlpatterns as tf_urls
 
-from . import views
-from . import two_factor_views
-from common import views as common_views
+# from two_factor.urls import urlpatterns as tf_urls
+from . import two_factor_views, views
 
 # Application namespace for user-related URLs.
 app_name = "users"
 
 two_factor_patterns = [
-    path('login/', two_factor_views.LoginView.as_view(), name='login'),
-    path('two_factor/setup/', two_factor_views.SetupView.as_view(), name='setup'),
-    path('two_factor/qrcode/', two_factor_views.QRGeneratorView.as_view(), name='qr'),
-    path('two_factor/setup/complete/', two_factor_views.SetupCompleteView.as_view(), name='setup_complete'),
-    path('two_factor/backup/tokens/', two_factor_views.BackupTokensView.as_view(), name='backup_tokens'),
-    path('two_factor/', two_factor_views.ProfileView.as_view(), name='profile'),
-    path('two_factor/disable/', two_factor_views.DisableView.as_view(), name='disable'),
+    path("login/", two_factor_views.LoginView.as_view(), name="login"),
+    path(
+        "two_factor/setup/", two_factor_views.SetupView.as_view(), name="setup"
+    ),
+    path(
+        "two_factor/qrcode/",
+        two_factor_views.QRGeneratorView.as_view(),
+        name="qr",
+    ),
+    path(
+        "two_factor/setup/complete/",
+        two_factor_views.SetupCompleteView.as_view(),
+        name="setup_complete",
+    ),
+    path(
+        "two_factor/backup/tokens/",
+        two_factor_views.BackupTokensView.as_view(),
+        name="backup_tokens",
+    ),
+    path(
+        "two_factor/", two_factor_views.ProfileView.as_view(), name="profile"
+    ),
+    path(
+        "two_factor/disable/",
+        two_factor_views.DisableView.as_view(),
+        name="disable",
+    ),
 ]
 
 urlpatterns = [
@@ -32,16 +51,26 @@ urlpatterns = [
     # --- Authentication Endpoints ---
     # Multi-Factor Authentication
     # path("auth/", include(tf_urls)),
-    path("auth/", include((two_factor_patterns, 'two_factor'), namespace='two_factor')),
-    path("auth/signin/",
-        RedirectView.as_view(pattern_name="users:two_factor:login", permanent=False, query_string=True),
+    path(
+        "auth/",
+        include((two_factor_patterns, "two_factor"), namespace="two_factor"),
+    ),
+    path(
+        "auth/signin/",
+        RedirectView.as_view(
+            pattern_name="users:two_factor:login",
+            permanent=False,
+            query_string=True,
+        ),
         name="signin",
     ),
     path("auth/signout/", auth_views.LogoutView.as_view(), name="signout"),
     # --- Password Reset Flow ---
     # Step 1: Request reset email.
     path(
-        "auth/password-reset/", views.UserPasswordResetView.as_view(), name="password_reset"
+        "auth/password-reset/",
+        views.UserPasswordResetView.as_view(),
+        name="password_reset",
     ),
     # Step 2: Confirmation message that email was sent.
     path(
@@ -76,7 +105,9 @@ urlpatterns = [
         name="update_cookie_consent",
     ),
     # --- Legal & Privacy ---
-    path("privacy-policy/", common_views.privacy_policy, name="privacy_policy"),
+    path(
+        "privacy-policy/", common_views.privacy_policy, name="privacy_policy"
+    ),
     path(
         "terms-and-conditions/",
         common_views.terms_and_conditions,

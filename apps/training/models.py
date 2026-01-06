@@ -3,10 +3,8 @@ Database models for the training application.
 Defines the structure for tracking training jobs in the swarm learning network.
 """
 
-
-from django.db import models
-
 from common.models import AbstractBaseModel
+from django.db import models
 from network.models import SwarmNetwork
 from project.models import Project
 
@@ -65,8 +63,12 @@ class TrainingJob(AbstractBaseModel):
     total_rounds = models.PositiveIntegerField(null=True, blank=True)
     rounds_finished = models.PositiveIntegerField(null=True, blank=True)
     progress_percent = models.PositiveSmallIntegerField(null=True, blank=True)
-    progress_updated_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    progress_updated_at = models.DateTimeField(
+        null=True, blank=True, db_index=True
+    )
 
     def __str__(self):
         """Returns a human-readable string representation of the job."""
-        return f"Training Job {self.identifier} for project: {self.project.title}"
+        return (
+            f"Training Job {self.identifier} for project: {self.project.title}"
+        )

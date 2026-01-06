@@ -13,50 +13,146 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('network', '0001_initial'),
-        ('project', '0001_initial'),
+        ("network", "0001_initial"),
+        ("project", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='LogSigningKey',
+            name="LogSigningKey",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('key', models.CharField(editable=False, max_length=255)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('is_active', models.BooleanField(default=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("key", models.CharField(editable=False, max_length=255)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("is_active", models.BooleanField(default=True)),
             ],
             options={
-                'ordering': ['-created_at'],
+                "ordering": ["-created_at"],
             },
         ),
         migrations.CreateModel(
-            name='LogEntry',
+            name="LogEntry",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('user_identifier', models.CharField(blank=True, editable=False, max_length=150, null=True)),
-                ('category', models.CharField(choices=[('project', 'Project'), ('data', 'Data'), ('network', 'Network'), ('training', 'Training'), ('results', 'Results')], max_length=20)),
-                ('timestamp', models.DateTimeField(default=django.utils.timezone.now)),
-                ('level', models.CharField(default='INFO', max_length=10)),
-                ('source', models.CharField(default='web', max_length=100)),
-                ('message', common.fields.EncryptedTextField()),
-                ('context_data', models.JSONField(blank=True, default=dict)),
-                ('ip_address', models.GenericIPAddressField(blank=True, null=True)),
-                ('user_agent', models.TextField(blank=True, null=True)),
-                ('path', models.CharField(blank=True, max_length=255, null=True)),
-                ('object_id', models.CharField(blank=True, max_length=255, null=True)),
-                ('previous_hash', models.CharField(blank=True, max_length=128, null=True)),
-                ('signature', models.CharField(blank=True, max_length=128, null=True)),
-                ('project', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='log_entries', to='project.project')),
-                ('swarm_network', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='log_entries', to='network.swarmnetwork')),
-                ('user', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='log_entries', to=settings.AUTH_USER_MODEL)),
-                ('signing_key', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='signed_entries', to='logs.logsigningkey')),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "user_identifier",
+                    models.CharField(
+                        blank=True, editable=False, max_length=150, null=True
+                    ),
+                ),
+                (
+                    "category",
+                    models.CharField(
+                        choices=[
+                            ("project", "Project"),
+                            ("data", "Data"),
+                            ("network", "Network"),
+                            ("training", "Training"),
+                            ("results", "Results"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "timestamp",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
+                ("level", models.CharField(default="INFO", max_length=10)),
+                ("source", models.CharField(default="web", max_length=100)),
+                ("message", common.fields.EncryptedTextField()),
+                ("context_data", models.JSONField(blank=True, default=dict)),
+                (
+                    "ip_address",
+                    models.GenericIPAddressField(blank=True, null=True),
+                ),
+                ("user_agent", models.TextField(blank=True, null=True)),
+                (
+                    "path",
+                    models.CharField(blank=True, max_length=255, null=True),
+                ),
+                (
+                    "object_id",
+                    models.CharField(blank=True, max_length=255, null=True),
+                ),
+                (
+                    "previous_hash",
+                    models.CharField(blank=True, max_length=128, null=True),
+                ),
+                (
+                    "signature",
+                    models.CharField(blank=True, max_length=128, null=True),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="log_entries",
+                        to="project.project",
+                    ),
+                ),
+                (
+                    "swarm_network",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="log_entries",
+                        to="network.swarmnetwork",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="log_entries",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "signing_key",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="signed_entries",
+                        to="logs.logsigningkey",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'Log Entries',
-                'ordering': ['-timestamp'],
-                'indexes': [models.Index(fields=['user', 'project', 'category'], name='logs_logent_user_id_b515d6_idx'), models.Index(fields=['timestamp'], name='logs_logent_timesta_1e81d2_idx')],
+                "verbose_name_plural": "Log Entries",
+                "ordering": ["-timestamp"],
+                "indexes": [
+                    models.Index(
+                        fields=["user", "project", "category"],
+                        name="logs_logent_user_id_b515d6_idx",
+                    ),
+                    models.Index(
+                        fields=["timestamp"],
+                        name="logs_logent_timesta_1e81d2_idx",
+                    ),
+                ],
             },
         ),
     ]
