@@ -181,7 +181,7 @@
                         {{ project.description|default:"No description provided." }}
                     </p>
                     <div class="text-xs text-gray-400">
-                        Created on {{ project.creation_date }}
+                        Created on {{ project.created_at|date:"M d, Y" }}
                     </div>
                 </div>
             </div>
