@@ -40,6 +40,9 @@ def collect_status():
             payload["raw"] = data
         return payload
     except Exception as exc:  # pragma: no cover - defensive path
+        print(f"Error collecting Tailscale status: {exc}")
+        if hasattr(exc, 'stderr') and exc.stderr:
+            print(f"Tailscale stderr: {exc.stderr}")
         return {"error": str(exc), "connected": False}
 
 
@@ -67,6 +70,7 @@ class StatusHandler(BaseHTTPRequestHandler):
         )
 
     def do_GET(self):  # noqa: N802 (BaseHTTPRequestHandler API)
+        print(f"Received GET request for {self.path} from {self.client_address[0]}")
         if not self._is_authorized():
             self._require_auth()
             return
