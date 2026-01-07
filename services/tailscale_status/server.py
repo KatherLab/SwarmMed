@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 TAILSCALE_BIN = os.environ.get("TAILSCALE_BIN") or shutil.which("tailscale") or "/usr/bin/tailscale"
 TAILSCALE_SOCKET = os.environ.get("TAILSCALE_SOCKET", "/var/run/tailscale/tailscaled.sock")
 PORT = int(os.environ.get("PORT", "9002"))
-HOST = os.environ.get("TAILSCALE_STATUS_BIND", "127.0.0.1")
+HOST = os.environ.get("TAILSCALE_STATUS_BIND", "0.0.0.0")
 STATUS_TOKEN = os.environ.get("TAILSCALE_STATUS_TOKEN")
 EXPOSE_RAW_STATUS = os.environ.get("TAILSCALE_EXPOSE_RAW", "False").lower() in {"1", "true", "yes"}
 
