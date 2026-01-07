@@ -31,7 +31,6 @@ services:
       - REQUESTS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
       - SSL_CERT_FILE=/usr/local/share/ca-certificates/internal-ca.crt
       - AWS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
-      - DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://localhost:5085,https://localhost:5085,http://127.0.0.1:8000,http://127.0.0.1:5085,https://127.0.0.1:5085
       - HOST_PROJECT_PATH=${HOST_PROJECT_PATH}
       - DOCKER_HOST=tcp://docker-proxy:2375
       - TAILSCALE_STATUS_BASE_URL=http://tailscale-status:9002
