@@ -388,7 +388,7 @@ def training(request):
                                 msg = remaining.strip(" -")
                         training_logs.append(
                             {
-                                "created_at": ts,
+                                "timestamp": ts,
                                 "level": level,
                                 "message": msg.strip(),
                                 "logger": logger_name,
@@ -828,7 +828,7 @@ def training_logs_api(request):
                             "CRITICAL",
                         ]:
                             level, msg = parts[0], " - ".join(parts[1:])
-                logs.append({"created_at": ts, "level": level, "message": msg})
+                logs.append({"timestamp": ts, "level": level, "message": msg})
     except Exception as e:
         logger.training.debug(f"Error in training_logs_api: {e}")
     return JsonResponse({"logs": logs})

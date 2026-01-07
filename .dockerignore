@@ -18,6 +18,9 @@ tmp/
 *.log
 bandit_report_final.json
 
+# Ignore sensitive secrets
+.secrets/
+
 # Ignore node modules
 node_modules/
 

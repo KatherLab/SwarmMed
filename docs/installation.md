@@ -241,6 +241,11 @@ If the `postgres` container fails to start with logs indicating `FATAL:  private
     docker compose up -d
     ```
 
+### redis "Permission Denied" for SSL Key
+
+chmod 644 ./.secrets/certs/internal/redis.key
+
+
 ### "Database does not exist" after fixing keys
 
 If the Postgres container repeatedly crashed due to SSL key issues during its first run, the initialization scripts (which create the `swarmcloud` database) might have been skipped because the data directory was partially initialized.
