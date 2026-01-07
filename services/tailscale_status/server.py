@@ -96,12 +96,16 @@ class StatusHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    print(f"Starting Tailscale status server on {HOST}:{PORT}...")
+    print(f"Using Tailscale binary: {TAILSCALE_BIN}")
+    print(f"Using Tailscale socket: {TAILSCALE_SOCKET}")
     server = ThreadingHTTPServer((HOST, PORT), StatusHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:  # pragma: no cover
         pass
     finally:
+        print("Shutting down Tailscale status server.")
         server.server_close()
 
 
