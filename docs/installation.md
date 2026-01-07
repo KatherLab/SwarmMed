@@ -217,3 +217,60 @@ If you want to skip the installation and just bypass the error screen:
 2. Type `thisisunsafe` on your keyboard.
 3. The page will reload and grant access.
 
+## Troubleshooting
+
+### Postgres "Permission Denied" for SSL Key
+
+If the `postgres` container fails to start with logs indicating `FATAL:  private key file ".../server.key" has group or world access` or `Permission denied`, it means the file permissions on the host are too open or owned by the wrong user.
+
+1.  **Stop containers:**
+    ```bash
+    docker compose down
+    ```
+2.  **Fix permissions on the host:**
+    The private key must be owned by the user ID Postgres uses inside the container (UID 999) and have strict permissions (`0600`).
+    ```bash
+    # Set ownership to uid 999 (postgres user)
+    sudo chown 999:999 .secrets/certs/internal/postgres.key
+
+    # Set permissions to 0600 (read/write only for owner)
+    sudo chmod 600 .secrets/certs/internal/postgres.key
+    ```
+3.  **Restart containers:**
+    ```bash
+    docker compose up -d
+    ```
+
+### "Database does not exist" after fixing keys
+
+If the Postgres container repeatedly crashed due to SSL key issues during its first run, the initialization scripts (which create the `swarmcloud` database) might have been skipped because the data directory was partially initialized.
+
+To fix this, you must wipe the corrupt database volume and start fresh:
+
+1.  **Stop and remove volumes:**
+    ```bash
+    # WARNING: This deletes all database data!
+    docker compose down -v
+    ```
+2.  **Start fresh:**
+    ```bash
+    docker compose up -d
+    ```
+
+### Missing `.secrets` Directory
+
+If you encounter errors about missing files in `.secrets/` (e.g., `mount: .../pgbouncer/userlist.txt: not a directory`):
+
+1.  **Clean up incorrect directories:**
+    If you ran `docker compose up` before generating secrets, Docker may have created empty directories where files should be.
+    ```bash
+    docker compose down
+    sudo rm -rf .secrets
+    ```
+2.  **Regenerate secrets:**
+    ```bash
+    mkdir -p .secrets/certs .secrets/docker .secrets/pgbouncer
+    ./scripts/generate_internal_certs.sh
+    python3 ./scripts/setup_pgbouncer.py
+    ```
+
