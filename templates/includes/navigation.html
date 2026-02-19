@@ -1,3 +1,4 @@
+
 {% load static %}
 
 <nav class="fixed z-30 w-full bg-white border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700">
@@ -20,8 +21,8 @@
             </svg>
           </button>
           <a href="{% url 'home:starter' %}" class="flex ml-2 md:mr-24">
-            <img src="https://kather.cs.tu-dresden.de/wp-content/uploads/2023/12/logo_small.png" class="h-8 mr-3"
-              alt="KatherLab Logo" />
+            <img src="{% static 'dist/images/logo.png' %}" class="h-8 mr-3"
+              alt="SwarmCloud Logo" />
             <span
               class="self-center text-xl font-semibold sm:text-2xl whitespace-nowrap dark:text-white">SwarmCloud</span>
           </a>
