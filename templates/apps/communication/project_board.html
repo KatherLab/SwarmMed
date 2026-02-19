@@ -93,7 +93,7 @@
                                 <div class="text-sm font-normal text-gray-500 lex dark:text-gray-300">
                                     <span class="font-bold text-gray-900 dark:text-white hover:underline">{{ post.author.username }}</span> shared an update
                                 </div>
-                                <time class="mb-1 text-xs font-normal text-gray-400 sm:order-last sm:mb-0">{{ post.timestamp|date:"F d, Y - H:i" }}</time>
+                                <time class="mb-1 text-xs font-normal text-gray-400 sm:order-last sm:mb-0">{{ post.created_at|date:"M d, Y H:i" }}</time>
                             </div>
                             <div class="p-3 text-sm italic font-normal text-gray-500 border border-gray-200 rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300">
                                 {{ post.content|linebreaks }}

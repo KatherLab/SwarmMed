@@ -16,7 +16,7 @@
                         <p class="text-sm text-gray-500 dark:text-gray-400">From: <span class="font-medium text-gray-900 dark:text-white">{{ message.sender.username }}</span></p>
                         <p class="text-sm text-gray-500 dark:text-gray-400">To: <span class="font-medium text-gray-900 dark:text-white">{{ message.recipient.username }}</span></p>
                     </div>
-                    <span class="text-sm text-gray-500 dark:text-gray-400">{{ message.timestamp|date:"M d, Y H:i" }}</span>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">{{ message.created_at|date:"M d, Y H:i" }}</span>
                 </div>
             </div>
             

@@ -58,7 +58,7 @@
                                             {{ msg.subject }}
                                         </td>
                                         <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
-                                            {{ msg.timestamp|date:"M d, Y H:i" }}
+                                            {{ msg.created_at|date:"M d, Y H:i" }}
                                         </td>
                                         <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">
                                             {% if view_type == 'inbox' %}
