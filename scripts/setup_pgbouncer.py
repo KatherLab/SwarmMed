@@ -134,12 +134,18 @@ client_tls_ca_file = /etc/pgbouncer/certs/ca.crt
                 subprocess.run(
                     ["sudo", "docker", "kill", "-s", "HUP", pgbouncer_container],
                     check=True,
+                    capture_output=True,
+                    text=True,
                 )
                 print("PgBouncer reloaded (via sudo).")
-            except subprocess.CalledProcessError:
-                print(
-                    "Warning: Could not reload PgBouncer. If the container is running, please restart it manually."
-                )
+            except subprocess.CalledProcessError as sudo_e:
+                sudo_err = sudo_e.stderr.lower() if sudo_e.stderr else ""
+                if "no such container" in sudo_err:
+                    print("PgBouncer container not running (skipping reload).")
+                else:
+                    print(
+                        f"Warning: Failed to reload PgBouncer (via sudo): {sudo_e.stderr.strip()}"
+                    )
         elif "no such container" in err_msg:
             print("PgBouncer container not running (skipping reload).")
         else:
