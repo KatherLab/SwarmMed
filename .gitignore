@@ -7,6 +7,7 @@ nvflare_swarm_learning
 .secrets
 node_modules
 tmp
+.vscode
 
 # Certificate/private key material (must not be committed)
 infrastructure/certs/

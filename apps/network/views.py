@@ -167,6 +167,10 @@ def new_network(request):
         if creation_method == "create":
             # Extract client JSON data from the dynamic form fields
             clients_json = request.POST.getlist("clients")
+            # Automatically detect the Tailscale IP for the server (this machine)
+            # This allows remote clients (VPN) to connect to the overseer/server.
+            server_ip = get_tailscale_ip()
+
             clients = []
             for c_json in clients_json:
                 try:
@@ -206,6 +210,7 @@ def new_network(request):
                 network_id=swarm_network.identifier,
                 local_test=False,
                 clients=clients,
+                server_ip=server_ip,
             )
 
         elif creation_method == "upload":

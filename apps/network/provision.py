@@ -30,7 +30,7 @@ def is_valid_ip(ip):
     return bool(re.match(pattern, ip))
 
 
-def generate_flare_startup_kit(network_id, local_test=False, clients=None):
+def generate_flare_startup_kit(network_id, local_test=False, clients=None, server_ip=None):
     """
     Generates the startup kits for a given SwarmNetwork using NVFlare.
 
@@ -39,6 +39,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
     2. Builds a project.yml file describing the network topology.
     3. Fetches optional project requirements from S3 storage.
     4. Runs the NVFlare Lighter provisioning tool.
+    5. Updates configuration files with the provided server IP if applicable.
     """
     if clients is None:
         clients = []
@@ -259,6 +260,53 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
             check=True,
         )
         logger.network.info("Provisioning completed successfully")
+
+        if server_ip and is_valid_ip(server_ip):
+            # Post-process generated config files to use the specific server IP
+            # instead of generic hostnames 'overseer' and 'server'
+            base_prod_path = (
+                Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
+            )
+            
+            if base_prod_path.exists():
+                logger.network.info(
+                    f"Updating configuration files with Server IP: {server_ip}"
+                )
+                
+                # Iterate through all files in the production directory recursively
+                for root, _, files in os.walk(base_prod_path):
+                    for file in files:
+                        if file.endswith(".json"):
+                            file_path = os.path.join(root, file)
+                            try:
+                                with open(file_path, "r") as f:
+                                    content = f.read()
+                                
+                                # Replace standard hostnames with the actual IP
+                                # 1. Overseer endpoint
+                                new_content = content.replace(
+                                    "https://overseer:8443", 
+                                    f"https://{server_ip}:8443"
+                                )
+                                # 2. Server FL port target
+                                new_content = new_content.replace(
+                                    '"target": "server:8002"', 
+                                    f'"target": "{server_ip}:8002"'
+                                )
+                                # 3. Server Admin port target (if present in client configs)
+                                new_content = new_content.replace(
+                                    '"target": "server:8003"', 
+                                    f'"target": "{server_ip}:8003"'
+                                )
+
+                                if content != new_content:
+                                    with open(file_path, "w") as f:
+                                        f.write(new_content)
+                                    logger.network.debug(f"Updated config file: {file}")
+                            except Exception as e:
+                                logger.network.warning(
+                                    f"Failed to update config file {file}: {e}"
+                                )
 
         # Update network status in the database
         network.status = "PROVISIONED"
