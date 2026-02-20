@@ -41,7 +41,7 @@ theme:
     text: Open Sans
   language: en
 
-  logo: static/dist/images/logo.png
+  logo: assets/images/logo.png
 
   favicon: assets/images/favicon.png
 
