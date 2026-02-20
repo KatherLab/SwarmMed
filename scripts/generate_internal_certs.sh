@@ -3,6 +3,14 @@ set -euo pipefail
 
 umask 077
 
+# Check if .secrets exists and is not writable (e.g. created by docker as root)
+if [ -d ".secrets" ] && [ ! -w ".secrets" ]; then
+    echo "Error: .secrets directory exists but is not writable."
+    echo "This usually happens if 'docker compose up' was run before this script."
+    echo "Please run: sudo rm -rf .secrets"
+    exit 1
+fi
+
 # Security: never commit private keys. This script generates all TLS material
 # into a git-ignored directory under .secrets/.
 CA_DIR=".secrets/certs/ca"
@@ -83,3 +91,37 @@ install -m 644 "$CA_DIR/ca.crt" "$CERT_DIR/minio_certs/CAs/ca.crt"
 echo "Internal certificates generated in $CERT_DIR"
 echo "Public CA certificate available at $CA_DIR/ca.crt (private key locked in $CA_DIR)"
 echo "Nginx certificates generated in $NGINX_CERT_DIR"
+
+fix_permissions() {
+    echo "Fixing permissions for Postgres and Redis keys..."
+    # We use a temporary alpine container to set permissions for UID 999 (postgres)
+    # This avoids asking the user for sudo password on the host.
+    
+    # Get absolute path to .secrets
+    SECRETS_DIR="$(pwd)/.secrets"
+    
+    if ! command -v docker &> /dev/null; then
+        echo "Warning: Docker is not found. Please manually run:"
+        echo "  sudo chown 999:999 .secrets/certs/internal/postgres.key"
+        echo "  sudo chmod 600 .secrets/certs/internal/postgres.key"
+        echo "  chmod 644 .secrets/certs/internal/redis.key"
+        return
+    fi
+
+    echo "Using Docker to set permissions..."
+    # We mount the parent directory of .secrets if possible, or just .secrets
+    # ensure docker can mount the path.
+    docker run --rm -v "$SECRETS_DIR:/secrets" alpine sh -c '
+        if [ -f /secrets/certs/internal/postgres.key ]; then
+            chown 999:999 /secrets/certs/internal/postgres.key
+            chmod 600 /secrets/certs/internal/postgres.key
+            echo "Fixed postgres.key permissions"
+        fi
+        if [ -f /secrets/certs/internal/redis.key ]; then
+            chmod 644 /secrets/certs/internal/redis.key
+            echo "Fixed redis.key permissions"
+        fi
+    ' || echo "Failed to fix permissions via Docker. Please check troubleshooting guide."
+}
+
+fix_permissions
