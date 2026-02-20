@@ -94,34 +94,39 @@ echo "Nginx certificates generated in $NGINX_CERT_DIR"
 
 fix_permissions() {
     echo "Fixing permissions for Postgres and Redis keys..."
-    # We use a temporary alpine container to set permissions for UID 999 (postgres)
-    # This avoids asking the user for sudo password on the host.
-    
-    # Get absolute path to .secrets
     SECRETS_DIR="$(pwd)/.secrets"
-    
-    if ! command -v docker &> /dev/null; then
-        echo "Warning: Docker is not found. Please manually run:"
-        echo "  sudo chown 999:999 .secrets/certs/internal/postgres.key"
-        echo "  sudo chmod 600 .secrets/certs/internal/postgres.key"
-        echo "  chmod 644 .secrets/certs/internal/redis.key"
-        return
-    fi
 
-    echo "Using Docker to set permissions..."
-    # We mount the parent directory of .secrets if possible, or just .secrets
-    # ensure docker can mount the path.
-    docker run --rm -v "$SECRETS_DIR:/secrets" alpine sh -c '
-        if [ -f /secrets/certs/internal/postgres.key ]; then
-            chown 999:999 /secrets/certs/internal/postgres.key
-            chmod 600 /secrets/certs/internal/postgres.key
+    # Try using Docker first (cleanest, doesn't require sudo on host if user is in docker group)
+    # We test if we can run a container first
+    if command -v docker &> /dev/null && docker run --rm -v "$SECRETS_DIR:/secrets" alpine true 2>/dev/null; then
+        echo "Using Docker to set permissions..."
+        docker run --rm -v "$SECRETS_DIR:/secrets" alpine sh -c '
+            if [ -f /secrets/certs/internal/postgres.key ]; then
+                chown 999:999 /secrets/certs/internal/postgres.key
+                chmod 600 /secrets/certs/internal/postgres.key
+                echo "Fixed postgres.key permissions"
+            fi
+            if [ -f /secrets/certs/internal/redis.key ]; then
+                chmod 644 /secrets/certs/internal/redis.key
+                echo "Fixed redis.key permissions"
+            fi
+        '
+    else
+        # Fallback to sudo if docker is not available or permission is denied
+        echo "Note: Docker command failed (permission denied or not installed)."
+        echo "Falling back to 'sudo' to set file permissions..."
+        
+        if [ -f ".secrets/certs/internal/postgres.key" ]; then
+            sudo chown 999:999 ".secrets/certs/internal/postgres.key"
+            sudo chmod 600 ".secrets/certs/internal/postgres.key"
             echo "Fixed postgres.key permissions"
         fi
-        if [ -f /secrets/certs/internal/redis.key ]; then
-            chmod 644 /secrets/certs/internal/redis.key
+        
+        if [ -f ".secrets/certs/internal/redis.key" ]; then
+            chmod 644 ".secrets/certs/internal/redis.key"
             echo "Fixed redis.key permissions"
         fi
-    ' || echo "Failed to fix permissions via Docker. Please check troubleshooting guide."
+    fi
 }
 
 fix_permissions
