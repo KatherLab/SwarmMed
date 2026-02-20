@@ -1,7 +1,6 @@
 services:
   app:
     container_name: swarmcloud
-    hostname: swarmcloud # adapt to your organiation name
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 8 --worker-class gthread --access-logfile - --error-logfile - --log-level info --max-requests 1000 --max-requests-jitter 50 core.wsgi:application
     restart: always
     build:

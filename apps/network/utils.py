@@ -7,6 +7,7 @@ and packaging startup kits into zip files.
 import io
 import json
 import os
+import random
 import shutil
 import socket
 
@@ -17,6 +18,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils.text import slugify
 
@@ -126,11 +128,55 @@ def is_tailscale_connected():
 
 
 def get_hostname():
-    """Returns the current machine's local hostname."""
+    """
+    Returns a unique, human-friendly hostname for the current machine.
+    
+    1. Checks environment variable SWARMCLOUD_HOSTNAME.
+    2. Checks for a persisted hostname in a local file.
+    3. Generates and persists a new random human-friendly name if none exists.
+    """
+    # 1. Environment variable override
+    env_hostname = os.environ.get("SWARMCLOUD_HOSTNAME")
+    if env_hostname:
+        return env_hostname
+
+    # Path to the persisted hostname file
+    hostname_file = Path(settings.BASE_DIR) / ".swarmcloud_hostname"
+
+    # 2. Check for persisted hostname
+    if hostname_file.exists():
+        try:
+            with open(hostname_file, "r") as f:
+                persisted_name = f.read().strip()
+                if persisted_name:
+                    return persisted_name
+        except Exception:
+            pass
+
+    # 3. Generate a new human-friendly hostname
+    adjectives = [
+        "agile", "brave", "bright", "calm", "clever", "cool", "eager", "fancy", 
+        "gentle", "happy", "jolly", "kind", "lively", "mighty", "nice", "proud", 
+        "quick", "rare", "sharp", "smart", "swift", "tall", "vivid", "wild", 
+        "wise", "young", "bold", "keen", "grand", "super"
+    ]
+    nouns = [
+        "ant", "bear", "bird", "cat", "deer", "dog", "eagle", "fish", "fox", "frog",
+        "goat", "hawk", "lion", "lynx", "mole", "mouse", "owl", "panda", "puma", "rabbit",
+        "seal", "shark", "tiger", "wolf", "zebra", "crane", "swan", "falcon", "badger", "otter"
+    ]
+    
+    new_hostname = f"{random.choice(adjectives)}-{random.choice(nouns)}"
+    
+    # Persist it for future use
     try:
-        return socket.gethostname()
+        with open(hostname_file, "w") as f:
+            f.write(new_hostname)
     except Exception:
-        return "Not Available"
+        # If persistence fails, we still return the generated name for this session
+        pass
+
+    return new_hostname
 
 
 def create_startup_kits_zip(swarm_network):

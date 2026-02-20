@@ -115,6 +115,18 @@ Open the `.env` file and fill in the required values. Key sections include:
     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     ```
 
+### Custom Hostname
+
+By default, SwarmCloud will generate a random, human-friendly hostname (e.g., `brave-lion`) for your node when it first starts. You can customize this hostname in two ways:
+
+1.  **Environment Variable:** Add `SWARMCLOUD_HOSTNAME=your-custom-name` to your `.env` file.
+2.  **Persistent File:** Create a file named `.swarmcloud_hostname` in the project root containing your desired name:
+    ```bash
+    echo "my-custom-node-name" > .swarmcloud_hostname
+    ```
+
+The hostname is displayed on the **Network** page and helps other participants identify your node in the decentralized network.
+
 Please ensure that you **never** commit your `.env` file to version control.
 
 ### Prepare Secret Directories
