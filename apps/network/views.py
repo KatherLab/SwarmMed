@@ -354,13 +354,18 @@ def new_network(request):
                             client_compose_content["services"]["fl_client"]["command"] = [
                                 "/bin/sh", 
                                 "-c", 
-                                f"{python_cmd} 2>&1 | tee /workspace/docker_startup_log.txt"
+                                f"echo 'Starting Client: {client_name}' > /workspace/docker_startup_log.txt && "
+                                f"echo 'Server IP: {server_ip}' >> /workspace/docker_startup_log.txt && "
+                                f"{python_cmd} 2>&1 | tee -a /workspace/docker_startup_log.txt"
                             ]
                             
                             # Add PYTHONPATH as per sub_start.sh
                             client_compose_content["services"]["fl_client"]["environment"] = {
                                 "PYTHONPATH": "/local/custom"
                             }
+                            # Emulate TTY to match manual run behavior
+                            client_compose_content["services"]["fl_client"]["tty"] = True
+                            client_compose_content["services"]["fl_client"]["stdin_open"] = True
 
                             if overseer_url:
                                 # Parse IP from https://IP:PORT or http://IP:PORT
