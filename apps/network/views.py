@@ -336,22 +336,31 @@ def new_network(request):
                         
                         client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.6.1"
                         
-                        # Extract Server IP from overseer_end_point to configure extra_hosts
-                        # This allows the client to resolve 'server' and 'overseer' hostnames
-                        # returned by the Overseer service.
+                        # Extract Client Name and Server IP
                         try:
-                            overseer_url = conf.get("overseer_agent", {}).get("args", {}).get("overseer_end_point", "")
+                            overseer_agent_args = conf.get("overseer_agent", {}).get("args", {})
+                            client_name = overseer_agent_args.get("name", "client")
+                            overseer_url = overseer_agent_args.get("overseer_end_point", "")
+                            
+                            # Use direct python command to avoid start.sh zombie issues and capture logs
+                            # We hardcode org=nvidia as per provision.py
+                            cmd = (
+                                f"python3 -u -m nvflare.private.fed.app.client.client_train "
+                                f"-m /workspace -s fed_client.json "
+                                f"--set secure_train=true uid={client_name} org=nvidia config_folder=config"
+                            )
+                            client_compose_content["services"]["fl_client"]["command"] = cmd.split()
+
                             if overseer_url:
                                 # Parse IP from https://IP:PORT or http://IP:PORT
-                                # Split by :// to get IP:PORT, then split by : to get IP
                                 server_ip = overseer_url.split("://")[-1].split(":")[0]
                                 if server_ip and server_ip != "overseer":
                                     client_compose_content["services"]["fl_client"]["extra_hosts"] = [
                                         f"server:{server_ip}",
                                         f"overseer:{server_ip}"
                                     ]
-                        except Exception:
-                            log.network.warning("Could not extract Server IP for extra_hosts configuration.")
+                        except Exception as e:
+                            log.network.warning(f"Error configuring client compose: {e}")
 
                         with open(compose_path, "w") as f:
                             yaml.dump(client_compose_content, f)
