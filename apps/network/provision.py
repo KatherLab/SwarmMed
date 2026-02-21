@@ -111,16 +111,19 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
 
     # 2. Define Network Participants
     # Every network needs an overseer and an admin account
-    participants = [
-        {
-            "name": "overseer",
-            "type": "overseer",
-            "org": "nvidia",
-            "protocol": "https",
-            "api_root": "/api/v1",
-            "port": 8443,
-        }
-    ]
+    overseer_participant = {
+        "name": "overseer",
+        "type": "overseer",
+        "org": "nvidia",
+        "protocol": "https",
+        "api_root": "/api/v1",
+        "port": 8443,
+    }
+    if server_ip and is_valid_ip(server_ip):
+        # Ensure generated endpoints use the server's reachable IP.
+        overseer_participant["listening_host"] = server_ip
+
+    participants = [overseer_participant]
 
     # Add the central FL server
     participants.append(
