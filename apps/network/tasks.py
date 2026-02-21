@@ -137,6 +137,13 @@ def start_swarm_network_task(network_id, user_id):
                             # Allow relative paths starting with ./ or just file names
                             # Deny absolute paths and paths going up too far
                             if host_path.startswith("/") or ".." in host_path:
+                                # Allow paths that are within the project root (e.g. modified by previous run)
+                                allowed_root = os.getenv(
+                                    "HOST_PROJECT_PATH", str(settings.BASE_DIR)
+                                )
+                                if host_path.startswith(allowed_root):
+                                    continue
+
                                 if not any(
                                     host_path.startswith(allowed)
                                     for allowed in [
