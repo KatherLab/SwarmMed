@@ -195,7 +195,7 @@ def create_startup_kits_zip(swarm_network):
 
     # The path where NVFlare 'provision' command saves its outputs
     # We use Path for more robust path handling
-    workspaces_root = Path(os.getcwd()) / "workspaces"
+    workspaces_root = Path(settings.BASE_DIR) / "workspaces"
     base_prod_path = (
         workspaces_root
         / str(swarm_network.project.identifier)
@@ -208,6 +208,10 @@ def create_startup_kits_zip(swarm_network):
     zip_buffer = io.BytesIO()
 
     if not base_prod_path.exists():
+        # Log this event as it might indicate a provisioning failure
+        # or a path mismatch.
+        # Ideally we should use the logger here if available, but utils
+        # are often standalone. We'll rely on the view to handle the empty buffer.
         return zip_buffer
 
     # Resolve to absolute path for strict boundary checking

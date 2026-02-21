@@ -319,9 +319,21 @@ def download_startup_kits(request, network_id):
     )
 
     zip_buffer = create_startup_kits_zip(swarm_network)
+    zip_content = zip_buffer.getvalue()
+
+    # Check if the zip is empty (0 bytes) or just an empty container (22 bytes)
+    if len(zip_content) <= 22:
+        log.network.warning(
+            f"Startup kit download failed for network '{swarm_network.name}': Empty zip file generated."
+        )
+        messages.error(
+            request,
+            "Startup kits not found. The network may not have been provisioned correctly.",
+        )
+        return redirect("network:network")
 
     response = HttpResponse(
-        zip_buffer.getvalue(), content_type="application/zip"
+        zip_content, content_type="application/zip"
     )
     filename = f"{swarm_network.name.replace(' ', '_')}_startup_kits.zip"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
