@@ -96,10 +96,11 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
             updated = template_text.replace(
                 "https://overseer:8443", f"https://{server_ip}:8443"
             )
+            updated = updated.replace("${SERVER_IP}", server_ip)
             if template_text != updated:
                 target_template.write_text(updated)
                 logger.network.info(
-                    f"Injected overseer endpoint https://{server_ip}:8443 into master template"
+                    f"Injected overseer endpoint and server IP {server_ip} into master template"
                 )
         except Exception as e:
             logger.network.warning(
@@ -297,8 +298,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
         logger.network.info("Provisioning completed successfully")
 
         if server_ip and is_valid_ip(server_ip):
-            # Post-process the generated compose.yaml to inject the server IP
-            # This ensures extra_hosts resolves correctly without client-side env vars
+            # Post-process only if compose exists (compose is not signed by NVFlare).
             base_prod_path = (
                 Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
             )
@@ -308,14 +308,33 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 try:
                     with open(compose_path, "r") as f:
                         content = f.read()
-                    
-                    # Replace the placeholder with the actual IP
+
+                    # Replace placeholder tokens if present; if already resolved, this is a no-op.
                     new_content = content.replace("${SERVER_IP}", server_ip)
-                    
-                    if content != new_content:
-                        with open(compose_path, "w") as f:
-                            f.write(new_content)
-                        logger.network.info(f"Injected Server IP {server_ip} into compose.yaml")
+
+                    # Parse YAML to ensure extra_hosts are present for clients (belt-and-suspenders).
+                    compose_data = yaml.safe_load(new_content) or {}
+                    services = compose_data.get("services", {})
+
+                    for svc_name, svc_conf in services.items():
+                        name_lower = str(svc_name).lower()
+                        if name_lower in {"__flclient__", "fl_client", "client", "flclient"}:
+                            extra_hosts = svc_conf.get("extra_hosts", []) or []
+                            host_entries = {
+                                f"overseer:{server_ip}",
+                                f"server:{server_ip}",
+                            }
+                            existing_set = set(extra_hosts)
+                            merged_hosts = list(existing_set.union(host_entries))
+                            svc_conf["extra_hosts"] = merged_hosts
+
+                    compose_data["services"] = services
+
+                    with open(compose_path, "w") as f:
+                        yaml.safe_dump(compose_data, f, default_flow_style=False)
+                    logger.network.info(
+                        f"Ensured compose.yaml has extra_hosts for overseer/server at {server_ip} (compose is unsigned)"
+                    )
                 except Exception as e:
                     logger.network.warning(f"Failed to update compose.yaml: {e}")
 
