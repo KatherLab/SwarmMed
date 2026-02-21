@@ -276,6 +276,29 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
 
         logger.network.info("Provisioning completed successfully")
 
+        if server_ip and is_valid_ip(server_ip):
+            # Post-process the generated compose.yaml to inject the server IP
+            # This ensures extra_hosts resolves correctly without client-side env vars
+            base_prod_path = (
+                Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
+            )
+            compose_path = base_prod_path / "compose.yaml"
+
+            if compose_path.exists():
+                try:
+                    with open(compose_path, "r") as f:
+                        content = f.read()
+                    
+                    # Replace the placeholder with the actual IP
+                    new_content = content.replace("${SERVER_IP}", server_ip)
+                    
+                    if content != new_content:
+                        with open(compose_path, "w") as f:
+                            f.write(new_content)
+                        logger.network.info(f"Injected Server IP {server_ip} into compose.yaml")
+                except Exception as e:
+                    logger.network.warning(f"Failed to update compose.yaml: {e}")
+
         # Update network status in the database
         network.status = "PROVISIONED"
         network.save()
