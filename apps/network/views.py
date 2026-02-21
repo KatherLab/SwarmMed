@@ -344,12 +344,23 @@ def new_network(request):
                             
                             # Use direct python command to avoid start.sh zombie issues and capture logs
                             # We hardcode org=nvidia as per provision.py
-                            cmd = (
+                            # Wrap in sh -c to capture output to file AND stdout
+                            python_cmd = (
                                 f"python3 -u -m nvflare.private.fed.app.client.client_train "
                                 f"-m /workspace -s fed_client.json "
                                 f"--set secure_train=true uid={client_name} org=nvidia config_folder=config"
                             )
-                            client_compose_content["services"]["fl_client"]["command"] = cmd.split()
+                            
+                            client_compose_content["services"]["fl_client"]["command"] = [
+                                "/bin/sh", 
+                                "-c", 
+                                f"{python_cmd} 2>&1 | tee /workspace/docker_startup_log.txt"
+                            ]
+                            
+                            # Add PYTHONPATH as per sub_start.sh
+                            client_compose_content["services"]["fl_client"]["environment"] = {
+                                "PYTHONPATH": "/local/custom"
+                            }
 
                             if overseer_url:
                                 # Parse IP from https://IP:PORT or http://IP:PORT
