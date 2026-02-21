@@ -337,10 +337,20 @@ def new_network(request):
                         client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.6.1"
                         
                         # Extract Client Name and Server IP
+                        server_ip = os.environ.get("SWARMCLOUD_OVERSEER_HOST", "").strip()
                         try:
                             overseer_agent_args = conf.get("overseer_agent", {}).get("args", {})
                             client_name = overseer_agent_args.get("name", "client")
                             overseer_url = overseer_agent_args.get("overseer_end_point", "")
+
+                            if not server_ip:
+                                host_file = os.path.join(startup_dir, "overseer_host.txt")
+                                if os.path.exists(host_file):
+                                    try:
+                                        with open(host_file, "r") as hf:
+                                            server_ip = hf.read().strip()
+                                    except Exception:
+                                        server_ip = ""
                             
                             # Use direct python command to avoid start.sh zombie issues and capture logs
                             # We hardcode org=nvidia as per provision.py
@@ -355,7 +365,7 @@ def new_network(request):
                                 "/bin/sh", 
                                 "-c", 
                                 f"echo 'Starting Client: {client_name}' > /workspace/docker_startup_log.txt && "
-                                f"echo 'Server IP: {server_ip}' >> /workspace/docker_startup_log.txt && "
+                                f"echo 'Server IP: {server_ip or 'unknown'}' >> /workspace/docker_startup_log.txt && "
                                 f"{python_cmd} 2>&1 | tee -a /workspace/docker_startup_log.txt"
                             ]
                             
@@ -367,14 +377,17 @@ def new_network(request):
                             client_compose_content["services"]["fl_client"]["tty"] = True
                             client_compose_content["services"]["fl_client"]["stdin_open"] = True
 
-                            if overseer_url:
+                            if not server_ip and overseer_url:
                                 # Parse IP from https://IP:PORT or http://IP:PORT
-                                server_ip = overseer_url.split("://")[-1].split(":")[0]
-                                if server_ip and server_ip != "overseer":
-                                    client_compose_content["services"]["fl_client"]["extra_hosts"] = [
-                                        f"server:{server_ip}",
-                                        f"overseer:{server_ip}"
-                                    ]
+                                parsed_host = overseer_url.split("://")[-1].split(":")[0]
+                                if parsed_host and parsed_host != "overseer":
+                                    server_ip = parsed_host
+
+                            if server_ip:
+                                client_compose_content["services"]["fl_client"]["extra_hosts"] = [
+                                    f"server:{server_ip}",
+                                    f"overseer:{server_ip}"
+                                ]
                         except Exception as e:
                             log.network.warning(f"Error configuring client compose: {e}")
 

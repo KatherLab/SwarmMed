@@ -347,6 +347,21 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 except Exception as e:
                     logger.network.warning(f"Failed to update compose.yaml: {e}")
 
+            # Write overseer host into client kits to help upload-side compose generation.
+            try:
+                for item in os.scandir(str(base_prod_path)):
+                    if not item.is_dir():
+                        continue
+                    if item.name in {"server", "overseer"} or "admin" in item.name:
+                        continue
+                    startup_dir = Path(item.path) / "startup"
+                    if startup_dir.exists():
+                        (startup_dir / "overseer_host.txt").write_text(server_ip)
+            except Exception as e:
+                logger.network.warning(
+                    f"Failed to write overseer_host.txt into client kits: {e}"
+                )
+
         # Update network status in the database
         network.status = "PROVISIONED"
         network.save()
