@@ -4,6 +4,7 @@ Handles the generation of project.yml and execution of 'nvflare provision'
 to create secure startup kits for federated learning participants.
 """
 
+import json
 import os
 import re
 import shutil
@@ -298,6 +299,33 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                         logger.network.info(f"Injected Server IP {server_ip} into compose.yaml")
                 except Exception as e:
                     logger.network.warning(f"Failed to update compose.yaml: {e}")
+
+            # Align overseer endpoints inside startup kits to the reachable IP
+            for participant_dir in base_prod_path.iterdir():
+                startup_dir = participant_dir / "startup"
+                if not startup_dir.is_dir():
+                    continue
+
+                for cfg_name in ["fed_client.json", "fed_server.json"]:
+                    cfg_path = startup_dir / cfg_name
+                    if not cfg_path.exists():
+                        continue
+                    try:
+                        with open(cfg_path, "r") as f:
+                            cfg_data = json.load(f)
+
+                        agent_args = cfg_data.get("overseer_agent", {}).get("args", {})
+                        if agent_args:
+                            agent_args["overseer_end_point"] = f"https://{server_ip}:8443"
+                            cfg_data["overseer_agent"]["args"] = agent_args
+
+                            with open(cfg_path, "w") as f:
+                                json.dump(cfg_data, f, indent=2)
+                            logger.network.info(
+                                f"Updated overseer_end_point in {cfg_path.name} to https://{server_ip}:8443"
+                            )
+                    except Exception as e:
+                        logger.network.warning(f"Failed to update {cfg_path.name}: {e}")
 
         # Update network status in the database
         network.status = "PROVISIONED"
