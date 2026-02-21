@@ -252,13 +252,28 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
         ]
 
         # Execute the lighter tool to generate certificates and startup kits
-        subprocess.run(  # nosec B603
+        result = subprocess.run(  # nosec B603
             command,
             cwd=provision_dir,
             capture_output=True,
             text=True,
             check=True,
         )
+
+        # Verify the output directory was created
+        base_prod_path = (
+            Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
+        )
+
+        if not base_prod_path.exists():
+            logger.network.error(
+                f"Provisioning completed with exit code 0 but 'prod_00' is missing.\n"
+                f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+            )
+            network.status = "ERROR"
+            network.save()
+            return
+
         logger.network.info("Provisioning completed successfully")
 
         if server_ip and is_valid_ip(server_ip):
@@ -313,7 +328,9 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
         network.save()
 
     except subprocess.CalledProcessError as e:
-        logger.network.error(f"NVFlare provision failed: {e.stderr}")
+        logger.network.error(
+            f"NVFlare provision failed (Exit {e.returncode}):\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}"
+        )
         network.status = "ERROR"
         network.save()
     except Exception as e:
