@@ -176,9 +176,7 @@ def new_network(request):
                 try:
                     c_data = json.loads(c_json)
                     # Sanitize client name immediately
-                    safe_name = slugify(c_data.get("name", "client")).replace(
-                        "-", "_"
-                    )
+                    safe_name = slugify(c_data.get("name", "client"))
                     clients.append(
                         {"name": safe_name, "ip": c_data.get("ip", "")}
                     )
