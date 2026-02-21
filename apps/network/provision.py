@@ -94,6 +94,10 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
         try:
             template_text = target_template.read_text()
             updated = template_text.replace(
+                "https://overseer:8443/api/v1",
+                f"https://{server_ip}:8443/api/v1",
+            )
+            updated = updated.replace(
                 "https://overseer:8443", f"https://{server_ip}:8443"
             )
             updated = updated.replace("${SERVER_IP}", server_ip)
