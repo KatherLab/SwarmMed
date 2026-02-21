@@ -217,18 +217,36 @@ def start_swarm_network_task(network_id, user_id):
             raise subprocess.CalledProcessError(ret, "docker compose build")
 
         # 3. Start containers with live logging
-        logger.network.info("Starting Docker containers (detached)...")
+        # Determine which services to start:
+        # - If server/overseer are present, start ONLY them (Provisioner Node).
+        # - Otherwise, start everything (Client Node).
+        services_to_start = []
+        available_services = compose_content.get("services", {})
+
+        if "server" in available_services:
+            services_to_start.append("server")
+            if "overseer" in available_services:
+                services_to_start.append("overseer")
+
+        command = [
+            docker_path,
+            "compose",
+            "-p",
+            docker_project_name,
+            "-f",
+            "compose.yaml",
+            "up",
+            "-d",
+        ]
+        
+        if services_to_start:
+            command.extend(services_to_start)
+
+        logger.network.info(
+            f"Starting Docker containers (detached): {services_to_start or 'ALL'}..."
+        )
         ret = run_and_log_subprocess(
-            [
-                docker_path,
-                "compose",
-                "-p",
-                docker_project_name,
-                "-f",
-                "compose.yaml",
-                "up",
-                "-d",
-            ],
+            command,
             cwd=compose_dir,
             env=env,
             logger=logger,
