@@ -6,6 +6,7 @@ deployment (start/stop), status monitoring, and startup kit distribution.
 
 import json
 import os
+import shutil
 import zipfile
 
 import yaml
