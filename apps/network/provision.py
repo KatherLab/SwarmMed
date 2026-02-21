@@ -124,7 +124,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
         # Real deployment: add specific clients provided by the user (with IPs)
         for client in clients:
             # Sanitize client name for safety
-            safe_client_name = slugify(client["name"]).replace("-", "_")
+            safe_client_name = slugify(client["name"])
             ip = client.get("ip", "")
             if not is_valid_ip(ip):
                 logger.network.warning(
