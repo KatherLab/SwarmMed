@@ -254,6 +254,86 @@ def new_network(request):
                             continue
                         zip_ref.extract(member, provision_dir)
 
+                # Post-Extraction: Check for compose.yaml and generate if missing (Client Node case)
+                # Client zips only contain: startup/, local/, transfer/, etc.
+                # They lack the 'workspace/project/prod_00' structure and 'compose.yaml'.
+                
+                # We need to construct the expected path for start_swarm_network_task:
+                # provision_dir/workspace/project_name/prod_00/compose.yaml
+                
+                project_name = slugify(project.title).replace("-", "_")
+                prod_00_dir = os.path.join(
+                    provision_dir, "workspace", project_name, "prod_00"
+                )
+                
+                # If the upload was a flat client zip, the files are in provision_dir root or subfolder.
+                # We need to move them to the expected structure or adjust the structure.
+                # Heuristic: Check if 'startup' folder exists in provision_dir
+                if os.path.exists(os.path.join(provision_dir, "startup")):
+                    # This is a client zip extracted to root. Move to prod_00.
+                    os.makedirs(prod_00_dir, exist_ok=True)
+                    for item in os.listdir(provision_dir):
+                        if item == "workspaces": continue # Don't move the parent if recursive
+                        src = os.path.join(provision_dir, item)
+                        dst = os.path.join(prod_00_dir, item)
+                        # Avoid moving the target dir into itself
+                        if os.path.abspath(src) == os.path.abspath(os.path.join(provision_dir, "workspace")):
+                            continue
+                        shutil.move(src, dst)
+                        
+                compose_path = os.path.join(prod_00_dir, "compose.yaml")
+                
+                if not os.path.exists(compose_path):
+                    log.network.info("Compose file missing in upload. Generating client compose file.")
+                    # Detect participant name from fed_client.json or similar
+                    participant_id = "client" # Fallback
+                    startup_dir = os.path.join(prod_00_dir, "startup")
+                    if os.path.exists(os.path.join(startup_dir, "fed_client.json")):
+                        # It's a client
+                        try:
+                            with open(os.path.join(startup_dir, "fed_client.json")) as f:
+                                conf = json.load(f)
+                                # Try to find name in config (usually hidden in uid or similar, but often filename is better)
+                                # Defaulting to 'fl_client' service name
+                                pass
+                        except Exception:
+                            pass
+                        
+                        # Generate simple compose.yaml for client
+                        # We use the same image as the project (python:3.12-slim + requirements)
+                        # But simpler: just run the start.sh
+                        
+                        client_compose_content = {
+                            "services": {
+                                "fl_client": {
+                                    "image": "python:3.12-slim", # Should match provision.py builder or custom image
+                                    "volumes": [
+                                        # Mount the prod_00 directory to /workspace
+                                        f"./:{'/workspace'}"
+                                    ],
+                                    "working_dir": "/workspace/startup",
+                                    "command": "/bin/bash start.sh",
+                                    "restart": "always",
+                                    "network_mode": "host" # Simplifies communication for clients
+                                }
+                            }
+                        }
+                        
+                        # We need to install requirements first? 
+                        # The start.sh usually assumes environment is ready.
+                        # Ideally we should use the same builder logic as provision.py
+                        # For now, we assume the user will have a proper environment or we use a standard image.
+                        # NVFlare docker image is better: nvflare/nvflare
+                        
+                        client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.6.1"
+                        
+                        with open(compose_path, "w") as f:
+                            yaml.dump(client_compose_content, f)
+                            
+                    elif os.path.exists(os.path.join(startup_dir, "fed_server.json")):
+                         # It's a server (if they uploaded a server kit manually)
+                         pass
+
                 swarm_network.status = "PROVISIONED"
                 swarm_network.save()
                 log.network.info(
