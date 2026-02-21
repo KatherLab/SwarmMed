@@ -177,6 +177,7 @@ def start_swarm_network_task(network_id, user_id):
                 "./server": os.path.join(host_dir, "server"),
                 "./overseer": os.path.join(host_dir, "overseer"),
                 "./nvflare": os.path.join(host_dir, "nvflare"),
+                "./:": f"{host_dir}:",
             }
             for old, new in mappings.items():
                 content = content.replace(old, new)
@@ -329,8 +330,8 @@ def run_nvflare_preflight_check(network_id, user_id):
         )
 
         if not os.path.exists(admin_startup_dir):
-            logger.network.error(
-                "Preflight failed: Admin startup kit not found."
+            logger.network.info(
+                "Skipping Preflight Check: Admin startup kit not found (Expected for Client Nodes)."
             )
             return
 
