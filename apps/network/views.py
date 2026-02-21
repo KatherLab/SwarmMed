@@ -289,6 +289,13 @@ def new_network(request):
                     # Detect participant name from fed_client.json or similar
                     participant_id = "client" # Fallback
                     startup_dir = os.path.join(prod_00_dir, "startup")
+                    
+                    # Ensure startup scripts are executable
+                    for script_name in ["start.sh", "sub_start.sh", "stop_fl.sh"]:
+                        script_path = os.path.join(startup_dir, script_name)
+                        if os.path.exists(script_path):
+                            os.chmod(script_path, 0o755)
+
                     if os.path.exists(os.path.join(startup_dir, "fed_client.json")):
                         # It's a client
                         try:
