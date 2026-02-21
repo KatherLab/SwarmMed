@@ -770,6 +770,9 @@ docker_adm_sh: |
       image: ${IMAGE_NAME}
       volumes:
         - ./fl-client:/workspace
+      extra_hosts:
+        - "overseer:${SERVER_IP}"
+        - "server:${SERVER_IP}"
       deploy:
         resources:
           reservations:
