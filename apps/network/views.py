@@ -313,7 +313,8 @@ def new_network(request):
                                         f"./:{'/workspace'}"
                                     ],
                                     "working_dir": "/workspace/startup",
-                                    "command": "/bin/bash start.sh",
+                                    # Keep container alive by tailing /dev/null, as start.sh runs in background
+                                    "command": '/bin/bash -c "./start.sh && tail -f /dev/null"',
                                     "restart": "always",
                                     "network_mode": "host" # Simplifies communication for clients
                                 }
