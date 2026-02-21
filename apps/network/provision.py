@@ -121,6 +121,8 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
     }
     if server_ip and is_valid_ip(server_ip):
         # Ensure generated endpoints use the server's reachable IP.
+        # NVFlare uses different keys depending on participant type.
+        overseer_participant["host"] = server_ip
         overseer_participant["listening_host"] = server_ip
 
     participants = [overseer_participant]
