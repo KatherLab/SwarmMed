@@ -283,6 +283,13 @@ def new_network(request):
                         shutil.move(src, dst)
                         
                 compose_path = os.path.join(prod_00_dir, "compose.yaml")
+
+                admin_startup_dir = os.path.join(prod_00_dir, "admin_startup")
+                if os.path.exists(admin_startup_dir):
+                    swarm_network.admin_startup_dir = os.path.abspath(
+                        admin_startup_dir
+                    )
+                    swarm_network.save(update_fields=["admin_startup_dir"])
                 
                 if not os.path.exists(compose_path):
                     log.network.info("Compose file missing in upload. Generating client compose file.")

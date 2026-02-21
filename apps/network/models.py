@@ -58,6 +58,13 @@ class SwarmNetwork(AbstractBaseModel):
         db_index=True,
     )
 
+    # Optional path to admin startup kit for decentralized NVFlare polling
+    admin_startup_dir = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+    )
+
     def __str__(self):
         """Returns a string representation of the network."""
         return f"{self.name} for Project {self.project.title}"

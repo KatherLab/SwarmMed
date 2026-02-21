@@ -27,6 +27,158 @@ from .utils import download_s3_folder
 logger = get_logger()
 
 
+def _build_training_status_payload(current_network, job):
+    if not job:
+        return {
+            "status": "idle",
+            "progress": 0,
+            "duration": "-",
+            "eta": "-",
+            "job_id": None,
+            "created_at": timezone.now().isoformat(),
+        }
+
+    info = get_training_progress_info(job, current_network)
+    return {
+        "status": info["status"],
+        "progress": info["progress"],
+        "duration": info["duration"],
+        "eta": info["eta"],
+        "job_id": job.flare_job_id,
+        "created_at": timezone.now().isoformat(),
+    }
+
+
+def _resolve_admin_startup_dir(current_network) -> str | None:
+    if current_network.admin_startup_dir and os.path.exists(
+        current_network.admin_startup_dir
+    ):
+        return current_network.admin_startup_dir
+
+    override = os.environ.get("SWARMCLOUD_NVFLARE_ADMIN_DIR", "").strip()
+    if override and os.path.exists(override):
+        return override
+
+    project_name = get_safe_slug(
+        current_network.project.title, current_network.project.identifier
+    ).replace("-", "_")
+    admin_user_dir = os.path.join(
+        "workspaces",
+        str(current_network.project.identifier),
+        str(current_network.identifier),
+        "workspace",
+        project_name,
+        "prod_00",
+        "admin@nvidia.com",
+        "startup",
+    )
+    if os.path.exists(admin_user_dir):
+        return admin_user_dir
+    return None
+
+
+def _parse_nvflare_jobs(response):
+    if isinstance(response, dict):
+        if "jobs" in response and isinstance(response["jobs"], list):
+            return response["jobs"]
+        if "data" in response and isinstance(response["data"], list):
+            return response["data"]
+        if "job_id" in response:
+            return [response]
+    if isinstance(response, list):
+        return response
+
+    text = str(response or "")
+    jobs = []
+    uuid_re = re.compile(r"([0-9a-f-]{36})")
+    status_re = re.compile(r"\b(RUNNING|COMPLETED|FAILED|STOPPED)\b", re.I)
+    for line in text.splitlines():
+        uid_match = uuid_re.search(line)
+        status_match = status_re.search(line)
+        if uid_match:
+            jobs.append(
+                {
+                    "job_id": uid_match.group(1),
+                    "status": status_match.group(1).upper()
+                    if status_match
+                    else "UNKNOWN",
+                }
+            )
+    return jobs
+
+
+def _select_nvflare_job(jobs):
+    if not jobs:
+        return None
+
+    def status_of(job):
+        return (
+            str(
+                job.get("status")
+                or job.get("job_status")
+                or job.get("state")
+                or ""
+            )
+            .upper()
+            .strip()
+        )
+
+    running = [j for j in jobs if status_of(j) == "RUNNING"]
+    if running:
+        return running[0]
+    return jobs[0]
+
+
+def _nvflare_status_payload(current_network):
+    admin_dir = _resolve_admin_startup_dir(current_network)
+    if not admin_dir:
+        return None
+
+    try:
+        from nvflare.fuel.flare_api.flare_api import new_secure_session
+
+        sess = new_secure_session(
+            username="admin@nvidia.com", startup_kit_location=admin_dir
+        )
+        response = sess.api.do_command("list_jobs")
+        try:
+            sess.close()
+        except Exception:
+            pass
+
+        jobs = _parse_nvflare_jobs(response)
+        job = _select_nvflare_job(jobs)
+        if not job:
+            return None
+
+        status = (
+            str(
+                job.get("status")
+                or job.get("job_status")
+                or job.get("state")
+                or "UNKNOWN"
+            )
+            .upper()
+            .strip()
+        )
+        job_id = job.get("job_id") or job.get("id") or "unknown"
+
+        progress = 0
+        if status in {"COMPLETED", "STOPPED"}:
+            progress = 100
+
+        return {
+            "status": status.title(),
+            "progress": progress,
+            "duration": "-",
+            "eta": "-",
+            "job_id": job_id,
+            "created_at": timezone.now().isoformat(),
+        }
+    except Exception:
+        return None
+
+
 def _tail_text(file_path: str, max_bytes: int = 2048 * 1024) -> str:
     """Read up to the last max_bytes of a text file (decoded safely)."""
     try:
@@ -721,19 +873,20 @@ def training_status_api(request):
         .first()
     )
     if not job:
+        nvflare_status = _nvflare_status_payload(current_network)
+        if nvflare_status:
+            return JsonResponse(nvflare_status)
         return JsonResponse({"status": "idle"})
 
-    info = get_training_progress_info(job, current_network)
-    return JsonResponse(
-        {
-            "status": info["status"],
-            "progress": info["progress"],
-            "duration": info["duration"],
-            "eta": info["eta"],
-            "job_id": job.flare_job_id,
-            "created_at": timezone.now().isoformat(),
-        }
-    )
+    payload = _build_training_status_payload(current_network, job)
+    if payload.get("status", "").lower() in {"idle", "no_network"}:
+        nvflare_status = _nvflare_status_payload(current_network)
+        if nvflare_status:
+            return JsonResponse(nvflare_status)
+
+    return JsonResponse(payload)
+
+
 
 
 @login_required
@@ -832,3 +985,5 @@ def training_logs_api(request):
     except Exception as e:
         logger.training.debug(f"Error in training_logs_api: {e}")
     return JsonResponse({"logs": logs})
+
+

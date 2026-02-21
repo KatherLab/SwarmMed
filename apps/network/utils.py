@@ -217,6 +217,10 @@ def create_startup_kits_zip(swarm_network):
     # Resolve to absolute path for strict boundary checking
     abs_base_prod_path = base_prod_path.resolve()
 
+    admin_startup_dir = (
+        abs_base_prod_path / "admin@nvidia.com" / "startup"
+    )
+
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # NVFlare creates a directory for each participant
         for item in os.scandir(str(abs_base_prod_path)):
@@ -251,6 +255,22 @@ def create_startup_kits_zip(swarm_network):
                             # Relative path inside the client-specific zip
                             arcname = file_path.relative_to(client_dir)
                             client_zip.write(str(file_path), str(arcname))
+
+                    if admin_startup_dir.exists():
+                        for root, _, files in os.walk(
+                            str(admin_startup_dir), followlinks=False
+                        ):
+                            for file in files:
+                                file_path = Path(root) / file
+                                if not file_path.resolve().is_relative_to(
+                                    admin_startup_dir
+                                ):
+                                    continue
+
+                                arcname = Path("admin_startup") / file_path.relative_to(
+                                    admin_startup_dir
+                                )
+                                client_zip.write(str(file_path), str(arcname))
 
                 # Add the client's zip file into the main zip buffer
                 main_zip.writestr(
