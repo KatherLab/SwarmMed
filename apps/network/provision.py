@@ -87,6 +87,25 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
         return
 
     shutil.copyfile(str(repo_template), str(target_template))
+
+    # If a server IP is provided, inject it into the template before provisioning
+    # so that generated config files remain signed/secure.
+    if server_ip and is_valid_ip(server_ip):
+        try:
+            template_text = target_template.read_text()
+            updated = template_text.replace(
+                "https://overseer:8443", f"https://{server_ip}:8443"
+            )
+            if template_text != updated:
+                target_template.write_text(updated)
+                logger.network.info(
+                    f"Injected overseer endpoint https://{server_ip}:8443 into master template"
+                )
+        except Exception as e:
+            logger.network.warning(
+                f"Failed to inject overseer IP into template: {e}"
+            )
+
     abs_template_path = str(target_template.resolve())
 
     # 2. Define Network Participants
@@ -299,33 +318,6 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                         logger.network.info(f"Injected Server IP {server_ip} into compose.yaml")
                 except Exception as e:
                     logger.network.warning(f"Failed to update compose.yaml: {e}")
-
-            # Align overseer endpoints inside startup kits to the reachable IP
-            for participant_dir in base_prod_path.iterdir():
-                startup_dir = participant_dir / "startup"
-                if not startup_dir.is_dir():
-                    continue
-
-                for cfg_name in ["fed_client.json", "fed_server.json"]:
-                    cfg_path = startup_dir / cfg_name
-                    if not cfg_path.exists():
-                        continue
-                    try:
-                        with open(cfg_path, "r") as f:
-                            cfg_data = json.load(f)
-
-                        agent_args = cfg_data.get("overseer_agent", {}).get("args", {})
-                        if agent_args:
-                            agent_args["overseer_end_point"] = f"https://{server_ip}:8443"
-                            cfg_data["overseer_agent"]["args"] = agent_args
-
-                            with open(cfg_path, "w") as f:
-                                json.dump(cfg_data, f, indent=2)
-                            logger.network.info(
-                                f"Updated overseer_end_point in {cfg_path.name} to https://{server_ip}:8443"
-                            )
-                    except Exception as e:
-                        logger.network.warning(f"Failed to update {cfg_path.name}: {e}")
 
         # Update network status in the database
         network.status = "PROVISIONED"
