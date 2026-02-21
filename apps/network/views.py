@@ -224,7 +224,7 @@ def new_network(request):
 
                 log.network.info(
                     f"User uploading startup kit for network '{network_name}'.",
-                    filename=startup_package.name,
+                    uploaded_filename=startup_package.name,
                 )
 
                 # Extract the uploaded zip file into the project workspace securely
