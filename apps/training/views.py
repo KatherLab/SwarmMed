@@ -237,10 +237,62 @@ def _new_secure_session_robust(username: str, startup_kit_location: str):
 
 def _parse_nvflare_jobs(response):
     if isinstance(response, dict):
+        meta = response.get("meta")
+        if isinstance(meta, dict):
+            meta_jobs = meta.get("jobs")
+            if isinstance(meta_jobs, list) and meta_jobs:
+                normalized = []
+                for job in meta_jobs:
+                    if not isinstance(job, dict):
+                        continue
+                    normalized.append(
+                        {
+                            "job_id": str(
+                                job.get("job_id")
+                                or job.get("id")
+                                or "unknown"
+                            ),
+                            "status": str(
+                                job.get("status")
+                                or job.get("job_status")
+                                or job.get("state")
+                                or "UNKNOWN"
+                            )
+                            .upper()
+                            .strip(),
+                            "submit_time": job.get("submit_time"),
+                            "job_name": job.get("job_name")
+                            or job.get("name"),
+                        }
+                    )
+                if normalized:
+                    return normalized
+
         if "jobs" in response and isinstance(response["jobs"], list):
             return response["jobs"]
         if "data" in response and isinstance(response["data"], list):
-            return response["data"]
+            table_jobs = []
+            for entry in response["data"]:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("type") != "table":
+                    continue
+                rows = entry.get("rows")
+                if not isinstance(rows, list) or len(rows) < 2:
+                    continue
+                for row in rows[1:]:
+                    if not isinstance(row, list) or len(row) < 3:
+                        continue
+                    table_jobs.append(
+                        {
+                            "job_id": str(row[0]),
+                            "job_name": str(row[1]),
+                            "status": str(row[2]).upper().strip(),
+                            "submit_time": row[3] if len(row) > 3 else None,
+                        }
+                    )
+            if table_jobs:
+                return table_jobs
         if "job_id" in response:
             return [response]
     if isinstance(response, list):
@@ -308,10 +360,11 @@ def _select_nvflare_job(jobs):
             .strip()
         )
 
-    running = [j for j in jobs if status_of(j) == "RUNNING"]
-    if running:
-        return running[0]
-    return jobs[0]
+    active_statuses = {"RUNNING", "SUBMITTED", "DISPATCHED"}
+    active_jobs = [j for j in jobs if status_of(j) in active_statuses]
+    if active_jobs:
+        return active_jobs[-1]
+    return jobs[-1]
 
 
 def _nvflare_status_payload(current_network):
@@ -363,6 +416,8 @@ def _nvflare_status_payload(current_network):
         progress = 0
         if status in {"COMPLETED", "STOPPED"}:
             progress = 100
+        elif status in {"RUNNING", "SUBMITTED", "DISPATCHED"}:
+            progress = 5
 
         return {
             "status": status.title(),
@@ -1104,6 +1159,8 @@ def training_status_api(request):
     if nvflare_status and nvflare_status.get("job_id"):
         status_map = {
             "RUNNING": "RUNNING",
+            "SUBMITTED": "RUNNING",
+            "DISPATCHED": "RUNNING",
             "COMPLETED": "COMPLETED",
             "STOPPED": "STOPPED",
             "FAILED": "FAILED",
