@@ -13,7 +13,7 @@ SECRETS_DIRS := .secrets/certs .secrets/docker .secrets/pgbouncer
 
 .PHONY: help check-uv install-python install deinstall deinstall-docker env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-celery migrate shell test superuser tailscale
 
-MAIN_TARGETS := start stop restart logs  migrate shell test superuser docs-serve docs-build venv
+MAIN_TARGETS := start stop restart logs  migrate shell test superuser docs-serve docs-build venv deinstall
 
 help: ## Show available targets
 	@echo "✨ Main targets:"
