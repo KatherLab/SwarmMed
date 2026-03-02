@@ -226,23 +226,32 @@ def start_swarm_network_task(network_id, user_id):
 
         # 3. Start containers with live logging
         # Determine which services to start:
-        # - If server-like/overseer services are present, start ONLY them (Provisioner Node).
-        # - Otherwise, start everything (Client Node).
+        # - In local test mode, start ALL services from compose.yaml.
+        # - Otherwise, if server-like/overseer services are present, start ONLY them (Provisioner Node).
+        # - If no server-like services are present, start everything (Client Node).
         services_to_start = []
         available_services = compose_content.get("services", {})
 
-        server_like_services = sorted(
-            [
-                service_name
-                for service_name in available_services.keys()
-                if str(service_name) == "server"
-                or str(service_name).startswith("server-")
-            ]
+        local_test_mode = (
+            os.getenv("SWARMCLOUD_LOCAL_TEST_MODE", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
         )
-        if server_like_services:
-            services_to_start.extend(server_like_services)
-            if "overseer" in available_services:
-                services_to_start.append("overseer")
+
+        if not local_test_mode:
+            server_like_services = sorted(
+                [
+                    service_name
+                    for service_name in available_services.keys()
+                    if str(service_name) == "server"
+                    or str(service_name).startswith("server-")
+                ]
+            )
+            if server_like_services:
+                services_to_start.extend(server_like_services)
+                if "overseer" in available_services:
+                    services_to_start.append("overseer")
 
         command = [
             docker_path,
@@ -259,7 +268,8 @@ def start_swarm_network_task(network_id, user_id):
             command.extend(services_to_start)
 
         logger.network.info(
-            f"Starting Docker containers (detached): {services_to_start or 'ALL'}..."
+            f"Starting Docker containers (detached): {services_to_start or 'ALL'} "
+            f"(local_test_mode={local_test_mode})..."
         )
         ret = run_and_log_subprocess(
             command,
