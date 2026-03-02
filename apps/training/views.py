@@ -123,6 +123,29 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
     return (admin_name, session_dir)
 
 
+def _normalize_startup_kit_location(path: str) -> str | None:
+    if not path:
+        return None
+
+    candidate = os.path.abspath(path).rstrip(os.sep)
+    if not os.path.isdir(candidate):
+        return None
+
+    if os.path.basename(candidate) == "startup":
+        parent = os.path.dirname(candidate)
+        if os.path.isdir(os.path.join(parent, "startup")):
+            return parent
+
+    if os.path.isdir(os.path.join(candidate, "startup")):
+        return candidate
+
+    parent = os.path.dirname(candidate)
+    if os.path.isdir(os.path.join(parent, "startup")):
+        return parent
+
+    return None
+
+
 def _parse_nvflare_jobs(response):
     if isinstance(response, dict):
         if "jobs" in response and isinstance(response["jobs"], list):
@@ -634,6 +657,13 @@ def start_training(request, network_id):
         return redirect("training:training")
 
     admin_username, admin_session_dir = admin_target
+    admin_session_dir = _normalize_startup_kit_location(admin_session_dir)
+    if not admin_session_dir:
+        messages.error(
+            request,
+            "Admin startup kit path is invalid. Please re-provision or upload a complete startup package.",
+        )
+        return redirect("training:training")
 
     app_server_dir = os.path.join(job_dir, "app_server")
     app_client_dir = os.path.join(job_dir, "app_client")
@@ -820,10 +850,29 @@ def start_training(request, network_id):
             except OSError:
                 time.sleep(1)
 
-        sess = new_secure_session(
-            username=admin_username,
-            startup_kit_location=admin_session_dir,
-        )
+        try:
+            sess = new_secure_session(
+                username=admin_username,
+                startup_kit_location=admin_session_dir,
+            )
+        except Exception as sess_error:
+            err_text = str(sess_error)
+            retried = False
+            if "missing startup folder" in err_text:
+                fallback_dir = _normalize_startup_kit_location(
+                    os.path.dirname(admin_session_dir)
+                )
+                if fallback_dir and fallback_dir != admin_session_dir:
+                    admin_session_dir = fallback_dir
+                    retried = True
+
+            if retried:
+                sess = new_secure_session(
+                    username=admin_username,
+                    startup_kit_location=admin_session_dir,
+                )
+            else:
+                raise
         job_path_absolute = os.path.abspath(job_dir)
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
 
