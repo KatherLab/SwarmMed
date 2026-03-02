@@ -43,8 +43,13 @@ install: install-python ## Install project dependencies with uv
 
 deinstall: deinstall-docker ## Remove uv-managed environment, caches, and generated artifacts
 	@echo "🧹 Tearing down uv environment, caches, and generated artifacts"
-	@rm -rf .venv .cache/uv
-	@rm -rf .secrets/certs .secrets/docker .secrets/pgbouncer staticfiles _build tmp workspaces || true
+	@rm -rf .venv .cache/uv staticfiles _build tmp workspaces || true
+	@rm -rf .secrets/certs .secrets/docker .secrets/pgbouncer 2>/dev/null || true
+	@if [ -d ".secrets/certs" ] || [ -d ".secrets/docker" ] || [ -d ".secrets/pgbouncer" ]; then \
+		echo "🔐 Retrying secret cleanup via Docker (root-owned files detected)"; \
+		docker run --rm -v "$$(pwd)/.secrets:/secrets" alpine:3 sh -c 'rm -rf /secrets/certs /secrets/docker /secrets/pgbouncer' || true; \
+		rm -rf .secrets/certs .secrets/docker .secrets/pgbouncer || true; \
+	fi
 
 deinstall-docker: ## Stop SwarmCloud compose stack, drops volumes, and prunes build caches
 	@echo "🧽 Stopping SwarmCloud containers and removing volumes/build caches"
