@@ -4,6 +4,7 @@ import re
 import shutil
 import socket
 import time
+import traceback
 
 from common.utils import get_safe_slug
 from django.conf import settings
@@ -146,6 +147,36 @@ def _normalize_startup_kit_location(path: str) -> str | None:
     return None
 
 
+def _startup_kit_debug_snapshot(path: str) -> dict:
+    if not path:
+        return {"path": path, "error": "empty path"}
+
+    abs_path = os.path.abspath(path)
+    parent = os.path.dirname(abs_path)
+    result = {
+        "path": path,
+        "abs_path": abs_path,
+        "cwd": os.getcwd(),
+        "exists": os.path.exists(abs_path),
+        "is_dir": os.path.isdir(abs_path),
+        "basename": os.path.basename(abs_path),
+        "has_startup_child": os.path.isdir(os.path.join(abs_path, "startup")),
+        "parent": parent,
+        "parent_exists": os.path.exists(parent),
+        "parent_has_startup_child": os.path.isdir(
+            os.path.join(parent, "startup")
+        ),
+    }
+
+    if result["is_dir"]:
+        try:
+            result["entries"] = sorted(os.listdir(abs_path))[:20]
+        except Exception as e:
+            result["entries_error"] = str(e)
+
+    return result
+
+
 def _new_secure_session_robust(username: str, startup_kit_location: str):
     from nvflare.fuel.flare_api.flare_api import new_secure_session
 
@@ -170,21 +201,41 @@ def _new_secure_session_robust(username: str, startup_kit_location: str):
         if parent_norm and parent_norm not in candidates:
             candidates.append(parent_norm)
 
+    logger.training.info(
+        "NVFLARE_DEBUG_V2 session init: username=%s startup_kit_location=%s candidates=%s",
+        username,
+        startup_kit_location,
+        candidates,
+    )
+
     last_error = None
+    attempt_errors: dict[str, str] = {}
     for location in candidates:
         try:
+            logger.training.info(
+                "NVFLARE_DEBUG_V2 trying candidate: %s snapshot=%s",
+                location,
+                _startup_kit_debug_snapshot(location),
+            )
             return new_secure_session(
                 username=username,
                 startup_kit_location=location,
             )
         except Exception as e:
             last_error = e
+            attempt_errors[location] = str(e)
+            logger.training.error(
+                "NVFLARE_DEBUG_V2 candidate failed: %s error=%s",
+                location,
+                e,
+            )
 
     if last_error:
         raise RuntimeError(
             "Unable to create NVFlare secure session. "
             f"startup_kit_location={startup_kit_location!r}, "
-            f"candidates={candidates}, cwd={os.getcwd()}, last_error={last_error}"
+            f"candidates={candidates}, cwd={os.getcwd()}, "
+            f"attempt_errors={attempt_errors}, last_error={last_error}"
         ) from last_error
     raise RuntimeError("No valid startup kit location candidates were found")
 
@@ -890,9 +941,10 @@ def start_training(request, network_id):
                 time.sleep(1)
 
         log.training.info(
-            "Creating NVFlare session with startup kit at %s (cwd=%s)",
+            "Creating NVFlare session with startup kit at %s (cwd=%s) snapshot=%s",
             admin_session_dir,
             os.getcwd(),
+            _startup_kit_debug_snapshot(admin_session_dir),
         )
         sess = _new_secure_session_robust(
             username=admin_username,
@@ -917,7 +969,13 @@ def start_training(request, network_id):
         )
         messages.success(request, f"Successfully submitted job {job_id}")
     except Exception as e:
-        log.training.error(f"Submit job via FLARE API failed: {e}")
+        log.training.error(
+            "Submit job via FLARE API failed: %s | admin_session_dir=%s | session_snapshot=%s | traceback=%s",
+            e,
+            admin_session_dir,
+            _startup_kit_debug_snapshot(admin_session_dir),
+            traceback.format_exc(),
+        )
         TrainingJob.objects.create(
             project=project,
             network=network,
