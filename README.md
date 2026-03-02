@@ -40,7 +40,7 @@ make setup          # copy .env (if missing), run PgBouncer setup, and generate 
 make start          # build the Docker services and bring them up
 ```
 
-Use `make stop` to tear the stack down, `make compose-logs` to tail `swarmcloud`, and `make docs-serve`/`make docs-build` for MkDocs work.
+Use `make stop` to tear the stack down, `make logs` to tail `swarmcloud`, and `make docs-serve`/`make docs-build` for MkDocs work.
 
 ### 5. Cleanup targets
 
@@ -60,7 +60,7 @@ Use the Makefile to run documentation helpers (`make docs-serve`, `make docs-bui
 
 ### 4. Initialize Superuser
 ```bash
-make manage-superuser
+make superuser
 ```
 
 ---
@@ -128,5 +128,5 @@ sudo systemctl restart tailscaled
 
 ### Docker Logs
 ```bash
-make compose-logs
+make logs
 ```

@@ -11,12 +11,16 @@ SECRETS_DIRS := .secrets/certs .secrets/docker .secrets/pgbouncer
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-uv install-python install deinstall deinstall-docker env-setup setup-pgbouncer generate-certs setup start stop restart docs-deps docs-serve docs-build shell compose-build compose-up compose-down compose-down-v compose-logs sandbox-build sandbox-up sandbox-down restart-celery manage-migrate manage-shell manage-test manage-superuser
+.PHONY: help check-uv install-python install deinstall deinstall-docker env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-celery migrate shell test superuser tailscale
+
+MAIN_TARGETS := install setup start stop restart logs  migrate shell test superuser docs-serve docs-build venv
 
 help: ## Show available targets
-	@echo "✨ Available targets:"
-	@echo "🧭 Spin up any target to keep the swarm humming"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## ";} {printf "  %-20s %s\n", $$1, $$2}'
+	@echo "✨ Main targets:"
+	@for target in $(MAIN_TARGETS); do \
+		desc=$$(awk -F'## ' -v target="$$target" '$$0 ~ "^" target ":" {print $$2; exit}' $(MAKEFILE_LIST)); \
+		printf "  %-20s %s\n" "$$target" "$${desc:-no description}"; \
+	done
 
 check-uv: ## Ensure uv is installed before any uv commands run
 	@echo "🔍 Ensuring uv is present before we run anything"
@@ -32,7 +36,10 @@ install-python: check-uv ## Install a Python interpreter via uv
 
 install: install-python ## Install project dependencies with uv
 	@echo "🧰 Syncing project dependencies via uv pip"
-	@uv pip sync $(REQUIREMENTS)
+	@if [ ! -d ".venv" ]; then \
+		$(UV) venv; \
+	fi
+	@$(UV) pip sync $(REQUIREMENTS)
 
 deinstall: deinstall-docker ## Remove uv-managed environment, caches, and generated artifacts
 	@echo "🧹 Tearing down uv environment, caches, and generated artifacts"
@@ -58,7 +65,7 @@ env-setup: ## Create required secret folders and copy .env template if missing
 setup-pgbouncer: install ## Run the PgBouncer helper script
 	@echo "🧬 Launching PgBouncer helper for secrets"
 	@echo "Running scripts/setup_pgbouncer.py (optional)"
-	@uv run python scripts/setup_pgbouncer.py || true
+	@$(UV) run python scripts/setup_pgbouncer.py || true
 
 generate-certs: ## Generate TLS materials inside .secrets
 	@echo "🔐 Generating TLS certificates inside .secrets"
@@ -80,25 +87,25 @@ stop: ## Stop the Docker services
 restart: stop start ## Recreate the services
 	@echo "♻️ Restart sequence initiated"
 
-docs-deps: install ## Install MkDocs dependencies with uv
+docs-install: install ## Install MkDocs dependencies with uv
 	@echo "📚 Installing MkDocs dependencies"
-	@uv pip install mkdocs mkdocs-material
+	@$(UV) pip install mkdocs mkdocs-material
 
-docs-serve: docs-deps ## Serve the MkDocs documentation
+docs-serve: docs-install ## Serve the MkDocs documentation
 	@echo "🚀 Spinning up the MkDocs dev server"
-	@uv run mkdocs serve --dev-addr localhost:9999
+	@$(UV) run mkdocs serve --dev-addr localhost:9999
 
-docs-build: docs-deps ## Build the MkDocs documentation
+docs-build: docs-install ## Build the MkDocs documentation
 	@echo "📦 Building the MkDocs site"
-	@uv run mkdocs build -f $(MKDOCS_CONFIG) -d _build
+	@$(UV) run mkdocs build -f $(MKDOCS_CONFIG) -d _build
 
-shell: ## Print how to activate the uv-managed venv
-	@echo "👀 Inspecting the uv-managed virtual environment"
-	@if [ -d ".venv" ]; then \
-		echo "Source the uv environment with: source .venv/bin/activate"; \
-	else \
+venv: ## Start a shell inside the uv-managed venv
+	@if [ ! -d ".venv" ]; then \
 		echo "No .venv detected – run make install first"; \
+		exit 1; \
 	fi
+	@echo "👀 Launching shell inside .venv";
+	@exec $(SHELL) -c 'source .venv/bin/activate && exec $(SHELL) -i'
 
 compose-build: ## Build the Docker services
 	@echo "🧱 Building the Docker services"
@@ -112,7 +119,7 @@ compose-down: ## Stop the Docker services
 	@echo "🛑 Bringing down the Docker services"
 	@docker compose down --remove-orphans
 
-compose-logs: ## Follow the SwarmCloud application logs
+logs: ## Follow the SwarmCloud application logs
 	@echo "📜 Streaming swarmcloud logs"
 	@docker compose logs -f swarmcloud
 
@@ -124,19 +131,19 @@ restart-celery: ## Restart the Celery worker service
 	@echo "⚡ Restarting Celery worker"
 	@docker compose restart celery_worker
 
-manage-migrate: ## Run Django migrations inside the app container
+migrate: ## Run Django migrations inside the app container
 	@echo "🧱 Applying Django migrations"
 	@docker compose run --rm app python manage.py migrate
 
-manage-shell: ## Open a Django shell inside the app container
+shell: ## Open a Django shell inside the app container
 	@echo "🐚 Opening a Django shell session"
 	@docker compose run --rm app python manage.py shell
 
-manage-test: ## Run Django tests inside the app container
+test: ## Run Django tests inside the app container
 	@echo "🧪 Running Django test suite"
 	@docker compose run --rm app python manage.py test
 
-manage-superuser: ## Create a Django superuser inside the app container
+superuser: ## Create a Django superuser inside the app container
 	@echo "👑 Starting Django superuser flow"
 	@docker compose run --rm app python manage.py createsuperuser
 

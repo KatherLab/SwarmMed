@@ -27,12 +27,6 @@ Use the Makefile to provision uv and the locked dependencies into `.venv`:
 make install
 ```
 
-If you prefer to manage the Python tooling manually you can install uv and sync the requirements yourself:
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv pip sync requirements.txt
-```
-
 ### 2. Frontend Assets
 Install Node.js dependencies:
 ```bash
@@ -55,12 +49,12 @@ make start
 
 The `setup` target creates the secret folders, copies the template .env (only if it is missing), runs the PgBouncer helper, and generates TLS certificates needed for the services. `make start` builds and launches the Docker services in the right order.
 
-Use `make stop` to tear the stack down, and `make compose-logs` to follow the `swarmcloud` container logs.
+Use `make stop` to tear the stack down, and `make logs` to follow the `swarmcloud` container logs.
 
 ### 4. Django Initialization
 ```bash
-make manage-migrate        # runs migrations inside the app container
-make manage-shell          # opens an interactive Django shell (optional)
+make migrate        # runs migrations inside the app container
+make shell          # opens an interactive Django shell (optional)
 ```
 
 If you prefer running Django directly without containers, continue to use `python manage.py <command>` from your local virtual environment.

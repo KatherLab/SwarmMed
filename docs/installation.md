@@ -165,7 +165,7 @@ After the secrets and certificates are ready, start the platform with:
 make start
 ```
 
-`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `swarmcloud` logs with `make compose-logs`.
+`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `swarmcloud` logs with `make logs`.
 
 !!! tip "Manual Database Creation"
     If you see errors indicating that the `swarmcloud` database does not exist, you can create it manually while the containers are running:

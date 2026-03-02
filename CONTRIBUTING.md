@@ -25,8 +25,8 @@ This guide will help you get onboarded and explain how to contribute effectively
     - `make start` (builds the Docker services and brings the stack online)
     - Stop the stack when you are done: `make stop`
 6.  **Run migrations and start the server**:
-    - `make manage-migrate` to apply migrations inside the app container
-    - `make manage-shell` or `make manage-test` for interactive work or tests
+    - `make migrate` to apply migrations inside the app container
+    - `make shell` or `make test` for interactive work or tests
 
 If you want to work with Django directly (without Docker), continue using `python manage.py ...` as before.
 
