@@ -226,20 +226,19 @@ def start_swarm_network_task(network_id, user_id):
 
         # 3. Start containers with live logging
         # Determine which services to start:
-        # - In local test mode, start ALL services from compose.yaml.
-        # - Otherwise, if server-like/overseer services are present, start ONLY them (Provisioner Node).
-        # - If no server-like services are present, start everything (Client Node).
+        # - Default: start ALL services from compose.yaml (works for local testing out of the box).
+        # - Optional server-only mode: if explicitly enabled, start ONLY server-like + overseer.
         services_to_start = []
         available_services = compose_content.get("services", {})
 
-        local_test_mode = (
-            os.getenv("SWARMCLOUD_LOCAL_TEST_MODE", "")
+        server_only_mode = (
+            os.getenv("SWARMCLOUD_SERVER_ONLY_MODE", "")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
         )
 
-        if not local_test_mode:
+        if server_only_mode:
             server_like_services = sorted(
                 [
                     service_name
@@ -269,7 +268,7 @@ def start_swarm_network_task(network_id, user_id):
 
         logger.network.info(
             f"Starting Docker containers (detached): {services_to_start or 'ALL'} "
-            f"(local_test_mode={local_test_mode})..."
+            f"(server_only_mode={server_only_mode})..."
         )
         ret = run_and_log_subprocess(
             command,
