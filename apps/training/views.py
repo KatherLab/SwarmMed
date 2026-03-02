@@ -74,7 +74,42 @@ def _resolve_admin_startup_dir(current_network) -> str | None:
     )
     if os.path.exists(admin_user_dir):
         return admin_user_dir
+
+    prod_00_dir = os.path.join(
+        "workspaces",
+        str(current_network.project.identifier),
+        str(current_network.identifier),
+        "workspace",
+        project_name,
+        "prod_00",
+    )
+    if os.path.exists(prod_00_dir):
+        for item in sorted(os.listdir(prod_00_dir)):
+            if not item.startswith("admin-"):
+                continue
+            cand = os.path.join(prod_00_dir, item, "startup")
+            if os.path.exists(cand):
+                return cand
+
     return None
+
+
+def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
+    startup_dir = _resolve_admin_startup_dir(current_network)
+    if not startup_dir:
+        return None
+
+    admin_name = "admin@nvidia.com"
+    try:
+        admin_dir_name = os.path.basename(
+            os.path.dirname(startup_dir.rstrip(os.sep))
+        )
+        if admin_dir_name and "@" in admin_dir_name:
+            admin_name = admin_dir_name
+    except Exception:
+        admin_name = "admin@nvidia.com"
+
+    return (admin_name, startup_dir)
 
 
 def _parse_nvflare_jobs(response):
@@ -130,15 +165,16 @@ def _select_nvflare_job(jobs):
 
 
 def _nvflare_status_payload(current_network):
-    admin_dir = _resolve_admin_startup_dir(current_network)
-    if not admin_dir:
+    admin_target = _resolve_admin_session_target(current_network)
+    if not admin_target:
         return None
 
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
 
+        admin_name, admin_dir = admin_target
         sess = new_secure_session(
-            username="admin@nvidia.com", startup_kit_location=admin_dir
+            username=admin_name, startup_kit_location=admin_dir
         )
         response = sess.api.do_command("list_jobs")
         try:
@@ -578,15 +614,15 @@ def start_training(request, network_id):
     project_name = get_safe_slug(project.title, project.identifier).replace(
         "-", "_"
     )
-    admin_user_dir = os.path.join(
-        "workspaces",
-        str(project.identifier),
-        str(network.identifier),
-        "workspace",
-        project_name,
-        "prod_00",
-        "admin@nvidia.com",
-    )
+    admin_target = _resolve_admin_session_target(network)
+    if not admin_target:
+        messages.error(
+            request,
+            "No admin startup kit found for this center. Please re-provision or upload a complete startup package.",
+        )
+        return redirect("training:training")
+
+    admin_username, admin_startup_dir = admin_target
 
     app_server_dir = os.path.join(job_dir, "app_server")
     app_client_dir = os.path.join(job_dir, "app_client")
@@ -774,7 +810,8 @@ def start_training(request, network_id):
                 time.sleep(1)
 
         sess = new_secure_session(
-            username="admin@nvidia.com", startup_kit_location=admin_user_dir
+            username=admin_username,
+            startup_kit_location=admin_startup_dir,
         )
         job_path_absolute = os.path.abspath(job_dir)
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
@@ -823,21 +860,17 @@ def stop_training(request, network_id):
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
 
-        project_name = get_safe_slug(
-            job.project.title, job.project.identifier
-        ).replace("-", "_")
-        admin_user_dir = os.path.join(
-            "workspaces",
-            str(job.project.identifier),
-            str(network.identifier),
-            "workspace",
-            project_name,
-            "prod_00",
-            "admin@nvidia.com",
-            "startup",
-        )
+        admin_target = _resolve_admin_session_target(network)
+        if not admin_target:
+            messages.error(
+                request,
+                "No admin startup kit found for this center.",
+            )
+            return redirect("training:training")
+
+        admin_username, admin_user_dir = admin_target
         sess = new_secure_session(
-            username="admin@nvidia.com", startup_kit_location=admin_user_dir
+            username=admin_username, startup_kit_location=admin_user_dir
         )
         job_uuid = str(job.flare_job_id)
         match = re.search(r"([0-9a-f-]{36})", job_uuid)
@@ -872,17 +905,57 @@ def training_status_api(request):
         .order_by("-created_at")
         .first()
     )
+
+    nvflare_status = _nvflare_status_payload(current_network)
+    if nvflare_status and nvflare_status.get("job_id"):
+        status_map = {
+            "RUNNING": "RUNNING",
+            "COMPLETED": "COMPLETED",
+            "STOPPED": "STOPPED",
+            "FAILED": "FAILED",
+        }
+        status_key = str(nvflare_status.get("status", "")).upper().strip()
+        mapped_status = status_map.get(status_key)
+
+        if mapped_status:
+            mirror_job = (
+                TrainingJob.objects.filter(
+                    network=current_network,
+                    flare_job_id=str(nvflare_status.get("job_id")),
+                )
+                .order_by("-created_at")
+                .first()
+            )
+
+            if not mirror_job:
+                mirror_job = TrainingJob.objects.create(
+                    project=current_network.project,
+                    network=current_network,
+                    status=mapped_status,
+                    flare_job_id=str(nvflare_status.get("job_id")),
+                )
+            elif mirror_job.status != mapped_status:
+                mirror_job.status = mapped_status
+                if mapped_status in {"COMPLETED", "STOPPED", "FAILED"}:
+                    mirror_job.completed_at = timezone.now()
+                mirror_job.save(update_fields=["status", "completed_at"])
+
+            if not job or mirror_job.created_at >= job.created_at:
+                job = mirror_job
+
     if not job:
-        nvflare_status = _nvflare_status_payload(current_network)
         if nvflare_status:
             return JsonResponse(nvflare_status)
         return JsonResponse({"status": "idle"})
 
     payload = _build_training_status_payload(current_network, job)
-    if payload.get("status", "").lower() in {"idle", "no_network"}:
-        nvflare_status = _nvflare_status_payload(current_network)
-        if nvflare_status:
-            return JsonResponse(nvflare_status)
+
+    if nvflare_status:
+        payload["status"] = nvflare_status.get("status", payload["status"])
+        payload["job_id"] = nvflare_status.get("job_id", payload["job_id"])
+        nvflare_progress = nvflare_status.get("progress")
+        if isinstance(nvflare_progress, (int, float)) and payload["progress"] < int(nvflare_progress):
+            payload["progress"] = int(nvflare_progress)
 
     return JsonResponse(payload)
 

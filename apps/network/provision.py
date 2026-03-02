@@ -18,6 +18,7 @@ from django.utils.text import slugify
 from logs.logger import get_logger
 
 from .models import SwarmNetwork
+from .utils import get_hostname
 
 
 def is_valid_ip(ip):
@@ -115,10 +116,11 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
 
     # 2. Define Network Participants
     # Every network needs an overseer and an admin account
+    control_plane_org = "swarm_control_plane"
     overseer_participant = {
         "name": "overseer",
         "type": "overseer",
-        "org": "nvidia",
+        "org": control_plane_org,
         "protocol": "https",
         "api_root": "/api/v1",
         "port": 8443,
@@ -131,18 +133,22 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
 
     participants = [overseer_participant]
 
-    # Add the central FL server
-    participants.append(
-        {
-            "name": "server",
-            "type": "server",
-            "org": "nvidia",
-            "fed_learn_port": 8002,
-            "admin_port": 8003,
-        }
-    )
+    valid_clients = []
+    client_admin_map = {}
+    client_server_map = {}
 
     if local_test:
+        # Add the central FL server for local development mode.
+        participants.append(
+            {
+                "name": "server",
+                "type": "server",
+                "org": control_plane_org,
+                "fed_learn_port": 8002,
+                "admin_port": 8003,
+            }
+        )
+
         # Local test mode: add generic clients for testing on a single machine
         participants.extend(
             [
@@ -166,20 +172,72 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 {
                     "name": safe_client_name,
                     "type": "client",
-                    "org": "nvidia",
+                    "org": f"org_{safe_client_name}",
                     "listening_host": ip,
                 }
             )
+            valid_clients.append({"name": safe_client_name, "ip": ip})
 
-    # Add the project administrator account
-    participants.append(
-        {
-            "name": "admin@nvidia.com",
-            "type": "admin",
-            "org": "nvidia",
-            "role": "project_admin",
-        }
-    )
+            server_name = f"server-{safe_client_name}"
+            participants.append(
+                {
+                    "name": server_name,
+                    "type": "server",
+                    "org": f"org_{safe_client_name}",
+                    "fed_learn_port": 8002,
+                    "admin_port": 8003,
+                }
+            )
+            client_server_map[safe_client_name] = server_name
+
+            admin_name = f"admin-{safe_client_name}@nvidia.com"
+            participants.append(
+                {
+                    "name": admin_name,
+                    "type": "admin",
+                    "org": f"org_{safe_client_name}",
+                    "role": "project_admin",
+                }
+            )
+            client_admin_map[safe_client_name] = admin_name
+
+    ha_overseer_client_name = None
+    if not local_test and valid_clients:
+        if server_ip and is_valid_ip(server_ip):
+            matching = [c["name"] for c in valid_clients if c["ip"] == server_ip]
+            if matching:
+                ha_overseer_client_name = matching[0]
+
+        if not ha_overseer_client_name:
+            try:
+                creator_center_name = slugify(get_hostname())
+                if creator_center_name:
+                    name_matches = [
+                        c["name"]
+                        for c in valid_clients
+                        if c["name"] == creator_center_name
+                    ]
+                    if name_matches:
+                        ha_overseer_client_name = name_matches[0]
+            except Exception:
+                ha_overseer_client_name = None
+
+        if not ha_overseer_client_name:
+            ha_overseer_client_name = valid_clients[0]["name"]
+            logger.network.info(
+                f"No client matched server IP for overseer role; defaulting overseer startup assignment to {ha_overseer_client_name}"
+            )
+
+    if local_test:
+        # Keep a single admin identity for local development mode.
+        participants.append(
+            {
+                "name": "admin@nvidia.com",
+                "type": "admin",
+                "org": "nvidia",
+                "role": "project_admin",
+            }
+        )
 
     # 3. Generate project.yml content using safe_dump to prevent injection
     project_name_safe = slugify(network.project.title).replace("-", "_")
@@ -306,6 +364,35 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
 
         logger.network.info("Provisioning completed successfully")
 
+        if not local_test:
+            try:
+                (base_prod_path / ".ha_distribution_enabled").write_text("1")
+                if ha_overseer_client_name:
+                    (base_prod_path / ".overseer_client").write_text(
+                        ha_overseer_client_name
+                    )
+                    logger.network.info(
+                        f"HA startup distribution enabled: overseer startup will be bundled for client {ha_overseer_client_name}"
+                    )
+                else:
+                    logger.network.info(
+                        "HA startup distribution enabled: no overseer target client selected"
+                    )
+
+                if client_admin_map:
+                    (base_prod_path / ".client_admin_map.json").write_text(
+                        json.dumps(client_admin_map)
+                    )
+
+                if client_server_map:
+                    (base_prod_path / ".client_server_map.json").write_text(
+                        json.dumps(client_server_map)
+                    )
+            except Exception as e:
+                logger.network.warning(
+                    f"Failed to persist HA startup distribution metadata: {e}"
+                )
+
         if server_ip and is_valid_ip(server_ip):
             # Post-process only if compose exists (compose is not signed by NVFlare).
             base_prod_path = (
@@ -325,6 +412,8 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                     compose_data = yaml.safe_load(new_content) or {}
                     services = compose_data.get("services", {})
 
+                    server_aliases = set(client_server_map.values())
+
                     for svc_name, svc_conf in services.items():
                         name_lower = str(svc_name).lower()
                         if name_lower in {"__flclient__", "fl_client", "client", "flclient"}:
@@ -333,6 +422,13 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                                 f"overseer:{server_ip}",
                                 f"server:{server_ip}",
                             }
+                            host_entries.update(
+                                {
+                                    f"{alias}:{server_ip}"
+                                    for alias in server_aliases
+                                    if alias
+                                }
+                            )
                             existing_set = set(extra_hosts)
                             merged_hosts = list(existing_set.union(host_entries))
                             svc_conf["extra_hosts"] = merged_hosts
@@ -349,14 +445,23 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
 
             # Write overseer host into client kits to help upload-side compose generation.
             try:
+                server_aliases = list(client_server_map.values())
                 for item in os.scandir(str(base_prod_path)):
                     if not item.is_dir():
                         continue
-                    if item.name in {"server", "overseer"} or "admin" in item.name:
+                    if (
+                        item.name in {"server", "overseer"}
+                        or item.name.startswith("server-")
+                        or "admin" in item.name
+                    ):
                         continue
                     startup_dir = Path(item.path) / "startup"
                     if startup_dir.exists():
                         (startup_dir / "overseer_host.txt").write_text(server_ip)
+                        if server_aliases:
+                            (startup_dir / "server_aliases.txt").write_text(
+                                "\n".join(server_aliases) + "\n"
+                            )
             except Exception as e:
                 logger.network.warning(
                     f"Failed to write overseer_host.txt into client kits: {e}"

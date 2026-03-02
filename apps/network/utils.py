@@ -217,8 +217,44 @@ def create_startup_kits_zip(swarm_network):
     # Resolve to absolute path for strict boundary checking
     abs_base_prod_path = base_prod_path.resolve()
 
-    admin_startup_dir = (
-        abs_base_prod_path / "admin@nvidia.com" / "startup"
+    default_admin_startup_dir = abs_base_prod_path / "admin@nvidia.com" / "startup"
+    server_startup_dir = abs_base_prod_path / "server" / "startup"
+    overseer_startup_dir = abs_base_prod_path / "overseer" / "startup"
+
+    overseer_client_name = ""
+    client_admin_map = {}
+    client_server_map = {}
+    try:
+        if (abs_base_prod_path / ".overseer_client").exists():
+            overseer_client_name = (
+                abs_base_prod_path / ".overseer_client"
+            ).read_text().strip()
+
+        if (abs_base_prod_path / ".client_admin_map.json").exists():
+            client_admin_map = json.loads(
+                (abs_base_prod_path / ".client_admin_map.json").read_text()
+            )
+            if not isinstance(client_admin_map, dict):
+                client_admin_map = {}
+
+        if (abs_base_prod_path / ".client_server_map.json").exists():
+            client_server_map = json.loads(
+                (abs_base_prod_path / ".client_server_map.json").read_text()
+            )
+            if not isinstance(client_server_map, dict):
+                client_server_map = {}
+    except Exception:
+        overseer_client_name = ""
+        client_admin_map = {}
+        client_server_map = {}
+
+    server_dir_names = {"server"}
+    server_dir_names.update(
+        {
+            str(server_name)
+            for server_name in client_server_map.values()
+            if isinstance(server_name, str) and server_name
+        }
     )
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
@@ -227,7 +263,7 @@ def create_startup_kits_zip(swarm_network):
             # We only want to package client kits (not server or admin)
             if (
                 item.is_dir()
-                and item.name != "server"
+                and item.name not in server_dir_names.union({"overseer"})
                 and "admin" not in item.name
             ):
                 # Ensure client_dir_path is strictly within base_prod_path
@@ -256,6 +292,15 @@ def create_startup_kits_zip(swarm_network):
                             arcname = file_path.relative_to(client_dir)
                             client_zip.write(str(file_path), str(arcname))
 
+                    mapped_admin_name = client_admin_map.get(item.name, "")
+                    admin_startup_dir = (
+                        abs_base_prod_path / mapped_admin_name / "startup"
+                        if mapped_admin_name
+                        else default_admin_startup_dir
+                    )
+                    if not admin_startup_dir.exists():
+                        admin_startup_dir = default_admin_startup_dir
+
                     if admin_startup_dir.exists():
                         for root, _, files in os.walk(
                             str(admin_startup_dir), followlinks=False
@@ -270,6 +315,49 @@ def create_startup_kits_zip(swarm_network):
                                 arcname = Path("admin_startup") / file_path.relative_to(
                                     admin_startup_dir
                                 )
+                                client_zip.write(str(file_path), str(arcname))
+
+                    selected_startup_dir = None
+                    selected_arc_prefix = None
+
+                    mapped_server_name = client_server_map.get(item.name, "")
+                    mapped_server_startup_dir = (
+                        abs_base_prod_path / mapped_server_name / "startup"
+                        if mapped_server_name
+                        else server_startup_dir
+                    )
+
+                    if (
+                        overseer_client_name
+                        and item.name == overseer_client_name
+                        and overseer_startup_dir.exists()
+                    ):
+                        selected_startup_dir = overseer_startup_dir
+                        selected_arc_prefix = "overseer_startup"
+                    elif mapped_server_startup_dir.exists():
+                        selected_startup_dir = mapped_server_startup_dir
+                        selected_arc_prefix = "server_startup"
+                    elif server_startup_dir.exists():
+                        selected_startup_dir = server_startup_dir
+                        selected_arc_prefix = "server_startup"
+                    elif overseer_startup_dir.exists():
+                        selected_startup_dir = overseer_startup_dir
+                        selected_arc_prefix = "overseer_startup"
+
+                    if selected_startup_dir and selected_arc_prefix:
+                        for root, _, files in os.walk(
+                            str(selected_startup_dir), followlinks=False
+                        ):
+                            for file in files:
+                                file_path = Path(root) / file
+                                if not file_path.resolve().is_relative_to(
+                                    selected_startup_dir
+                                ):
+                                    continue
+
+                                arcname = Path(
+                                    selected_arc_prefix
+                                ) / file_path.relative_to(selected_startup_dir)
                                 client_zip.write(str(file_path), str(arcname))
 
                 # Add the client's zip file into the main zip buffer

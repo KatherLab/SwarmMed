@@ -226,13 +226,21 @@ def start_swarm_network_task(network_id, user_id):
 
         # 3. Start containers with live logging
         # Determine which services to start:
-        # - If server/overseer are present, start ONLY them (Provisioner Node).
+        # - If server-like/overseer services are present, start ONLY them (Provisioner Node).
         # - Otherwise, start everything (Client Node).
         services_to_start = []
         available_services = compose_content.get("services", {})
 
-        if "server" in available_services:
-            services_to_start.append("server")
+        server_like_services = sorted(
+            [
+                service_name
+                for service_name in available_services.keys()
+                if str(service_name) == "server"
+                or str(service_name).startswith("server-")
+            ]
+        )
+        if server_like_services:
+            services_to_start.extend(server_like_services)
             if "overseer" in available_services:
                 services_to_start.append("overseer")
 
@@ -335,6 +343,25 @@ def run_nvflare_preflight_check(network_id, user_id):
             "admin@nvidia.com",
             "startup",
         )
+
+        if not os.path.exists(admin_startup_dir):
+            prod_dir = os.path.join(
+                provision_dir,
+                "workspace",
+                project_name,
+                "prod_00",
+            )
+            if os.path.exists(prod_dir):
+                admin_dirs = sorted(
+                    [
+                        os.path.join(prod_dir, d, "startup")
+                        for d in os.listdir(prod_dir)
+                        if d.startswith("admin-")
+                        and os.path.isdir(os.path.join(prod_dir, d, "startup"))
+                    ]
+                )
+                if admin_dirs:
+                    admin_startup_dir = admin_dirs[0]
 
         if not os.path.exists(admin_startup_dir):
             logger.network.info(

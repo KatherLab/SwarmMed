@@ -185,13 +185,13 @@ def new_network(request):
                     continue
 
             # Register participants in the database for tracking
-            SwarmParticipant.objects.create(
-                network=swarm_network,
-                user=request.user,
-                role="SERVER",
-                participant_id="server",
-            )
             for client_data in clients:
+                SwarmParticipant.objects.create(
+                    network=swarm_network,
+                    user=request.user,
+                    role="SERVER",
+                    participant_id=f"server-{client_data['name']}",
+                )
                 SwarmParticipant.objects.create(
                     network=swarm_network,
                     user=request.user,
@@ -391,10 +391,26 @@ def new_network(request):
                                     server_ip = parsed_host
 
                             if server_ip:
-                                client_compose_content["services"]["fl_client"]["extra_hosts"] = [
+                                extra_hosts = {
                                     f"server:{server_ip}",
-                                    f"overseer:{server_ip}"
-                                ]
+                                    f"overseer:{server_ip}",
+                                }
+                                aliases_file = os.path.join(
+                                    startup_dir, "server_aliases.txt"
+                                )
+                                if os.path.exists(aliases_file):
+                                    try:
+                                        with open(aliases_file, "r") as sf:
+                                            for alias in sf.read().splitlines():
+                                                alias = alias.strip()
+                                                if alias:
+                                                    extra_hosts.add(
+                                                        f"{alias}:{server_ip}"
+                                                    )
+                                    except Exception:
+                                        pass
+
+                                client_compose_content["services"]["fl_client"]["extra_hosts"] = list(extra_hosts)
                         except Exception as e:
                             log.network.warning(f"Error configuring client compose: {e}")
 
