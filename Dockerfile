@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 # install python dependencies with uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && uv pip sync requirements.txt
+    && uv pip sync --system requirements.txt
 
 COPY . .
 # Copy built assets from Stage 1
