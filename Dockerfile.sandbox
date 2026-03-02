@@ -7,13 +7,15 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # Install only essential system libraries for numerical computation
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install a set of common data science and machine learning libraries
 # These are available to user scripts by default.
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && uv pip install --verbose --no-cache-dir \
+    && /root/.local/bin/uv pip install --system --verbose --no-cache-dir \
     "numpy<2.0.0" \
     pandas \
     matplotlib \
