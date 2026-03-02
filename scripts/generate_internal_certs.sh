@@ -18,6 +18,13 @@ CERT_DIR=".secrets/certs/internal"
 NGINX_CERT_DIR=".secrets/certs/nginx"
 SERIAL_FILE="$CA_DIR/ca.srl"
 
+cleanup_file_if_present() {
+    local target=$1
+    if [ -e "$target" ]; then
+        rm -f "$target"
+    fi
+}
+
 mkdir -p "$CA_DIR" "$CERT_DIR" "$NGINX_CERT_DIR"
 chmod 700 "$CA_DIR" "$CERT_DIR"
 
@@ -35,6 +42,9 @@ ensure_ca_passphrase() {
 # Root CA
 ensure_ca_passphrase
 trap 'unset CA_PASSPHRASE' EXIT
+cleanup_file_if_present "$CA_DIR/ca.key"
+cleanup_file_if_present "$CA_DIR/ca.crt"
+cleanup_file_if_present "$SERIAL_FILE"
 openssl genrsa -aes256 -passout pass:"$CA_PASSPHRASE" -out "$CA_DIR/ca.key" 4096
 openssl req -x509 -new -key "$CA_DIR/ca.key" -passin pass:"$CA_PASSPHRASE" \
     -sha256 -days 3650 -out "$CA_DIR/ca.crt" -subj "/CN=InternalCA"
@@ -46,6 +56,11 @@ generate_cert() {
     local name=$1
     local dns=$2
     echo "Generating cert for $name ($dns)"
+
+    cleanup_file_if_present "$CERT_DIR/$name.key"
+    cleanup_file_if_present "$CERT_DIR/$name.csr"
+    cleanup_file_if_present "$CERT_DIR/$name.crt"
+    cleanup_file_if_present "$CERT_DIR/$name.ext"
 
     openssl genrsa -out "$CERT_DIR/$name.key" 4096
     openssl req -new -key "$CERT_DIR/$name.key" -out "$CERT_DIR/$name.csr" -subj "/CN=$dns"
