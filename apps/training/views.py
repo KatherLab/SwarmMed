@@ -146,6 +146,45 @@ def _normalize_startup_kit_location(path: str) -> str | None:
     return None
 
 
+def _new_secure_session_robust(username: str, startup_kit_location: str):
+    from nvflare.fuel.flare_api.flare_api import new_secure_session
+
+    candidates: list[str] = []
+
+    normalized = _normalize_startup_kit_location(startup_kit_location)
+    if normalized:
+        candidates.append(normalized)
+
+    raw = os.path.abspath(startup_kit_location).rstrip(os.sep)
+    if raw and raw not in candidates:
+        candidates.append(raw)
+
+    if raw and os.path.basename(raw) == "startup":
+        parent = os.path.dirname(raw)
+        if parent and parent not in candidates:
+            candidates.append(parent)
+
+    parent = os.path.dirname(raw) if raw else ""
+    if parent:
+        parent_norm = _normalize_startup_kit_location(parent)
+        if parent_norm and parent_norm not in candidates:
+            candidates.append(parent_norm)
+
+    last_error = None
+    for location in candidates:
+        try:
+            return new_secure_session(
+                username=username,
+                startup_kit_location=location,
+            )
+        except Exception as e:
+            last_error = e
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("No valid startup kit location candidates were found")
+
+
 def _parse_nvflare_jobs(response):
     if isinstance(response, dict):
         if "jobs" in response and isinstance(response["jobs"], list):
@@ -204,10 +243,8 @@ def _nvflare_status_payload(current_network):
         return None
 
     try:
-        from nvflare.fuel.flare_api.flare_api import new_secure_session
-
         admin_name, admin_dir = admin_target
-        sess = new_secure_session(
+        sess = _new_secure_session_robust(
             username=admin_name, startup_kit_location=admin_dir
         )
         response = sess.api.do_command("list_jobs")
@@ -841,8 +878,6 @@ def start_training(request, network_id):
         json.dump(client_cfg, f, indent=2)
 
     try:
-        from nvflare.fuel.flare_api.flare_api import new_secure_session
-
         for _ in range(30):
             try:
                 socket.create_connection(("overseer", 8443), timeout=2)
@@ -850,29 +885,10 @@ def start_training(request, network_id):
             except OSError:
                 time.sleep(1)
 
-        try:
-            sess = new_secure_session(
-                username=admin_username,
-                startup_kit_location=admin_session_dir,
-            )
-        except Exception as sess_error:
-            err_text = str(sess_error)
-            retried = False
-            if "missing startup folder" in err_text:
-                fallback_dir = _normalize_startup_kit_location(
-                    os.path.dirname(admin_session_dir)
-                )
-                if fallback_dir and fallback_dir != admin_session_dir:
-                    admin_session_dir = fallback_dir
-                    retried = True
-
-            if retried:
-                sess = new_secure_session(
-                    username=admin_username,
-                    startup_kit_location=admin_session_dir,
-                )
-            else:
-                raise
+        sess = _new_secure_session_robust(
+            username=admin_username,
+            startup_kit_location=admin_session_dir,
+        )
         job_path_absolute = os.path.abspath(job_dir)
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
 
@@ -918,8 +934,6 @@ def stop_training(request, network_id):
         return redirect("training:training")
 
     try:
-        from nvflare.fuel.flare_api.flare_api import new_secure_session
-
         admin_target = _resolve_admin_session_target(network)
         if not admin_target:
             messages.error(
@@ -929,8 +943,9 @@ def stop_training(request, network_id):
             return redirect("training:training")
 
         admin_username, admin_user_dir = admin_target
-        sess = new_secure_session(
-            username=admin_username, startup_kit_location=admin_user_dir
+        sess = _new_secure_session_robust(
+            username=admin_username,
+            startup_kit_location=admin_user_dir,
         )
         job_uuid = str(job.flare_job_id)
         match = re.search(r"([0-9a-f-]{36})", job_uuid)
