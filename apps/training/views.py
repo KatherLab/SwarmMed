@@ -202,10 +202,8 @@ def _new_secure_session_robust(username: str, startup_kit_location: str):
             candidates.append(parent_norm)
 
     logger.training.info(
-        "NVFLARE_DEBUG_V2 session init: username=%s startup_kit_location=%s candidates=%s",
-        username,
-        startup_kit_location,
-        candidates,
+        f"NVFLARE_DEBUG_V2 session init: username={username} "
+        f"startup_kit_location={startup_kit_location} candidates={candidates}"
     )
 
     last_error = None
@@ -213,9 +211,8 @@ def _new_secure_session_robust(username: str, startup_kit_location: str):
     for location in candidates:
         try:
             logger.training.info(
-                "NVFLARE_DEBUG_V2 trying candidate: %s snapshot=%s",
-                location,
-                _startup_kit_debug_snapshot(location),
+                f"NVFLARE_DEBUG_V2 trying candidate: {location} "
+                f"snapshot={_startup_kit_debug_snapshot(location)}"
             )
             return new_secure_session(
                 username=username,
@@ -225,9 +222,7 @@ def _new_secure_session_robust(username: str, startup_kit_location: str):
             last_error = e
             attempt_errors[location] = str(e)
             logger.training.error(
-                "NVFLARE_DEBUG_V2 candidate failed: %s error=%s",
-                location,
-                e,
+                f"NVFLARE_DEBUG_V2 candidate failed: {location} error={e}"
             )
 
     if last_error:
@@ -941,10 +936,8 @@ def start_training(request, network_id):
                 time.sleep(1)
 
         log.training.info(
-            "Creating NVFlare session with startup kit at %s (cwd=%s) snapshot=%s",
-            admin_session_dir,
-            os.getcwd(),
-            _startup_kit_debug_snapshot(admin_session_dir),
+            f"Creating NVFlare session with startup kit at {admin_session_dir} "
+            f"(cwd={os.getcwd()}) snapshot={_startup_kit_debug_snapshot(admin_session_dir)}"
         )
         sess = _new_secure_session_robust(
             username=admin_username,
@@ -970,11 +963,9 @@ def start_training(request, network_id):
         messages.success(request, f"Successfully submitted job {job_id}")
     except Exception as e:
         log.training.error(
-            "Submit job via FLARE API failed: %s | admin_session_dir=%s | session_snapshot=%s | traceback=%s",
-            e,
-            admin_session_dir,
-            _startup_kit_debug_snapshot(admin_session_dir),
-            traceback.format_exc(),
+            f"Submit job via FLARE API failed: {e} | admin_session_dir={admin_session_dir} "
+            f"| session_snapshot={_startup_kit_debug_snapshot(admin_session_dir)} "
+            f"| traceback={traceback.format_exc()}"
         )
         TrainingJob.objects.create(
             project=project,
