@@ -99,17 +99,28 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
     if not startup_dir:
         return None
 
+    startup_dir = os.path.abspath(startup_dir)
+    session_dir = startup_dir
+    if os.path.basename(startup_dir.rstrip(os.sep)) == "startup":
+        session_dir = os.path.dirname(startup_dir.rstrip(os.sep))
+
+    startup_subdir = os.path.join(session_dir, "startup")
+    if not os.path.isdir(startup_subdir):
+        if os.path.isdir(startup_dir):
+            startup_subdir = startup_dir
+            session_dir = os.path.dirname(startup_dir.rstrip(os.sep))
+        else:
+            return None
+
     admin_name = "admin@nvidia.com"
     try:
-        admin_dir_name = os.path.basename(
-            os.path.dirname(startup_dir.rstrip(os.sep))
-        )
+        admin_dir_name = os.path.basename(session_dir.rstrip(os.sep))
         if admin_dir_name and "@" in admin_dir_name:
             admin_name = admin_dir_name
     except Exception:
         admin_name = "admin@nvidia.com"
 
-    return (admin_name, startup_dir)
+    return (admin_name, session_dir)
 
 
 def _parse_nvflare_jobs(response):
@@ -622,7 +633,7 @@ def start_training(request, network_id):
         )
         return redirect("training:training")
 
-    admin_username, admin_startup_dir = admin_target
+    admin_username, admin_session_dir = admin_target
 
     app_server_dir = os.path.join(job_dir, "app_server")
     app_client_dir = os.path.join(job_dir, "app_client")
@@ -811,7 +822,7 @@ def start_training(request, network_id):
 
         sess = new_secure_session(
             username=admin_username,
-            startup_kit_location=admin_startup_dir,
+            startup_kit_location=admin_session_dir,
         )
         job_path_absolute = os.path.abspath(job_dir)
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
