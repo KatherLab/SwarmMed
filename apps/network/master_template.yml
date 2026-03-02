@@ -9,7 +9,7 @@ readme_am: |
   client.key
   fl_admin.sh
   
-  Please install the nvflare package by 'python3 -m pip nvflare.'  This will install a set of Python codes
+  Please install the nvflare package by 'uv pip install nvflare.'  This will install a set of Python codes
   in your environment.  After installation, you can run the fl_admin.sh file to start communicating to the admin server.
 
   The rootCA.pem file is pointed by "ca_cert" in fl_admin.sh.  If you plan to move/copy it to a different place,
@@ -798,10 +798,12 @@ docker_adm_sh: |
   volumes:
     nvflare_svc_persist:
 dockerfile: |
-  RUN pip install -U pip
-  RUN pip install "nvflare==2.6.1"
+  ENV PATH="/root/.local/bin:${PATH}"
+  RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+  RUN uv pip install -U pip
+  RUN uv pip install "nvflare==2.6.1"
   COPY requirements.txt requirements.txt
-  RUN pip install -r requirements.txt
+  RUN uv pip sync requirements.txt
 helm_chart_chart: |
   apiVersion: v2
   name: nvflare
@@ -1224,7 +1226,7 @@ azure_start_svr_sh: |
       --command-id RunShellScript \
       --name $VM_NAME \
       --scripts \
-      "echo ${DEST_FOLDER} && wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && python3 -m pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
+      "echo ${DEST_FOLDER} && curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=/root/.local/bin:${PATH} && uv pip install --upgrade pip && uv pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
     report_status "$?" "installing packages"
   fi
   echo "System was provisioned"
@@ -1400,7 +1402,7 @@ azure_start_cln_sh: |
       --command-id RunShellScript \
       --name $VM_NAME \
       --scripts \
-      "echo ${DEST_FOLDER} && wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && python3 -m pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
+      "echo ${DEST_FOLDER} && curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=/root/.local/bin:${PATH} && uv pip install --upgrade pip && uv pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
     report_status "$?" "installing packages"
   fi
   echo "System was provisioned"
@@ -1534,7 +1536,7 @@ azure_start_dsb_sh: |
     --command-id RunShellScript \
     --name $VM_NAME \
     --scripts \
-    "echo ${DEST_FOLDER} && wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && python3 -m pip install --ignore-installed {~~NVFLARE~~} && mkdir -p ${DEST_FOLDER}/cert && chown -R ${ADMIN_USERNAME} ${DEST_FOLDER}" > /tmp/nvflare.json
+    "echo ${DEST_FOLDER} && curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=/root/.local/bin:${PATH} && uv pip install --upgrade pip && uv pip install --ignore-installed {~~NVFLARE~~} && mkdir -p ${DEST_FOLDER}/cert && chown -R ${ADMIN_USERNAME} ${DEST_FOLDER}" > /tmp/nvflare.json
   report_status "$?" "installing nvflare"
 
   echo "Checking if certificate (web.crt) and private key (web.key) are available"
@@ -1613,9 +1615,9 @@ adm_notebook: |
     },
     "outputs": [],
     "source": [
-      "# Run this pip install if NVFlare is not installed in your Jupyter Notebook\n",
+      "# Run this uv pip install if NVFlare is not installed in your Jupyter Notebook\n",
       "\n",
-      "# !python3 -m pip install -U nvflare"
+      "# !uv pip install -U nvflare"
     ]
     },
     {
@@ -1811,10 +1813,12 @@ aws_start_svr_sh: |
     report_status "$?" "launching container"
   else
     ssh -f -i $KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${DEST_SITE} \
-    "pwd && wget -q https://bootstrap.pypa.io/get-pip.py && \
-    python3 get-pip.py && python3 -m pip install nvflare && \
+    "pwd && curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH=/root/.local/bin:${PATH} && \
+    uv pip install --upgrade pip && \
+    uv pip install nvflare && \
     touch ${DEST_FOLDER}/startup/requirements.txt && \
-    python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
+    uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
     nohup ${DEST_FOLDER}/startup/start.sh && sleep 20 && \
     exit" > /tmp/nvflare.log 2>&1 
     report_status "$?" "installing packages"
@@ -1947,10 +1951,12 @@ aws_start_cln_sh: |
   else
     echo "Installing packages in $VM_NAME, may take a few minutes."
     ssh -f -i $KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${DEST_SITE} \
-    "pwd && wget -q https://bootstrap.pypa.io/get-pip.py && \
-    python3 get-pip.py && python3 -m pip install nvflare && \
+    "pwd && curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH=/root/.local/bin:${PATH} && \
+    uv pip install --upgrade pip && \
+    uv pip install nvflare && \
     touch ${DEST_FOLDER}/startup/requirements.txt && \
-    python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
+    uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
     nohup ${DEST_FOLDER}/startup/start.sh && sleep 20 && \
     exit" > /tmp/nvflare.log 2>&1 
 
@@ -2051,8 +2057,10 @@ aws_start_dsb_sh: |
   echo "Installing nvflare in $VM_NAME, may take a few minutes."
   ssh -i $KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${DEST_SITE} \
     "export PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin && \
-    wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && \
-    python3 -m pip install {~~NVFLARE~~} && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH=/home/ubuntu/.local/bin:${PATH} && \
+    uv pip install --upgrade pip && \
+    uv pip install {~~NVFLARE~~} && \
     mkdir -p ./cert && \
     exit" > /tmp/nvflare.json
   report_status "$?" "installing nvflare"

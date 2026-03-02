@@ -326,14 +326,11 @@ This module provides a set of helper functions to handle the communication with 
 
     2.  Add the desired packages to the `RUN uv pip install` command.
 
-    3.  Rebuild and restart the containers:
+    3.  Rebuild and restart the sandbox container:
 
         ```bash
-
-        docker compose build sandbox-dind
-
-        docker compose up -d sandbox-dind
-
+        make sandbox-build
+        make sandbox-up
         ```
 
     

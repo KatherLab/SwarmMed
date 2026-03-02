@@ -47,16 +47,23 @@ npx webpack --watch
 ```
 
 ### 3. Services (Docker)
-The project relies on Redis, PostgreSQL, and MinIO. Use the provided `docker-compose.yml` to start these services:
+Use the Makefile to boot the full stack so you do not run the compose commands manually. After editing `.env`, run:
 ```bash
-docker compose up -d
+make setup
+make start
 ```
+
+The `setup` target creates the secret folders, copies the template .env (only if it is missing), runs the PgBouncer helper, and generates TLS certificates needed for the services. `make start` builds and launches the Docker services in the right order.
+
+Use `make stop` to tear the stack down, and `make compose-logs` to follow the `swarmcloud` container logs.
 
 ### 4. Django Initialization
 ```bash
-python manage.py migrate
-python manage.py runserver
+make manage-migrate        # runs migrations inside the app container
+make manage-shell          # opens an interactive Django shell (optional)
 ```
+
+If you prefer running Django directly without containers, continue to use `python manage.py <command>` from your local virtual environment.
 
 ---
 
@@ -76,7 +83,7 @@ command: python manage.py runserver 0.0.0.0:8000
 ### When Changing Tasks
 If you modify any Celery tasks in `tasks.py`, you **must** restart the worker to apply the changes:
 ```bash
-docker compose restart celery_worker
+make restart-celery
 ```
 
 ---

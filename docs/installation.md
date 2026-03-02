@@ -131,48 +131,41 @@ Please ensure that you **never** commit your `.env` file to version control.
 
 ### Prepare Secret Directories
 
-The compose stack expects a few host directories where generated secrets will be written. Create them before launching the containers:
+Run `make setup` after editing `.env` to get the secret folders, PgBouncer artifacts, and TLS certificates in place. The flow is:
 
 ```bash
-mkdir -p .secrets/certs .secrets/docker .secrets/pgbouncer
+make env-setup           # creates .secrets/* and copies .env if missing
+export CA_PASSPHRASE=... # optional; avoid the interactive prompt when running setup
+make setup-pgbouncer     # optional rerun (setup already calls the helper)
+make generate-certs      # optional rerun (setup already generates certs)
+make setup               # all of the above in one command
 ```
 
-!!! warning "Directory vs Files"
-    Only create the top-level directories listed above. **Do not** create subdirectories named after individual certificates (like `ca.crt`), as this will prevent the generation scripts from writing the actual certificate files.
+`make setup` will only copy `.env` from `.env.template` if there is not already a `.env` file, so you can safely edit the file before running the command. If you prefer to rerun a single helper, there are dedicated targets to do so as shown above.
 
-#### Generate Internal TLS Certificates
+### Generate Internal TLS Certificates
 
-Run the provided script to generate the internal Certificate Authority and service-specific certificates:
+The `make setup` target runs `./scripts/generate_internal_certs.sh`, which creates:
 
-```bash
-# You can set a passphrase for the CA or leave it empty for the prompt
-export CA_PASSPHRASE=yoursecurepassphrase
-./scripts/generate_internal_certs.sh
-```
+*  `.secrets/certs` for the internal CA and leaf certificates
+*  `.secrets/docker` for the sandbox daemon's TLS material
+*  `.secrets/pgbouncer` for the generated PgBouncer credentials
 
-- `.secrets/certs` will store the internal CA and leaf certificates.
-- `.secrets/docker` is populated automatically with TLS material for the sandbox daemon.
-- `.secrets/pgbouncer` receives PgBouncer credentials.
+If you want to skip the interactive passphrase prompt, export `CA_PASSPHRASE` before `make setup` (or `make generate-certs`).
 
-#### Pre-render PgBouncer Configuration
+### Pre-render PgBouncer Configuration
 
-You can pre-render the PgBouncer artifacts to catch configuration mistakes early:
-
-```bash
-python scripts/setup_pgbouncer.py
-```
-
-!!! info "PgBouncer Setup Script"
-    The script reads your `DB_USER`, `DB_PASS`, and `DB_NAME` from the `.env` file to generate secure SCRAM-hashed credentials. 
-    
-    If the containers are not already running, you will see an error message at the end: `Error response from daemon: cannot kill container: pgbouncer: No such container`. **This is normal and safe to ignore**; it simply means the script couldn't signal a running container to reload its configuration. The files themselves are generated correctly.
+`make setup` also invokes `scripts/setup_pgbouncer.py`. Re-run it manually via `make setup-pgbouncer` if you tweak the PgBouncer-related environment variables and need to regenerate the configuration outside the regular setup flow.
 
 ### Build and Run
 
-``` bash
-docker compose build
-docker compose up -d
+After the secrets and certificates are ready, start the platform with:
+
+```bash
+make start
 ```
+
+`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `swarmcloud` logs with `make compose-logs`.
 
 !!! tip "Manual Database Creation"
     If you see errors indicating that the `swarmcloud` database does not exist, you can create it manually while the containers are running:
@@ -237,7 +230,7 @@ If the `postgres` container fails to start with logs indicating `FATAL:  private
 
 1.  **Stop containers:**
     ```bash
-    docker compose down
+    make stop
     ```
 2.  **Fix permissions on the host:**
     The private key must be owned by the user ID Postgres uses inside the container (UID 999) and have strict permissions (`0600`).
@@ -250,7 +243,7 @@ If the `postgres` container fails to start with logs indicating `FATAL:  private
     ```
 3.  **Restart containers:**
     ```bash
-    docker compose up -d
+    make start
     ```
 
 ### redis "Permission Denied" for SSL Key
@@ -267,11 +260,11 @@ To fix this, you must wipe the corrupt database volume and start fresh:
 1.  **Stop and remove volumes:**
     ```bash
     # WARNING: This deletes all database data!
-    docker compose down -v
+    make compose-down-v
     ```
 2.  **Start fresh:**
     ```bash
-    docker compose up -d
+    make start
     ```
 
 ### Missing `.secrets` Directory
@@ -279,15 +272,13 @@ To fix this, you must wipe the corrupt database volume and start fresh:
 If you encounter errors about missing files in `.secrets/` (e.g., `mount: .../pgbouncer/userlist.txt: not a directory`):
 
 1.  **Clean up incorrect directories:**
-    If you ran `docker compose up` before generating secrets, Docker may have created empty directories where files should be.
+    If you ran `make start` before generating secrets, Docker may have created empty directories where files should be.
     ```bash
-    docker compose down
+    make stop
     sudo rm -rf .secrets
     ```
 2.  **Regenerate secrets:**
     ```bash
-    mkdir -p .secrets/certs .secrets/docker .secrets/pgbouncer
-    ./scripts/generate_internal_certs.sh
-    python3 ./scripts/setup_pgbouncer.py
+    make setup
     ```
 

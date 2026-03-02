@@ -29,24 +29,24 @@ sudo tailscale up
 ```bash
 git clone https://github.com/pfeifferis/SwarmCloud.git
 cd SwarmCloud
-
-
-# Prepare secret directories for TLS, PgBouncer, and Docker client certs
-mkdir -p .secrets/certs .secrets/docker .secrets/pgbouncer
-# Setup environment variables
-cp .env.template .env
-# Edit .env with your secrets
-
-# (Optional) Pre-render PgBouncer config before containers start
-python scripts/setup_pgbouncer.py || true
-
-# Generate internal TLS material (stored in .secrets/ and not committed)
-./scripts/generate_internal_certs.sh
-
-# Build and start containers
-docker compose build
-docker compose up -d
 ```
+
+Then rely on the Makefile so you no longer run the manual prep scripts directly:
+
+```bash
+make install        # install uv and synchronize requirements into .venv
+make setup          # copy .env (if missing), run PgBouncer setup, and generate TLS certificates
+# edit .env as needed before starting
+make start          # build the Docker services and bring them up
+```
+
+Use `make stop` to tear the stack down, `make compose-logs` to tail `swarmcloud`, and `make docs-serve`/`make docs-build` for MkDocs work.
+
+### 5. Cleanup targets
+
+Use `make deinstall` when you want to scrub everything and start from a clean slate; it stops the compose stack, prunes volumes/images/builder caches, and removes the uv-managed `.venv`, `.cache/uv`, generated `.secrets` folders, `staticfiles`, `_build`, `tmp`, and `workspaces` artifacts.
+
+Run `make deinstall-docker` if you only need to stop the containers, drop volumes, and prune Docker caches without touching the uv environment or generated files.
 
 ### Tooling (uv)
 
@@ -60,7 +60,7 @@ Use the Makefile to run documentation helpers (`make docs-serve`, `make docs-bui
 
 ### 4. Initialize Superuser
 ```bash
-docker exec -it swarmcloud python manage.py createsuperuser
+make manage-superuser
 ```
 
 ---
@@ -128,5 +128,5 @@ sudo systemctl restart tailscaled
 
 ### Docker Logs
 ```bash
-docker compose logs -f swarmcloud
+make compose-logs
 ```
