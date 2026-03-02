@@ -181,7 +181,11 @@ def _new_secure_session_robust(username: str, startup_kit_location: str):
             last_error = e
 
     if last_error:
-        raise last_error
+        raise RuntimeError(
+            "Unable to create NVFlare secure session. "
+            f"startup_kit_location={startup_kit_location!r}, "
+            f"candidates={candidates}, cwd={os.getcwd()}, last_error={last_error}"
+        ) from last_error
     raise RuntimeError("No valid startup kit location candidates were found")
 
 
@@ -885,6 +889,11 @@ def start_training(request, network_id):
             except OSError:
                 time.sleep(1)
 
+        log.training.info(
+            "Creating NVFlare session with startup kit at %s (cwd=%s)",
+            admin_session_dir,
+            os.getcwd(),
+        )
         sess = _new_secure_session_robust(
             username=admin_username,
             startup_kit_location=admin_session_dir,
