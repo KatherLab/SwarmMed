@@ -4,7 +4,6 @@ import re
 import shutil
 import socket
 import time
-import traceback
 
 from common.utils import get_safe_slug
 from django.conf import settings
@@ -147,36 +146,6 @@ def _normalize_startup_kit_location(path: str) -> str | None:
     return None
 
 
-def _startup_kit_debug_snapshot(path: str) -> dict:
-    if not path:
-        return {"path": path, "error": "empty path"}
-
-    abs_path = os.path.abspath(path)
-    parent = os.path.dirname(abs_path)
-    result = {
-        "path": path,
-        "abs_path": abs_path,
-        "cwd": os.getcwd(),
-        "exists": os.path.exists(abs_path),
-        "is_dir": os.path.isdir(abs_path),
-        "basename": os.path.basename(abs_path),
-        "has_startup_child": os.path.isdir(os.path.join(abs_path, "startup")),
-        "parent": parent,
-        "parent_exists": os.path.exists(parent),
-        "parent_has_startup_child": os.path.isdir(
-            os.path.join(parent, "startup")
-        ),
-    }
-
-    if result["is_dir"]:
-        try:
-            result["entries"] = sorted(os.listdir(abs_path))[:20]
-        except Exception as e:
-            result["entries_error"] = str(e)
-
-    return result
-
-
 def _new_secure_session_robust(username: str, startup_kit_location: str):
     from nvflare.fuel.flare_api.flare_api import new_secure_session
 
@@ -201,36 +170,21 @@ def _new_secure_session_robust(username: str, startup_kit_location: str):
         if parent_norm and parent_norm not in candidates:
             candidates.append(parent_norm)
 
-    logger.training.info(
-        f"NVFLARE_DEBUG_V2 session init: username={username} "
-        f"startup_kit_location={startup_kit_location} candidates={candidates}"
-    )
-
     last_error = None
-    attempt_errors: dict[str, str] = {}
     for location in candidates:
         try:
-            logger.training.info(
-                f"NVFLARE_DEBUG_V2 trying candidate: {location} "
-                f"snapshot={_startup_kit_debug_snapshot(location)}"
-            )
             return new_secure_session(
                 username=username,
                 startup_kit_location=location,
             )
         except Exception as e:
             last_error = e
-            attempt_errors[location] = str(e)
-            logger.training.error(
-                f"NVFLARE_DEBUG_V2 candidate failed: {location} error={e}"
-            )
 
     if last_error:
         raise RuntimeError(
             "Unable to create NVFlare secure session. "
             f"startup_kit_location={startup_kit_location!r}, "
-            f"candidates={candidates}, cwd={os.getcwd()}, "
-            f"attempt_errors={attempt_errors}, last_error={last_error}"
+            f"candidates={candidates}, cwd={os.getcwd()}, last_error={last_error}"
         ) from last_error
     raise RuntimeError("No valid startup kit location candidates were found")
 
@@ -362,9 +316,13 @@ def _select_nvflare_job(jobs):
 
     active_statuses = {"RUNNING", "SUBMITTED", "DISPATCHED"}
     active_jobs = [j for j in jobs if status_of(j) in active_statuses]
+
+    def submit_time_of(job):
+        return str(job.get("submit_time") or "")
+
     if active_jobs:
-        return active_jobs[-1]
-    return jobs[-1]
+        return max(active_jobs, key=submit_time_of)
+    return max(jobs, key=submit_time_of)
 
 
 def _nvflare_status_payload(current_network):
@@ -378,25 +336,12 @@ def _nvflare_status_payload(current_network):
             username=admin_name, startup_kit_location=admin_dir
         )
         response = sess.api.do_command("list_jobs")
-        response_text = str(response)
-        response_preview = (
-            response_text[:1000] + "..."
-            if len(response_text) > 1000
-            else response_text
-        )
-        logger.training.info(
-            f"NVFLARE_DEBUG_V2 list_jobs response type={type(response).__name__} "
-            f"preview={response_preview}"
-        )
         try:
             sess.close()
         except Exception:
             pass
 
         jobs = _parse_nvflare_jobs(response)
-        logger.training.info(
-            f"NVFLARE_DEBUG_V2 list_jobs parsed_count={len(jobs)} parsed_jobs={jobs[:5]}"
-        )
         job = _select_nvflare_job(jobs)
         if not job:
             return None
@@ -413,14 +358,18 @@ def _nvflare_status_payload(current_network):
         )
         job_id = job.get("job_id") or job.get("id") or "unknown"
 
+        normalized_status = status
+        if status in {"SUBMITTED", "DISPATCHED"}:
+            normalized_status = "RUNNING"
+
         progress = 0
-        if status in {"COMPLETED", "STOPPED"}:
+        if normalized_status in {"COMPLETED", "STOPPED"}:
             progress = 100
-        elif status in {"RUNNING", "SUBMITTED", "DISPATCHED"}:
+        elif normalized_status == "RUNNING":
             progress = 5
 
         return {
-            "status": status.title(),
+            "status": normalized_status.title(),
             "progress": progress,
             "duration": "-",
             "eta": "-",
@@ -1030,40 +979,21 @@ def start_training(request, network_id):
             except OSError:
                 time.sleep(1)
 
-        log.training.info(
-            f"Creating NVFlare session with startup kit at {admin_session_dir} "
-            f"(cwd={os.getcwd()}) snapshot={_startup_kit_debug_snapshot(admin_session_dir)}"
-        )
         sess = _new_secure_session_robust(
             username=admin_username,
             startup_kit_location=admin_session_dir,
         )
         job_path_absolute = os.path.abspath(job_dir)
-        log.training.info(
-            f"NVFLARE_DEBUG_V2 submit command: submit_job {job_path_absolute}"
-        )
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
         response_text = str(response)
-        response_preview = (
-            response_text[:1000] + "..."
-            if len(response_text) > 1000
-            else response_text
-        )
-        log.training.info(
-            f"NVFLARE_DEBUG_V2 submit response type={type(response).__name__} "
-            f"preview={response_preview}"
-        )
 
         job_id = _extract_submitted_job_id(response)
         if not job_id:
             log.training.warning(
-                "NVFLARE_DEBUG_V2 submit response did not contain a parsable job UUID"
+                "Submit response did not contain a parsable job UUID"
             )
 
         status = "RUNNING" if (job_id or bool(response_text.strip())) else "FAILED"
-        log.training.info(
-            f"NVFLARE_DEBUG_V2 submit parsed job_id={job_id} derived_status={status}"
-        )
         TrainingJob.objects.create(
             project=project,
             network=network,
@@ -1078,11 +1008,7 @@ def start_training(request, network_id):
                 "Job submitted but no job ID was returned; tracking may be limited.",
             )
     except Exception as e:
-        log.training.error(
-            f"Submit job via FLARE API failed: {e} | admin_session_dir={admin_session_dir} "
-            f"| session_snapshot={_startup_kit_debug_snapshot(admin_session_dir)} "
-            f"| traceback={traceback.format_exc()}"
-        )
+        log.training.error(f"Submit job via FLARE API failed: {e}")
         TrainingJob.objects.create(
             project=project,
             network=network,
