@@ -265,6 +265,33 @@ def _parse_nvflare_jobs(response):
     return jobs
 
 
+def _extract_submitted_job_id(response) -> str | None:
+    if isinstance(response, dict):
+        direct = response.get("job_id") or response.get("id")
+        if direct:
+            return str(direct)
+        data = response.get("data")
+        if isinstance(data, str):
+            response = data
+
+    attr_job_id = getattr(response, "job_id", None)
+    if attr_job_id:
+        return str(attr_job_id)
+
+    text = str(response or "")
+    submitted_match = re.search(
+        r"Submitted\s+job:\s*([0-9a-f-]{36})", text, re.I
+    )
+    if submitted_match:
+        return submitted_match.group(1)
+
+    uuid_match = re.search(r"([0-9a-f-]{36})", text)
+    if uuid_match:
+        return uuid_match.group(1)
+
+    return None
+
+
 def _select_nvflare_job(jobs):
     if not jobs:
         return None
@@ -944,23 +971,41 @@ def start_training(request, network_id):
             startup_kit_location=admin_session_dir,
         )
         job_path_absolute = os.path.abspath(job_dir)
+        log.training.info(
+            f"NVFLARE_DEBUG_V2 submit command: submit_job {job_path_absolute}"
+        )
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
+        response_text = str(response)
+        response_preview = (
+            response_text[:1000] + "..."
+            if len(response_text) > 1000
+            else response_text
+        )
+        log.training.info(
+            f"NVFLARE_DEBUG_V2 submit response type={type(response).__name__} "
+            f"preview={response_preview}"
+        )
 
-        job_id = None
-        if isinstance(response, dict):
-            job_id = (
-                response.get("job_id") or response.get("data") or str(response)
+        job_id = _extract_submitted_job_id(response)
+        if not job_id:
+            log.training.warning(
+                "NVFLARE_DEBUG_V2 submit response did not contain a parsable job UUID"
             )
-        else:
-            job_id = getattr(response, "job_id", None) or str(response)
 
+        status = "RUNNING" if (job_id or bool(response_text.strip())) else "FAILED"
         TrainingJob.objects.create(
             project=project,
             network=network,
-            status="RUNNING" if job_id else "FAILED",
+            status=status,
             flare_job_id=job_id or "unknown",
         )
-        messages.success(request, f"Successfully submitted job {job_id}")
+        if job_id:
+            messages.success(request, f"Successfully submitted job {job_id}")
+        else:
+            messages.warning(
+                request,
+                "Job submitted but no job ID was returned; tracking may be limited.",
+            )
     except Exception as e:
         log.training.error(
             f"Submit job via FLARE API failed: {e} | admin_session_dir={admin_session_dir} "
