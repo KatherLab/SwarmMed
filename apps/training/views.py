@@ -325,12 +325,25 @@ def _nvflare_status_payload(current_network):
             username=admin_name, startup_kit_location=admin_dir
         )
         response = sess.api.do_command("list_jobs")
+        response_text = str(response)
+        response_preview = (
+            response_text[:1000] + "..."
+            if len(response_text) > 1000
+            else response_text
+        )
+        logger.training.info(
+            f"NVFLARE_DEBUG_V2 list_jobs response type={type(response).__name__} "
+            f"preview={response_preview}"
+        )
         try:
             sess.close()
         except Exception:
             pass
 
         jobs = _parse_nvflare_jobs(response)
+        logger.training.info(
+            f"NVFLARE_DEBUG_V2 list_jobs parsed_count={len(jobs)} parsed_jobs={jobs[:5]}"
+        )
         job = _select_nvflare_job(jobs)
         if not job:
             return None
@@ -993,6 +1006,9 @@ def start_training(request, network_id):
             )
 
         status = "RUNNING" if (job_id or bool(response_text.strip())) else "FAILED"
+        log.training.info(
+            f"NVFLARE_DEBUG_V2 submit parsed job_id={job_id} derived_status={status}"
+        )
         TrainingJob.objects.create(
             project=project,
             network=network,
