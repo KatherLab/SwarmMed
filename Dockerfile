@@ -12,6 +12,7 @@ FROM python:3.12-slim-bookworm
 # set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 
@@ -33,9 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# install python dependencies
-RUN pip install --upgrade pip --no-cache-dir \
-    && pip install --no-cache-dir -r requirements.txt
+# install python dependencies with uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && uv pip sync requirements.txt
 
 COPY . .
 # Copy built assets from Stage 1

@@ -22,15 +22,15 @@ SwarmCloud is a modular Django-based platform designed for decentralized data ma
 ## 🛠 Local Development Setup
 
 ### 1. Python Environment
-Create and activate a virtual environment:
+Use the Makefile to provision uv and the locked dependencies into `.venv`:
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+make install
 ```
 
-Install Python dependencies:
+If you prefer to manage the Python tooling manually you can install uv and sync the requirements yourself:
 ```bash
-pip install -r requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv pip sync requirements.txt
 ```
 
 ### 2. Frontend Assets

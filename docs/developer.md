@@ -324,7 +324,7 @@ This module provides a set of helper functions to handle the communication with 
 
     1.  Open `Dockerfile.sandbox` in the project root.
 
-    2.  Add the desired packages to the `RUN pip install` command.
+    2.  Add the desired packages to the `RUN uv pip install` command.
 
     3.  Rebuild and restart the containers:
 

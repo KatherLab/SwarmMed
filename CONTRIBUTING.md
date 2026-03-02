@@ -15,10 +15,8 @@ This guide will help you get onboarded and explain how to contribute effectively
     cd SwarmCloud
     ```
 3.  **Set up your environment**:
-    - Create a virtual environment: `python -m venv venv`
-    - Activate it: `source venv/bin/activate` (Linux/macOS) or `venv\Scripts\activate` (Windows)
-    - Install dependencies: `pip install -r requirements.txt`
-    - Install frontend tools: `npm install`
+  - Run `make install` to install uv (if needed) and synchronize the Python dependencies into `.venv`.
+  - Install frontend tools: `npm install`
 4.  **Configure environment variables**:
     - Copy `.env.example` to `.env` (if provided) or create one with your DB, Redis, and S3 credentials.
 5.  **Run migrations and start the server**:

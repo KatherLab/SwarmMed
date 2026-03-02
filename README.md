@@ -48,6 +48,16 @@ docker compose build
 docker compose up -d
 ```
 
+### Tooling (uv)
+
+SwarmCloud relies on uv for Python dependency management. The root Makefile installs uv when needed and synchronizes `requirements.txt` into `.venv`, so running the install target is all you need to provision the local Python tooling:
+
+```bash
+make install
+```
+
+Use the Makefile to run documentation helpers (`make docs-serve`, `make docs-build`) or docker shortcuts (`make compose-up`, `make compose-down`).
+
 ### 4. Initialize Superuser
 ```bash
 docker exec -it swarmcloud python manage.py createsuperuser
@@ -56,8 +66,14 @@ docker exec -it swarmcloud python manage.py createsuperuser
 ---
 ### Documentation
 ```bash
-pip install mkdocs mkdocs-material
-mkdocs serve --dev-addr localhost:9999
+make docs-serve
+```
+
+If you prefer to manage the MkDocs dependencies manually, install them with uv and run the server directly:
+
+```bash
+uv pip install mkdocs mkdocs-material
+uv run mkdocs serve --dev-addr localhost:9999
 ```
 
 ---
