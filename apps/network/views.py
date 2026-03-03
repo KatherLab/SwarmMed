@@ -317,13 +317,13 @@ def new_network(request):
                             pass
                         
                         # Generate simple compose.yaml for client
-                        # We use the same image as the project (python:3.10-slim + requirements)
+                        # We use the same image as the project (python:3.12-slim + requirements)
                         # But simpler: just run the start.sh
                         
                         client_compose_content = {
                             "services": {
                                 "fl_client": {
-                                    "image": "python:3.10-slim", # Should match provision.py builder or custom image
+                                    "image": "python:3.12-slim", # Should match provision.py builder or custom image
                                     "volumes": [
                                         # Mount the prod_00 directory to /workspace
                                         f"./:{'/workspace'}"
@@ -343,7 +343,7 @@ def new_network(request):
                         # For now, we assume the user will have a proper environment or we use a standard image.
                         # NVFlare docker image is better: nvflare/nvflare
                         
-                        client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.4.1"
+                        client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.6.1"
                         
                         # Extract Client Name and Server IP
                         server_ip = os.environ.get("SWARMCLOUD_OVERSEER_HOST", "").strip()

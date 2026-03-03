@@ -77,29 +77,23 @@ def generate_flare_startup_kit(
         )
         return
 
-    # Resolve and read the template BEFORE cleanup in case the source path is
-    # located inside provision_dir for this runtime environment.
-    repo_template = Path(__file__).resolve().parent / "master_template.yml"
-    if not repo_template.exists():
-        logger.network.error(
-            f"ERROR: master_template.yml missing at {repo_template}"
-        )
-        return
-
-    try:
-        template_payload = repo_template.read_text()
-    except Exception as e:
-        logger.network.error(f"Failed to read master template: {e}")
-        return
-
     # Clean start: remove any existing provisioning directory for this ID
     if os.path.exists(provision_dir):
         shutil.rmtree(provision_dir)
     os.makedirs(provision_dir, exist_ok=True)
 
     # 1. Setup Template and Filesystem
+    # Copy the master_template.yml from the app directory to the workspace
+    repo_template = Path(__file__).resolve().parent / "master_template.yml"
     target_template = Path(provision_dir) / "master_template.yml"
-    target_template.write_text(template_payload)
+
+    if not repo_template.exists():
+        logger.network.error(
+            f"ERROR: master_template.yml missing at {repo_template}"
+        )
+        return
+
+    shutil.copyfile(str(repo_template), str(target_template))
 
     # If a server IP is provided, inject it into the template before provisioning
     # so that generated config files remain signed/secure.
@@ -124,7 +118,7 @@ def generate_flare_startup_kit(
                 f"Failed to inject overseer IP into template: {e}"
             )
 
-    template_file_name = target_template.name
+    abs_template_path = str(target_template.resolve())
 
     # 2. Define Network Participants
     # Every network needs an overseer and an admin account
@@ -292,12 +286,12 @@ def generate_flare_startup_kit(
         "builders": [
             {
                 "path": "nvflare.lighter.impl.workspace.WorkspaceBuilder",
-                "args": {"template_file": template_file_name},
+                "args": {"template_file": abs_template_path},
             },
             {
                 "path": "nvflare.lighter.impl.docker.DockerBuilder",
                 "args": {
-                    "base_image": "python:3.10-slim",
+                    "base_image": "python:3.12-slim",
                     "requirements_file": "docker_compose_requirements.txt",
                 },
             },
@@ -326,7 +320,7 @@ def generate_flare_startup_kit(
     )
     with open(req_file_path, "w") as rf:
         # Basic requirements for all participants
-        rf.write("nvflare==2.4.1\n")
+        rf.write("nvflare==2.6.1\n")
         rf.write("gunicorn\n")
         rf.write("boto3\n")
         rf.write("python-dotenv\n")

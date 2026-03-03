@@ -1,5 +1,5 @@
 # Core
-django==5.2.12
+django==6.0.0
 django-axes==6.4.0
 python-dotenv==1.0.1
 str2bool==1.1
@@ -36,12 +36,12 @@ pandas==2.3.3
 numpy<2.0.0
 matplotlib==3.10.0
 seaborn==0.13.2
-scikit-learn==1.7.2
+scikit-learn==1.8.0
 torch==2.9.0
 tensorflow==2.16.1
-keras<3.11
+keras==3.13.0
 
 # Nvidia Flare
-nvflare==2.4.1
+nvflare==2.6.1
 docker==7.1.0
 cryptography>=44.0.0

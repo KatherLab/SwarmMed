@@ -7,7 +7,7 @@ COPY templates ./templates
 RUN npm ci && npm run build
 
 # Stage 2: Final image
-FROM python:3.10-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 # set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
