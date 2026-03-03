@@ -42,6 +42,6 @@ tensorflow==2.16.1
 keras==3.13.0
 
 # Nvidia Flare
-nvflare==2.4.1
+nvflare==2.6.1
 docker==7.1.0
 cryptography>=44.0.0

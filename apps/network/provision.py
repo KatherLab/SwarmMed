@@ -291,7 +291,7 @@ def generate_flare_startup_kit(
             {
                 "path": "nvflare.lighter.impl.docker.DockerBuilder",
                 "args": {
-                    "base_image": "python:3.10-slim",
+                    "base_image": "python:3.12-slim",
                     "requirements_file": "docker_compose_requirements.txt",
                 },
             },
@@ -320,7 +320,7 @@ def generate_flare_startup_kit(
     )
     with open(req_file_path, "w") as rf:
         # Basic requirements for all participants
-        rf.write("nvflare==2.4.1\n")
+        rf.write("nvflare==2.6.1\n")
         rf.write("gunicorn\n")
         rf.write("boto3\n")
         rf.write("python-dotenv\n")
