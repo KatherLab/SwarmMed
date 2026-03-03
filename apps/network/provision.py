@@ -168,11 +168,13 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 )
                 continue
 
+            center_org_name = f"org_{safe_client_name.replace('-', '_')}"
+
             participants.append(
                 {
                     "name": safe_client_name,
                     "type": "client",
-                    "org": f"org_{safe_client_name}",
+                    "org": center_org_name,
                     "listening_host": ip,
                 }
             )
@@ -183,7 +185,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 {
                     "name": server_name,
                     "type": "server",
-                    "org": f"org_{safe_client_name}",
+                    "org": center_org_name,
                     "fed_learn_port": 8002,
                     "admin_port": 8003,
                 }
@@ -195,7 +197,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 {
                     "name": admin_name,
                     "type": "admin",
-                    "org": f"org_{safe_client_name}",
+                    "org": center_org_name,
                     "role": "project_admin",
                 }
             )
