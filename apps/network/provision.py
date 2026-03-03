@@ -93,7 +93,14 @@ def generate_flare_startup_kit(
         )
         return
 
-    shutil.copyfile(str(repo_template), str(target_template))
+    # Avoid SameFileError when provisioning code is imported from a workspace path
+    # where source and target can resolve to the same file.
+    if repo_template.resolve() != target_template.resolve():
+        shutil.copyfile(str(repo_template), str(target_template))
+    else:
+        logger.network.info(
+            "Template source and target are identical; reusing existing master_template.yml"
+        )
 
     # If a server IP is provided, inject it into the template before provisioning
     # so that generated config files remain signed/secure.
@@ -118,7 +125,7 @@ def generate_flare_startup_kit(
                 f"Failed to inject overseer IP into template: {e}"
             )
 
-    abs_template_path = str(target_template.resolve())
+    template_file_name = target_template.name
 
     # 2. Define Network Participants
     # Every network needs an overseer and an admin account
@@ -286,7 +293,7 @@ def generate_flare_startup_kit(
         "builders": [
             {
                 "path": "nvflare.lighter.impl.workspace.WorkspaceBuilder",
-                "args": {"template_file": abs_template_path},
+                "args": {"template_file": template_file_name},
             },
             {
                 "path": "nvflare.lighter.impl.docker.DockerBuilder",
