@@ -179,14 +179,17 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 }
             )
 
-            server_name = f"server{len(valid_clients) + 1}"
+            server_index = len(valid_clients) + 1
+            server_name = f"server{server_index}"
+            fed_learn_port = 8000 + (2 * server_index)
+            admin_port = fed_learn_port + 1
             participants.append(
                 {
                     "name": server_name,
                     "type": "server",
                     "org": center_org_name,
-                    "fed_learn_port": 8002,
-                    "admin_port": 8003,
+                    "fed_learn_port": fed_learn_port,
+                    "admin_port": admin_port,
                 }
             )
 
