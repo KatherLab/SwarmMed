@@ -291,7 +291,7 @@ def generate_flare_startup_kit(
             {
                 "path": "nvflare.lighter.impl.docker.DockerBuilder",
                 "args": {
-                    "base_image": "python:3.12-slim",
+                    "base_image": "python:3.10-slim",
                     "requirements_file": "docker_compose_requirements.txt",
                 },
             },

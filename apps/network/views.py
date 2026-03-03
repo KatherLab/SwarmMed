@@ -323,7 +323,7 @@ def new_network(request):
                         client_compose_content = {
                             "services": {
                                 "fl_client": {
-                                    "image": "python:3.12-slim", # Should match provision.py builder or custom image
+                                    "image": "python:3.10-slim", # Should match provision.py builder or custom image
                                     "volumes": [
                                         # Mount the prod_00 directory to /workspace
                                         f"./:{'/workspace'}"
