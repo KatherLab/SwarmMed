@@ -275,9 +275,6 @@ def generate_flare_startup_kit(
                 "role": "project_admin",
             }
         )
-    
-    # after server_count is computed, before writing project.yml
-    ha_mode_enabled = (not local_test) and server_count > 1
 
     # 3. Generate project.yml content using safe_dump to prevent injection
     project_name_safe = slugify(network.project.title).replace("-", "_")
@@ -286,7 +283,6 @@ def generate_flare_startup_kit(
         "name": project_name_safe,
         "description": f"FLARE project for {network.project.title}",
         "participants": participants,
-        "ha_mode": ha_mode_enabled,
         "builders": [
             {
                 "path": "nvflare.lighter.impl.workspace.WorkspaceBuilder",
@@ -324,7 +320,7 @@ def generate_flare_startup_kit(
     )
     with open(req_file_path, "w") as rf:
         # Basic requirements for all participants
-        rf.write("nvflare==2.6.1\n")
+        rf.write("nvflare==2.4.1\n")
         rf.write("gunicorn\n")
         rf.write("boto3\n")
         rf.write("python-dotenv\n")

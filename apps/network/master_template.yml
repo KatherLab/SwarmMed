@@ -801,7 +801,7 @@ dockerfile: |
   ENV PATH="/root/.local/bin:${PATH}"
   RUN curl -LsSf https://astral.sh/uv/install.sh | sh
   RUN uv pip install -U pip
-  RUN uv pip install "nvflare==2.6.1"
+  RUN uv pip install "nvflare==2.4.1"
   COPY requirements.txt requirements.txt
   RUN uv pip sync requirements.txt
 helm_chart_chart: |
@@ -810,7 +810,7 @@ helm_chart_chart: |
   description: A Helm chart for NVFlare overseer and servers
   type: application
   version: 0.1.0
-  appVersion: "2.6.1"
+  appVersion: "2.4.1"
 
 helm_chart_service_overseer: |
   apiVersion: v1
@@ -869,7 +869,7 @@ helm_chart_deployment_overseer: |
               type: Directory
         containers:
           - name: overseer
-            image: nvflare-min:2.6.1
+            image: nvflare-min:2.4.1
             imagePullPolicy: IfNotPresent
             volumeMounts:
               - name: workspace
@@ -907,7 +907,7 @@ helm_chart_deployment_server: |
               type: Directory
         containers:
           - name: server1
-            image: nvflare-min:2.6.1
+            image: nvflare-min:2.4.1
             imagePullPolicy: IfNotPresent
             volumeMounts:
               - name: workspace
