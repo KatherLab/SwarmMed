@@ -234,12 +234,12 @@ fed_server: |
     "format_version": 2,
     "servers": [
         {
-            "name": "spleen_segmentation",
+      "name": "{~~server_name~~}",
             "service": {
-                "target": "server:8002"
+        "target": "{~~server_name~~}:{~~fed_learn_port~~}"
             },
             "admin_host": "0.0.0.0",
-            "admin_port": 8003,
+      "admin_port": {~~admin_port~~},
             "ssl_private_key": "server.key",
             "ssl_cert": "server.crt",
             "ssl_root_cert": "rootCA.pem"
@@ -250,7 +250,7 @@ fed_server: |
         "args": {
             "overseer_end_point": "https://overseer:8443",
             "project": "{~~project_name~~}",
-            "name": "server",
+          "name": "{~~server_name~~}",
             "role": "server"
         }
     }
@@ -740,8 +740,8 @@ docker_adm_sh: |
     __flserver__:
       image: ${IMAGE_NAME}
       ports:
-        - "8002:8002"
-        - "8003:8003"
+        - "{~~fed_learn_port~~}:{~~fed_learn_port~~}"
+        - "{~~admin_port~~}:{~~admin_port~~}"
       volumes:
         - ./server:/workspace
         - nvflare_svc_persist:/tmp/nvflare/
