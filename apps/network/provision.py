@@ -139,15 +139,7 @@ def generate_flare_startup_kit(
 
     participants = [overseer_participant]
 
-    participants.append(
-        {
-            "name": "server",
-            "type": "server",
-            "org": control_plane_org,
-            "fed_learn_port": 8002,
-            "admin_port": 8003,
-        }
-    )
+        
 
     valid_clients = []
     client_admin_map = {}
@@ -155,6 +147,15 @@ def generate_flare_startup_kit(
 
     if local_test:
         # Local test mode: add generic clients for testing on a single machine
+        participants.append(
+            {
+                "name": "server",
+                "type": "server",
+                "org": control_plane_org,
+                "fed_learn_port": 8002,
+                "admin_port": 8003,
+            }
+        )
         participants.extend(
             [
                 {"name": "fl-client-1", "type": "client", "org": "nvidia"},
