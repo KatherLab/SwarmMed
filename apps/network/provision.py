@@ -32,7 +32,13 @@ def is_valid_ip(ip):
     return bool(re.match(pattern, ip))
 
 
-def generate_flare_startup_kit(network_id, local_test=False, clients=None, server_ip=None):
+def generate_flare_startup_kit(
+    network_id,
+    local_test=False,
+    clients=None,
+    server_ip=None,
+    ha_servers=None,
+):
     """
     Generates the startup kits for a given SwarmNetwork using NVFlare.
 
@@ -133,22 +139,21 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
 
     participants = [overseer_participant]
 
+    participants.append(
+        {
+            "name": "server",
+            "type": "server",
+            "org": control_plane_org,
+            "fed_learn_port": 8002,
+            "admin_port": 8003,
+        }
+    )
+
     valid_clients = []
     client_admin_map = {}
     client_server_map = {}
 
     if local_test:
-        # Keep single-server topology in local test mode.
-        participants.append(
-            {
-                "name": "server",
-                "type": "server",
-                "org": control_plane_org,
-                "fed_learn_port": 8002,
-                "admin_port": 8003,
-            }
-        )
-
         # Local test mode: add generic clients for testing on a single machine
         participants.extend(
             [
@@ -157,9 +162,12 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
             ]
         )
     else:
-        # Real deployment: add specific clients provided by the user (with IPs)
+        # Real deployment:
+        # 1) sanitize client list
+        # 2) add HA servers in one control-plane org
+        # 3) add clients/admins and map each center to one server
+        prepared_clients = []
         for client in clients:
-            # Sanitize client name for safety
             safe_client_name = slugify(client["name"])
             ip = client.get("ip", "")
             if not is_valid_ip(ip):
@@ -169,6 +177,45 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                 continue
 
             center_org_name = f"org_{safe_client_name.replace('-', '_')}"
+            prepared_clients.append(
+                {
+                    "name": safe_client_name,
+                    "ip": ip,
+                    "org": center_org_name,
+                }
+            )
+
+        if ha_servers is not None:
+            try:
+                server_count = max(1, int(ha_servers))
+            except (TypeError, ValueError):
+                server_count = max(1, len(prepared_clients))
+        else:
+            server_count = max(1, len(prepared_clients))
+
+        server_names = []
+        for server_index in range(server_count):
+            server_name = f"server{server_index + 1}"
+            fed_learn_port = 8002 + (100 * server_index)
+            admin_port = fed_learn_port + 1
+
+            participants.append(
+                {
+                    "name": server_name,
+                    "type": "server",
+                    "org": control_plane_org,
+                    "fed_learn_port": fed_learn_port,
+                    "admin_port": admin_port,
+                }
+            )
+            server_names.append(server_name)
+
+        for client_index, client_info in enumerate(prepared_clients):
+            safe_client_name = client_info["name"]
+            ip = client_info["ip"]
+            center_org_name = client_info["org"]
+
+            mapped_server = server_names[client_index % len(server_names)]
 
             participants.append(
                 {
@@ -178,23 +225,8 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                     "listening_host": ip,
                 }
             )
-
-            server_index = len(valid_clients) + 1
-            server_name = f"server{server_index}"
-            fed_learn_port = 8000 + (2 * server_index)
-            admin_port = fed_learn_port + 1
-            participants.append(
-                {
-                    "name": server_name,
-                    "type": "server",
-                    "org": center_org_name,
-                    "fed_learn_port": fed_learn_port,
-                    "admin_port": admin_port,
-                }
-            )
-
             valid_clients.append({"name": safe_client_name, "ip": ip})
-            client_server_map[safe_client_name] = server_name
+            client_server_map[safe_client_name] = mapped_server
 
             admin_name = f"admin-{safe_client_name}@nvidia.com"
             participants.append(

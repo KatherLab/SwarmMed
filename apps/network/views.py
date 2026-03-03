@@ -185,13 +185,15 @@ def new_network(request):
                     continue
 
             # Register participants in the database for tracking
-            for idx, client_data in enumerate(clients, start=1):
+            server_count = max(1, len(clients))
+            for server_index in range(server_count):
                 SwarmParticipant.objects.create(
                     network=swarm_network,
                     user=request.user,
                     role="SERVER",
-                    participant_id=f"server{idx}",
+                    participant_id=f"server{server_index + 1}",
                 )
+            for client_data in clients:
                 SwarmParticipant.objects.create(
                     network=swarm_network,
                     user=request.user,
