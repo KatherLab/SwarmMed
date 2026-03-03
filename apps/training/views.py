@@ -123,130 +123,12 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
     return (admin_name, session_dir)
 
 
-def _normalize_startup_kit_location(path: str) -> str | None:
-    if not path:
-        return None
-
-    candidate = os.path.abspath(path).rstrip(os.sep)
-    if not os.path.isdir(candidate):
-        return None
-
-    if os.path.basename(candidate) == "startup":
-        parent = os.path.dirname(candidate)
-        if os.path.isdir(os.path.join(parent, "startup")):
-            return parent
-
-    if os.path.isdir(os.path.join(candidate, "startup")):
-        return candidate
-
-    parent = os.path.dirname(candidate)
-    if os.path.isdir(os.path.join(parent, "startup")):
-        return parent
-
-    return None
-
-
-def _new_secure_session_robust(username: str, startup_kit_location: str):
-    from nvflare.fuel.flare_api.flare_api import new_secure_session
-
-    candidates: list[str] = []
-
-    normalized = _normalize_startup_kit_location(startup_kit_location)
-    if normalized:
-        candidates.append(normalized)
-
-    raw = os.path.abspath(startup_kit_location).rstrip(os.sep)
-    if raw and raw not in candidates:
-        candidates.append(raw)
-
-    if raw and os.path.basename(raw) == "startup":
-        parent = os.path.dirname(raw)
-        if parent and parent not in candidates:
-            candidates.append(parent)
-
-    parent = os.path.dirname(raw) if raw else ""
-    if parent:
-        parent_norm = _normalize_startup_kit_location(parent)
-        if parent_norm and parent_norm not in candidates:
-            candidates.append(parent_norm)
-
-    last_error = None
-    for location in candidates:
-        try:
-            return new_secure_session(
-                username=username,
-                startup_kit_location=location,
-            )
-        except Exception as e:
-            last_error = e
-
-    if last_error:
-        raise RuntimeError(
-            "Unable to create NVFlare secure session. "
-            f"startup_kit_location={startup_kit_location!r}, "
-            f"candidates={candidates}, cwd={os.getcwd()}, last_error={last_error}"
-        ) from last_error
-    raise RuntimeError("No valid startup kit location candidates were found")
-
-
 def _parse_nvflare_jobs(response):
     if isinstance(response, dict):
-        meta = response.get("meta")
-        if isinstance(meta, dict):
-            meta_jobs = meta.get("jobs")
-            if isinstance(meta_jobs, list) and meta_jobs:
-                normalized = []
-                for job in meta_jobs:
-                    if not isinstance(job, dict):
-                        continue
-                    normalized.append(
-                        {
-                            "job_id": str(
-                                job.get("job_id")
-                                or job.get("id")
-                                or "unknown"
-                            ),
-                            "status": str(
-                                job.get("status")
-                                or job.get("job_status")
-                                or job.get("state")
-                                or "UNKNOWN"
-                            )
-                            .upper()
-                            .strip(),
-                            "submit_time": job.get("submit_time"),
-                            "job_name": job.get("job_name")
-                            or job.get("name"),
-                        }
-                    )
-                if normalized:
-                    return normalized
-
         if "jobs" in response and isinstance(response["jobs"], list):
             return response["jobs"]
         if "data" in response and isinstance(response["data"], list):
-            table_jobs = []
-            for entry in response["data"]:
-                if not isinstance(entry, dict):
-                    continue
-                if entry.get("type") != "table":
-                    continue
-                rows = entry.get("rows")
-                if not isinstance(rows, list) or len(rows) < 2:
-                    continue
-                for row in rows[1:]:
-                    if not isinstance(row, list) or len(row) < 3:
-                        continue
-                    table_jobs.append(
-                        {
-                            "job_id": str(row[0]),
-                            "job_name": str(row[1]),
-                            "status": str(row[2]).upper().strip(),
-                            "submit_time": row[3] if len(row) > 3 else None,
-                        }
-                    )
-            if table_jobs:
-                return table_jobs
+            return response["data"]
         if "job_id" in response:
             return [response]
     if isinstance(response, list):
@@ -271,33 +153,6 @@ def _parse_nvflare_jobs(response):
     return jobs
 
 
-def _extract_submitted_job_id(response) -> str | None:
-    if isinstance(response, dict):
-        direct = response.get("job_id") or response.get("id")
-        if direct:
-            return str(direct)
-        data = response.get("data")
-        if isinstance(data, str):
-            response = data
-
-    attr_job_id = getattr(response, "job_id", None)
-    if attr_job_id:
-        return str(attr_job_id)
-
-    text = str(response or "")
-    submitted_match = re.search(
-        r"Submitted\s+job:\s*([0-9a-f-]{36})", text, re.I
-    )
-    if submitted_match:
-        return submitted_match.group(1)
-
-    uuid_match = re.search(r"([0-9a-f-]{36})", text)
-    if uuid_match:
-        return uuid_match.group(1)
-
-    return None
-
-
 def _select_nvflare_job(jobs):
     if not jobs:
         return None
@@ -314,15 +169,10 @@ def _select_nvflare_job(jobs):
             .strip()
         )
 
-    active_statuses = {"RUNNING", "SUBMITTED", "DISPATCHED"}
-    active_jobs = [j for j in jobs if status_of(j) in active_statuses]
-
-    def submit_time_of(job):
-        return str(job.get("submit_time") or "")
-
-    if active_jobs:
-        return max(active_jobs, key=submit_time_of)
-    return max(jobs, key=submit_time_of)
+    running = [j for j in jobs if status_of(j) == "RUNNING"]
+    if running:
+        return running[0]
+    return jobs[0]
 
 
 def _nvflare_status_payload(current_network):
@@ -331,8 +181,10 @@ def _nvflare_status_payload(current_network):
         return None
 
     try:
+        from nvflare.fuel.flare_api.flare_api import new_secure_session
+
         admin_name, admin_dir = admin_target
-        sess = _new_secure_session_robust(
+        sess = new_secure_session(
             username=admin_name, startup_kit_location=admin_dir
         )
         response = sess.api.do_command("list_jobs")
@@ -358,18 +210,12 @@ def _nvflare_status_payload(current_network):
         )
         job_id = job.get("job_id") or job.get("id") or "unknown"
 
-        normalized_status = status
-        if status in {"SUBMITTED", "DISPATCHED"}:
-            normalized_status = "RUNNING"
-
         progress = 0
-        if normalized_status in {"COMPLETED", "STOPPED"}:
+        if status in {"COMPLETED", "STOPPED"}:
             progress = 100
-        elif normalized_status == "RUNNING":
-            progress = 5
 
         return {
-            "status": normalized_status.title(),
+            "status": status.title(),
             "progress": progress,
             "duration": "-",
             "eta": "-",
@@ -788,13 +634,6 @@ def start_training(request, network_id):
         return redirect("training:training")
 
     admin_username, admin_session_dir = admin_target
-    admin_session_dir = _normalize_startup_kit_location(admin_session_dir)
-    if not admin_session_dir:
-        messages.error(
-            request,
-            "Admin startup kit path is invalid. Please re-provision or upload a complete startup package.",
-        )
-        return redirect("training:training")
 
     app_server_dir = os.path.join(job_dir, "app_server")
     app_client_dir = os.path.join(job_dir, "app_client")
@@ -972,6 +811,8 @@ def start_training(request, network_id):
         json.dump(client_cfg, f, indent=2)
 
     try:
+        from nvflare.fuel.flare_api.flare_api import new_secure_session
+
         for _ in range(30):
             try:
                 socket.create_connection(("overseer", 8443), timeout=2)
@@ -979,34 +820,28 @@ def start_training(request, network_id):
             except OSError:
                 time.sleep(1)
 
-        sess = _new_secure_session_robust(
+        sess = new_secure_session(
             username=admin_username,
             startup_kit_location=admin_session_dir,
         )
         job_path_absolute = os.path.abspath(job_dir)
         response = sess.api.do_command(f"submit_job {job_path_absolute}")
-        response_text = str(response)
 
-        job_id = _extract_submitted_job_id(response)
-        if not job_id:
-            log.training.warning(
-                "Submit response did not contain a parsable job UUID"
+        job_id = None
+        if isinstance(response, dict):
+            job_id = (
+                response.get("job_id") or response.get("data") or str(response)
             )
+        else:
+            job_id = getattr(response, "job_id", None) or str(response)
 
-        status = "RUNNING" if (job_id or bool(response_text.strip())) else "FAILED"
         TrainingJob.objects.create(
             project=project,
             network=network,
-            status=status,
+            status="RUNNING" if job_id else "FAILED",
             flare_job_id=job_id or "unknown",
         )
-        if job_id:
-            messages.success(request, f"Successfully submitted job {job_id}")
-        else:
-            messages.warning(
-                request,
-                "Job submitted but no job ID was returned; tracking may be limited.",
-            )
+        messages.success(request, f"Successfully submitted job {job_id}")
     except Exception as e:
         log.training.error(f"Submit job via FLARE API failed: {e}")
         TrainingJob.objects.create(
@@ -1034,6 +869,8 @@ def stop_training(request, network_id):
         return redirect("training:training")
 
     try:
+        from nvflare.fuel.flare_api.flare_api import new_secure_session
+
         admin_target = _resolve_admin_session_target(network)
         if not admin_target:
             messages.error(
@@ -1043,9 +880,8 @@ def stop_training(request, network_id):
             return redirect("training:training")
 
         admin_username, admin_user_dir = admin_target
-        sess = _new_secure_session_robust(
-            username=admin_username,
-            startup_kit_location=admin_user_dir,
+        sess = new_secure_session(
+            username=admin_username, startup_kit_location=admin_user_dir
         )
         job_uuid = str(job.flare_job_id)
         match = re.search(r"([0-9a-f-]{36})", job_uuid)
@@ -1085,8 +921,6 @@ def training_status_api(request):
     if nvflare_status and nvflare_status.get("job_id"):
         status_map = {
             "RUNNING": "RUNNING",
-            "SUBMITTED": "RUNNING",
-            "DISPATCHED": "RUNNING",
             "COMPLETED": "COMPLETED",
             "STOPPED": "STOPPED",
             "FAILED": "FAILED",
