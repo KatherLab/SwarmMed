@@ -138,7 +138,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
     client_server_map = {}
 
     if local_test:
-        # Add the central FL server for local development mode.
+        # Keep single-server topology in local test mode.
         participants.append(
             {
                 "name": "server",
@@ -178,9 +178,8 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                     "listening_host": ip,
                 }
             )
-            valid_clients.append({"name": safe_client_name, "ip": ip})
 
-            server_name = f"server-{safe_client_name}"
+            server_name = f"server{len(valid_clients) + 1}"
             participants.append(
                 {
                     "name": server_name,
@@ -190,6 +189,8 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                     "admin_port": 8003,
                 }
             )
+
+            valid_clients.append({"name": safe_client_name, "ip": ip})
             client_server_map[safe_client_name] = server_name
 
             admin_name = f"admin-{safe_client_name}@nvidia.com"
@@ -453,7 +454,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None, serve
                         continue
                     if (
                         item.name in {"server", "overseer"}
-                        or item.name.startswith("server-")
+                        or item.name.startswith("server")
                         or "admin" in item.name
                     ):
                         continue

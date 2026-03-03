@@ -243,8 +243,7 @@ def start_swarm_network_task(network_id, user_id):
                 [
                     service_name
                     for service_name in available_services.keys()
-                    if str(service_name) == "server"
-                    or str(service_name).startswith("server-")
+                    if str(service_name).startswith("server")
                 ]
             )
             if server_like_services:

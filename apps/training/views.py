@@ -725,9 +725,20 @@ def start_training(request, network_id):
     if not client_names:
         client_names = ["fl-client-1", "fl-client-2"]
 
+    server_names = list(
+        network.participants.filter(role="SERVER").values_list(
+            "participant_id", flat=True
+        )
+    )
+    if not server_names:
+        server_names = ["server"]
+
     meta = {
         "name": f"{project_name}_job",
-        "deploy_map": {"app_server": ["server"], "app_client": client_names},
+        "deploy_map": {
+            "app_server": server_names,
+            "app_client": client_names,
+        },
     }
     with open(os.path.join(job_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
