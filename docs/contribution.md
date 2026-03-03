@@ -11,7 +11,7 @@ Welcome to the **SwarmCloud** developer community! This document provides detail
 
 SwarmCloud is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
 ### Core Technology Stack
-- **Backend:** Django 6.0, Celery, Redis.
+- **Backend:** Django 5.2, Celery, Redis.
 - **AI/ML:** NVIDIA FLARE (NVFlare) for Swarm Learning.
 - **Storage:** S3-compatible storage (MinIO for local dev).
 - **Frontend:** Tailwind CSS, Flowbite, Webpack.
