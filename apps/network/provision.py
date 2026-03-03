@@ -77,30 +77,29 @@ def generate_flare_startup_kit(
         )
         return
 
-    # Clean start: remove any existing provisioning directory for this ID
-    if os.path.exists(provision_dir):
-        shutil.rmtree(provision_dir)
-    os.makedirs(provision_dir, exist_ok=True)
-
-    # 1. Setup Template and Filesystem
-    # Copy the master_template.yml from the app directory to the workspace
+    # Resolve and read the template BEFORE cleanup in case the source path is
+    # located inside provision_dir for this runtime environment.
     repo_template = Path(__file__).resolve().parent / "master_template.yml"
-    target_template = Path(provision_dir) / "master_template.yml"
-
     if not repo_template.exists():
         logger.network.error(
             f"ERROR: master_template.yml missing at {repo_template}"
         )
         return
 
-    # Avoid SameFileError when provisioning code is imported from a workspace path
-    # where source and target can resolve to the same file.
-    if repo_template.resolve() != target_template.resolve():
-        shutil.copyfile(str(repo_template), str(target_template))
-    else:
-        logger.network.info(
-            "Template source and target are identical; reusing existing master_template.yml"
-        )
+    try:
+        template_payload = repo_template.read_text()
+    except Exception as e:
+        logger.network.error(f"Failed to read master template: {e}")
+        return
+
+    # Clean start: remove any existing provisioning directory for this ID
+    if os.path.exists(provision_dir):
+        shutil.rmtree(provision_dir)
+    os.makedirs(provision_dir, exist_ok=True)
+
+    # 1. Setup Template and Filesystem
+    target_template = Path(provision_dir) / "master_template.yml"
+    target_template.write_text(template_payload)
 
     # If a server IP is provided, inject it into the template before provisioning
     # so that generated config files remain signed/secure.
