@@ -279,7 +279,7 @@ def generate_flare_startup_kit(
     # 3. Generate project.yml content using safe_dump to prevent injection
     project_name_safe = slugify(network.project.title).replace("-", "_")
     project_config = {
-        "api_version": 4,
+        "api_version": 3,
         "name": project_name_safe,
         "description": f"FLARE project for {network.project.title}",
         "participants": participants,
