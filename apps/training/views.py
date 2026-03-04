@@ -819,8 +819,18 @@ def start_training(request, network_id):
             # Add custom code directory (training.py, flare_adapter.py, data_manifest.json)
             job.to(app_client_custom_dir, client_name)
 
-        # Submit using the modernized session.submit_job method
-        job_id = sess.submit_job(job)
+        # Export job config and submit by folder path (required by FLARE API)
+        generated_jobs_root = os.path.join(job_dir, "generated")
+        os.makedirs(generated_jobs_root, exist_ok=True)
+        job.export_job(generated_jobs_root)
+        job_definition_path = os.path.join(generated_jobs_root, job.name)
+        log.training.info(f"Submitting exported job from: {job_definition_path}")
+
+        job_id = sess.submit_job(job_definition_path)
+        try:
+            sess.close()
+        except Exception:
+            pass
 
         TrainingJob.objects.create(
             project=project,
