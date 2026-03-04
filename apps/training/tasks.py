@@ -176,7 +176,10 @@ def monitor_training_jobs():
                 job.total_rounds = total_rounds
                 job.rounds_finished = rounds_finished
                 if total_rounds and total_rounds > 0:
-                    pct = int(rounds_finished * 100 / total_rounds)
+                    rounds_completed = (
+                        rounds_finished + 1 if rounds_finished >= 0 else 0
+                    )
+                    pct = int(rounds_completed * 100 / total_rounds)
                     job.progress_percent = max(0, min(100, pct))
                 else:
                     job.progress_percent = 0

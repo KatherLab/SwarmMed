@@ -413,7 +413,9 @@ def get_training_progress_info(training_job, current_network):
                     return
                 if (
                     "ending workflow" in data and "swarm_controller" in data
-                ) or ("child worker process finished with RC 0" in data):
+                ) or ("ending workflow controller" in data) or (
+                    "child worker process finished with RC 0" in data
+                ):
                     ended = True
                 for m in round_re.finditer(data):
                     rnum = int(m.group(1))
@@ -450,8 +452,9 @@ def get_training_progress_info(training_job, current_network):
                     training_job.completed_at = timezone.now()
                     training_job.save()
             elif not have_cached_progress and total_rounds > 0:
+                rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                 training_progress = min(
-                    99, int(rounds_finished * 100 / total_rounds)
+                    99, int(rounds_completed * 100 / total_rounds)
                 )
         except Exception as e:
             logger.training.debug(
@@ -891,7 +894,11 @@ def stop_training(request, network_id):
     Aborts the currently running job via the NVFlare API.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    job = TrainingJob.objects.filter(network=network, status="RUNNING").first()
+    job = (
+        TrainingJob.objects.filter(network=network, status="RUNNING")
+        .order_by("-created_at")
+        .first()
+    )
 
     if not job:
         messages.warning(request, "No running job found to stop.")
@@ -918,11 +925,42 @@ def stop_training(request, network_id):
             job_uuid = match.group(1)
         sess.api.do_command(f"abort_job {job_uuid}")
         job.status = "STOPPED"
-        job.save()
+        job.completed_at = timezone.now()
+        job.progress_percent = 100
+        job.progress_updated_at = timezone.now()
+        job.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "progress_percent",
+                "progress_updated_at",
+            ]
+        )
         messages.success(request, f"Successfully aborted job {job_uuid}")
     except Exception as e:
         logger.training.error(f"Abort job failed: {e}")
-        messages.error(request, f"Failed to abort job: {e}")
+        err = str(e).lower()
+        if any(
+            token in err for token in ["not running", "invalid job id", "no such job"]
+        ):
+            job.status = "COMPLETED"
+            job.completed_at = timezone.now()
+            job.progress_percent = 100
+            job.progress_updated_at = timezone.now()
+            job.save(
+                update_fields=[
+                    "status",
+                    "completed_at",
+                    "progress_percent",
+                    "progress_updated_at",
+                ]
+            )
+            messages.info(
+                request,
+                "Training job had already finished. Status updated to Completed.",
+            )
+        else:
+            messages.error(request, f"Failed to abort job: {e}")
 
     return redirect("training:training")
 
