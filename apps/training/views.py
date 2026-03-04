@@ -768,7 +768,7 @@ def start_training(request, network_id):
         # Define Server side
         controller = SwarmServerController(num_rounds=10)
         for server_name in server_names:
-            job.to(controller, server_name, "app_server")
+            job.to(controller, server_name)
 
         # Define Client side
         # 1. Main training executor
@@ -789,11 +789,10 @@ def start_training(request, network_id):
         # Map all components to each client target
         for client_name in client_names:
             # In Job API, we add executors to the app
-            job.to(executor, client_name, "app_client", tasks=["train"])
+            job.to(executor, client_name, tasks=["train"])
             job.to(
                 swarm_client_controller,
                 client_name,
-                "app_client",
                 tasks=["swarm_*"],
             )
 
@@ -801,13 +800,11 @@ def start_training(request, network_id):
             job.to(
                 {"path": persistor_path},
                 client_name,
-                "app_client",
                 id="persistor",
             )
             job.to(
                 {"name": "FullModelShareableGenerator"},
                 client_name,
-                "app_client",
                 id="shareable_generator",
             )
             job.to(
@@ -816,7 +813,6 @@ def start_training(request, network_id):
                     "args": {"expected_data_kind": "WEIGHTS"},
                 },
                 client_name,
-                "app_client",
                 id="aggregator",
             )
 
