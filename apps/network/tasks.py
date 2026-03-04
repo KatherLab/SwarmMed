@@ -936,6 +936,24 @@ def start_swarm_network_task(network_id, user_id):
                     )
 
             if role in {"client", "server"}:
+                # Clear stale PID marker files from previous runs.
+                # These files live one level above startup and can cause
+                # start/sub_start scripts to exit early with
+                # "There seems to be one instance ... running".
+                for pid_file in ("pid.fl", "daemon_pid.fl"):
+                    for base_dir in (target["path"], host_workspace_path):
+                        try:
+                            candidate = os.path.join(base_dir, pid_file)
+                            if os.path.exists(candidate):
+                                os.remove(candidate)
+                                logger.network.info(
+                                    f"Removed stale runtime marker: {candidate}"
+                                )
+                        except Exception as e:
+                            logger.network.warning(
+                                f"Could not remove stale runtime marker {pid_file}: {e}"
+                            )
+
                 _ensure_executable(os.path.join(startup_dir, "sub_start.sh"))
                 command = [
                     "/bin/bash",
