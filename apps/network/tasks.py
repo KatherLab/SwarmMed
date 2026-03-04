@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import docker
+import yaml
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -25,6 +26,7 @@ from logs.models import LogCategory, LogEntry
 from project.models import Project
 
 from .models import SwarmNetwork
+from .utils import get_tailscale_ip
 
 
 def run_and_log_subprocess(command, cwd, env, logger):
@@ -167,6 +169,83 @@ def _discover_runtime_targets(base_prod_path):
     role_order = {"server": 0, "client": 1}
     targets.sort(key=lambda t: (role_order.get(t["role"], 9), t["name"]))
     return targets
+
+
+def _read_local_hostname_candidates():
+    names = set()
+
+    env_hostname = os.getenv("SWARMCLOUD_HOSTNAME", "").strip()
+    if env_hostname:
+        names.add(env_hostname)
+
+    explicit_participant = os.getenv("SWARMCLOUD_LOCAL_PARTICIPANT", "").strip()
+    if explicit_participant:
+        names.add(explicit_participant)
+
+    hostname_file = Path(settings.BASE_DIR) / ".swarmcloud_hostname"
+    if hostname_file.exists():
+        try:
+            file_hostname = hostname_file.read_text().strip()
+            if file_hostname:
+                names.add(file_hostname)
+        except Exception:
+            pass
+
+    normalized = set()
+    for name in names:
+        normalized.add(name)
+        safe_name = slugify(name)
+        if safe_name:
+            normalized.add(safe_name)
+
+    return normalized
+
+
+def _read_project_client_ip_map(project_yml_path):
+    if not os.path.exists(project_yml_path):
+        return {}
+
+    try:
+        with open(project_yml_path) as f:
+            project_yml = yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+    if not isinstance(project_yml, dict):
+        return {}
+
+    client_map = {}
+    for participant in project_yml.get("participants", []):
+        if not isinstance(participant, dict):
+            continue
+        if participant.get("type") != "client":
+            continue
+
+        participant_name = str(participant.get("name", "")).strip()
+        participant_ip = str(participant.get("listening_host", "")).strip()
+        if participant_name and participant_ip:
+            client_map[participant_name] = participant_ip
+
+    return client_map
+
+
+def _resolve_local_client_names(project_yml_path):
+    candidates = _read_local_hostname_candidates()
+
+    local_ip = str(get_tailscale_ip() or "").strip()
+    try:
+        ipaddress.ip_address(local_ip)
+        valid_local_ip = True
+    except ValueError:
+        valid_local_ip = False
+
+    if valid_local_ip:
+        project_client_ip_map = _read_project_client_ip_map(project_yml_path)
+        for participant_name, participant_ip in project_client_ip_map.items():
+            if participant_ip == local_ip:
+                candidates.add(participant_name)
+
+    return candidates
 
 
 def _list_existing_docker_subnets(docker_path, env):
@@ -712,6 +791,32 @@ def start_swarm_network_task(network_id, user_id):
             if server_only_mode and target["role"] == "client":
                 continue
             filtered_targets.append(target)
+
+        if not server_only_mode and has_server_target:
+            client_targets = [
+                t for t in filtered_targets if t.get("role") == "client"
+            ]
+            if len(client_targets) > 1:
+                project_yml_path = os.path.join(provision_dir, "project.yml")
+                local_client_names = _resolve_local_client_names(project_yml_path)
+                matched_local_clients = [
+                    t for t in client_targets if t.get("name") in local_client_names
+                ]
+
+                if matched_local_clients:
+                    allowed_local_names = {
+                        t.get("name") for t in matched_local_clients
+                    }
+                    filtered_targets = [
+                        t
+                        for t in filtered_targets
+                        if t.get("role") != "client"
+                        or t.get("name") in allowed_local_names
+                    ]
+                    logger.network.info(
+                        "Detected full startup bundle; limiting client startup "
+                        f"to local participant(s): {sorted(allowed_local_names)}"
+                    )
 
         logger.network.info(
             f"Starting containerized runtime (server_only_mode={server_only_mode})"
