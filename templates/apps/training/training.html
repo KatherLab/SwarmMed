@@ -1,19 +1,5 @@
 {% extends "layouts/base.html" %}
 {% load static %}
-
-{% block messages %}
-  {% if messages %}
-    <div class="fixed top-20 right-4 z-50 space-y-2 max-w-md">
-      {% for message in messages %}
-        <div class="rounded-lg border px-4 py-3 text-sm shadow-sm {% if 'error' in message.tags %}border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200{% elif 'warning' in message.tags %}border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200{% elif 'success' in message.tags %}border-green-300 bg-green-50 text-green-800 dark:border-green-700 dark:bg-green-900/30 dark:text-green-200{% else %}border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200{% endif %}">
-          {{ message }}
-        </div>
-      {% endfor %}
-    </div>
-  {% endif %}
-{% endblock messages %}
-
-
 {% block content %}
 
 <main>

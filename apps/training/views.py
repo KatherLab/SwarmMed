@@ -767,7 +767,8 @@ def start_training(request, network_id):
 
         # Define Server side
         controller = SwarmServerController(num_rounds=10)
-        job.to(controller, server_names, "app_server")
+        for server_name in server_names:
+            job.to(controller, server_name, "app_server")
 
         # Define Client side
         # 1. Main training executor
@@ -785,22 +786,42 @@ def start_training(request, network_id):
             min_responses_required=len(client_names),
         )
 
-        # Map both to the clients
-        # In Job API, we add executors to the app
-        job.to(executor, client_names, "app_client", tasks=["train"])
-        job.to(swarm_client_controller, client_names, "app_client", tasks=["swarm_*"])
+        # Map all components to each client target
+        for client_name in client_names:
+            # In Job API, we add executors to the app
+            job.to(executor, client_name, "app_client", tasks=["train"])
+            job.to(
+                swarm_client_controller,
+                client_name,
+                "app_client",
+                tasks=["swarm_*"],
+            )
 
-        # Add shared components to the client app
-        job.to({"path": persistor_path}, client_names, "app_client", id="persistor")
-        job.to({"name": "FullModelShareableGenerator"}, client_names, "app_client", id="shareable_generator")
-        job.to({
-            "name": "InTimeAccumulateWeightedAggregator",
-            "args": {"expected_data_kind": "WEIGHTS"}
-        }, client_names, "app_client", id="aggregator")
+            # Add shared components to the client app
+            job.to(
+                {"path": persistor_path},
+                client_name,
+                "app_client",
+                id="persistor",
+            )
+            job.to(
+                {"name": "FullModelShareableGenerator"},
+                client_name,
+                "app_client",
+                id="shareable_generator",
+            )
+            job.to(
+                {
+                    "name": "InTimeAccumulateWeightedAggregator",
+                    "args": {"expected_data_kind": "WEIGHTS"},
+                },
+                client_name,
+                "app_client",
+                id="aggregator",
+            )
 
-        # IMPORTANT: Add the custom code directory to the job
-        # This includes training.py, flare_adapter.py and data_manifest.json
-        job.add_resources(app_client_custom_dir, "app_client")
+            # Add custom code directory (training.py, flare_adapter.py, data_manifest.json)
+            job.to(app_client_custom_dir, client_name)
 
         # Submit using the modernized session.submit_job method
         job_id = sess.submit_job(job)
