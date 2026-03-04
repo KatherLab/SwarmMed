@@ -123,6 +123,11 @@ def start_swarm_network_task(network_id, user_id):
             for service_name, service_config in compose_content[
                 "services"
             ].items():
+                # Ensure project-scoped container names from `docker compose -p ...`.
+                # Static container_name values can cause global-name collisions
+                # across different Swarm networks (e.g. /fl-client-2 already exists).
+                service_config.pop("container_name", None)
+
                 if service_config.get("privileged"):
                     raise ValueError(
                         f"Security error: Privileged mode is not allowed for service '{service_name}'"
