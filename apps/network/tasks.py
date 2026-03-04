@@ -405,6 +405,28 @@ def _count_running_labeled_containers(network_id, docker_path, env):
     return len([line for line in result.stdout.splitlines() if line.strip()])
 
 
+def _resolve_bind_source_path(source_path):
+    """
+    Resolve a bind-mount source path so it is valid for the Docker daemon host.
+    In containerized deployments, app code paths (e.g. /app/...) may differ from
+    host paths, so we remap via HOST_PROJECT_PATH when available.
+    """
+    abs_source = os.path.abspath(source_path)
+    host_project_path = os.getenv("HOST_PROJECT_PATH", "").strip()
+    if not host_project_path:
+        return abs_source
+
+    try:
+        relative = os.path.relpath(abs_source, settings.BASE_DIR)
+    except Exception:
+        return abs_source
+
+    if relative.startswith(".."):
+        return abs_source
+
+    return os.path.abspath(os.path.join(host_project_path, relative))
+
+
 @shared_task(bind=True)
 def execute_and_log_in_container(
     self, container_name, command, network_id, project_id, user_id
@@ -535,6 +557,15 @@ def start_swarm_network_task(network_id, user_id):
             startup_dir = target["startup_dir"]
             role = target["role"]
             participant_name = target["name"]
+            host_workspace_path = _resolve_bind_source_path(target["path"])
+
+            host_startup_dir = os.path.join(host_workspace_path, "startup")
+            if not os.path.isdir(host_startup_dir):
+                raise RuntimeError(
+                    "Resolved Docker bind mount path does not contain startup directory: "
+                    f"{host_startup_dir}. "
+                    "Set HOST_PROJECT_PATH to the host path of this repository."
+                )
 
             if role in {"client", "server"}:
                 _ensure_executable(os.path.join(startup_dir, "sub_start.sh"))
@@ -570,7 +601,7 @@ def start_swarm_network_task(network_id, user_id):
                 "--label",
                 f"swarmcloud.role={role}",
                 "-v",
-                f"{target['path']}:/workspace",
+                f"{host_workspace_path}:/workspace",
             ]
 
             if role == "overseer":
@@ -601,10 +632,11 @@ def start_swarm_network_task(network_id, user_id):
 
                 persist_dir = os.path.join(target["path"], ".nvflare_persist")
                 os.makedirs(persist_dir, exist_ok=True)
+                host_persist_dir = _resolve_bind_source_path(persist_dir)
                 run_cmd.extend(
                     [
                         "-v",
-                        f"{persist_dir}:/tmp/nvflare",
+                        f"{host_persist_dir}:/tmp/nvflare",
                     ]
                 )
                 _add_port_mapping_with_fallback(
