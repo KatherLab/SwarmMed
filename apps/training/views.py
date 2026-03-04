@@ -208,6 +208,9 @@ def _nvflare_status_payload(current_network):
         )
         job_id = job.get("job_id") or job.get("id") or "unknown"
 
+        if status in {"", "UNKNOWN", "N/A", "NONE"}:
+            return None
+
         progress = 0
         if status in {"COMPLETED", "STOPPED"}:
             progress = 100
@@ -991,12 +994,16 @@ def training_status_api(request):
         local_status = str(payload.get("status", "")).upper().strip()
         nv_status = str(nvflare_status.get("status", "")).upper().strip()
         terminal_states = {"COMPLETED", "FAILED", "STOPPED"}
+        unknown_states = {"", "UNKNOWN", "N/A", "NONE"}
 
         # Prefer local terminal status inferred from logs/progress so the UI
         # does not regress back to RUNNING due to stale list_jobs output.
-        should_override_status = not (
-            local_status in terminal_states
-            and nv_status not in terminal_states
+        should_override_status = (
+            nv_status not in unknown_states
+            and not (
+                local_status in terminal_states
+                and nv_status not in terminal_states
+            )
         )
 
         if should_override_status:

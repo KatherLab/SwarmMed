@@ -40,6 +40,7 @@ _ROUND_RE = re.compile(r"finished training round (\d+)")
 def _get_total_rounds(project_id: str, network_id: str) -> int:
     """Try to read num_rounds from the server config written at job submission."""
     cfg_path = os.path.join(
+        settings.BASE_DIR,
         "workspaces",
         project_id,
         network_id,
@@ -78,13 +79,6 @@ def monitor_training_jobs():
 
     for job in jobs:
         try:
-            # Skip jobs that are already fully synced to S3 to save resources.
-            if (
-                TrainingResult.objects.filter(job=job).exists()
-                and job.status == "COMPLETED"
-            ):
-                continue
-
             project_id = str(job.project.identifier)
             network_id = str(job.network.identifier)
             flare_job_id_raw = job.flare_job_id
@@ -123,6 +117,7 @@ def monitor_training_jobs():
             # The workspace is structured as:
             # workspaces/<project>/<network>/workspace/
             network_workspace_root = os.path.join(
+                settings.BASE_DIR,
                 "workspaces", project_id, network_id, "workspace"
             )
             workspace_base = None
