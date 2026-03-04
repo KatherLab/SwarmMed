@@ -968,11 +968,7 @@ def start_swarm_network_task(network_id, user_id):
                 .lower()
                 in {"1", "true", "yes", "on"}
             )
-            use_host_network = (
-                role == "client"
-                and not has_server_target
-                and client_host_network_enabled
-            )
+            use_host_network = role == "client" and client_host_network_enabled
 
             run_cmd = [
                 docker_path,
@@ -1051,33 +1047,38 @@ def start_swarm_network_task(network_id, user_id):
                     participant_name=participant_name,
                 )
 
-            if role == "client" and not has_server_target:
-                remote_host = (
-                    os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
-                    or (Path(startup_dir) / "server_host.txt").read_text().strip()
-                    if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
-                    else ""
-                )
-                if not remote_host:
-                    remote_host = _extract_host_from_server_endpoint(startup_dir)
-                if remote_host:
-                    run_cmd.extend(["--add-host", f"server:{remote_host}"])
+            if role == "client":
+                if has_server_target:
+                    # On nodes that also run the FL server, host-networked clients
+                    # should resolve "server" to the local host interface.
+                    run_cmd.extend(["--add-host", "server:127.0.0.1"])
+                else:
+                    remote_host = (
+                        os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+                        or (Path(startup_dir) / "server_host.txt").read_text().strip()
+                        if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
+                        else ""
+                    )
+                    if not remote_host:
+                        remote_host = _extract_host_from_server_endpoint(startup_dir)
+                    if remote_host:
+                        run_cmd.extend(["--add-host", f"server:{remote_host}"])
 
-                    aliases_file = os.path.join(startup_dir, "server_aliases.txt")
-                    if os.path.exists(aliases_file):
-                        try:
-                            with open(aliases_file) as af:
-                                for alias in af.read().splitlines():
-                                    alias = alias.strip()
-                                    if alias:
-                                        run_cmd.extend(
-                                            [
-                                                "--add-host",
-                                                f"{alias}:{remote_host}",
-                                            ]
-                                        )
-                        except Exception:
-                            pass
+                        aliases_file = os.path.join(startup_dir, "server_aliases.txt")
+                        if os.path.exists(aliases_file):
+                            try:
+                                with open(aliases_file) as af:
+                                    for alias in af.read().splitlines():
+                                        alias = alias.strip()
+                                        if alias:
+                                            run_cmd.extend(
+                                                [
+                                                    "--add-host",
+                                                    f"{alias}:{remote_host}",
+                                                ]
+                                            )
+                            except Exception:
+                                pass
 
             run_cmd.extend([image_name] + command)
 
