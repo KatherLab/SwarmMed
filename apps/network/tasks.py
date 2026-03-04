@@ -288,14 +288,47 @@ def _build_local_fallback_image(
     logger.network.info(
         f"Building fallback runtime image for network: {image_name}"
     )
-    ret = run_and_log_subprocess(
-        [docker_path, "build", "-t", image_name, "."],
+    _build_image_with_compat(
+        docker_path=docker_path,
+        image_name=image_name,
         cwd=build_dir,
         env=env,
         logger=logger,
+        error_command="docker build fallback",
+    )
+
+
+def _build_image_with_compat(
+    docker_path,
+    image_name,
+    cwd,
+    env,
+    logger,
+    error_command,
+):
+    build_cmd = [docker_path, "build", "-t", image_name, "."]
+    ret = run_and_log_subprocess(
+        build_cmd,
+        cwd=cwd,
+        env=env,
+        logger=logger,
+    )
+    if ret == 0:
+        return
+
+    compat_env = env.copy()
+    compat_env["DOCKER_BUILDKIT"] = "0"
+    logger.network.warning(
+        "Docker image build failed; retrying with DOCKER_BUILDKIT=0 compatibility mode."
+    )
+    ret = run_and_log_subprocess(
+        build_cmd,
+        cwd=cwd,
+        env=compat_env,
+        logger=logger,
     )
     if ret != 0:
-        raise subprocess.CalledProcessError(ret, "docker build fallback")
+        raise subprocess.CalledProcessError(ret, error_command)
 
 
 def _is_host_port_available(port):
@@ -399,7 +432,6 @@ def start_swarm_network_task(network_id, user_id):
 
         docker_path = shutil.which("docker") or "docker"
         env = os.environ.copy()
-        env["DOCKER_BUILDKIT"] = "1"
 
         configured_image = os.getenv("SWARMCLOUD_FLARE_IMAGE", "").strip()
         if configured_image:
@@ -413,14 +445,14 @@ def start_swarm_network_task(network_id, user_id):
                 logger.network.info(
                     f"Building runtime image for network: {image_name}"
                 )
-                ret = run_and_log_subprocess(
-                    [docker_path, "build", "-t", image_name, "."],
+                _build_image_with_compat(
+                    docker_path=docker_path,
+                    image_name=image_name,
                     cwd=docker_build_dir,
                     env=env,
                     logger=logger,
+                    error_command="docker build",
                 )
-                if ret != 0:
-                    raise subprocess.CalledProcessError(ret, "docker build")
             else:
                 _build_local_fallback_image(
                     docker_path=docker_path,
