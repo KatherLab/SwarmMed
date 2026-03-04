@@ -26,7 +26,7 @@ from logs.models import LogCategory, LogEntry
 from project.models import Project
 
 from .models import SwarmNetwork
-from .utils import get_tailscale_ip
+from .utils import get_hostname, get_tailscale_ip
 
 
 def run_and_log_subprocess(command, cwd, env, logger):
@@ -178,6 +178,13 @@ def _read_local_hostname_candidates():
     if env_hostname:
         names.add(env_hostname)
 
+    try:
+        runtime_hostname = str(get_hostname() or "").strip()
+        if runtime_hostname:
+            names.add(runtime_hostname)
+    except Exception:
+        pass
+
     explicit_participant = os.getenv("SWARMCLOUD_LOCAL_PARTICIPANT", "").strip()
     if explicit_participant:
         names.add(explicit_participant)
@@ -199,6 +206,26 @@ def _read_local_hostname_candidates():
             normalized.add(safe_name)
 
     return normalized
+
+
+def _read_local_client_names_metadata(base_prod_path):
+    metadata_path = Path(base_prod_path) / ".local_client_names.json"
+    if not metadata_path.exists():
+        return set()
+
+    try:
+        payload = json.loads(metadata_path.read_text())
+    except Exception:
+        return set()
+
+    if not isinstance(payload, list):
+        return set()
+
+    names = set()
+    for entry in payload:
+        if isinstance(entry, str) and entry.strip():
+            names.add(entry.strip())
+    return names
 
 
 def _read_project_client_ip_map(project_yml_path):
@@ -229,8 +256,9 @@ def _read_project_client_ip_map(project_yml_path):
     return client_map
 
 
-def _resolve_local_client_names(project_yml_path):
-    candidates = _read_local_hostname_candidates()
+def _resolve_local_client_names(project_yml_path, base_prod_path):
+    candidates = _read_local_client_names_metadata(base_prod_path)
+    candidates.update(_read_local_hostname_candidates())
 
     local_ip = str(get_tailscale_ip() or "").strip()
     try:
@@ -798,7 +826,9 @@ def start_swarm_network_task(network_id, user_id):
             ]
             if len(client_targets) > 1:
                 project_yml_path = os.path.join(provision_dir, "project.yml")
-                local_client_names = _resolve_local_client_names(project_yml_path)
+                local_client_names = _resolve_local_client_names(
+                    project_yml_path, base_prod_path
+                )
                 matched_local_clients = [
                     t for t in client_targets if t.get("name") in local_client_names
                 ]

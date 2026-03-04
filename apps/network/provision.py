@@ -125,6 +125,7 @@ def generate_flare_startup_kit(
 
     client_admin_map = {}
     client_server_map = {}
+    local_client_names = []
 
     if local_test:
         # Local test mode: add generic clients for testing on a single machine
@@ -186,6 +187,9 @@ def generate_flare_startup_kit(
             safe_client_name = client_info["name"]
             ip = client_info["ip"]
             center_org_name = client_info["org"]
+
+            if server_ip and ip == server_ip:
+                local_client_names.append(safe_client_name)
 
             mapped_server = "server"
 
@@ -351,6 +355,11 @@ def generate_flare_startup_kit(
                 if client_server_map:
                     (base_prod_path / ".client_server_map.json").write_text(
                         json.dumps(client_server_map)
+                    )
+
+                if local_client_names:
+                    (base_prod_path / ".local_client_names.json").write_text(
+                        json.dumps(sorted(set(local_client_names)))
                     )
             except Exception as e:
                 logger.network.warning(
