@@ -182,7 +182,7 @@ def _nvflare_status_payload(current_network):
 
     admin_target = _resolve_admin_session_target(current_network)
     if not admin_target:
-        cache.set(cache_key, None, 3)
+        cache.set(cache_key, None, 15)
         return None
 
     try:
@@ -201,7 +201,7 @@ def _nvflare_status_payload(current_network):
         jobs = _parse_nvflare_jobs(response)
         job = _select_nvflare_job(jobs)
         if not job:
-            cache.set(cache_key, None, 3)
+            cache.set(cache_key, None, 15)
             return None
 
         status = (
@@ -217,7 +217,7 @@ def _nvflare_status_payload(current_network):
         job_id = job.get("job_id") or job.get("id") or "unknown"
 
         if status in {"", "UNKNOWN", "N/A", "NONE"}:
-            cache.set(cache_key, None, 3)
+            cache.set(cache_key, None, 15)
             return None
 
         progress = 0
@@ -232,10 +232,10 @@ def _nvflare_status_payload(current_network):
             "job_id": job_id,
             "created_at": timezone.now().isoformat(),
         }
-        cache.set(cache_key, payload, 3)
+        cache.set(cache_key, payload, 15)
         return payload
     except Exception:
-        cache.set(cache_key, None, 3)
+        cache.set(cache_key, None, 15)
         return None
 
 
@@ -925,6 +925,13 @@ def start_training(request, network_id):
         controller = SwarmServerController(num_rounds=10)
         for server_name in server_names:
             job.to(controller, server_name)
+            job.to(persistor, server_name, id="persistor")
+            job.to(
+                shareable_generator,
+                server_name,
+                id="shareable_generator",
+            )
+            job.to(aggregator, server_name, id="aggregator")
 
         # Define Client side
         # Swarm Client Controller (handles collaborative logic)
@@ -949,15 +956,6 @@ def start_training(request, network_id):
                 client_name,
                 tasks=["swarm_*"],
             )
-
-            # Add shared components to the client app
-            job.to(persistor, client_name, id="persistor")
-            job.to(
-                shareable_generator,
-                client_name,
-                id="shareable_generator",
-            )
-            job.to(aggregator, client_name, id="aggregator")
 
             # Add custom code directory (training.py, flare_adapter.py, data_manifest.json)
             job.to(app_client_custom_dir, client_name)
