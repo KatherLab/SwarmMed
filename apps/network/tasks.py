@@ -10,6 +10,7 @@ import socket
 import stat
 import shutil
 import subprocess  # nosec B404
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -358,6 +359,52 @@ def _add_port_mapping_with_fallback(
         run_cmd.extend(["-p", str(container_port)])
 
 
+def _get_container_last_logs(docker_path, container_name, env, lines=40):
+    result = subprocess.run(  # nosec B603
+        [docker_path, "logs", "--tail", str(lines), container_name],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+    return output.strip()
+
+
+def _is_container_running(docker_path, container_name, env):
+    result = subprocess.run(  # nosec B603
+        [docker_path, "inspect", "-f", "{{.State.Running}}", container_name],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    return result.stdout.strip().lower() == "true"
+
+
+def _count_running_labeled_containers(network_id, docker_path, env):
+    result = subprocess.run(  # nosec B603
+        [
+            docker_path,
+            "ps",
+            "--filter",
+            f"label=swarmcloud.network_id={network_id}",
+            "--filter",
+            "status=running",
+            "-q",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        return 0
+    return len([line for line in result.stdout.splitlines() if line.strip()])
+
+
 @shared_task(bind=True)
 def execute_and_log_in_container(
     self, container_name, command, network_id, project_id, user_id
@@ -512,7 +559,6 @@ def start_swarm_network_task(network_id, user_id):
                 docker_path,
                 "run",
                 "-d",
-                "--rm",
                 "--name",
                 container_name,
                 "--network",
@@ -620,6 +666,19 @@ def start_swarm_network_task(network_id, user_id):
                     f"Failed to start {container_name}: {run_result.stderr.strip()}"
                 )
 
+            # Give the process a moment to initialize and verify it is still running.
+            time.sleep(1)
+            if not _is_container_running(docker_path, container_name, env):
+                container_logs = _get_container_last_logs(
+                    docker_path=docker_path,
+                    container_name=container_name,
+                    env=env,
+                    lines=60,
+                )
+                raise RuntimeError(
+                    f"Container {container_name} exited during startup. Logs:\n{container_logs}"
+                )
+
         try:
             logger.network.info(
                 f"Connecting app and storage to network: {network_name}"
@@ -641,7 +700,17 @@ def start_swarm_network_task(network_id, user_id):
                 f"Could not connect containers to FLARE network: {e}"
             )
 
-        # Mark as running and trigger preflight check
+        running_count = _count_running_labeled_containers(
+            network_id=swarm_network.identifier,
+            docker_path=docker_path,
+            env=env,
+        )
+        if running_count == 0:
+            raise RuntimeError(
+                "No FLARE runtime containers are running after startup."
+            )
+
+        # Mark as running only after verifying at least one runtime container is alive.
         swarm_network.status = "RUNNING"
         swarm_network.save()
         run_nvflare_preflight_check.delay(network_id, user_id)
