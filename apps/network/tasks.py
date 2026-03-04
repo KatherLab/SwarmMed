@@ -930,6 +930,10 @@ def start_swarm_network_task(network_id, user_id):
                 f"swarmcloud.network_id={swarm_network.identifier}",
                 "--label",
                 f"swarmcloud.role={role}",
+                "-e",
+                "GRPC_ENABLE_FORK_SUPPORT=1",
+                "-e",
+                "GRPC_POLL_STRATEGY=poll",
             ]
 
             if mount_mode == "bind":

@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import re
@@ -174,8 +175,14 @@ def _select_nvflare_job(jobs):
 
 
 def _nvflare_status_payload(current_network):
+    cache_key = f"nvflare_status_payload_{current_network.identifier}"
+    cached_payload = cache.get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     admin_target = _resolve_admin_session_target(current_network)
     if not admin_target:
+        cache.set(cache_key, None, 3)
         return None
 
     try:
@@ -194,6 +201,7 @@ def _nvflare_status_payload(current_network):
         jobs = _parse_nvflare_jobs(response)
         job = _select_nvflare_job(jobs)
         if not job:
+            cache.set(cache_key, None, 3)
             return None
 
         status = (
@@ -209,13 +217,14 @@ def _nvflare_status_payload(current_network):
         job_id = job.get("job_id") or job.get("id") or "unknown"
 
         if status in {"", "UNKNOWN", "N/A", "NONE"}:
+            cache.set(cache_key, None, 3)
             return None
 
         progress = 0
         if status in {"COMPLETED", "STOPPED"}:
             progress = 100
 
-        return {
+        payload = {
             "status": status.title(),
             "progress": progress,
             "duration": "-",
@@ -223,7 +232,10 @@ def _nvflare_status_payload(current_network):
             "job_id": job_id,
             "created_at": timezone.now().isoformat(),
         }
+        cache.set(cache_key, payload, 3)
+        return payload
     except Exception:
+        cache.set(cache_key, None, 3)
         return None
 
 
@@ -741,17 +753,42 @@ def start_training(request, network_id):
     if "server" not in server_names:
         server_names = ["server"]
 
-    framework = "pt"
+    framework = "np"
     if os.path.exists(training_py_path):
         with open(training_py_path) as f:
             script_text = f.read()
-            if (
-                "import tensorflow" in script_text
-                or "import keras" in script_text
-            ):
+
+        try:
+            tree = ast.parse(script_text)
+            imported_modules = set()
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        mod = (alias.name or "").split(".")[0].strip()
+                        if mod:
+                            imported_modules.add(mod)
+                elif isinstance(node, ast.ImportFrom):
+                    mod = (node.module or "").split(".")[0].strip()
+                    if mod:
+                        imported_modules.add(mod)
+
+            if imported_modules.intersection({"tensorflow", "keras"}):
                 framework = "tf"
-            elif "import sklearn" in script_text:
+            elif imported_modules.intersection(
+                {"torch", "pytorch_lightning"}
+            ):
+                framework = "pt"
+            elif "sklearn" in imported_modules:
                 framework = "np"
+        except SyntaxError:
+            lowered_script_text = script_text.lower()
+            if "tensorflow" in lowered_script_text or "keras" in lowered_script_text:
+                framework = "tf"
+            elif "torch" in lowered_script_text or "pytorch" in lowered_script_text:
+                framework = "pt"
+
+    log.training.info(f"Detected training framework: {framework}")
 
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
@@ -775,7 +812,34 @@ def start_training(request, network_id):
                 task_script_path="custom/training.py"
             )
             persistor = NPModelPersistor()
-        elif framework == "np":
+        elif framework == "pt":
+            try:
+                from nvflare.app_opt.pt.in_process_client_api_executor import (
+                    PTInProcessClientAPIExecutor,
+                )
+                from nvflare.app_opt.pt.file_model_persistor import (
+                    PTFileModelPersistor,
+                )
+
+                executor = PTInProcessClientAPIExecutor(
+                    task_script_path="custom/training.py"
+                )
+                persistor = PTFileModelPersistor()
+            except ModuleNotFoundError:
+                log.training.warning(
+                    "PyTorch executor requested but torch is unavailable; "
+                    "falling back to generic in-process executor."
+                )
+                from nvflare.app_common.executors.in_process_client_api_executor import (
+                    InProcessClientAPIExecutor,
+                )
+                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+
+                executor = InProcessClientAPIExecutor(
+                    task_script_path="custom/training.py"
+                )
+                persistor = NPModelPersistor()
+        else:
             from nvflare.app_common.executors.in_process_client_api_executor import (
                 InProcessClientAPIExecutor,
             )
@@ -785,18 +849,6 @@ def start_training(request, network_id):
                 task_script_path="custom/training.py"
             )
             persistor = NPModelPersistor()
-        else:
-            from nvflare.app_opt.pt.in_process_client_api_executor import (
-                PTInProcessClientAPIExecutor,
-            )
-            from nvflare.app_opt.pt.file_model_persistor import (
-                PTFileModelPersistor,
-            )
-
-            executor = PTInProcessClientAPIExecutor(
-                task_script_path="custom/training.py"
-            )
-            persistor = PTFileModelPersistor()
 
         shareable_generator = SimpleModelShareableGenerator()
         aggregator = InTimeAccumulateWeightedAggregator(
