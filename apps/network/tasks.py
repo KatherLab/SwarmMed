@@ -6,6 +6,7 @@ preflight checks, and real-time log streaming.
 
 import os
 import json
+import socket
 import stat
 import shutil
 import subprocess  # nosec B404
@@ -248,6 +249,82 @@ def _stop_labeled_runtime(network_id, docker_path, env, logger):
     return removed
 
 
+def _build_local_fallback_image(
+    docker_path,
+    env,
+    logger,
+    image_name,
+    provision_dir,
+    base_prod_path,
+):
+    build_dir = os.path.join(base_prod_path, ".swarmcloud_runtime_build")
+    os.makedirs(build_dir, exist_ok=True)
+
+    requirements_src = os.path.join(
+        provision_dir, "docker_compose_requirements.txt"
+    )
+    requirements_dst = os.path.join(build_dir, "requirements.txt")
+
+    if os.path.exists(requirements_src):
+        shutil.copyfile(requirements_src, requirements_dst)
+    else:
+        with open(requirements_dst, "w") as rf:
+            rf.write("nvflare==2.7.1\n")
+            rf.write("gunicorn\n")
+            rf.write("boto3\n")
+            rf.write("python-dotenv\n")
+
+    dockerfile_path = os.path.join(build_dir, "Dockerfile")
+    with open(dockerfile_path, "w") as df:
+        df.write("FROM python:3.12-slim\n")
+        df.write("ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\n")
+        df.write(
+            "RUN apt-get update && apt-get install -y --no-install-recommends bash && rm -rf /var/lib/apt/lists/*\n"
+        )
+        df.write("RUN pip install --no-cache-dir --upgrade pip\n")
+        df.write("COPY requirements.txt /tmp/requirements.txt\n")
+        df.write("RUN pip install --no-cache-dir -r /tmp/requirements.txt\n")
+
+    logger.network.info(
+        f"Building fallback runtime image for network: {image_name}"
+    )
+    ret = run_and_log_subprocess(
+        [docker_path, "build", "-t", image_name, "."],
+        cwd=build_dir,
+        env=env,
+        logger=logger,
+    )
+    if ret != 0:
+        raise subprocess.CalledProcessError(ret, "docker build fallback")
+
+
+def _is_host_port_available(port):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("0.0.0.0", int(port)))
+        return True
+    except OSError:
+        return False
+
+
+def _add_port_mapping_with_fallback(
+    run_cmd,
+    container_port,
+    logger,
+    participant_name,
+):
+    container_port = int(container_port)
+    if _is_host_port_available(container_port):
+        run_cmd.extend(["-p", f"{container_port}:{container_port}"])
+    else:
+        logger.network.warning(
+            f"Port {container_port} is already in use; using dynamic host port for {participant_name}."
+        )
+        # Keep container port fixed, let Docker choose an available host port.
+        run_cmd.extend(["-p", str(container_port)])
+
+
 @shared_task(bind=True)
 def execute_and_log_in_container(
     self, container_name, command, network_id, project_id, user_id
@@ -324,25 +401,35 @@ def start_swarm_network_task(network_id, user_id):
         env = os.environ.copy()
         env["DOCKER_BUILDKIT"] = "1"
 
-        image_name = os.getenv(
-            "SWARMCLOUD_FLARE_IMAGE", "nvflare/nvflare:2.7.1"
-        )
-        docker_build_dir = os.path.join(base_prod_path, "nvflare")
-        if os.path.exists(os.path.join(docker_build_dir, "Dockerfile")):
+        configured_image = os.getenv("SWARMCLOUD_FLARE_IMAGE", "").strip()
+        if configured_image:
+            image_name = configured_image
+        else:
             image_name = (
                 f"swarmcloud_nvflare_{str(swarm_network.identifier)[:12]}:2.7.1"
             )
-            logger.network.info(
-                f"Building runtime image for network: {image_name}"
-            )
-            ret = run_and_log_subprocess(
-                [docker_path, "build", "-t", image_name, "."],
-                cwd=docker_build_dir,
-                env=env,
-                logger=logger,
-            )
-            if ret != 0:
-                raise subprocess.CalledProcessError(ret, "docker build")
+            docker_build_dir = os.path.join(base_prod_path, "nvflare")
+            if os.path.exists(os.path.join(docker_build_dir, "Dockerfile")):
+                logger.network.info(
+                    f"Building runtime image for network: {image_name}"
+                )
+                ret = run_and_log_subprocess(
+                    [docker_path, "build", "-t", image_name, "."],
+                    cwd=docker_build_dir,
+                    env=env,
+                    logger=logger,
+                )
+                if ret != 0:
+                    raise subprocess.CalledProcessError(ret, "docker build")
+            else:
+                _build_local_fallback_image(
+                    docker_path=docker_path,
+                    env=env,
+                    logger=logger,
+                    image_name=image_name,
+                    provision_dir=provision_dir,
+                    base_prod_path=base_prod_path,
+                )
 
         network_name = _docker_network_name(swarm_network.identifier)
         _ensure_docker_network(docker_path, network_name, env)
@@ -409,7 +496,12 @@ def start_swarm_network_task(network_id, user_id):
             ]
 
             if role == "overseer":
-                run_cmd.extend(["-p", "8443:8443"])
+                _add_port_mapping_with_fallback(
+                    run_cmd=run_cmd,
+                    container_port=8443,
+                    logger=logger,
+                    participant_name=participant_name,
+                )
 
             if role == "server":
                 fed_server_json = _load_json_file(
@@ -435,11 +527,19 @@ def start_swarm_network_task(network_id, user_id):
                     [
                         "-v",
                         f"{persist_dir}:/tmp/nvflare",
-                        "-p",
-                        f"{fed_learn_port}:{fed_learn_port}",
-                        "-p",
-                        f"{admin_port}:{admin_port}",
                     ]
+                )
+                _add_port_mapping_with_fallback(
+                    run_cmd=run_cmd,
+                    container_port=fed_learn_port,
+                    logger=logger,
+                    participant_name=participant_name,
+                )
+                _add_port_mapping_with_fallback(
+                    run_cmd=run_cmd,
+                    container_port=admin_port,
+                    logger=logger,
+                    participant_name=participant_name,
                 )
 
             if role == "client" and not has_overseer_target:
