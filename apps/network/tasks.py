@@ -9,6 +9,7 @@ import json
 import socket
 import stat
 import shutil
+import ipaddress
 import subprocess  # nosec B404
 import time
 from pathlib import Path
@@ -168,7 +169,71 @@ def _discover_runtime_targets(base_prod_path):
     return targets
 
 
-def _ensure_docker_network(docker_path, network_name, env):
+def _list_existing_docker_subnets(docker_path, env):
+    ls_result = subprocess.run(  # nosec B603
+        [docker_path, "network", "ls", "-q"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if ls_result.returncode != 0:
+        return set()
+
+    network_ids = [n.strip() for n in ls_result.stdout.splitlines() if n.strip()]
+    if not network_ids:
+        return set()
+
+    inspect_result = subprocess.run(  # nosec B603
+        [docker_path, "network", "inspect", *network_ids],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if inspect_result.returncode != 0:
+        return set()
+
+    subnets = set()
+    try:
+        inspected = json.loads(inspect_result.stdout or "[]")
+        for network in inspected:
+            for ipam_config in (network.get("IPAM", {}).get("Config") or []):
+                subnet = (ipam_config or {}).get("Subnet")
+                if not subnet:
+                    continue
+                try:
+                    subnets.add(ipaddress.ip_network(subnet, strict=False))
+                except ValueError:
+                    continue
+    except Exception:
+        return set()
+
+    return subnets
+
+
+def _candidate_subnets_for_network(network_identifier, existing_subnets):
+    hash_seed = abs(hash(str(network_identifier)))
+    candidates = []
+
+    for second_octet in (240, 241, 242, 243):
+        for third_octet in range(0, 256):
+            candidates.append(ipaddress.ip_network(f"10.{second_octet}.{third_octet}.0/24"))
+
+    start_index = hash_seed % len(candidates)
+    ordered_candidates = candidates[start_index:] + candidates[:start_index]
+
+    available = []
+    for candidate in ordered_candidates:
+        if any(candidate.overlaps(existing) for existing in existing_subnets):
+            continue
+        available.append(candidate)
+        if len(available) >= 24:
+            break
+    return available
+
+
+def _ensure_docker_network(docker_path, network_name, env, logger):
     inspect = subprocess.run(  # nosec B603
         [docker_path, "network", "inspect", network_name],
         capture_output=True,
@@ -187,8 +252,48 @@ def _ensure_docker_network(docker_path, network_name, env):
         check=False,
     )
     if create.returncode != 0:
+        error_text = (create.stderr or "").strip()
+        allocation_issue = "non-overlapping IPv4 address pool" in error_text
+
+        if not allocation_issue:
+            raise RuntimeError(
+                f"Failed to create Docker network '{network_name}': {error_text}"
+            )
+
+        logger.network.warning(
+            "Docker default address pools are exhausted/overlapping; retrying with explicit subnet selection."
+        )
+        existing_subnets = _list_existing_docker_subnets(docker_path, env)
+        fallback_subnets = _candidate_subnets_for_network(
+            network_identifier=network_name,
+            existing_subnets=existing_subnets,
+        )
+
+        last_error = error_text
+        for subnet in fallback_subnets:
+            retry = subprocess.run(  # nosec B603
+                [
+                    docker_path,
+                    "network",
+                    "create",
+                    "--subnet",
+                    str(subnet),
+                    network_name,
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            if retry.returncode == 0:
+                logger.network.info(
+                    f"Created Docker network '{network_name}' with fallback subnet {subnet}."
+                )
+                return
+            last_error = (retry.stderr or "").strip() or last_error
+
         raise RuntimeError(
-            f"Failed to create Docker network '{network_name}': {create.stderr.strip()}"
+            f"Failed to create Docker network '{network_name}' after subnet fallback attempts: {last_error}"
         )
 
 
@@ -306,19 +411,35 @@ def _build_image_with_compat(
     error_command,
 ):
     build_cmd = [docker_path, "build", "-t", image_name, "."]
+    primary_env = env.copy()
+    primary_env["DOCKER_BUILDKIT"] = "1"
+
     ret = run_and_log_subprocess(
         build_cmd,
         cwd=cwd,
-        env=env,
+        env=primary_env,
         logger=logger,
     )
     if ret == 0:
         return
 
+    allow_legacy_builder = (
+        os.getenv("SWARMCLOUD_ALLOW_LEGACY_DOCKER_BUILDER", "")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    if not allow_legacy_builder:
+        logger.network.error(
+            "Docker image build failed with BuildKit enabled. "
+            "Legacy builder fallback is disabled; set SWARMCLOUD_ALLOW_LEGACY_DOCKER_BUILDER=true to retry with DOCKER_BUILDKIT=0."
+        )
+        raise subprocess.CalledProcessError(ret, error_command)
+
     compat_env = env.copy()
     compat_env["DOCKER_BUILDKIT"] = "0"
     logger.network.warning(
-        "Docker image build failed; retrying with DOCKER_BUILDKIT=0 compatibility mode."
+        "Docker image build failed; retrying with deprecated DOCKER_BUILDKIT=0 compatibility mode."
     )
     ret = run_and_log_subprocess(
         build_cmd,
@@ -542,7 +663,7 @@ def start_swarm_network_task(network_id, user_id):
                 )
 
         network_name = _docker_network_name(swarm_network.identifier)
-        _ensure_docker_network(docker_path, network_name, env)
+        _ensure_docker_network(docker_path, network_name, env, logger)
 
         server_only_mode = (
             os.getenv("SWARMCLOUD_SERVER_ONLY_MODE", "")
