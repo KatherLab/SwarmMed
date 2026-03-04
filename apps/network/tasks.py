@@ -427,6 +427,17 @@ def _resolve_bind_source_path(source_path):
     return os.path.abspath(os.path.join(host_project_path, relative))
 
 
+def _docker_container_exists(docker_path, container_name, env):
+    result = subprocess.run(  # nosec B603
+        [docker_path, "inspect", container_name],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 @shared_task(bind=True)
 def execute_and_log_in_container(
     self, container_name, command, network_id, project_id, user_id
@@ -560,19 +571,50 @@ def start_swarm_network_task(network_id, user_id):
             host_workspace_path = _resolve_bind_source_path(target["path"])
 
             host_startup_dir = os.path.join(host_workspace_path, "startup")
+            runtime_startup_dir = "/workspace/startup"
+            mount_mode = "bind"
+            shared_container_name = (
+                os.getenv("SWARMCLOUD_APP_CONTAINER", "swarmcloud").strip()
+                or "swarmcloud"
+            )
+
             if not os.path.isdir(host_startup_dir):
-                raise RuntimeError(
-                    "Resolved Docker bind mount path does not contain startup directory: "
-                    f"{host_startup_dir}. "
-                    "Set HOST_PROJECT_PATH to the host path of this repository."
-                )
+                if _docker_container_exists(
+                    docker_path=docker_path,
+                    container_name=shared_container_name,
+                    env=env,
+                ):
+                    mount_mode = "volumes-from"
+                    runtime_startup_dir = os.path.join(
+                        target["path"], "startup"
+                    )
+                    logger.network.info(
+                        "Startup workspace not found on host bind path; "
+                        f"using --volumes-from {shared_container_name} for {participant_name}."
+                    )
+                else:
+                    raise RuntimeError(
+                        "Resolved Docker bind mount path does not contain startup directory: "
+                        f"{host_startup_dir}. "
+                        "Set HOST_PROJECT_PATH to the host path of this repository, "
+                        "or set SWARMCLOUD_APP_CONTAINER to a running container "
+                        "with /app/workspaces mounted."
+                    )
 
             if role in {"client", "server"}:
                 _ensure_executable(os.path.join(startup_dir, "sub_start.sh"))
-                command = ["/bin/bash", "-lc", "cd /workspace/startup && ./sub_start.sh"]
+                command = [
+                    "/bin/bash",
+                    "-lc",
+                    f"cd {runtime_startup_dir} && ./sub_start.sh",
+                ]
             else:
                 _ensure_executable(os.path.join(startup_dir, "start.sh"))
-                command = ["/bin/bash", "-lc", "cd /workspace/startup && ./start.sh"]
+                command = [
+                    "/bin/bash",
+                    "-lc",
+                    f"cd {runtime_startup_dir} && ./start.sh",
+                ]
 
             container_name = _container_name_for(
                 swarm_network.identifier, participant_name
@@ -600,9 +642,12 @@ def start_swarm_network_task(network_id, user_id):
                 f"swarmcloud.network_id={swarm_network.identifier}",
                 "--label",
                 f"swarmcloud.role={role}",
-                "-v",
-                f"{host_workspace_path}:/workspace",
             ]
+
+            if mount_mode == "bind":
+                run_cmd.extend(["-v", f"{host_workspace_path}:/workspace"])
+            else:
+                run_cmd.extend(["--volumes-from", shared_container_name])
 
             if role == "overseer":
                 _add_port_mapping_with_fallback(
@@ -632,13 +677,14 @@ def start_swarm_network_task(network_id, user_id):
 
                 persist_dir = os.path.join(target["path"], ".nvflare_persist")
                 os.makedirs(persist_dir, exist_ok=True)
-                host_persist_dir = _resolve_bind_source_path(persist_dir)
-                run_cmd.extend(
-                    [
-                        "-v",
-                        f"{host_persist_dir}:/tmp/nvflare",
-                    ]
-                )
+                if mount_mode == "bind":
+                    host_persist_dir = _resolve_bind_source_path(persist_dir)
+                    run_cmd.extend(
+                        [
+                            "-v",
+                            f"{host_persist_dir}:/tmp/nvflare",
+                        ]
+                    )
                 _add_port_mapping_with_fallback(
                     run_cmd=run_cmd,
                     container_port=fed_learn_port,
