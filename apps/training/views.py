@@ -733,16 +733,6 @@ def start_training(request, network_id):
     if not server_names:
         server_names = ["server"]
 
-    meta = {
-        "name": f"{project_name}_job",
-        "deploy_map": {
-            "app_server": server_names,
-            "app_client": client_names,
-        },
-    }
-    with open(os.path.join(job_dir, "meta.json"), "w") as f:
-        json.dump(meta, f, indent=2)
-
     framework = "pt"
     if os.path.exists(training_py_path):
         with open(training_py_path) as f:
@@ -756,73 +746,18 @@ def start_training(request, network_id):
                 framework = "np"
 
     executor_path = "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor"
+    persistor_path = "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor"
     if framework == "tf":
         executor_path = "nvflare.app_opt.tf.in_process_client_api_executor.TFInProcessClientAPIExecutor"
+        persistor_path = "nvflare.app_opt.tf.file_model_persistor.TFFileModelPersistor"
     elif framework == "np":
         executor_path = "nvflare.app_common.executors.in_process_client_api_executor.InProcessClientAPIExecutor"
-
-    server_cfg = {
-        "format_version": 2,
-        "workflows": [
-            {
-                "id": "swarm_controller",
-                "path": "nvflare.app_common.ccwf.SwarmServerController",
-                "args": {"num_rounds": 10},
-            }
-        ],
-    }
-    client_cfg = {
-        "format_version": 2,
-        "executors": [
-            {
-                "tasks": ["train"],
-                "executor": {
-                    "path": executor_path,
-                    "args": {"task_script_path": "custom/training.py"},
-                },
-            },
-            {
-                "tasks": ["swarm_*"],
-                "executor": {
-                    "path": "nvflare.app_common.ccwf.SwarmClientController",
-                    "args": {
-                        "learn_task_name": "train",
-                        "persistor_id": "persistor",
-                        "aggregator_id": "aggregator",
-                        "shareable_generator_id": "shareable_generator",
-                        "min_responses_required": len(client_names),
-                    },
-                },
-            },
-        ],
-        "components": [
-            {
-                "id": "persistor",
-                "path": "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor",
-            },
-            {
-                "id": "shareable_generator",
-                "name": "FullModelShareableGenerator",
-            },
-            {
-                "id": "aggregator",
-                "name": "InTimeAccumulateWeightedAggregator",
-                "args": {"expected_data_kind": "WEIGHTS"},
-            },
-        ],
-    }
-
-    with open(
-        os.path.join(app_server_dir, "config", "config_fed_server.json"), "w"
-    ) as f:
-        json.dump(server_cfg, f, indent=2)
-    with open(
-        os.path.join(app_client_dir, "config", "config_fed_client.json"), "w"
-    ) as f:
-        json.dump(client_cfg, f, indent=2)
+        persistor_path = "nvflare.app_common.np.np_model_persistor.NPModelPersistor"
 
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
+        from nvflare.job_config.api import FedJob
+        from nvflare.app_common.ccwf import SwarmServerController, SwarmClientController
 
         for _ in range(30):
             try:
@@ -835,16 +770,49 @@ def start_training(request, network_id):
             username=admin_username,
             startup_kit_location=admin_session_dir,
         )
-        job_path_absolute = os.path.abspath(job_dir)
-        response = sess.api.do_command(f"submit_job {job_path_absolute}")
 
-        job_id = None
-        if isinstance(response, dict):
-            job_id = (
-                response.get("job_id") or response.get("data") or str(response)
-            )
-        else:
-            job_id = getattr(response, "job_id", None) or str(response)
+        # Create the Job object using the 2.7.1 Job API
+        job = FedJob(name=f"{project_name}_job")
+
+        # Define Server side
+        controller = SwarmServerController(num_rounds=10)
+        job.to(controller, server_names, "app_server")
+
+        # Define Client side
+        # 1. Main training executor
+        executor = {
+            "path": executor_path,
+            "args": {"task_script_path": "custom/training.py"},
+        }
+        
+        # 2. Swarm Client Controller (handles the collaborative logic)
+        swarm_client_controller = SwarmClientController(
+            learn_task_name="train",
+            persistor_id="persistor",
+            aggregator_id="aggregator",
+            shareable_generator_id="shareable_generator",
+            min_responses_required=len(client_names),
+        )
+
+        # Map both to the clients
+        # In Job API, we add executors to the app
+        job.to(executor, client_names, "app_client", tasks=["train"])
+        job.to(swarm_client_controller, client_names, "app_client", tasks=["swarm_*"])
+
+        # Add shared components to the client app
+        job.to({"path": persistor_path}, client_names, "app_client", id="persistor")
+        job.to({"name": "FullModelShareableGenerator"}, client_names, "app_client", id="shareable_generator")
+        job.to({
+            "name": "InTimeAccumulateWeightedAggregator",
+            "args": {"expected_data_kind": "WEIGHTS"}
+        }, client_names, "app_client", id="aggregator")
+
+        # IMPORTANT: Add the custom code directory to the job
+        # This includes training.py, flare_adapter.py and data_manifest.json
+        job.add_resources(app_client_custom_dir, "app_client")
+
+        # Submit using the modernized session.submit_job method
+        job_id = sess.submit_job(job)
 
         TrainingJob.objects.create(
             project=project,

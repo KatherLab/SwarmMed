@@ -279,7 +279,7 @@ def generate_flare_startup_kit(
     # 3. Generate project.yml content using safe_dump to prevent injection
     project_name_safe = slugify(network.project.title).replace("-", "_")
     project_config = {
-        "api_version": 3,
+        "api_version": 4,
         "name": project_name_safe,
         "description": f"FLARE project for {network.project.title}",
         "participants": participants,
@@ -305,6 +305,7 @@ def generate_flare_startup_kit(
                 },
             },
             {"path": "nvflare.lighter.impl.cert.CertBuilder"},
+            {"path": "nvflare.lighter.impl.flare_api.FlareAPIBuilder"},
             {"path": "nvflare.lighter.impl.signature.SignatureBuilder"},
         ],
     }
@@ -320,7 +321,7 @@ def generate_flare_startup_kit(
     )
     with open(req_file_path, "w") as rf:
         # Basic requirements for all participants
-        rf.write("nvflare==2.6.1\n")
+        rf.write("nvflare==2.7.1\n")
         rf.write("gunicorn\n")
         rf.write("boto3\n")
         rf.write("python-dotenv\n")

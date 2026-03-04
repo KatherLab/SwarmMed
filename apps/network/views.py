@@ -343,7 +343,7 @@ def new_network(request):
                         # For now, we assume the user will have a proper environment or we use a standard image.
                         # NVFlare docker image is better: nvflare/nvflare
                         
-                        client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.6.1"
+                        client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.7.1"
                         
                         # Extract Client Name and Server IP
                         server_ip = os.environ.get("SWARMCLOUD_OVERSEER_HOST", "").strip()
