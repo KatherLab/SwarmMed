@@ -169,7 +169,7 @@ def new_network(request):
             # Extract client JSON data from the dynamic form fields
             clients_json = request.POST.getlist("clients")
             # Automatically detect the Tailscale IP for the server (this machine)
-            # This allows remote clients (VPN) to connect to the overseer/server.
+            # This allows remote clients (VPN) to connect to the server.
             server_ip = get_tailscale_ip()
 
             clients = []
@@ -346,14 +346,16 @@ def new_network(request):
                         client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.7.1"
                         
                         # Extract Client Name and Server IP
-                        server_ip = os.environ.get("SWARMCLOUD_OVERSEER_HOST", "").strip()
+                        server_ip = os.environ.get("SWARMCLOUD_SERVER_HOST", "").strip()
                         try:
-                            overseer_agent_args = conf.get("overseer_agent", {}).get("args", {})
-                            client_name = overseer_agent_args.get("name", "client")
-                            overseer_url = overseer_agent_args.get("overseer_end_point", "")
+                            server_agent_args = conf.get("overseer_agent", {}).get("args", {})
+                            client_name = server_agent_args.get("name", "client")
+                            server_url = server_agent_args.get(
+                                "sp_end_point"
+                            ) or server_agent_args.get("overseer_end_point", "")
 
                             if not server_ip:
-                                host_file = os.path.join(startup_dir, "overseer_host.txt")
+                                host_file = os.path.join(startup_dir, "server_host.txt")
                                 if os.path.exists(host_file):
                                     try:
                                         with open(host_file, "r") as hf:
@@ -386,16 +388,18 @@ def new_network(request):
                             client_compose_content["services"]["fl_client"]["tty"] = True
                             client_compose_content["services"]["fl_client"]["stdin_open"] = True
 
-                            if not server_ip and overseer_url:
-                                # Parse IP from https://IP:PORT or http://IP:PORT
-                                parsed_host = overseer_url.split("://")[-1].split(":")[0]
-                                if parsed_host and parsed_host != "overseer":
+                            if not server_ip and server_url:
+                                # Parse host from URL or host:port endpoint format.
+                                if "://" in server_url:
+                                    parsed_host = server_url.split("://")[-1].split(":")[0]
+                                else:
+                                    parsed_host = server_url.split(":")[0]
+                                if parsed_host and parsed_host != "server":
                                     server_ip = parsed_host
 
                             if server_ip:
                                 extra_hosts = {
                                     f"server:{server_ip}",
-                                    f"overseer:{server_ip}",
                                 }
                                 aliases_file = os.path.join(
                                     startup_dir, "server_aliases.txt"

@@ -77,21 +77,24 @@ def _ensure_executable(path):
     os.chmod(path, current_mode | stat.S_IXUSR)
 
 
-def _extract_host_from_overseer_endpoint(startup_dir):
+def _extract_host_from_server_endpoint(startup_dir):
     fed_client_json = os.path.join(startup_dir, "fed_client.json")
     config = _load_json_file(fed_client_json)
 
-    endpoint = (
-        config.get("overseer_agent", {})
-        .get("args", {})
-        .get("overseer_end_point", "")
+    agent_args = config.get("overseer_agent", {}).get("args", {})
+    endpoint = agent_args.get("sp_end_point") or agent_args.get(
+        "overseer_end_point", ""
     )
     if not endpoint:
         return ""
 
-    parsed = urlparse(endpoint)
-    host = (parsed.hostname or "").strip()
-    if host in {"", "overseer", "localhost", "127.0.0.1"}:
+    if "://" in endpoint:
+        parsed = urlparse(endpoint)
+        host = (parsed.hostname or "").strip()
+    else:
+        host = endpoint.split(":")[0].strip()
+
+    if host in {"", "server", "localhost", "127.0.0.1"}:
         return ""
     return host
 
@@ -148,11 +151,6 @@ def _discover_runtime_targets(base_prod_path):
             role = "server"
         elif os.path.exists(fed_client_path):
             role = "client"
-        elif participant.name == "overseer" or (
-            os.path.exists(os.path.join(startup_dir, "gunicorn.conf.py"))
-            and os.path.exists(os.path.join(startup_dir, "privilege.yml"))
-        ):
-            role = "overseer"
         else:
             continue
 
@@ -165,7 +163,7 @@ def _discover_runtime_targets(base_prod_path):
             }
         )
 
-    role_order = {"overseer": 0, "server": 1, "client": 2}
+    role_order = {"server": 0, "client": 1}
     targets.sort(key=lambda t: (role_order.get(t["role"], 9), t["name"]))
     return targets
 
@@ -553,7 +551,7 @@ def start_swarm_network_task(network_id, user_id):
             in {"1", "true", "yes", "on"}
         )
 
-        has_overseer_target = any(t["role"] == "overseer" for t in targets)
+        has_server_target = any(t["role"] == "server" for t in targets)
         filtered_targets = []
         for target in targets:
             if server_only_mode and target["role"] == "client":
@@ -649,14 +647,6 @@ def start_swarm_network_task(network_id, user_id):
             else:
                 run_cmd.extend(["--volumes-from", shared_container_name])
 
-            if role == "overseer":
-                _add_port_mapping_with_fallback(
-                    run_cmd=run_cmd,
-                    container_port=8443,
-                    logger=logger,
-                    participant_name=participant_name,
-                )
-
             if role == "server":
                 fed_server_json = _load_json_file(
                     os.path.join(startup_dir, "fed_server.json")
@@ -698,17 +688,16 @@ def start_swarm_network_task(network_id, user_id):
                     participant_name=participant_name,
                 )
 
-            if role == "client" and not has_overseer_target:
+            if role == "client" and not has_server_target:
                 remote_host = (
-                    os.getenv("SWARMCLOUD_OVERSEER_HOST", "").strip()
+                    os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
                     or (Path(startup_dir) / "server_host.txt").read_text().strip()
                     if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
                     else ""
                 )
                 if not remote_host:
-                    remote_host = _extract_host_from_overseer_endpoint(startup_dir)
+                    remote_host = _extract_host_from_server_endpoint(startup_dir)
                 if remote_host:
-                    run_cmd.extend(["--add-host", f"overseer:{remote_host}"])
                     run_cmd.extend(["--add-host", f"server:{remote_host}"])
 
                     aliases_file = os.path.join(startup_dir, "server_aliases.txt")

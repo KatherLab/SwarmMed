@@ -112,12 +112,9 @@ fed_client: |
       "ssl_root_cert": "rootCA.pem"
     },
     "overseer_agent": {
-        "path": "nvflare.ha.overseer_agent.HttpOverseerAgent",
+      "path": "nvflare.ha.dummy_overseer_agent.DummyOverseerAgent",
         "args": {
-            "overseer_end_point": "https://overseer:8443",
-            "project": "{~~project_name~~}",
-            "name": "{~~client_name~~}",
-            "role": "client"
+        "sp_end_point": "server:8002"
         }
     }
   }
@@ -246,12 +243,9 @@ fed_server: |
         }
     ],
     "overseer_agent": {
-        "path": "nvflare.ha.overseer_agent.HttpOverseerAgent",
+        "path": "nvflare.ha.dummy_overseer_agent.DummyOverseerAgent",
         "args": {
-            "overseer_end_point": "https://overseer:8443",
-            "project": "{~~project_name~~}",
-          "name": "{~~server_name~~}",
-            "role": "server"
+            "sp_end_point": "{~~server_name~~}:{~~fed_learn_port~~}"
         }
     }
   }
@@ -771,7 +765,6 @@ docker_adm_sh: |
       volumes:
         - ./fl-client:/workspace
       extra_hosts:
-        - "overseer:${SERVER_IP}"
         - "server:${SERVER_IP}"
       deploy:
         resources:
@@ -807,7 +800,7 @@ dockerfile: |
 helm_chart_chart: |
   apiVersion: v2
   name: nvflare
-  description: A Helm chart for NVFlare overseer and servers
+  description: A Helm chart for NVFlare servers
   type: application
   version: 0.1.0
   appVersion: "2.7.1"

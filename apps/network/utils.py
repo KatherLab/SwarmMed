@@ -219,17 +219,9 @@ def create_startup_kits_zip(swarm_network):
 
     default_admin_startup_dir = abs_base_prod_path / "admin@nvidia.com" / "startup"
     server_startup_dir = abs_base_prod_path / "server" / "startup"
-    overseer_startup_dir = abs_base_prod_path / "overseer" / "startup"
-
-    overseer_client_name = ""
     client_admin_map = {}
     client_server_map = {}
     try:
-        if (abs_base_prod_path / ".overseer_client").exists():
-            overseer_client_name = (
-                abs_base_prod_path / ".overseer_client"
-            ).read_text().strip()
-
         if (abs_base_prod_path / ".client_admin_map.json").exists():
             client_admin_map = json.loads(
                 (abs_base_prod_path / ".client_admin_map.json").read_text()
@@ -244,7 +236,6 @@ def create_startup_kits_zip(swarm_network):
             if not isinstance(client_server_map, dict):
                 client_server_map = {}
     except Exception:
-        overseer_client_name = ""
         client_admin_map = {}
         client_server_map = {}
 
@@ -263,7 +254,7 @@ def create_startup_kits_zip(swarm_network):
             # We only want to package client kits (not server or admin)
             if (
                 item.is_dir()
-                and item.name not in server_dir_names.union({"overseer"})
+                and item.name not in server_dir_names
                 and "admin" not in item.name
             ):
                 # Ensure client_dir_path is strictly within base_prod_path
@@ -327,22 +318,12 @@ def create_startup_kits_zip(swarm_network):
                         else server_startup_dir
                     )
 
-                    if (
-                        overseer_client_name
-                        and item.name == overseer_client_name
-                        and overseer_startup_dir.exists()
-                    ):
-                        selected_startup_dir = overseer_startup_dir
-                        selected_arc_prefix = "overseer_startup"
-                    elif mapped_server_startup_dir.exists():
+                    if mapped_server_startup_dir.exists():
                         selected_startup_dir = mapped_server_startup_dir
                         selected_arc_prefix = "server_startup"
                     elif server_startup_dir.exists():
                         selected_startup_dir = server_startup_dir
                         selected_arc_prefix = "server_startup"
-                    elif overseer_startup_dir.exists():
-                        selected_startup_dir = overseer_startup_dir
-                        selected_arc_prefix = "overseer_startup"
 
                     if selected_startup_dir and selected_arc_prefix:
                         for root, _, files in os.walk(
