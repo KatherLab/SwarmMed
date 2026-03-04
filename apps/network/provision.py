@@ -305,7 +305,6 @@ def generate_flare_startup_kit(
                 },
             },
             {"path": "nvflare.lighter.impl.cert.CertBuilder"},
-            {"path": "nvflare.lighter.impl.flare_api.FlareAPIBuilder"},
             {"path": "nvflare.lighter.impl.signature.SignatureBuilder"},
         ],
     }
