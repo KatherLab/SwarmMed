@@ -6,6 +6,7 @@ preflight checks, and real-time log streaming.
 
 import os
 import json
+import re
 import socket
 import stat
 import shutil
@@ -509,6 +510,34 @@ def _build_local_fallback_image(
     )
 
 
+def _has_custom_runtime_requirements(provision_dir):
+    req_path = os.path.join(provision_dir, "docker_compose_requirements.txt")
+    if not os.path.exists(req_path):
+        return False
+
+    baseline_prefixes = {
+        "nvflare",
+        "gunicorn",
+        "boto3",
+        "python-dotenv",
+    }
+
+    try:
+        with open(req_path) as rf:
+            for raw_line in rf:
+                line = raw_line.strip().lower()
+                if not line or line.startswith("#"):
+                    continue
+
+                pkg_name = re.split(r"[=<>!~\[]", line, maxsplit=1)[0].strip()
+                if pkg_name and pkg_name not in baseline_prefixes:
+                    return True
+    except Exception:
+        return False
+
+    return False
+
+
 def _build_image_with_compat(
     docker_path,
     image_name,
@@ -774,7 +803,24 @@ def start_swarm_network_task(network_id, user_id):
         env = os.environ.copy()
 
         configured_image = os.getenv("SWARMCLOUD_FLARE_IMAGE", "").strip()
-        if configured_image:
+        force_configured_image = (
+            os.getenv("SWARMCLOUD_FORCE_CONFIGURED_IMAGE", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        has_custom_requirements = _has_custom_runtime_requirements(provision_dir)
+
+        use_configured_image = bool(configured_image)
+        if configured_image and has_custom_requirements and not force_configured_image:
+            logger.network.warning(
+                "Custom runtime requirements detected; ignoring SWARMCLOUD_FLARE_IMAGE "
+                "and building a project-specific runtime image. "
+                "Set SWARMCLOUD_FORCE_CONFIGURED_IMAGE=true to override."
+            )
+            use_configured_image = False
+
+        if use_configured_image:
             image_name = configured_image
         else:
             image_name = (
