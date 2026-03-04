@@ -988,10 +988,27 @@ def training_status_api(request):
     payload = _build_training_status_payload(current_network, job)
 
     if nvflare_status:
-        payload["status"] = nvflare_status.get("status", payload["status"])
+        local_status = str(payload.get("status", "")).upper().strip()
+        nv_status = str(nvflare_status.get("status", "")).upper().strip()
+        terminal_states = {"COMPLETED", "FAILED", "STOPPED"}
+
+        # Prefer local terminal status inferred from logs/progress so the UI
+        # does not regress back to RUNNING due to stale list_jobs output.
+        should_override_status = not (
+            local_status in terminal_states
+            and nv_status not in terminal_states
+        )
+
+        if should_override_status:
+            payload["status"] = nvflare_status.get(
+                "status", payload["status"]
+            )
+
         payload["job_id"] = nvflare_status.get("job_id", payload["job_id"])
         nvflare_progress = nvflare_status.get("progress")
-        if isinstance(nvflare_progress, (int, float)) and payload["progress"] < int(nvflare_progress):
+        if isinstance(nvflare_progress, (int, float)) and payload[
+            "progress"
+        ] < int(nvflare_progress):
             payload["progress"] = int(nvflare_progress)
 
     return JsonResponse(payload)
