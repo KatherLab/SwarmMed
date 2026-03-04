@@ -618,7 +618,11 @@ def start_training(request, network_id):
     log = get_logger(user=request.user, project=project)
 
     job_dir = os.path.join(
-        "workspaces", str(project.identifier), str(network.identifier), "job"
+        settings.BASE_DIR,
+        "workspaces",
+        str(project.identifier),
+        str(network.identifier),
+        "job",
     )
     project_name = get_safe_slug(project.title, project.identifier).replace(
         "-", "_"
@@ -823,7 +827,9 @@ def start_training(request, network_id):
         generated_jobs_root = os.path.join(job_dir, "generated")
         os.makedirs(generated_jobs_root, exist_ok=True)
         job.export_job(generated_jobs_root)
-        job_definition_path = os.path.join(generated_jobs_root, job.name)
+        job_definition_path = os.path.abspath(
+            os.path.join(generated_jobs_root, job.name)
+        )
         log.training.info(f"Submitting exported job from: {job_definition_path}")
 
         job_id = sess.submit_job(job_definition_path)
