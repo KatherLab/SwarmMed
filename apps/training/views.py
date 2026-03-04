@@ -2,8 +2,6 @@ import json
 import os
 import re
 import shutil
-import socket
-import time
 
 from common.utils import get_safe_slug
 from django.conf import settings
@@ -758,13 +756,6 @@ def start_training(request, network_id):
         from nvflare.fuel.flare_api.flare_api import new_secure_session
         from nvflare.job_config.api import FedJob
         from nvflare.app_common.ccwf import SwarmServerController, SwarmClientController
-
-        for _ in range(30):
-            try:
-                socket.create_connection(("overseer", 8443), timeout=2)
-                break
-            except OSError:
-                time.sleep(1)
 
         sess = new_secure_session(
             username=admin_username,
