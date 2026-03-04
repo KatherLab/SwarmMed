@@ -128,6 +128,44 @@ def start_swarm_network_task(network_id, user_id):
                 # across different Swarm networks (e.g. /fl-client-2 already exists).
                 service_config.pop("container_name", None)
 
+                # Avoid fixed host-port binds (e.g. 8003:8003) so multiple
+                # networks can run concurrently without port allocation errors.
+                ports = service_config.get("ports")
+                if isinstance(ports, list):
+                    normalized_ports = []
+                    for port_entry in ports:
+                        if isinstance(port_entry, str):
+                            protocol_suffix = ""
+                            port_expr = port_entry
+                            if "/" in port_entry:
+                                port_expr, protocol = port_entry.split("/", 1)
+                                protocol_suffix = f"/{protocol}"
+
+                            # Keep only the container port (last token after ':')
+                            # so Docker Compose assigns an available host port.
+                            container_port = port_expr.split(":")[-1]
+                            normalized_ports.append(
+                                f"{container_port}{protocol_suffix}"
+                            )
+                        elif isinstance(port_entry, dict):
+                            target_port = port_entry.get("target")
+                            if target_port is None:
+                                continue
+                            protocol = str(
+                                port_entry.get("protocol", "tcp")
+                            ).lower()
+                            if protocol == "tcp":
+                                normalized_ports.append(str(target_port))
+                            else:
+                                normalized_ports.append(
+                                    f"{target_port}/{protocol}"
+                                )
+
+                    if normalized_ports:
+                        service_config["ports"] = normalized_ports
+                    else:
+                        service_config.pop("ports", None)
+
                 if service_config.get("privileged"):
                     raise ValueError(
                         f"Security error: Privileged mode is not allowed for service '{service_name}'"
