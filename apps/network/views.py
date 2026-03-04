@@ -24,7 +24,7 @@ from project.decorators import (
 from project.models import UserCurrentProject
 
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
-from .provision import generate_flare_startup_kit
+from .provision import generate_flare_startup_kit, is_valid_ip
 from .tasks import start_swarm_network_task, stop_swarm_network_task
 from .utils import (
     create_startup_kits_zip,
@@ -178,11 +178,37 @@ def new_network(request):
                     c_data = json.loads(c_json)
                     # Sanitize client name immediately
                     safe_name = slugify(c_data.get("name", "client"))
+                    if not safe_name:
+                        continue
                     clients.append(
                         {"name": safe_name, "ip": c_data.get("ip", "")}
                     )
                 except (json.JSONDecodeError, TypeError):
                     continue
+
+            # Always include this creator node as a client participant.
+            local_client_name = slugify(get_hostname() or "")
+            local_client_ip = (
+                server_ip if is_valid_ip(server_ip) else "host.docker.internal"
+            )
+            if local_client_name:
+                clients.append(
+                    {
+                        "name": local_client_name,
+                        "ip": local_client_ip,
+                    }
+                )
+
+            # De-duplicate clients by participant name while preserving order.
+            deduped_clients = []
+            seen_client_names = set()
+            for client in clients:
+                participant_name = str(client.get("name", "")).strip()
+                if not participant_name or participant_name in seen_client_names:
+                    continue
+                deduped_clients.append(client)
+                seen_client_names.add(participant_name)
+            clients = deduped_clients
 
             # Register participants in the database for tracking
             server_count = max(1, len(clients))
