@@ -411,36 +411,70 @@ def _build_image_with_compat(
     error_command,
 ):
     build_cmd = [docker_path, "build", "-t", image_name, "."]
-    primary_env = env.copy()
-    primary_env["DOCKER_BUILDKIT"] = "1"
-
-    ret = run_and_log_subprocess(
-        build_cmd,
-        cwd=cwd,
-        env=primary_env,
-        logger=logger,
+    require_buildkit = (
+        os.getenv("SWARMCLOUD_REQUIRE_BUILDKIT", "")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
     )
-    if ret == 0:
-        return
-
     allow_legacy_builder = (
         os.getenv("SWARMCLOUD_ALLOW_LEGACY_DOCKER_BUILDER", "")
         .strip()
         .lower()
         in {"1", "true", "yes", "on"}
     )
-    if not allow_legacy_builder:
-        logger.network.error(
-            "Docker image build failed with BuildKit enabled. "
-            "Legacy builder fallback is disabled; set SWARMCLOUD_ALLOW_LEGACY_DOCKER_BUILDER=true to retry with DOCKER_BUILDKIT=0."
+
+    buildx_check = subprocess.run(  # nosec B603
+        [docker_path, "buildx", "version"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    buildx_available = buildx_check.returncode == 0
+
+    if buildx_available:
+        primary_env = env.copy()
+        primary_env["DOCKER_BUILDKIT"] = "1"
+
+        ret = run_and_log_subprocess(
+            build_cmd,
+            cwd=cwd,
+            env=primary_env,
+            logger=logger,
         )
-        raise subprocess.CalledProcessError(ret, error_command)
+        if ret == 0:
+            return
+
+        if require_buildkit and not allow_legacy_builder:
+            logger.network.error(
+                "Docker image build failed with BuildKit enabled and strict BuildKit mode is active. "
+                "Set SWARMCLOUD_ALLOW_LEGACY_DOCKER_BUILDER=true to permit DOCKER_BUILDKIT=0 fallback."
+            )
+            raise subprocess.CalledProcessError(ret, error_command)
+
+        if not allow_legacy_builder:
+            logger.network.warning(
+                "Docker image build failed with BuildKit; falling back to deprecated DOCKER_BUILDKIT=0 mode."
+            )
+    else:
+        logger.network.warning(
+            "BuildKit/buildx is unavailable; using deprecated DOCKER_BUILDKIT=0 compatibility mode."
+        )
+        if require_buildkit and not allow_legacy_builder:
+            logger.network.error(
+                "BuildKit/buildx is required by SWARMCLOUD_REQUIRE_BUILDKIT, but buildx is unavailable."
+            )
+            raise subprocess.CalledProcessError(1, error_command)
+
+    if require_buildkit and not allow_legacy_builder and not buildx_available:
+        logger.network.error(
+            "Legacy builder fallback is disabled by strict BuildKit settings."
+        )
+        raise subprocess.CalledProcessError(1, error_command)
 
     compat_env = env.copy()
     compat_env["DOCKER_BUILDKIT"] = "0"
-    logger.network.warning(
-        "Docker image build failed; retrying with deprecated DOCKER_BUILDKIT=0 compatibility mode."
-    )
     ret = run_and_log_subprocess(
         build_cmd,
         cwd=cwd,
