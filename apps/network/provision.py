@@ -269,43 +269,56 @@ def generate_flare_startup_kit(
         rf.write("boto3\n")
         rf.write("python-dotenv\n")
 
-        # If the project has a custom requirements file in S3, download and append it
-        if network.project.requirements_file:
-            try:
-                s3_client = get_s3_client()
-                bucket = settings.AWS_STORAGE_BUCKET_NAME
-                key = network.project.requirements_file.name
+        # Collect additional requirements from supported sources in S3.
+        # Source 1: project.requirements_file (explicit upload in Project settings)
+        # Source 2: <project_id>/code/training/requirements.txt (training code bundle)
+        s3_client = get_s3_client()
+        bucket = settings.AWS_STORAGE_BUCKET_NAME
+        requirement_sources = []
 
+        if network.project.requirements_file:
+            requirement_sources.append(network.project.requirements_file.name)
+
+        training_requirements_key = (
+            f"{network.project.identifier}/code/training/requirements.txt"
+        )
+        if training_requirements_key not in requirement_sources:
+            requirement_sources.append(training_requirements_key)
+
+        safe_lines = []
+        seen_requirements = set()
+        for key in requirement_sources:
+            try:
                 logger.network.info(
                     f"Downloading custom requirements from {key}"
                 )
                 response = s3_client.get_object(Bucket=bucket, Key=key)
                 custom_reqs = response["Body"].read().decode("utf-8")
 
-                # Basic Sanitization: Only allow alphanumeric, underscores, hyphens, and version specifiers
-                safe_lines = []
                 for line in custom_reqs.splitlines():
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
-                    # Match basic package name and version: e.g. pandas==1.2.3, torch>=2.0
                     if re.match(
                         r"^[a-zA-Z0-9_\-\[\]]+([=<>!~]+[a-zA-Z0-9\._\-\*\,]+)?$",
                         line,
                     ):
-                        safe_lines.append(line)
+                        normalized = line.lower()
+                        if normalized not in seen_requirements:
+                            safe_lines.append(line)
+                            seen_requirements.add(normalized)
                     else:
                         logger.network.warning(
                             f"Skipping potentially unsafe requirement line: {line}"
                         )
-
-                if safe_lines:
-                    rf.write("\n# Project specific requirements (sanitized)\n")
-                    rf.write("\n".join(safe_lines) + "\n")
             except Exception as e:
-                logger.network.warning(
-                    f"Could not fetch custom requirements: {e}"
+                logger.network.info(
+                    f"No readable requirements at {key}: {e}"
                 )
+
+        if safe_lines:
+            rf.write("\n# Project specific requirements (sanitized)\n")
+            rf.write("\n".join(safe_lines) + "\n")
 
     # 5. Run NVFlare Provisioning
     try:

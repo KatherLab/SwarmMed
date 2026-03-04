@@ -785,10 +785,43 @@ def start_training(request, network_id):
             lowered_script_text = script_text.lower()
             if "tensorflow" in lowered_script_text or "keras" in lowered_script_text:
                 framework = "tf"
-            elif "torch" in lowered_script_text or "pytorch" in lowered_script_text:
-                framework = "pt"
 
     log.training.info(f"Detected training framework: {framework}")
+
+    if framework == "pt":
+        runtime_requirements_path = os.path.join(
+            settings.BASE_DIR,
+            "workspaces",
+            str(project.identifier),
+            str(network.identifier),
+            "docker_compose_requirements.txt",
+        )
+
+        has_torch_dependency = False
+        if os.path.exists(runtime_requirements_path):
+            try:
+                with open(runtime_requirements_path) as rf:
+                    for raw_line in rf:
+                        line = raw_line.strip().lower()
+                        if not line or line.startswith("#"):
+                            continue
+                        if line.startswith("torch"):
+                            has_torch_dependency = True
+                            break
+            except Exception as e:
+                log.training.warning(
+                    f"Could not validate runtime requirements for PyTorch: {e}"
+                )
+
+        if not has_torch_dependency:
+            err_msg = (
+                "PyTorch training detected, but runtime requirements do not include 'torch'. "
+                "Add torch to the project's requirements file, re-provision/start the network, "
+                "and retry training."
+            )
+            log.training.error(err_msg)
+            messages.error(request, err_msg)
+            return redirect("training:training")
 
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
@@ -813,22 +846,43 @@ def start_training(request, network_id):
             )
             persistor = NPModelPersistor()
         elif framework == "pt":
-            try:
-                from nvflare.app_opt.pt.in_process_client_api_executor import (
-                    PTInProcessClientAPIExecutor,
-                )
-                from nvflare.app_opt.pt.file_model_persistor import (
-                    PTFileModelPersistor,
-                )
+            use_pt_executor = (
+                os.getenv("SWARMCLOUD_ENABLE_PT_EXECUTOR", "")
+                .strip()
+                .lower()
+                in {"1", "true", "yes", "on"}
+            )
+            if use_pt_executor:
+                try:
+                    from nvflare.app_opt.pt.in_process_client_api_executor import (
+                        PTInProcessClientAPIExecutor,
+                    )
+                    from nvflare.app_opt.pt.file_model_persistor import (
+                        PTFileModelPersistor,
+                    )
 
-                executor = PTInProcessClientAPIExecutor(
-                    task_script_path="custom/training.py"
-                )
-                persistor = PTFileModelPersistor()
-            except ModuleNotFoundError:
-                log.training.warning(
-                    "PyTorch executor requested but torch is unavailable; "
-                    "falling back to generic in-process executor."
+                    executor = PTInProcessClientAPIExecutor(
+                        task_script_path="custom/training.py"
+                    )
+                    persistor = PTFileModelPersistor()
+                except ModuleNotFoundError:
+                    log.training.warning(
+                        "PyTorch executor requested but torch is unavailable; "
+                        "falling back to generic in-process executor."
+                    )
+                    from nvflare.app_common.executors.in_process_client_api_executor import (
+                        InProcessClientAPIExecutor,
+                    )
+                    from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+
+                    executor = InProcessClientAPIExecutor(
+                        task_script_path="custom/training.py"
+                    )
+                    persistor = NPModelPersistor()
+            else:
+                log.training.info(
+                    "Framework detected as PyTorch; using generic in-process executor "
+                    "(set SWARMCLOUD_ENABLE_PT_EXECUTOR=true to force PT executor)."
                 )
                 from nvflare.app_common.executors.in_process_client_api_executor import (
                     InProcessClientAPIExecutor,
@@ -853,6 +907,10 @@ def start_training(request, network_id):
         shareable_generator = SimpleModelShareableGenerator()
         aggregator = InTimeAccumulateWeightedAggregator(
             expected_data_kind=DataKind.WEIGHTS
+        )
+        log.training.info(
+            "Selected NVFlare executor: "
+            f"{executor.__class__.__module__}.{executor.__class__.__name__}"
         )
 
         sess = new_secure_session(
