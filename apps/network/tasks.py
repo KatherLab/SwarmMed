@@ -962,16 +962,24 @@ def start_swarm_network_task(network_id, user_id):
                 check=False,
             )
 
+            client_host_network_enabled = (
+                os.getenv("SWARMCLOUD_CLIENT_HOST_NETWORK", "true")
+                .strip()
+                .lower()
+                in {"1", "true", "yes", "on"}
+            )
+            use_host_network = (
+                role == "client"
+                and not has_server_target
+                and client_host_network_enabled
+            )
+
             run_cmd = [
                 docker_path,
                 "run",
                 "-d",
                 "--name",
                 container_name,
-                "--network",
-                network_name,
-                "--network-alias",
-                participant_name,
                 "--label",
                 f"swarmcloud.network_id={swarm_network.identifier}",
                 "--label",
@@ -981,6 +989,21 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 "GRPC_POLL_STRATEGY=poll",
             ]
+
+            if use_host_network:
+                run_cmd.extend(["--network", "host"])
+                logger.network.info(
+                    f"Using host network mode for client container {participant_name}"
+                )
+            else:
+                run_cmd.extend(
+                    [
+                        "--network",
+                        network_name,
+                        "--network-alias",
+                        participant_name,
+                    ]
+                )
 
             if mount_mode == "bind":
                 run_cmd.extend(["-v", f"{host_workspace_path}:/workspace"])
