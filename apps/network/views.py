@@ -211,14 +211,13 @@ def new_network(request):
             clients = deduped_clients
 
             # Register participants in the database for tracking
-            server_count = max(1, len(clients))
-            for server_index in range(server_count):
-                SwarmParticipant.objects.create(
-                    network=swarm_network,
-                    user=request.user,
-                    role="SERVER",
-                    participant_id=f"server{server_index + 1}",
-                )
+            # NVFlare 2.7.1 single-server topology expects the canonical site name: "server"
+            SwarmParticipant.objects.create(
+                network=swarm_network,
+                user=request.user,
+                role="SERVER",
+                participant_id="server",
+            )
             for client_data in clients:
                 SwarmParticipant.objects.create(
                     network=swarm_network,

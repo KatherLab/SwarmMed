@@ -738,7 +738,7 @@ def start_training(request, network_id):
             "participant_id", flat=True
         )
     )
-    if not server_names:
+    if "server" not in server_names:
         server_names = ["server"]
 
     framework = "pt"
