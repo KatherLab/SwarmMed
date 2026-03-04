@@ -747,19 +747,55 @@ def start_training(request, network_id):
             elif "import sklearn" in script_text:
                 framework = "np"
 
-    executor_path = "nvflare.app_opt.pt.in_process_client_api_executor.PTInProcessClientAPIExecutor"
-    persistor_path = "nvflare.app_opt.pt.file_model_persistor.PTFileModelPersistor"
-    if framework == "tf":
-        executor_path = "nvflare.app_opt.tf.in_process_client_api_executor.TFInProcessClientAPIExecutor"
-        persistor_path = "nvflare.app_opt.tf.file_model_persistor.TFFileModelPersistor"
-    elif framework == "np":
-        executor_path = "nvflare.app_common.executors.in_process_client_api_executor.InProcessClientAPIExecutor"
-        persistor_path = "nvflare.app_common.np.np_model_persistor.NPModelPersistor"
-
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
         from nvflare.job_config.api import FedJob
         from nvflare.app_common.ccwf import SwarmServerController, SwarmClientController
+        from nvflare.apis.dxo import DataKind
+        from nvflare.app_common.aggregators.intime_accumulate_model_aggregator import (
+            InTimeAccumulateWeightedAggregator,
+        )
+        from nvflare.app_common.ccwf.comps.simple_model_shareable_generator import (
+            SimpleModelShareableGenerator,
+        )
+
+        if framework == "tf":
+            from nvflare.app_opt.tf.in_process_client_api_executor import (
+                TFInProcessClientAPIExecutor,
+            )
+            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+
+            executor = TFInProcessClientAPIExecutor(
+                task_script_path="custom/training.py"
+            )
+            persistor = NPModelPersistor()
+        elif framework == "np":
+            from nvflare.app_common.executors.in_process_client_api_executor import (
+                InProcessClientAPIExecutor,
+            )
+            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+
+            executor = InProcessClientAPIExecutor(
+                task_script_path="custom/training.py"
+            )
+            persistor = NPModelPersistor()
+        else:
+            from nvflare.app_opt.pt.in_process_client_api_executor import (
+                PTInProcessClientAPIExecutor,
+            )
+            from nvflare.app_opt.pt.file_model_persistor import (
+                PTFileModelPersistor,
+            )
+
+            executor = PTInProcessClientAPIExecutor(
+                task_script_path="custom/training.py"
+            )
+            persistor = PTFileModelPersistor()
+
+        shareable_generator = SimpleModelShareableGenerator()
+        aggregator = InTimeAccumulateWeightedAggregator(
+            expected_data_kind=DataKind.WEIGHTS
+        )
 
         sess = new_secure_session(
             username=admin_username,
@@ -775,13 +811,7 @@ def start_training(request, network_id):
             job.to(controller, server_name)
 
         # Define Client side
-        # 1. Main training executor
-        executor = {
-            "path": executor_path,
-            "args": {"task_script_path": "custom/training.py"},
-        }
-        
-        # 2. Swarm Client Controller (handles the collaborative logic)
+        # Swarm Client Controller (handles collaborative logic)
         swarm_client_controller = SwarmClientController(
             learn_task_name="train",
             persistor_id="persistor",
@@ -793,7 +823,11 @@ def start_training(request, network_id):
         # Map all components to each client target
         for client_name in client_names:
             # In Job API, we add executors to the app
-            job.to(executor, client_name, tasks=["train"])
+            job.to(
+                executor,
+                client_name,
+                tasks=["train", "validate", "submit_model"],
+            )
             job.to(
                 swarm_client_controller,
                 client_name,
@@ -801,24 +835,13 @@ def start_training(request, network_id):
             )
 
             # Add shared components to the client app
+            job.to(persistor, client_name, id="persistor")
             job.to(
-                {"path": persistor_path},
-                client_name,
-                id="persistor",
-            )
-            job.to(
-                {"name": "FullModelShareableGenerator"},
+                shareable_generator,
                 client_name,
                 id="shareable_generator",
             )
-            job.to(
-                {
-                    "name": "InTimeAccumulateWeightedAggregator",
-                    "args": {"expected_data_kind": "WEIGHTS"},
-                },
-                client_name,
-                id="aggregator",
-            )
+            job.to(aggregator, client_name, id="aggregator")
 
             # Add custom code directory (training.py, flare_adapter.py, data_manifest.json)
             job.to(app_client_custom_dir, client_name)
