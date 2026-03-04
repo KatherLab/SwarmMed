@@ -358,44 +358,11 @@ def generate_flare_startup_kit(
                 )
 
         if server_ip and is_valid_ip(server_ip):
-            # Post-process only if compose exists (compose is not signed by NVFlare).
             base_prod_path = (
                 Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
             )
-            compose_path = base_prod_path / "compose.yaml"
 
-            if compose_path.exists():
-                try:
-                    with open(compose_path, "r") as f:
-                        content = f.read()
-
-                    # Replace placeholder tokens if present; if already resolved, this is a no-op.
-                    new_content = content.replace("${SERVER_IP}", server_ip)
-
-                    # Parse YAML to ensure extra_hosts are present for clients (belt-and-suspenders).
-                    compose_data = yaml.safe_load(new_content) or {}
-                    services = compose_data.get("services", {})
-
-                    for svc_name, svc_conf in services.items():
-                        name_lower = str(svc_name).lower()
-                        if name_lower in {"__flclient__", "fl_client", "client", "flclient"}:
-                            extra_hosts = svc_conf.get("extra_hosts", []) or []
-                            host_entries = {f"server:{server_ip}"}
-                            existing_set = set(extra_hosts)
-                            merged_hosts = list(existing_set.union(host_entries))
-                            svc_conf["extra_hosts"] = merged_hosts
-
-                    compose_data["services"] = services
-
-                    with open(compose_path, "w") as f:
-                        yaml.safe_dump(compose_data, f, default_flow_style=False)
-                    logger.network.info(
-                        f"Ensured compose.yaml has extra_hosts for server at {server_ip} (compose is unsigned)"
-                    )
-                except Exception as e:
-                    logger.network.warning(f"Failed to update compose.yaml: {e}")
-
-            # Write server host into client kits to help upload-side compose generation.
+            # Write server host metadata into client kits for containerized runtime host mapping.
             try:
                 server_aliases = list(client_server_map.values())
                 for item in os.scandir(str(base_prod_path)):

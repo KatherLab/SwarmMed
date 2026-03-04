@@ -513,7 +513,7 @@ def download_startup_kits(request, network_id):
 def start_swarm_network(request, network_id):
     """
     Triggers the asynchronous Celery task to start the swarm network containers
-    using docker-compose.
+    using containerized deployment.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     log = logger.get_logger(user=request.user, project=swarm_network.project)
@@ -535,7 +535,7 @@ def start_swarm_network(request, network_id):
 def stop_swarm_network(request, network_id):
     """
     Triggers the asynchronous Celery task to stop and remove swarm
-    network containers.
+    network containers from containerized deployment.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     log = logger.get_logger(user=request.user, project=swarm_network.project)

@@ -15,13 +15,13 @@ urlpatterns = [
     path("", views.network, name="network"),
     # Form to create a new network configuration
     path("new/", views.new_network, name="new_network"),
-    # Action: Start the docker-compose deployment for a network
+    # Action: Start the containerized deployment for a network
     path(
         "<uuid:network_id>/start/",
         views.start_swarm_network,
         name="start_swarm_network",
     ),
-    # Action: Stop and remove the docker-compose deployment
+    # Action: Stop and remove the containerized deployment
     path(
         "<uuid:network_id>/stop/",
         views.stop_swarm_network,
