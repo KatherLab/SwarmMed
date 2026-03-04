@@ -213,7 +213,7 @@ def receive_model():
         return None
 
 
-def send_model(params: dict, metrics: dict = None):
+def send_model(params, metrics: dict = None):
     """
     Sends the locally updated model weights and optional metrics back to the server.
 
@@ -223,9 +223,33 @@ def send_model(params: dict, metrics: dict = None):
     """
     print("flare_adapter: Sending updated model to server...")
 
-    # Ensure all data types (like PyTorch tensors) are converted to numpy for
-    # transport.
+    if params is None:
+        raise ValueError(
+            "flare_adapter.send_model received params=None. "
+            "Training must send model weights (e.g. model.state_dict() for PyTorch, model.get_weights() for Keras)."
+        )
+
+    # Accept common model-weight structures and normalize to dict[str, value].
+    if isinstance(params, (list, tuple)):
+        params = {str(i): v for i, v in enumerate(params)}
+    elif not isinstance(params, dict):
+        raise TypeError(
+            f"flare_adapter.send_model expects dict/list/tuple for params, got {type(params)}"
+        )
+
+    if len(params) == 0:
+        raise ValueError(
+            "flare_adapter.send_model received empty params. "
+            "No model weights were produced by training."
+        )
+
+    # Ensure all data types (like PyTorch tensors) are converted to numpy for transport.
     params = _ensure_transportable(params)
+
+    if len(params) == 0:
+        raise ValueError(
+            "flare_adapter.send_model converted params are empty; cannot submit update without weights."
+        )
 
     output_model = flare.FLModel(
         params=params,
