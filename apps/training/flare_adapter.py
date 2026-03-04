@@ -295,11 +295,12 @@ def _ensure_transportable(params: dict):
     """
     converted = {}
     for k, v in params.items():
-        if hasattr(v, "cpu"):  # Handle PyTorch tensors
-            converted[k] = v.cpu().numpy()
+        # Keep torch tensors as tensors for PTInProcessClientAPIExecutor,
+        # which expects tensor params and handles conversion internally.
+        if hasattr(v, "detach") and hasattr(v, "cpu"):
+            converted[k] = v.detach().cpu()
         elif hasattr(v, "numpy"):  # Handle TensorFlow/Keras tensors
             converted[k] = v.numpy()
         else:
-            # Assume it's already numpy-compatible or needs simple wrapping.
             converted[k] = np.array(v)
     return converted
