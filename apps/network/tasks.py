@@ -362,7 +362,15 @@ def _ensure_docker_network(docker_path, network_name, env, logger):
     )
     if create.returncode != 0:
         error_text = (create.stderr or "").strip()
-        allocation_issue = "non-overlapping IPv4 address pool" in error_text
+        lower_error = error_text.lower()
+        allocation_issue = any(
+            marker in lower_error
+            for marker in [
+                "non-overlapping ipv4 address pool",
+                "predefined address pools have been fully subnetted",
+                "address pools have been fully subnetted",
+            ]
+        )
 
         if not allocation_issue:
             raise RuntimeError(
