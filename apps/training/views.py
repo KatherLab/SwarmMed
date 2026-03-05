@@ -464,8 +464,9 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     """
     from nvflare.fuel.flare_api.flare_api import Session
     
-    # 1. Resolve the default host from the kit before building candidates.
+    # 1. Resolve the default host and port from the kit before building candidates.
     default_host = ""
+    default_port = 0
     try:
         temp_session = Session(
             username=username,
@@ -474,56 +475,84 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
         )
         if temp_session.api:
             default_host = str(getattr(temp_session.api, "host", "") or "").strip()
-        temp_session.close()
+            try:
+                default_port = int(getattr(temp_session.api, "port", 0) or 0)
+            except Exception:
+                default_port = 0
+        try:
+            temp_session.close()
+        except Exception:
+            pass
     except Exception:
         pass
 
     requested_host = (host or "").strip()
     host_candidates = _build_flare_host_candidates(requested_host, default_host)
+    port_candidates = _build_flare_port_candidates(default_port)
+
+    # Quick TCP pre-probe (2 s timeout) to find which (host, port) combos are
+    # actually reachable at the network layer.  We give a confirmed-reachable
+    # pair the full caller timeout for the NVFlare handshake instead of capping
+    # it at 5 s, which is too short when the server admin process is slow to
+    # authenticate over Tailscale.
+    reachable_combos: set = set()
+    for _h in host_candidates:
+        if not _h:
+            continue
+        for _p in port_candidates:
+            try:
+                with socket.create_connection((_h, int(_p)), timeout=2.0):
+                    reachable_combos.add((_h, int(_p)))
+            except Exception:
+                pass
 
     connection_errors = []
 
     for host_candidate in host_candidates:
-        session = Session(
-            username=username,
-            startup_path=startup_kit_location,
-            secure_mode=True,
-            debug=debug,
-        )
+        for port in port_candidates:
+            # Create a *fresh* Session for every (host, port) attempt.
+            # Reusing the same Session across ports after a failed try_connect
+            # leaves the NVFlare API object in a dirty/partially-authenticated
+            # state, which causes subsequent port attempts to return an empty
+            # command registry (and thus CommandInfo.UNKNOWN for submit_job).
+            session = Session(
+                username=username,
+                startup_path=startup_kit_location,
+                secure_mode=True,
+                debug=debug,
+            )
 
-        try:
-            if session.api:
-                # NVFlare auth handshake uses its own msg timeout (default 5s).
-                # Keep it in sync with the caller's requested connect timeout.
-                try:
-                    session.api.authenticate_msg_timeout = max(
-                        float(timeout),
-                        float(getattr(session.api, "authenticate_msg_timeout", 5.0) or 5.0),
-                    )
-                except Exception:
-                    pass
-
-                if host_candidate:
-                    session.api.host = host_candidate
-
-                try:
-                    current_port = int(getattr(session.api, "port", 0) or 0)
-                except Exception:
-                    current_port = 0
-
-                port_candidates = _build_flare_port_candidates(current_port)
-
-                for port in port_candidates:
+            try:
+                if session.api:
+                    # NVFlare auth handshake uses its own msg timeout (default 5s).
+                    # Keep it in sync with the caller's requested connect timeout.
                     try:
-                        session.api.port = int(port)
-                        # Use a shorter timeout for the handshake during the search
-                        # to avoid hanging for 20s on unreachable/incorrect hosts.
-                        search_timeout = min(timeout, 5.0) if len(host_candidates) > 1 else timeout
-                        session.try_connect(search_timeout)
+                        session.api.authenticate_msg_timeout = max(
+                            float(timeout),
+                            float(getattr(session.api, "authenticate_msg_timeout", 5.0) or 5.0),
+                        )
+                    except Exception:
+                        pass
+
+                    if host_candidate:
+                        session.api.host = host_candidate
+
+                    session.api.port = int(port)
+
+                    # Use the full caller timeout when the TCP pre-probe already
+                    # confirmed this host:port is reachable (admin process is up but
+                    # may need >5 s for the handshake over Tailscale or when under
+                    # load).  For unconfirmed pairs cap at 5 s to avoid long hangs.
+                    effective_host = (host_candidate or default_host or "").strip()
+                    is_confirmed_reachable = (effective_host, int(port)) in reachable_combos
+                    connect_timeout = timeout if is_confirmed_reachable else min(timeout, 5.0)
+
+                    try:
+                        session.try_connect(connect_timeout)
 
                         submit_cmd_info = None
                         try:
-                            submit_cmd_info = session.api.check_command("submit_job probe")
+                            submit_cmd_info = session.api.check_command("submit_job")
                         except Exception as cmd_probe_error:
                             connection_errors.append(
                                 f"host={session.api.host} port={port}: connected but submit command probe failed: {cmd_probe_error}"
@@ -549,18 +578,18 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                         connection_errors.append(
                             f"host={session.api.host} port={port}: {e}"
                         )
-            else:
-                session.try_connect(timeout)
-                return session
-        except Exception as e:
-            connection_errors.append(
-                f"host={(host_candidate or default_host or 'startup-config')} port=unknown: {e}"
-            )
+                else:
+                    session.try_connect(timeout)
+                    return session
+            except Exception as e:
+                connection_errors.append(
+                    f"host={(host_candidate or default_host or 'startup-config')} port={port}: {e}"
+                )
 
-        try:
-            session.close()
-        except Exception:
-            pass
+            try:
+                session.close()
+            except Exception:
+                pass
 
     if connection_errors:
         raise RuntimeError(
