@@ -10,6 +10,7 @@ import shutil
 import ssl
 import tempfile
 import urllib.request
+from typing import Iterator
 
 import boto3
 from botocore.config import Config
@@ -38,9 +39,6 @@ class FlareDataFileSystem:
         self.project_uuid = (
             os.getenv("SWARMCLOUD_PROJECT_ID", "").strip() or project_uuid
         )
-        # Standard prefix where data is stored in the S3 bucket.
-        self.root_prefix = f"{project_uuid}/data/"
-        self.root_prefix = f"{self.project_uuid}/data/"
 
         # Create a temporary directory on the local machine to store downloaded
         # files.
@@ -57,27 +55,22 @@ class FlareDataFileSystem:
 
         self.bucket = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip()
         self.s3_client = None
+        self.local_s3_endpoint = (
+            os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
+            or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
+            or ""
+        )
+        self.local_s3_region = os.getenv("AWS_S3_REGION_NAME", "").strip()
         if self.use_local_data and self.bucket:
             try:
-                endpoint_url = (
-                    os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
-                    or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
-                    or None
-                )
-                self.s3_client = boto3.client(
-                    "s3",
-                    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                    region_name=os.getenv("AWS_S3_REGION_NAME"),
-                    endpoint_url=endpoint_url,
-                    config=Config(
-                        signature_version="s3v4",
-                        s3={"addressing_style": "path"},
-                    ),
+                self.s3_client = self._build_s3_client(
+                    endpoint_url=self.local_s3_endpoint or None,
+                    region_name=self.local_s3_region or None,
+                    addressing_style="path",
                 )
                 print(
                     "FlareDataFileSystem: Local S3 client initialized "
-                    f"(endpoint={endpoint_url}, bucket={self.bucket}, project={self.project_uuid})."
+                    f"(endpoint={self.local_s3_endpoint or None}, bucket={self.bucket}, project={self.project_uuid})."
                 )
             except Exception as e:
                 print(
@@ -125,6 +118,111 @@ class FlareDataFileSystem:
 
         print(f"FlareDataFileSystem: Initialized. Temp dir: {self.temp_dir}")
 
+    def _build_s3_client(
+        self,
+        endpoint_url: str | None,
+        region_name: str | None,
+        addressing_style: str,
+    ):
+        return boto3.client(
+            "s3",
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            region_name=region_name,
+            endpoint_url=endpoint_url,
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": addressing_style},
+            ),
+        )
+
+    def _candidate_object_keys(self, rel_path: str) -> list[str]:
+        keys = [
+            f"{self.project_uuid}/data/{rel_path}",
+            f"{self.project_uuid}/{rel_path}",
+            rel_path,
+        ]
+        seen = set()
+        deduped = []
+        for key in keys:
+            normalized = key.lstrip("/")
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                deduped.append(normalized)
+        return deduped
+
+    def _iter_local_s3_clients(self) -> Iterator[tuple[str, object]]:
+        if self.s3_client is not None:
+            yield ("primary", self.s3_client)
+
+        endpoint_candidates = []
+        for endpoint in [
+            self.local_s3_endpoint,
+            os.getenv("AWS_S3_ENDPOINT_URL", "").strip(),
+            "http://127.0.0.1:9000",
+            "http://localhost:9000",
+        ]:
+            endpoint = (endpoint or "").strip()
+            if endpoint and endpoint not in endpoint_candidates:
+                endpoint_candidates.append(endpoint)
+
+        region_candidates = []
+        for region in [self.local_s3_region, "us-east-1", None]:
+            value = region.strip() if isinstance(region, str) else None
+            if value == "":
+                value = None
+            if value not in region_candidates:
+                region_candidates.append(value)
+
+        for endpoint in endpoint_candidates:
+            for region in region_candidates:
+                for style in ("path", "virtual"):
+                    label = f"endpoint={endpoint}, region={region}, style={style}"
+                    try:
+                        yield (
+                            label,
+                            self._build_s3_client(
+                                endpoint_url=endpoint,
+                                region_name=region,
+                                addressing_style=style,
+                            ),
+                        )
+                    except Exception:
+                        continue
+
+    def _download_from_local_s3(self, rel_path: str, local_path: str) -> bool:
+        if not (self.bucket and self.use_local_data):
+            return False
+
+        attempted_errors = []
+        key_candidates = self._candidate_object_keys(rel_path)
+        for client_label, client in self._iter_local_s3_clients():
+            for object_key in key_candidates:
+                try:
+                    response = client.get_object(
+                        Bucket=self.bucket,
+                        Key=object_key,
+                    )
+                    with open(local_path, "wb") as out_file:
+                        shutil.copyfileobj(response["Body"], out_file)
+                    if object_key != key_candidates[0]:
+                        print(
+                            "FlareDataFileSystem: Local S3 fetch succeeded with fallback "
+                            f"key '{object_key}' ({client_label})."
+                        )
+                    return True
+                except Exception as e:
+                    attempted_errors.append(
+                        f"{client_label} key={object_key} err={e}"
+                    )
+
+        if attempted_errors:
+            print(
+                "FlareDataFileSystem: WARNING - Local S3 fetch attempts failed: "
+                + " | ".join(attempted_errors[:4])
+            )
+        return False
+
     def __enter__(self):
         """Support for 'with' statement."""
         return self
@@ -167,20 +265,15 @@ class FlareDataFileSystem:
 
                     downloaded = False
 
-                    if self.s3_client and self.bucket:
-                        try:
-                            object_key = f"{self.root_prefix}{rel_path}"
-                            response = self.s3_client.get_object(
-                                Bucket=self.bucket,
-                                Key=object_key,
-                            )
-                            with open(local_path, "wb") as out_file:
-                                shutil.copyfileobj(response["Body"], out_file)
-                            downloaded = True
-                        except Exception as e:
+                    if self.bucket and self.use_local_data:
+                        downloaded = self._download_from_local_s3(
+                            rel_path=rel_path,
+                            local_path=local_path,
+                        )
+                        if not downloaded:
                             print(
                                 "FlareDataFileSystem: WARNING - Local S3 fetch failed "
-                                f"for {rel_path}: {e}. Falling back to URL."
+                                f"for {rel_path}. Falling back to URL."
                             )
 
                     if not downloaded:
