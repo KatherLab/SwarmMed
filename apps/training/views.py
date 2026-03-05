@@ -501,6 +501,30 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                     try:
                         session.api.port = int(port)
                         session.try_connect(timeout)
+
+                        submit_cmd_info = None
+                        try:
+                            submit_cmd_info = session.api.check_command("submit_job probe")
+                        except Exception as cmd_probe_error:
+                            connection_errors.append(
+                                f"host={session.api.host} port={port}: connected but submit command probe failed: {cmd_probe_error}"
+                            )
+                            try:
+                                session.close()
+                            except Exception:
+                                pass
+                            continue
+
+                        if getattr(submit_cmd_info, "name", "") in {"UNKNOWN", "AMBIGUOUS"}:
+                            connection_errors.append(
+                                f"host={session.api.host} port={port}: connected but submit_job unavailable ({submit_cmd_info})"
+                            )
+                            try:
+                                session.close()
+                            except Exception:
+                                pass
+                            continue
+
                         return session
                     except Exception as e:
                         connection_errors.append(
