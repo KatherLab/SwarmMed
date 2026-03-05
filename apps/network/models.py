@@ -65,6 +65,51 @@ class SwarmNetwork(AbstractBaseModel):
         null=True,
     )
 
+    @staticmethod
+    def resolve_current(user) -> 'SwarmNetwork':
+        """
+        Heuristic to find the most relevant network for the user's current project context.
+        Prioritizes:
+        1. User's manually selected network (UserCurrentNetwork).
+        2. Any network in the project that is currently 'RUNNING'.
+        3. The most recently created 'PROVISIONED' network in the project.
+        """
+        from project.models import UserCurrentProject
+        try:
+            current_project_rel = UserCurrentProject.objects.get(user=user)
+            current_project = current_project_rel.project
+            if not current_project:
+                return None
+        except UserCurrentProject.DoesNotExist:
+            return None
+
+        # 1. Check for a manual selection
+        current_network = None
+        try:
+            rel = UserCurrentNetwork.objects.get(user=user)
+            if rel.network and rel.network.project == current_project:
+                current_network = rel.network
+        except UserCurrentNetwork.DoesNotExist:
+            pass
+
+        # 2. If no selection or selection is not RUNNING, look for a RUNNING one
+        if not current_network or current_network.status != "RUNNING":
+            active = SwarmNetwork.objects.filter(
+                project=current_project, status="RUNNING"
+            ).order_by("-created_at").first()
+            if active:
+                return active
+
+        # 3. Fallback to selection or any provisioned network
+        if not current_network or (current_network and current_network.status != "PROVISIONED"):
+            provisioned = SwarmNetwork.objects.filter(
+                project=current_project, status="PROVISIONED"
+            ).order_by("-created_at").first()
+            if provisioned:
+                return provisioned
+
+        return current_network
+
     def __str__(self):
         """Returns a string representation of the network."""
         return f"{self.name} for Project {self.project.title}"

@@ -517,17 +517,9 @@ def training(request):
     """
     Main training dashboard view.
     """
-    try:
-        current_network = UserCurrentNetwork.objects.get(
-            user=request.user
-        ).network
-        if not current_network or current_network.status != "RUNNING":
-            return render(
-                request,
-                "apps/training/no_network_started.html",
-                {"segment": "training"},
-            )
-    except UserCurrentNetwork.DoesNotExist:
+    current_network = SwarmNetwork.resolve_current(request.user)
+
+    if not current_network or current_network.status not in ["RUNNING", "STARTING", "PROVISIONED"]:
         return render(
             request,
             "apps/training/no_network_started.html",
@@ -631,7 +623,15 @@ def start_training(request, network_id):
     """
     Submit a Job to NVFlare.
     """
-    network = SwarmNetwork.objects.get(identifier=network_id)
+    network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    
+    if network.status != "RUNNING":
+        messages.error(
+            request, 
+            f"Network '{network.name}' is not running. Please start the network before initiating training."
+        )
+        return redirect("training:training")
+
     project = network.project
     log = get_logger(user=request.user, project=project)
 
@@ -1109,11 +1109,8 @@ def training_status_api(request):
     """
     AJAX endpoint to poll the current training status.
     """
-    try:
-        current_network = UserCurrentNetwork.objects.get(
-            user=request.user
-        ).network
-    except UserCurrentNetwork.DoesNotExist:
+    current_network = SwarmNetwork.resolve_current(request.user)
+    if not current_network:
         return JsonResponse({"status": "no_network"})
 
     job = (
@@ -1205,11 +1202,8 @@ def training_logs_api(request):
     """
     AJAX endpoint returning the last 100 log lines as a JSON list.
     """
-    try:
-        current_network = UserCurrentNetwork.objects.get(
-            user=request.user
-        ).network
-    except UserCurrentNetwork.DoesNotExist:
+    current_network = SwarmNetwork.resolve_current(request.user)
+    if not current_network:
         return JsonResponse({"logs": []})
 
     logs = []

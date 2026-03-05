@@ -14,7 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import models
 from django.shortcuts import render
 from logs.logger import get_logger
-from network.models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
+from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project, UserCurrentProject
 from training.models import TrainingJob
 
@@ -128,26 +128,9 @@ def index(request):
         project__in=user_projects
     ).count()
 
-    current_network_obj = None
+    # Use resolve_current to find the most relevant active network
+    current_network_obj = SwarmNetwork.resolve_current(request.user)
     network_partners = 0
-
-    try:
-        # Try to find the specific network the user has currently selected.
-        user_current_network = UserCurrentNetwork.objects.get(
-            user=request.user
-        )
-        if (
-            user_current_network.network
-            and user_current_network.network.project in user_projects
-        ):
-            current_network_obj = user_current_network.network
-    except UserCurrentNetwork.DoesNotExist:
-        # Default to the most recently created network.
-        current_network_obj = (
-            SwarmNetwork.objects.filter(project__in=user_projects)
-            .order_by("-created_at")
-            .first()
-        )
 
     if current_network_obj:
         network_partners = SwarmParticipant.objects.filter(
