@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 import docker
 import yaml
 from celery import shared_task
+from common.utils import get_s3_client
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.utils.text import slugify
@@ -524,6 +525,186 @@ def _resolve_runtime_requirements_path(provision_dir, base_prod_path):
     return ""
 
 
+def _parse_safe_requirement_lines(requirements_text):
+    safe_lines = []
+    seen = set()
+    for raw_line in (requirements_text or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if re.match(
+            r"^[a-zA-Z0-9_\-\[\]]+([=<>!~]+[a-zA-Z0-9\._\-\*\,]+)?$",
+            line,
+        ):
+            normalized = line.lower()
+            if normalized not in seen:
+                safe_lines.append(line)
+                seen.add(normalized)
+    return safe_lines
+
+
+def _collect_project_runtime_requirements(project, logger):
+    baseline = [
+        "nvflare==2.7.1",
+        "gunicorn",
+        "boto3",
+        "python-dotenv",
+        "pandas",
+        "numpy",
+    ]
+
+    merged = []
+    seen = set()
+
+    def _add_lines(lines):
+        for line in lines:
+            key = line.strip().lower()
+            if key and key not in seen:
+                merged.append(line)
+                seen.add(key)
+
+    _add_lines(baseline)
+
+    requirement_sources = []
+    if getattr(project, "requirements_file", None):
+        try:
+            if project.requirements_file.name:
+                requirement_sources.append(project.requirements_file.name)
+        except Exception:
+            pass
+
+    requirement_sources.append(
+        f"{project.identifier}/code/training/requirements.txt"
+    )
+    requirement_sources.append(
+        f"{project.identifier}/code/requirements/requirements.txt"
+    )
+
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    s3_client = get_s3_client()
+
+    try:
+        prefixes = [
+            f"{project.identifier}/code/requirements/",
+            f"{project.identifier}/code/training/",
+        ]
+        for prefix in prefixes:
+            continuation_token = None
+            while True:
+                kwargs = {
+                    "Bucket": bucket,
+                    "Prefix": prefix,
+                    "MaxKeys": 100,
+                }
+                if continuation_token:
+                    kwargs["ContinuationToken"] = continuation_token
+
+                response = s3_client.list_objects_v2(**kwargs)
+                for obj in response.get("Contents", []):
+                    key = str(obj.get("Key", "")).strip()
+                    lower_key = key.lower()
+                    if not key:
+                        continue
+                    if lower_key.endswith(".txt") and "requirements" in lower_key:
+                        requirement_sources.append(key)
+
+                if not response.get("IsTruncated"):
+                    break
+                continuation_token = response.get("NextContinuationToken")
+    except Exception as e:
+        logger.network.info(
+            f"Could not enumerate requirement files in project storage: {e}"
+        )
+
+    # Preserve order while removing duplicates
+    seen_keys = set()
+    deduped_sources = []
+    for key in requirement_sources:
+        if key and key not in seen_keys:
+            deduped_sources.append(key)
+            seen_keys.add(key)
+
+    for key in deduped_sources:
+        try:
+            response = s3_client.get_object(Bucket=bucket, Key=key)
+            text = response["Body"].read().decode("utf-8")
+            lines = _parse_safe_requirement_lines(text)
+            if lines:
+                logger.network.info(
+                    f"Loaded runtime requirements from storage key: {key}"
+                )
+                _add_lines(lines)
+        except Exception as e:
+            logger.network.info(
+                f"No readable requirements found at {key}: {e}"
+            )
+
+    return merged
+
+
+def _ensure_runtime_requirements_file(
+    swarm_network,
+    provision_dir,
+    base_prod_path,
+    logger,
+):
+    existing_path = _resolve_runtime_requirements_path(
+        provision_dir=provision_dir,
+        base_prod_path=base_prod_path,
+    )
+
+    merged = []
+    seen = set()
+
+    def _add_lines(lines):
+        for line in lines:
+            key = line.strip().lower()
+            if key and key not in seen:
+                merged.append(line)
+                seen.add(key)
+
+    if existing_path:
+        try:
+            with open(existing_path) as rf:
+                _add_lines(_parse_safe_requirement_lines(rf.read()))
+            logger.network.info(
+                f"Using existing runtime requirements file: {existing_path}"
+            )
+        except Exception as e:
+            logger.network.warning(
+                f"Failed reading existing runtime requirements file {existing_path}: {e}"
+            )
+
+    try:
+        s3_lines = _collect_project_runtime_requirements(
+            project=swarm_network.project,
+            logger=logger,
+        )
+        _add_lines(s3_lines)
+    except Exception as e:
+        logger.network.warning(
+            f"Failed collecting runtime requirements from project storage: {e}"
+        )
+
+    if not merged:
+        return ""
+
+    os.makedirs(provision_dir, exist_ok=True)
+    out_path = os.path.join(provision_dir, "docker_compose_requirements.txt")
+    try:
+        with open(out_path, "w") as wf:
+            wf.write("\n".join(merged) + "\n")
+        logger.network.info(
+            f"Materialized runtime requirements file at: {out_path}"
+        )
+        return out_path
+    except Exception as e:
+        logger.network.warning(
+            f"Failed writing runtime requirements file {out_path}: {e}"
+        )
+        return existing_path
+
+
 def _has_custom_runtime_requirements(provision_dir, base_prod_path):
     req_path = _resolve_runtime_requirements_path(
         provision_dir=provision_dir,
@@ -813,6 +994,13 @@ def start_swarm_network_task(network_id, user_id):
             raise FileNotFoundError(
                 f"No NVFlare startup kits found under: {base_prod_path}"
             )
+
+        _ensure_runtime_requirements_file(
+            swarm_network=swarm_network,
+            provision_dir=provision_dir,
+            base_prod_path=base_prod_path,
+            logger=logger,
+        )
 
         logger.network.info(
             f"Discovered startup kits for roles: {[t['role'] for t in targets]}"
@@ -1300,45 +1488,11 @@ def stop_swarm_network_task(network_id, user_id):
         user = User.objects.get(id=user_id)
         logger = get_logger(user=user, project=network.project)
 
-        project_name = slugify(network.project.title).replace("-", "_")
-        provision_dir = os.path.join(
-            settings.BASE_DIR,
-            "workspaces",
-            str(network.project.identifier),
-            str(network.identifier),
-        )
-        compose_dir = os.path.join(
-            provision_dir, "workspace", project_name, "prod_00"
-        )
-
         logger.network.info(f"Stopping network: {network.name}")
         docker_path = shutil.which("docker") or "docker"
         env = os.environ.copy()
 
-        stopped = _stop_labeled_runtime(network.identifier, docker_path, env, logger)
-
-        # Legacy fallback for previously compose-based networks.
-        compose_path = os.path.join(compose_dir, "compose.yaml")
-        if stopped == 0 and os.path.exists(compose_path):
-            docker_project_name = f"swarm_{str(network.identifier)[:12]}"
-            ret = run_and_log_subprocess(
-                [
-                    docker_path,
-                    "compose",
-                    "-p",
-                    docker_project_name,
-                    "-f",
-                    "compose.yaml",
-                    "down",
-                ],
-                cwd=compose_dir,
-                env=env,
-                logger=logger,
-            )
-            if ret != 0:
-                network.status = "ERROR"
-                network.save()
-                return
+        _stop_labeled_runtime(network.identifier, docker_path, env, logger)
 
         network.status = "STOPPED"
         network.save()
@@ -1396,8 +1550,6 @@ def cleanup_network_resources(
         # Use a generic system logger since the network/project might be gone
         logger = get_logger()
 
-        project_name_slug = slugify(project_title).replace("-", "_")
-
         provision_dir = os.path.join(
             settings.BASE_DIR,
             "workspaces",
@@ -1405,34 +1557,11 @@ def cleanup_network_resources(
             str(network_identifier),
         )
 
-        compose_dir = os.path.join(
-            provision_dir, "workspace", project_name_slug, "prod_00"
-        )
-
-        compose_file_path = os.path.join(compose_dir, "compose.yaml")
-
-        # 1. Stop Docker containers (containerized runtime first, compose fallback)
+        # 1. Stop Docker containers started by SwarmCloud runtime
         docker_bin = shutil.which("docker") or "docker"
         env = os.environ.copy()
         try:
-            removed = _stop_labeled_runtime(network_identifier, docker_bin, env, logger)
-            if removed == 0 and os.path.exists(compose_file_path):
-                docker_project_name = f"swarm_{network_identifier[:12]}"
-                subprocess.run(  # nosec B603
-                    [
-                        docker_bin,
-                        "compose",
-                        "-p",
-                        docker_project_name,
-                        "-f",
-                        "compose.yaml",
-                        "down",
-                    ],
-                    cwd=compose_dir,
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+            _stop_labeled_runtime(network_identifier, docker_bin, env, logger)
         except Exception as e:
             logger.network.error(
                 f"Failed to stop Docker containers for deleted network {network_name}: {e}"

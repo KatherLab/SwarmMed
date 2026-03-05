@@ -257,6 +257,11 @@ def create_startup_kits_zip(swarm_network):
                 and item.name not in server_dir_names
                 and "admin" not in item.name
             ):
+                startup_dir = Path(item.path) / "startup"
+                fed_client_json = startup_dir / "fed_client.json"
+                if not startup_dir.exists() or not fed_client_json.exists():
+                    continue
+
                 # Ensure client_dir_path is strictly within base_prod_path
                 client_dir = Path(item.path).resolve()
                 if not client_dir.is_relative_to(abs_base_prod_path):

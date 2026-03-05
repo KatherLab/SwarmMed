@@ -288,23 +288,15 @@ def new_network(request):
                         else:
                             zip_ref.extract(member, provision_dir)
 
-                # Post-Extraction: Check for compose.yaml and generate if missing (Client Node case)
-                # Client zips only contain: startup/, local/, transfer/, etc.
-                # They lack the 'workspace/project/prod_00' structure and 'compose.yaml'.
-                
-                # We need to construct the expected path for start_swarm_network_task:
-                # provision_dir/workspace/project_name/prod_00/compose.yaml
-                
+                # Normalize upload to runtime layout expected by start_swarm_network_task:
+                # provision_dir/workspace/project_name/prod_00/
                 project_name = slugify(project.title).replace("-", "_")
                 prod_00_dir = os.path.join(
                     provision_dir, "workspace", project_name, "prod_00"
                 )
-                
-                # If the upload was a flat client zip, the files are in provision_dir root or subfolder.
-                # We need to move them to the expected structure or adjust the structure.
-                # Heuristic: Check if 'startup' folder exists in provision_dir
+
+                # If upload is a flat client zip, move its contents under prod_00.
                 if os.path.exists(os.path.join(provision_dir, "startup")):
-                    # This is a client zip extracted to root. Move to prod_00.
                     os.makedirs(prod_00_dir, exist_ok=True)
                     for item in os.listdir(provision_dir):
                         if item in {
@@ -318,8 +310,6 @@ def new_network(request):
                         if os.path.abspath(src) == os.path.abspath(os.path.join(provision_dir, "workspace")):
                             continue
                         shutil.move(src, dst)
-                        
-                compose_path = os.path.join(prod_00_dir, "compose.yaml")
 
                 admin_startup_dir = os.path.join(prod_00_dir, "admin_startup")
                 if os.path.exists(admin_startup_dir):
@@ -327,140 +317,6 @@ def new_network(request):
                         admin_startup_dir
                     )
                     swarm_network.save(update_fields=["admin_startup_dir"])
-                
-                if not os.path.exists(compose_path):
-                    log.network.info("Compose file missing in upload. Generating client compose file.")
-                    # Detect participant name from fed_client.json or similar
-                    participant_id = "client" # Fallback
-                    startup_dir = os.path.join(prod_00_dir, "startup")
-                    
-                    # Ensure startup scripts are executable
-                    for script_name in ["start.sh", "sub_start.sh", "stop_fl.sh"]:
-                        script_path = os.path.join(startup_dir, script_name)
-                        if os.path.exists(script_path):
-                            os.chmod(script_path, 0o755)
-
-                    if os.path.exists(os.path.join(startup_dir, "fed_client.json")):
-                        # It's a client
-                        try:
-                            with open(os.path.join(startup_dir, "fed_client.json")) as f:
-                                conf = json.load(f)
-                                # Try to find name in config (usually hidden in uid or similar, but often filename is better)
-                                # Defaulting to 'fl_client' service name
-                                pass
-                        except Exception:
-                            pass
-                        
-                        # Generate simple compose.yaml for client
-                        # We use the same image as the project (python:3.12-slim + requirements)
-                        # But simpler: just run the start.sh
-                        
-                        client_compose_content = {
-                            "services": {
-                                "fl_client": {
-                                    "image": "python:3.12-slim", # Should match provision.py builder or custom image
-                                    "volumes": [
-                                        # Mount the prod_00 directory to /workspace
-                                        f"./:{'/workspace'}"
-                                    ],
-                                    "working_dir": "/workspace/startup",
-                                    # Keep container alive by tailing /dev/null, as start.sh runs in background
-                                    "command": '/bin/bash -c "./start.sh && tail -f /dev/null"',
-                                    "restart": "always",
-                                    "network_mode": "host" # Simplifies communication for clients
-                                }
-                            }
-                        }
-                        
-                        # We need to install requirements first? 
-                        # The start.sh usually assumes environment is ready.
-                        # Ideally we should use the same builder logic as provision.py
-                        # For now, we assume the user will have a proper environment or we use a standard image.
-                        # NVFlare docker image is better: nvflare/nvflare
-                        
-                        client_compose_content["services"]["fl_client"]["image"] = "nvflare/nvflare:2.7.1"
-                        
-                        # Extract Client Name and Server IP
-                        server_ip = os.environ.get("SWARMCLOUD_SERVER_HOST", "").strip()
-                        try:
-                            server_agent_args = conf.get("overseer_agent", {}).get("args", {})
-                            client_name = server_agent_args.get("name", "client")
-                            server_url = server_agent_args.get(
-                                "sp_end_point"
-                            ) or server_agent_args.get("overseer_end_point", "")
-
-                            if not server_ip:
-                                host_file = os.path.join(startup_dir, "server_host.txt")
-                                if os.path.exists(host_file):
-                                    try:
-                                        with open(host_file, "r") as hf:
-                                            server_ip = hf.read().strip()
-                                    except Exception:
-                                        server_ip = ""
-                            
-                            # Use direct python command to avoid start.sh zombie issues and capture logs
-                            # We hardcode org=nvidia as per provision.py
-                            # Wrap in sh -c to capture output to file AND stdout
-                            python_cmd = (
-                                f"python3 -u -m nvflare.private.fed.app.client.client_train "
-                                f"-m /workspace -s fed_client.json "
-                                f"--set secure_train=true uid={client_name} org=nvidia config_folder=config"
-                            )
-                            
-                            client_compose_content["services"]["fl_client"]["command"] = [
-                                "/bin/sh", 
-                                "-c", 
-                                f"echo 'Starting Client: {client_name}' > /workspace/docker_startup_log.txt && "
-                                f"echo 'Server IP: {server_ip or 'unknown'}' >> /workspace/docker_startup_log.txt && "
-                                f"{python_cmd} 2>&1 | tee -a /workspace/docker_startup_log.txt"
-                            ]
-                            
-                            # Add PYTHONPATH as per sub_start.sh
-                            client_compose_content["services"]["fl_client"]["environment"] = {
-                                "PYTHONPATH": "/local/custom"
-                            }
-                            # Emulate TTY to match manual run behavior
-                            client_compose_content["services"]["fl_client"]["tty"] = True
-                            client_compose_content["services"]["fl_client"]["stdin_open"] = True
-
-                            if not server_ip and server_url:
-                                # Parse host from URL or host:port endpoint format.
-                                if "://" in server_url:
-                                    parsed_host = server_url.split("://")[-1].split(":")[0]
-                                else:
-                                    parsed_host = server_url.split(":")[0]
-                                if parsed_host and parsed_host != "server":
-                                    server_ip = parsed_host
-
-                            if server_ip:
-                                extra_hosts = {
-                                    f"server:{server_ip}",
-                                }
-                                aliases_file = os.path.join(
-                                    startup_dir, "server_aliases.txt"
-                                )
-                                if os.path.exists(aliases_file):
-                                    try:
-                                        with open(aliases_file, "r") as sf:
-                                            for alias in sf.read().splitlines():
-                                                alias = alias.strip()
-                                                if alias:
-                                                    extra_hosts.add(
-                                                        f"{alias}:{server_ip}"
-                                                    )
-                                    except Exception:
-                                        pass
-
-                                client_compose_content["services"]["fl_client"]["extra_hosts"] = list(extra_hosts)
-                        except Exception as e:
-                            log.network.warning(f"Error configuring client compose: {e}")
-
-                        with open(compose_path, "w") as f:
-                            yaml.dump(client_compose_content, f)
-                            
-                    elif os.path.exists(os.path.join(startup_dir, "fed_server.json")):
-                         # It's a server (if they uploaded a server kit manually)
-                         pass
 
                 swarm_network.status = "PROVISIONED"
                 swarm_network.save()
