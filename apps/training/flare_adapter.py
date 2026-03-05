@@ -62,6 +62,15 @@ class FlareDataFileSystem:
             or ""
         )
         self.local_s3_region = os.getenv("AWS_S3_REGION_NAME", "").strip()
+        self.http_timeout = float(
+            os.getenv("SWARMCLOUD_HTTP_TIMEOUT", "20").strip() or "20"
+        )
+        self.s3_connect_timeout = float(
+            os.getenv("SWARMCLOUD_S3_CONNECT_TIMEOUT", "3").strip() or "3"
+        )
+        self.s3_read_timeout = float(
+            os.getenv("SWARMCLOUD_S3_READ_TIMEOUT", "20").strip() or "20"
+        )
         if self.use_local_data and self.bucket:
             try:
                 self.s3_client = self._build_s3_client(
@@ -134,6 +143,9 @@ class FlareDataFileSystem:
             config=Config(
                 signature_version="s3v4",
                 s3={"addressing_style": addressing_style},
+                connect_timeout=self.s3_connect_timeout,
+                read_timeout=self.s3_read_timeout,
+                retries={"max_attempts": 2, "mode": "standard"},
             ),
         )
 
@@ -180,6 +192,8 @@ class FlareDataFileSystem:
                     pass
 
         for endpoint in [
+            "http://minio:9000",
+            "https://minio:9000",
             "http://127.0.0.1:9000",
             "https://127.0.0.1:9000",
             "http://localhost:9000",
@@ -288,7 +302,32 @@ class FlareDataFileSystem:
 
                     downloaded = False
 
-                    if self.bucket and self.use_local_data:
+                    # Prefer manifest URL first. In containerized runs this is often
+                    # the most reliable path when local endpoint envs are loopback.
+                    # Validate URL scheme to prevent file:// or other unexpected schemes (Bandit B310)
+                    if not url.startswith(("http://", "https://")):
+                        print(
+                            f"FlareDataFileSystem: ERROR - Unsafe URL scheme in manifest: {url}"
+                        )
+                        continue
+
+                    try:
+                        opener = urllib.request.build_opener(
+                            urllib.request.HTTPSHandler(context=self.ssl_context)
+                        )
+                        with (
+                            opener.open(url, timeout=self.http_timeout) as response,
+                            open(local_path, "wb") as out_file,
+                        ):
+                            shutil.copyfileobj(response, out_file)
+                        downloaded = True
+                    except Exception as url_error:
+                        print(
+                            "FlareDataFileSystem: WARNING - URL download failed "
+                            f"for {rel_path}: {url_error}"
+                        )
+
+                    if not downloaded and self.bucket and self.use_local_data:
                         downloaded = self._download_from_local_s3(
                             rel_path=rel_path,
                             local_path=local_path,
@@ -296,26 +335,13 @@ class FlareDataFileSystem:
                         if not downloaded:
                             print(
                                 "FlareDataFileSystem: WARNING - Local S3 fetch failed "
-                                f"for {rel_path}. Falling back to URL."
+                                f"for {rel_path} after URL failure."
                             )
 
                     if not downloaded:
-                        # Validate URL scheme to prevent file:// or other unexpected schemes (Bandit B310)
-                        if not url.startswith(("http://", "https://")):
-                            print(
-                                f"FlareDataFileSystem: ERROR - Unsafe URL scheme in manifest: {url}"
-                            )
-                            continue
-
-                        # Create an opener that uses our SSL context (ignoring cert verification for internal network)
-                        opener = urllib.request.build_opener(
-                            urllib.request.HTTPSHandler(context=self.ssl_context)
+                        raise RuntimeError(
+                            f"Unable to download required data file '{rel_path}' from URL and local S3"
                         )
-                        with (
-                            opener.open(url) as response,
-                            open(local_path, "wb") as out_file,
-                        ):
-                            shutil.copyfileobj(response, out_file)
 
                     self._downloaded_files[rel_path] = local_path
                     file_count += 1
