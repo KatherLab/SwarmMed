@@ -3,7 +3,11 @@ Shared utility functions for the entire application.
 """
 
 import os
+import time
+import hmac
+import hashlib
 from urllib.parse import urlparse
+from urllib.parse import urlencode
 
 import boto3
 import docker
@@ -146,6 +150,34 @@ def get_internal_s3_download_url(key, expires=3600):
         url = url.replace("127.0.0.1", "minio")
 
     return url
+
+
+def get_internal_data_proxy_download_url(key, expires=3600):
+    """
+    Generates a signed internal URL that proxies S3/MinIO downloads through Django.
+    This avoids direct MinIO DNS/routing requirements on remote FL client nodes.
+    """
+    expires_at = int(time.time()) + int(expires)
+    signing_payload = f"{key}|{expires_at}".encode("utf-8")
+    signature = hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        signing_payload,
+        hashlib.sha256,
+    ).hexdigest()
+
+    base_url = (
+        os.getenv("SWARMCLOUD_INTERNAL_DATA_BASE_URL", "").strip()
+        or "https://server"
+    ).rstrip("/")
+
+    query = urlencode(
+        {
+            "key": key,
+            "expires": str(expires_at),
+            "sig": signature,
+        }
+    )
+    return f"{base_url}/data/internal-download/?{query}"
 
 
 def get_safe_referer(request, default="/"):
