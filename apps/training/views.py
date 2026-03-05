@@ -5,6 +5,7 @@ import re
 import shutil
 import socket
 import ssl
+import threading
 
 from common.utils import get_safe_slug
 from django.conf import settings
@@ -302,6 +303,81 @@ def _dedupe_keep_order(values):
     return deduped
 
 
+# ---------------------------------------------------------------------------
+# /etc/hosts patching helpers
+# NVFlare 2.7.1 (CellNet/gRPC) creates gRPC channels WITHOUT
+# ssl_target_name_override.  Overriding session.api.host to a raw IP causes
+# a TLS hostname-mismatch (server cert is CN=server/SAN=DNS:server).  gRPC
+# enters TRANSIENT_FAILURE and retries until the admin timeout expires.
+#
+# Fix: keep session.api.host = "server" (canonical) so TLS validates, and
+# write  "<tailscale_ip>  server"  to /etc/hosts so gRPC's C-core resolver
+# routes the TCP connection to the right IP.
+# ---------------------------------------------------------------------------
+
+_NVFLARE_HOSTS_LOCK = threading.Lock()
+_NVFLARE_HOSTS_MARKER = "# swarmcloud-nvflare-dynamic"
+
+
+def _write_nvflare_hosts_entry(hostname: str, ip: str) -> bool:
+    """Add/replace a dynamic /etc/hosts line: `<ip>  <hostname>`.
+
+    Thread-safe via a module-level lock.  Returns True on success.
+    """
+    if not hostname or not ip or hostname == ip:
+        return True
+
+    hosts_path = "/etc/hosts"
+    try:
+        with _NVFLARE_HOSTS_LOCK:
+            try:
+                content = open(hosts_path).read()
+            except OSError:
+                return False
+
+            # Remove any previously written marker lines for this hostname.
+            filtered = [
+                line for line in content.splitlines(keepends=True)
+                if not (hostname in line.split() and _NVFLARE_HOSTS_MARKER in line)
+            ]
+            filtered.append(f"{ip}\t{hostname}\t{_NVFLARE_HOSTS_MARKER}\n")
+
+            try:
+                with open(hosts_path, "w") as fh:
+                    fh.writelines(filtered)
+                return True
+            except OSError:
+                return False
+    except Exception:
+        return False
+
+
+def _remove_nvflare_hosts_entries() -> None:
+    """Remove all /etc/hosts lines written by _write_nvflare_hosts_entry."""
+    hosts_path = "/etc/hosts"
+    try:
+        with _NVFLARE_HOSTS_LOCK:
+            try:
+                content = open(hosts_path).read()
+            except OSError:
+                return
+
+            filtered = [
+                line for line in content.splitlines(keepends=True)
+                if _NVFLARE_HOSTS_MARKER not in line
+            ]
+            try:
+                with open(hosts_path, "w") as fh:
+                    fh.writelines(filtered)
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+
+
 def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
     requested_host = (requested_host or "").strip()
     default_host = (default_host or "").strip()
@@ -458,15 +534,33 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
 
 def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0):
     """
-    Creates a new NVFlare secure session but overrides the host address
-    defined in the startup kit's fed_admin.json.
-    This avoids breaking the cryptographic signature of the config file.
+    Creates a new NVFlare secure session, routing gRPC traffic to the right
+    server IP while preserving TLS hostname validation.
+
+    Root cause of the connect failures:
+    NVFlare 2.7.1 (CellNet/gRPC admin) builds gRPC channels WITHOUT
+    ssl_target_name_override.  Overriding session.api.host to a raw IP
+    (e.g. Tailscale IP 100.x.x.x) causes a TLS hostname-mismatch because
+    the provisioned server cert has CN=server / SAN=DNS:server.  gRPC enters
+    TRANSIENT_FAILURE and retries until the admin timeout expires, producing
+    the misleading "cannot connect to server for N seconds" error.
+
+    Fix:
+    - Always keep session.api.host = canonical_host ("server") so TLS SNI
+      and certificate validation succeed.
+    - For IP-based candidates (Tailscale, 127.0.0.1, …), temporarily write
+      "<ip>  server" to /etc/hosts.  gRPC's C-core resolver reads /etc/hosts
+      before DNS, so the TCP connection is routed to the correct IP while
+      the hostname seen by TLS remains "server".
+    - Only use port 8003 (admin port).  Port 8002 is the FL training port
+      and does not serve the admin gRPC protocol; trying it wastes the full
+      timeout per attempt.
     """
     from nvflare.fuel.flare_api.flare_api import Session
-    
-    # 1. Resolve the default host and port from the kit before building candidates.
-    default_host = ""
-    default_port = 0
+
+    # 1. Read canonical hostname and admin port from the kit's fed_admin.json.
+    canonical_host = ""
+    admin_port = 0
     try:
         temp_session = Session(
             username=username,
@@ -474,11 +568,11 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
             secure_mode=True,
         )
         if temp_session.api:
-            default_host = str(getattr(temp_session.api, "host", "") or "").strip()
+            canonical_host = str(getattr(temp_session.api, "host", "") or "").strip()
             try:
-                default_port = int(getattr(temp_session.api, "port", 0) or 0)
+                admin_port = int(getattr(temp_session.api, "port", 0) or 0)
             except Exception:
-                default_port = 0
+                admin_port = 0
         try:
             temp_session.close()
         except Exception:
@@ -486,110 +580,134 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     except Exception:
         pass
 
-    requested_host = (host or "").strip()
-    host_candidates = _build_flare_host_candidates(requested_host, default_host)
-    port_candidates = _build_flare_port_candidates(default_port)
+    canonical_host = canonical_host or "server"
+    admin_port = admin_port if admin_port > 0 else 8003
 
-    # Quick TCP pre-probe (2 s timeout) to find which (host, port) combos are
-    # actually reachable at the network layer.  We give a confirmed-reachable
-    # pair the full caller timeout for the NVFlare handshake instead of capping
-    # it at 5 s, which is too short when the server admin process is slow to
-    # authenticate over Tailscale.
-    reachable_combos: set = set()
-    for _h in host_candidates:
-        if not _h:
+    # 2. Build the ordered list of IPs/hosts to route canonical_host → via
+    #    /etc/hosts.  canonical_host itself is tried first (Docker DNS may
+    #    already resolve it when server runs on the same machine).
+    requested_host = (host or "").strip()
+    ip_candidates = _dedupe_keep_order([
+        c for c in [
+            canonical_host,   # Try direct Docker DNS resolution first (no patch needed)
+            requested_host,   # e.g. Tailscale IP (100.127.11.1) — patch server → IP
+            "127.0.0.1",      # Same-machine fallback
+            "localhost",
+        ]
+        if c is not None
+    ])
+
+    # 3. TCP pre-probe (2 s) to identify which IPs are reachable at the
+    #    network layer.  Confirmed-reachable IPs get the full caller timeout
+    #    for the NVFlare auth handshake; others get a short 5 s cap.
+    reachable_ips: set = set()
+    for _ip in ip_candidates:
+        if not _ip:
             continue
-        for _p in port_candidates:
-            try:
-                with socket.create_connection((_h, int(_p)), timeout=2.0):
-                    reachable_combos.add((_h, int(_p)))
-            except Exception:
-                pass
+        try:
+            with socket.create_connection((_ip, admin_port), timeout=2.0):
+                reachable_ips.add(_ip)
+        except Exception:
+            pass
 
     connection_errors = []
 
-    for host_candidate in host_candidates:
-        for port in port_candidates:
-            # Create a *fresh* Session for every (host, port) attempt.
-            # Reusing the same Session across ports after a failed try_connect
-            # leaves the NVFlare API object in a dirty/partially-authenticated
-            # state, which causes subsequent port attempts to return an empty
-            # command registry (and thus CommandInfo.UNKNOWN for submit_job).
-            session = Session(
-                username=username,
-                startup_path=startup_kit_location,
-                secure_mode=True,
-                debug=debug,
-            )
+    for candidate in ip_candidates:
+        if not candidate:
+            continue
 
-            try:
-                if session.api:
-                    # NVFlare auth handshake uses its own msg timeout (default 5s).
-                    # Keep it in sync with the caller's requested connect timeout.
+        connect_timeout = timeout if candidate in reachable_ips else min(timeout, 5.0)
+
+        # For IPs/hosts that differ from canonical, patch /etc/hosts so gRPC
+        # routes TCP to the right destination while TLS uses "server".
+        patched = False
+        if candidate != canonical_host:
+            patched = _write_nvflare_hosts_entry(canonical_host, candidate)
+
+        # Fresh Session every attempt — a failed session corrupts the NVFlare
+        # API object's command registry (gives UNKNOWN for submit_job).
+        session = Session(
+            username=username,
+            startup_path=startup_kit_location,
+            secure_mode=True,
+            debug=debug,
+        )
+
+        attempt_succeeded = False
+        try:
+            if session.api:
+                try:
+                    session.api.authenticate_msg_timeout = max(
+                        float(timeout),
+                        float(getattr(session.api, "authenticate_msg_timeout", 5.0) or 5.0),
+                    )
+                except Exception:
+                    pass
+
+                # Always use canonical_host ("server") — never an IP.
+                # The /etc/hosts entry routes gRPC traffic to the right IP.
+                session.api.host = canonical_host
+                session.api.port = int(admin_port)
+
+                try:
+                    session.try_connect(connect_timeout)
+
+                    submit_cmd_info = None
                     try:
-                        session.api.authenticate_msg_timeout = max(
-                            float(timeout),
-                            float(getattr(session.api, "authenticate_msg_timeout", 5.0) or 5.0),
-                        )
-                    except Exception:
-                        pass
-
-                    if host_candidate:
-                        session.api.host = host_candidate
-
-                    session.api.port = int(port)
-
-                    # Use the full caller timeout when the TCP pre-probe already
-                    # confirmed this host:port is reachable (admin process is up but
-                    # may need >5 s for the handshake over Tailscale or when under
-                    # load).  For unconfirmed pairs cap at 5 s to avoid long hangs.
-                    effective_host = (host_candidate or default_host or "").strip()
-                    is_confirmed_reachable = (effective_host, int(port)) in reachable_combos
-                    connect_timeout = timeout if is_confirmed_reachable else min(timeout, 5.0)
-
-                    try:
-                        session.try_connect(connect_timeout)
-
-                        submit_cmd_info = None
-                        try:
-                            submit_cmd_info = session.api.check_command("submit_job")
-                        except Exception as cmd_probe_error:
-                            connection_errors.append(
-                                f"host={session.api.host} port={port}: connected but submit command probe failed: {cmd_probe_error}"
-                            )
-                            try:
-                                session.close()
-                            except Exception:
-                                pass
-                            continue
-
-                        if getattr(submit_cmd_info, "name", "") in {"UNKNOWN", "AMBIGUOUS"}:
-                            connection_errors.append(
-                                f"host={session.api.host} port={port}: connected but submit_job unavailable ({submit_cmd_info})"
-                            )
-                            try:
-                                session.close()
-                            except Exception:
-                                pass
-                            continue
-
-                        return session
-                    except Exception as e:
+                        submit_cmd_info = session.api.check_command("submit_job")
+                    except Exception as cmd_probe_error:
                         connection_errors.append(
-                            f"host={session.api.host} port={port}: {e}"
+                            f"host={candidate} port={admin_port}: "
+                            f"connected but submit command probe failed: {cmd_probe_error}"
                         )
-                else:
-                    session.try_connect(timeout)
-                    return session
-            except Exception as e:
-                connection_errors.append(
-                    f"host={(host_candidate or default_host or 'startup-config')} port={port}: {e}"
-                )
+                        try:
+                            session.close()
+                        except Exception:
+                            pass
+                        continue
 
-            try:
-                session.close()
-            except Exception:
-                pass
+                    if getattr(submit_cmd_info, "name", "") in {"UNKNOWN", "AMBIGUOUS"}:
+                        connection_errors.append(
+                            f"host={candidate} port={admin_port}: "
+                            f"connected but submit_job unavailable ({submit_cmd_info})"
+                        )
+                        try:
+                            session.close()
+                        except Exception:
+                            pass
+                        continue
+
+                    # /etc/hosts entry stays in place for the session's lifetime
+                    # so gRPC can re-resolve on any internal reconnect.
+                    attempt_succeeded = True
+                    return session
+
+                except Exception as e:
+                    connection_errors.append(
+                        f"host={candidate} port={admin_port}: {e}"
+                    )
+            else:
+                session.try_connect(connect_timeout)
+                attempt_succeeded = True
+                return session
+
+        except Exception as e:
+            connection_errors.append(
+                f"host={candidate} port={admin_port}: {e}"
+            )
+        finally:
+            # Remove the /etc/hosts patch when this attempt failed, so the
+            # next candidate starts with a clean state.
+            if patched and not attempt_succeeded:
+                _remove_nvflare_hosts_entries()
+
+        try:
+            session.close()
+        except Exception:
+            pass
+
+    # All candidates exhausted — clean up any residual hosts entries.
+    _remove_nvflare_hosts_entries()
 
     if connection_errors:
         raise RuntimeError(
