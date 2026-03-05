@@ -894,18 +894,18 @@ def start_training(request, network_id):
                 )
                 persistor = PTFileModelPersistor()
         
-        # If framework is not explicitly TF or PT, default to PT persistor as 
-        # a more robust binary model handler than NumPy.
+        # If framework is not explicitly TF or PT, default to NPModelPersistor
+        # which only requires 'numpy' (already in base requirements).
         if "persistor" not in locals():
             from nvflare.app_common.executors.in_process_client_api_executor import (
                 InProcessClientAPIExecutor,
             )
-            from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
+            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
 
             executor = InProcessClientAPIExecutor(
                 task_script_path="custom/training.py"
             )
-            persistor = PTFileModelPersistor()
+            persistor = NPModelPersistor()
 
         shareable_generator = SimpleModelShareableGenerator()
         aggregator = InTimeAccumulateWeightedAggregator(
