@@ -6,6 +6,7 @@ import shutil
 import socket
 import ssl
 import threading
+import time
 
 from common.utils import get_safe_slug
 from django.conf import settings
@@ -641,6 +642,17 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                 try:
                     session.try_connect(connect_timeout)
 
+                    # NVFlare CellNet sets session.api.cell asynchronously on
+                    # a background thread AFTER try_connect() returns.  Poll
+                    # until the cell is ready (or the remaining timeout expires)
+                    # so that subsequent commands don't hit self.cell = None.
+                    _cell_deadline = time.monotonic() + min(connect_timeout, 8.0)
+                    while (
+                        getattr(session.api, "cell", None) is None
+                        and time.monotonic() < _cell_deadline
+                    ):
+                        time.sleep(0.15)
+
                     submit_cmd_info = None
                     try:
                         submit_cmd_info = session.api.check_command("submit_job")
@@ -675,6 +687,12 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                     )
             else:
                 session.try_connect(connect_timeout)
+                _cell_deadline = time.monotonic() + min(connect_timeout, 8.0)
+                while (
+                    getattr(session.api, "cell", None) is None
+                    and time.monotonic() < _cell_deadline
+                ):
+                    time.sleep(0.15)
                 attempt_succeeded = True
                 return session
 
