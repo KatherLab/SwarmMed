@@ -333,6 +333,14 @@ def new_network(request):
                     for folder in ["local", "transfer", "logs"]:
                         os.makedirs(os.path.join(admin_startup_dir, folder), exist_ok=True)
 
+                    # 3. Inherit server_host.txt from sibling client kit if missing
+                    admin_host_file = os.path.join(nested_startup, "server_host.txt")
+                    if not os.path.exists(admin_host_file):
+                        # Try sibling kit (prod_00/startup/server_host.txt)
+                        sibling_host_file = os.path.join(prod_00_dir, "startup", "server_host.txt")
+                        if os.path.exists(sibling_host_file):
+                            shutil.copyfile(sibling_host_file, admin_host_file)
+
                     swarm_network.admin_startup_dir = os.path.abspath(
                         admin_startup_dir
                     )

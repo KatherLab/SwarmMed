@@ -386,28 +386,27 @@ def generate_flare_startup_kit(
                 Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
             )
 
-            # Write server host metadata into client kits for containerized runtime host mapping.
+            # Write server host metadata into all kits (client, admin, server)
+            # for containerized runtime host mapping and Admin API routing.
             try:
                 server_aliases = list(client_server_map.values())
                 for item in os.scandir(str(base_prod_path)):
                     if not item.is_dir():
                         continue
-                    if (
-                        item.name == "server"
-                        or item.name.startswith("server")
-                        or "admin" in item.name
-                    ):
-                        continue
+                    
                     startup_dir = Path(item.path) / "startup"
                     if startup_dir.exists():
                         (startup_dir / "server_host.txt").write_text(server_ip)
-                        if server_aliases:
-                            (startup_dir / "server_aliases.txt").write_text(
-                                "\n".join(server_aliases) + "\n"
-                            )
+                        
+                        # Client kits also get server aliases for docker-compose host mapping
+                        if item.name != "server" and not item.name.startswith("server") and "admin" not in item.name:
+                            if server_aliases:
+                                (startup_dir / "server_aliases.txt").write_text(
+                                    "\n".join(server_aliases) + "\n"
+                                )
             except Exception as e:
                 logger.network.warning(
-                    f"Failed to write server_host.txt into client kits: {e}"
+                    f"Failed to write server_host.txt into kits: {e}"
                 )
 
         # Update network status in the database

@@ -149,18 +149,25 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | Non
     # Resolve Server IP: Use metadata files if they exist, otherwise try to extract from fed_client.json
     server_ip = "127.0.0.1"
     try:
-        # 1. Check for server_host.txt (populated during provisioning or upload)
+        # 1. Check for server_host.txt in admin startup kit
         host_file = os.path.join(session_dir, "startup", "server_host.txt")
         if os.path.exists(host_file):
             server_ip = open(host_file).read().strip()
         else:
-            # 2. Extract from fed_client.json
-            client_cfg = os.path.join(session_dir, "startup", "fed_client.json")
-            if os.path.exists(client_cfg):
-                from network.tasks import _extract_host_from_server_endpoint
-                extracted = _extract_host_from_server_endpoint(os.path.dirname(client_cfg))
-                if extracted:
-                    server_ip = extracted
+            # 2. Try sibling kit (prod_00/startup/server_host.txt)
+            # session_dir might be .../prod_00/admin_startup
+            prod_00 = os.path.dirname(session_dir.rstrip(os.sep))
+            sibling_host = os.path.join(prod_00, "startup", "server_host.txt")
+            if os.path.exists(sibling_host):
+                server_ip = open(sibling_host).read().strip()
+            else:
+                # 3. Extract from sibling fed_client.json
+                client_cfg = os.path.join(prod_00, "startup", "fed_client.json")
+                if os.path.exists(client_cfg):
+                    from network.tasks import _extract_host_from_server_endpoint
+                    extracted = _extract_host_from_server_endpoint(os.path.dirname(client_cfg))
+                    if extracted:
+                        server_ip = extracted
     except Exception:
         pass
 
@@ -219,7 +226,7 @@ def _select_nvflare_job(jobs):
     return jobs[0]
 
 
-def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 10.0):
+def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0):
     """
     Creates a new NVFlare secure session but overrides the host address
     defined in the startup kit's fed_admin.json.
@@ -236,8 +243,11 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     )
     
     # Programmatically override the host in the underlying AdminAPI
-    if host and session.api:
-        session.api.host = host
+    if session.api:
+        if host:
+            session.api.host = host
+        # Admin API in SwarmCloud always uses port 8003
+        session.api.port = 8003
     
     # Establish connection
     session.try_connect(timeout)
@@ -260,7 +270,8 @@ def _nvflare_status_payload(current_network):
         sess = new_secure_session_with_host(
             username=admin_name, 
             startup_kit_location=admin_dir,
-            host=server_ip
+            host=server_ip,
+            timeout=20.0
         )
         response = sess.api.do_command("list_jobs")
         try:
