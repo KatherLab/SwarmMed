@@ -999,9 +999,9 @@ def start_swarm_network_task(network_id, user_id):
                 "--label",
                 f"swarmcloud.role={role}",
                 "-e",
-                "GRPC_ENABLE_FORK_SUPPORT=1",
+                "GRPC_ENABLE_FORK_SUPPORT=0",
                 "-e",
-                "GRPC_POLL_STRATEGY=poll",
+                "NVFLARE_START_METHOD=spawn",
             ]
 
             if use_host_network:
