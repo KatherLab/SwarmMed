@@ -12,6 +12,7 @@ import tempfile
 import urllib.request
 
 import boto3
+from botocore.config import Config
 import numpy as np
 import nvflare.client as flare
 from dotenv import load_dotenv
@@ -69,6 +70,10 @@ class FlareDataFileSystem:
                     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
                     region_name=os.getenv("AWS_S3_REGION_NAME"),
                     endpoint_url=endpoint_url,
+                    config=Config(
+                        signature_version="s3v4",
+                        s3={"addressing_style": "path"},
+                    ),
                 )
                 print(
                     "FlareDataFileSystem: Local S3 client initialized "
@@ -165,11 +170,12 @@ class FlareDataFileSystem:
                     if self.s3_client and self.bucket:
                         try:
                             object_key = f"{self.root_prefix}{rel_path}"
-                            self.s3_client.download_file(
-                                self.bucket,
-                                object_key,
-                                local_path,
+                            response = self.s3_client.get_object(
+                                Bucket=self.bucket,
+                                Key=object_key,
                             )
+                            with open(local_path, "wb") as out_file:
+                                shutil.copyfileobj(response["Body"], out_file)
                             downloaded = True
                         except Exception as e:
                             print(
