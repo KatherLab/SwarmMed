@@ -306,11 +306,11 @@ def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
     requested_host = (requested_host or "").strip()
     default_host = (default_host or "").strip()
 
-    seed_candidates = ["127.0.0.1", "localhost", requested_host, default_host, ""]
-    if requested_host and requested_host not in {"127.0.0.1", "localhost"}:
-        seed_candidates = [requested_host, "127.0.0.1", "localhost", default_host, ""]
+    # 'server' is the default alias used within the Docker network for the FL server.
+    # We prioritize it, then the requested host, then the host from fed_admin.json.
+    seed_candidates = ["server", requested_host, default_host, "127.0.0.1", "localhost", ""]
 
-    return _dedupe_keep_order(seed_candidates)
+    return _dedupe_keep_order([c for c in seed_candidates if c is not None])
 
 
 def _build_flare_port_candidates(default_port: int = 0):
@@ -325,11 +325,12 @@ def _build_flare_port_candidates(default_port: int = 0):
     if default_port and int(default_port) > 0 and int(default_port) not in candidates:
         candidates.append(int(default_port))
 
-    if 8002 not in candidates:
-        candidates.append(8002)
-
+    # Port 8003 is the default admin port for NVFlare; try it before 8002.
     if 8003 not in candidates:
         candidates.append(8003)
+
+    if 8002 not in candidates:
+        candidates.append(8002)
 
     return candidates
 
@@ -345,6 +346,7 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
         client_cert_path = os.path.join(startup_dir, "client.crt")
         client_key_path = os.path.join(startup_dir, "client.key")
 
+        # Create a probe session to extract default host/port from fed_admin.json
         probe_session = Session(
             username=username,
             startup_path=startup_kit_location,
@@ -380,7 +382,7 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
             f"client_key_exists={os.path.exists(client_key_path)}"
         )
 
-        max_probes = 6
+        max_probes = 8
         probes = 0
         for host_candidate in host_candidates:
             effective_host = (host_candidate or default_host or "").strip()
@@ -395,7 +397,7 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
                 reachable = False
                 detail = ""
                 try:
-                    with socket.create_connection((effective_host, int(port)), timeout=1.5):
+                    with socket.create_connection((effective_host, int(port)), timeout=2.0) as s:
                         reachable = True
                 except Exception as e:
                     detail = str(e)
@@ -462,8 +464,22 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     """
     from nvflare.fuel.flare_api.flare_api import Session
     
+    # 1. Resolve the default host from the kit before building candidates.
+    default_host = ""
+    try:
+        temp_session = Session(
+            username=username,
+            startup_path=startup_kit_location,
+            secure_mode=True,
+        )
+        if temp_session.api:
+            default_host = str(getattr(temp_session.api, "host", "") or "").strip()
+        temp_session.close()
+    except Exception:
+        pass
+
     requested_host = (host or "").strip()
-    host_candidates = _build_flare_host_candidates(requested_host, "")
+    host_candidates = _build_flare_host_candidates(requested_host, default_host)
 
     connection_errors = []
 
@@ -500,7 +516,10 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                 for port in port_candidates:
                     try:
                         session.api.port = int(port)
-                        session.try_connect(timeout)
+                        # Use a shorter timeout for the handshake during the search
+                        # to avoid hanging for 20s on unreachable/incorrect hosts.
+                        search_timeout = min(timeout, 5.0) if len(host_candidates) > 1 else timeout
+                        session.try_connect(search_timeout)
 
                         submit_cmd_info = None
                         try:
@@ -535,7 +554,7 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                 return session
         except Exception as e:
             connection_errors.append(
-                f"host={(host_candidate or 'startup-config')} port=unknown: {e}"
+                f"host={(host_candidate or default_host or 'startup-config')} port=unknown: {e}"
             )
 
         try:
@@ -546,10 +565,11 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     if connection_errors:
         raise RuntimeError(
             "cannot connect to FLARE admin API. Attempts: "
-            + " | ".join(connection_errors[:6])
+            + " | ".join(connection_errors[:10])
         )
 
     raise RuntimeError("cannot connect to FLARE admin API")
+
 
 
 def _nvflare_status_payload(current_network):
