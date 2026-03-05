@@ -851,6 +851,41 @@ def _proxy_s3_download_file(key, filename, inline=False):
         return HttpResponse("File download failed", status=500)
 
 
+def _resolve_existing_data_key(key):
+    """
+    Resolve a data-object key locally.
+    If the exact key does not exist, try remapping by relative data path across
+    local project UUIDs to tolerate cross-node UUID differences.
+    """
+    if not key:
+        return ""
+
+    try:
+        if default_storage.exists(key):
+            return key
+    except Exception:
+        pass
+
+    if "/data/" not in key:
+        return ""
+
+    rel_path = key.split("/data/", 1)[1].lstrip("/")
+    if not rel_path:
+        return ""
+
+    try:
+        for project_identifier in Project.objects.values_list(
+            "identifier", flat=True
+        ):
+            candidate = f"{project_identifier}/data/{rel_path}"
+            if default_storage.exists(candidate):
+                return candidate
+    except Exception:
+        return ""
+
+    return ""
+
+
 def internal_download_file(request):
     """
     Internal signed endpoint for NVFlare clients to download project data files.
@@ -882,7 +917,19 @@ def internal_download_file(request):
     if not hmac.compare_digest(expected, signature):
         return HttpResponse("Invalid download signature", status=403)
 
-    return _proxy_s3_download_file(key, os.path.basename(key))
+    resolved_key = _resolve_existing_data_key(key)
+    if not resolved_key:
+        logger.get_logger().data.warning(
+            f"Internal data download key not found: {key}"
+        )
+        return HttpResponse("Data file not found", status=404)
+
+    if resolved_key != key:
+        logger.get_logger().data.info(
+            f"Remapped internal data key from {key} to {resolved_key}"
+        )
+
+    return _proxy_s3_download_file(resolved_key, os.path.basename(resolved_key))
 
 
 @login_required
