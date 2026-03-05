@@ -304,61 +304,63 @@ def _dedupe_keep_order(values):
 
 
 # ---------------------------------------------------------------------------
-# gRPC ssl_target_name_override monkey-patch helper
+# gRPC ssl_target_name_override permanent monkey-patch
 #
 # NVFlare 2.7.1 (CellNet/gRPC admin) creates gRPC channels WITHOUT
-# ssl_target_name_override.  When session.api.host is a raw IP (e.g. a
-# Tailscale IP like 100.127.11.1), gRPC validates the server cert against
-# that IP.  The provisioned cert has CN=server / SAN=DNS:server only, so
-# TLS fails → TRANSIENT_FAILURE → retries until timeout.
+# ssl_target_name_override.  When session.api.host is a raw IP (e.g.
+# Tailscale IP 100.127.11.1), gRPC validates the server cert against that
+# IP.  The provisioned cert has CN=server / SAN=DNS:server only → TLS
+# hostname mismatch → TRANSIENT_FAILURE → retries until timeout.
 #
-# The /etc/hosts approach (writing "<ip>  server") is not viable because the
-# container runs as appuser (non-root) and cannot write /etc/hosts.
+# A context-manager approach (patch/restore around try_connect) is
+# insufficient because NVFlare's CellNet creates the gRPC channel on a
+# background thread AFTER try_connect() returns, so the restore fires
+# before the actual grpc.secure_channel() call.
 #
-# Fix: temporarily monkey-patch grpc.secure_channel to inject
-#   ("grpc.ssl_target_name_override", canonical_host)
-# into every channel's options while keeping session.api.host = actual IP
-# so gRPC routes TCP to the right destination.
-# A module-level lock serialises concurrent FLARE operations so the global
-# monkey-patch is never held by two callers simultaneously.
+# Fix: permanently replace grpc.secure_channel (once, process-lifetime)
+# to always inject ("grpc.ssl_target_name_override", tls_server_name).
+# This is safe because the only gRPC connections in this container are
+# NVFlare admin connections and "server" is always the correct CN.
 # ---------------------------------------------------------------------------
 
-import contextlib
+_NVFLARE_GRPC_PATCHED: bool = False
+_NVFLARE_GRPC_PATCH_LOCK = threading.Lock()
 
-_NVFLARE_GRPC_LOCK = threading.Lock()
 
+def _ensure_grpc_ssl_patched(tls_server_name: str) -> None:
+    """Permanently patch grpc.secure_channel to inject ssl_target_name_override.
 
-@contextlib.contextmanager
-def _grpc_ssl_override(tls_server_name: str):
-    """Context manager: inject ssl_target_name_override into grpc.secure_channel.
-
-    While held, every call to grpc.secure_channel will add
-    ("grpc.ssl_target_name_override", tls_server_name) to its options so
-    that TLS validates against tls_server_name even when the channel target
-    is a raw IP address.
-
-    The module-level _NVFLARE_GRPC_LOCK is acquired for the duration so
-    concurrent callers cannot stomp each other's patch.
+    Called once before the first NVFlare session attempt.  Subsequent calls
+    are no-ops (checked under a lock for thread safety).
     """
-    import grpc as _grpc
-
-    _orig_secure_channel = _grpc.secure_channel
-
-    def _patched_secure_channel(target, credentials, options=None, **kwargs):
-        opts = list(options or [])
-        if not any(
-            (isinstance(o, (list, tuple)) and len(o) >= 1 and o[0] == "grpc.ssl_target_name_override")
-            for o in opts
-        ):
-            opts.append(("grpc.ssl_target_name_override", tls_server_name))
-        return _orig_secure_channel(target, credentials, options=opts, **kwargs)
-
-    with _NVFLARE_GRPC_LOCK:
-        _grpc.secure_channel = _patched_secure_channel
+    global _NVFLARE_GRPC_PATCHED
+    if _NVFLARE_GRPC_PATCHED:
+        return
+    with _NVFLARE_GRPC_PATCH_LOCK:
+        if _NVFLARE_GRPC_PATCHED:
+            return
         try:
-            yield
-        finally:
-            _grpc.secure_channel = _orig_secure_channel
+            import grpc as _grpc
+            _orig = _grpc.secure_channel
+
+            def _patched(target, credentials, options=None, **kwargs):
+                opts = list(options or [])
+                if not any(
+                    isinstance(o, (list, tuple)) and len(o) >= 1
+                    and o[0] == "grpc.ssl_target_name_override"
+                    for o in opts
+                ):
+                    opts.append(("grpc.ssl_target_name_override", tls_server_name))
+                return _orig(target, credentials, options=opts, **kwargs)
+
+            _grpc.secure_channel = _patched
+            _NVFLARE_GRPC_PATCHED = True
+            logger.debug(
+                f"[FLARE] grpc.secure_channel patched with "
+                f"ssl_target_name_override={tls_server_name!r}"
+            )
+        except Exception as e:
+            logger.warning(f"[FLARE] grpc.secure_channel patch failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +586,14 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
         if c
     ])
 
-    # 3. TCP pre-probe (2 s per candidate) — confirmed-reachable targets get
+    # 3. Permanently patch grpc.secure_channel so TLS validates against
+    #    canonical_host regardless of what IP we dial.  This must happen
+    #    before ANY Session/gRPC object is created because CellNet spawns
+    #    background threads that call grpc.secure_channel asynchronously
+    #    after try_connect() returns.
+    _ensure_grpc_ssl_patched(canonical_host)
+
+    # 4. TCP pre-probe (2 s per candidate) — confirmed-reachable targets get
     #    the full caller timeout; unreachable ones get a 5 s cap.
     reachable: set = set()
     for _ip in ip_candidates:
@@ -619,15 +628,13 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                     pass
 
                 # Point gRPC TCP connection at the candidate IP/host.
+                # ssl_target_name_override is injected by the permanent patch
+                # so TLS validates against canonical_host regardless.
                 session.api.host = candidate
                 session.api.port = int(admin_port)
 
                 try:
-                    # Monkey-patch grpc.secure_channel to inject
-                    # ssl_target_name_override = canonical_host so TLS
-                    # validates against "server" regardless of TCP target.
-                    with _grpc_ssl_override(canonical_host):
-                        session.try_connect(connect_timeout)
+                    session.try_connect(connect_timeout)
 
                     submit_cmd_info = None
                     try:
@@ -662,8 +669,7 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                         f"host={candidate} port={admin_port}: {e}"
                     )
             else:
-                with _grpc_ssl_override(canonical_host):
-                    session.try_connect(connect_timeout)
+                session.try_connect(connect_timeout)
                 attempt_succeeded = True
                 return session
 
