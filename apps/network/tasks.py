@@ -104,6 +104,31 @@ def _extract_host_from_server_endpoint(startup_dir):
     return host
 
 
+def _endpoint_with_localhost(endpoint: str) -> str:
+    endpoint = (endpoint or "").strip()
+    if not endpoint:
+        return ""
+    if "://" not in endpoint:
+        return ""
+
+    try:
+        parsed = urlparse(endpoint)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+
+        host = parsed.hostname
+        if not host:
+            return ""
+
+        netloc = "127.0.0.1"
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+
+        return parsed._replace(netloc=netloc).geturl()
+    except Exception:
+        return ""
+
+
 def _discover_runtime_targets(base_prod_path):
     targets = []
     if not os.path.isdir(base_prod_path):
@@ -1298,10 +1323,17 @@ def start_swarm_network_task(network_id, user_id):
             if role == "client":
                 local_s3_endpoint = os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
                 if not local_s3_endpoint:
+                    configured_endpoint = (
+                        os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
+                        or getattr(settings, "AWS_S3_ENDPOINT_URL", "")
+                    )
                     if use_host_network:
-                        local_s3_endpoint = "http://127.0.0.1:9000"
+                        local_s3_endpoint = (
+                            _endpoint_with_localhost(configured_endpoint)
+                            or "http://127.0.0.1:9000"
+                        )
                     else:
-                        local_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
+                        local_s3_endpoint = configured_endpoint
 
                 if local_s3_endpoint:
                     run_cmd.extend([

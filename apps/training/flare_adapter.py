@@ -11,6 +11,7 @@ import ssl
 import tempfile
 import urllib.request
 from typing import Iterator
+from urllib.parse import urlparse
 
 import boto3
 from botocore.config import Config
@@ -156,11 +157,33 @@ class FlareDataFileSystem:
             yield ("primary", self.s3_client)
 
         endpoint_candidates = []
+        configured_endpoint = (
+            self.local_s3_endpoint
+            or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
+        )
+        if configured_endpoint:
+            endpoint_candidates.append(configured_endpoint)
+
+            if "://" in configured_endpoint:
+                try:
+                    parsed = urlparse(configured_endpoint)
+                    if parsed.scheme and parsed.netloc and parsed.hostname:
+                        localhost_netloc = "127.0.0.1"
+                        if parsed.port:
+                            localhost_netloc = f"{localhost_netloc}:{parsed.port}"
+                        localhost_endpoint = parsed._replace(
+                            netloc=localhost_netloc
+                        ).geturl()
+                        if localhost_endpoint not in endpoint_candidates:
+                            endpoint_candidates.append(localhost_endpoint)
+                except Exception:
+                    pass
+
         for endpoint in [
-            self.local_s3_endpoint,
-            os.getenv("AWS_S3_ENDPOINT_URL", "").strip(),
             "http://127.0.0.1:9000",
+            "https://127.0.0.1:9000",
             "http://localhost:9000",
+            "https://localhost:9000",
         ]:
             endpoint = (endpoint or "").strip()
             if endpoint and endpoint not in endpoint_candidates:
