@@ -346,6 +346,89 @@ def new_network(request):
                     )
                     swarm_network.save(update_fields=["admin_startup_dir"])
 
+                # Ensure uploaded kits keep a resolvable remote server host for FLARE admin connections.
+                resolved_server_host = ""
+                try:
+                    env_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+                    if env_host:
+                        resolved_server_host = env_host
+
+                    root_host_file = os.path.join(prod_00_dir, "startup", "server_host.txt")
+                    if not resolved_server_host and os.path.exists(root_host_file):
+                        resolved_server_host = open(root_host_file).read().strip()
+
+                    if not resolved_server_host:
+                        project_yml_path = os.path.join(provision_dir, "project.yml")
+                        if os.path.exists(project_yml_path):
+                            with open(project_yml_path) as f:
+                                project_yml = yaml.safe_load(f) or {}
+                            for participant in project_yml.get("participants", []):
+                                participant_name = str(participant.get("name", "")).strip().lower()
+                                listening_host = str(participant.get("listening_host", "")).strip()
+                                if participant_name.startswith("server") and listening_host:
+                                    if listening_host.lower() not in {
+                                        "dynamic",
+                                        "localhost",
+                                        "127.0.0.1",
+                                        "server",
+                                    }:
+                                        resolved_server_host = listening_host
+                                        break
+
+                    # Fallback: derive from fed_client endpoint when available.
+                    if not resolved_server_host:
+                        fed_client_json = os.path.join(prod_00_dir, "startup", "fed_client.json")
+                        if os.path.exists(fed_client_json):
+                            with open(fed_client_json) as f:
+                                cfg = json.load(f) or {}
+                            endpoint = (
+                                cfg.get("overseer_agent", {})
+                                .get("args", {})
+                                .get("sp_end_point", "")
+                                or cfg.get("overseer_agent", {})
+                                .get("args", {})
+                                .get("overseer_end_point", "")
+                            )
+                            endpoint = str(endpoint).strip()
+                            if endpoint:
+                                if "://" in endpoint:
+                                    from urllib.parse import urlparse
+
+                                    resolved_server_host = (urlparse(endpoint).hostname or "").strip()
+                                else:
+                                    resolved_server_host = endpoint.split(":")[0].strip()
+
+                                if resolved_server_host.lower() in {
+                                    "",
+                                    "dynamic",
+                                    "localhost",
+                                    "127.0.0.1",
+                                    "server",
+                                }:
+                                    resolved_server_host = ""
+
+                    if resolved_server_host:
+                        for item in os.scandir(prod_00_dir):
+                            if not item.is_dir():
+                                continue
+                            startup_dir = os.path.join(item.path, "startup")
+                            if os.path.isdir(startup_dir):
+                                with open(os.path.join(startup_dir, "server_host.txt"), "w") as f:
+                                    f.write(resolved_server_host)
+
+                        root_startup = os.path.join(prod_00_dir, "startup")
+                        if os.path.isdir(root_startup):
+                            with open(os.path.join(root_startup, "server_host.txt"), "w") as f:
+                                f.write(resolved_server_host)
+
+                        log.network.info(
+                            f"Resolved uploaded startup kit server host: {resolved_server_host}"
+                        )
+                except Exception as e:
+                    log.network.warning(
+                        f"Could not derive server host from uploaded startup kit: {e}"
+                    )
+
                 swarm_network.status = "PROVISIONED"
                 swarm_network.save()
                 log.network.info(

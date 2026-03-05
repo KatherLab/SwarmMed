@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import socket
 
 from common.utils import get_safe_slug
 from django.conf import settings
@@ -269,7 +270,118 @@ def _select_nvflare_job(jobs):
     return jobs[0]
 
 
-def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0):
+def _dedupe_keep_order(values):
+    deduped = []
+    for value in values:
+        if value in deduped:
+            continue
+        deduped.append(value)
+    return deduped
+
+
+def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
+    requested_host = (requested_host or "").strip()
+    default_host = (default_host or "").strip()
+
+    seed_candidates = ["127.0.0.1", "localhost", requested_host, default_host, ""]
+    if requested_host and requested_host not in {"127.0.0.1", "localhost"}:
+        seed_candidates = [requested_host, "127.0.0.1", "localhost", default_host, ""]
+
+    return _dedupe_keep_order(seed_candidates)
+
+
+def _build_flare_port_candidates(default_port: int = 0):
+    env_admin_port = os.getenv("SWARMCLOUD_FLARE_ADMIN_PORT", "").strip()
+    candidates = []
+    if env_admin_port:
+        try:
+            candidates.append(int(env_admin_port))
+        except ValueError:
+            pass
+
+    if default_port and int(default_port) > 0 and int(default_port) not in candidates:
+        candidates.append(int(default_port))
+
+    if 8003 not in candidates:
+        candidates.append(8003)
+
+    return candidates
+
+
+def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: str, requested_host: str):
+    try:
+        from nvflare.fuel.flare_api.flare_api import Session
+
+        startup_dir = os.path.join(startup_kit_location, "startup")
+        fed_admin_path = os.path.join(startup_dir, "fed_admin.json")
+
+        probe_session = Session(
+            username=username,
+            startup_path=startup_kit_location,
+            secure_mode=True,
+            debug=False,
+        )
+
+        default_host = ""
+        default_port = 0
+        if probe_session.api:
+            default_host = str(getattr(probe_session.api, "host", "") or "").strip()
+            try:
+                default_port = int(getattr(probe_session.api, "port", 0) or 0)
+            except Exception:
+                default_port = 0
+
+        host_candidates = _build_flare_host_candidates(requested_host, default_host)
+        port_candidates = _build_flare_port_candidates(default_port)
+
+        log.training.info(
+            "FLARE pre-submit diagnostics: "
+            f"admin_dir={startup_kit_location}, "
+            f"startup_exists={os.path.isdir(startup_dir)}, "
+            f"fed_admin_exists={os.path.exists(fed_admin_path)}, "
+            f"default_host={default_host or 'n/a'}, "
+            f"default_port={default_port or 'n/a'}, "
+            f"host_candidates={host_candidates}, "
+            f"port_candidates={port_candidates}"
+        )
+
+        max_probes = 6
+        probes = 0
+        for host_candidate in host_candidates:
+            effective_host = (host_candidate or default_host or "").strip()
+            if not effective_host:
+                continue
+
+            for port in port_candidates:
+                if probes >= max_probes:
+                    break
+                probes += 1
+
+                reachable = False
+                detail = ""
+                try:
+                    with socket.create_connection((effective_host, int(port)), timeout=1.5):
+                        reachable = True
+                except Exception as e:
+                    detail = str(e)
+
+                log.training.info(
+                    "FLARE connectivity probe: "
+                    f"host={effective_host} port={int(port)} reachable={reachable}"
+                    + (f" detail={detail}" if detail else "")
+                )
+            if probes >= max_probes:
+                break
+
+        try:
+            probe_session.close()
+        except Exception:
+            pass
+    except Exception as e:
+        log.training.warning(f"FLARE pre-submit diagnostics failed: {e}")
+
+
+def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 5.0):
     """
     Creates a new NVFlare secure session but overrides the host address
     defined in the startup kit's fed_admin.json.
@@ -278,13 +390,7 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     from nvflare.fuel.flare_api.flare_api import Session
     
     requested_host = (host or "").strip()
-    env_admin_port = (os.getenv("SWARMCLOUD_FLARE_ADMIN_PORT", "").strip())
-
-    host_candidates = []
-    for candidate in ["127.0.0.1", "localhost", requested_host, ""]:
-        if candidate in host_candidates:
-            continue
-        host_candidates.append(candidate)
+    host_candidates = _build_flare_host_candidates(requested_host, "")
 
     connection_errors = []
 
@@ -301,22 +407,12 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                 if host_candidate:
                     session.api.host = host_candidate
 
-                port_candidates = []
-                if env_admin_port:
-                    try:
-                        port_candidates.append(int(env_admin_port))
-                    except ValueError:
-                        pass
-
                 try:
                     current_port = int(getattr(session.api, "port", 0) or 0)
                 except Exception:
                     current_port = 0
 
-                if current_port > 0 and current_port not in port_candidates:
-                    port_candidates.append(current_port)
-                if 8003 not in port_candidates:
-                    port_candidates.append(8003)
+                port_candidates = _build_flare_port_candidates(current_port)
 
                 for port in port_candidates:
                     try:
@@ -366,7 +462,7 @@ def _nvflare_status_payload(current_network):
             username=admin_name, 
             startup_kit_location=admin_dir,
             host=server_ip,
-            timeout=20.0
+            timeout=5.0
         )
         response = sess.api.do_command("list_jobs")
         try:
@@ -1089,6 +1185,13 @@ def start_training(request, network_id):
         log.training.info(
             "Selected NVFlare executor: "
             f"{executor.__class__.__module__}.{executor.__class__.__name__}"
+        )
+
+        _log_flare_pre_submit_diagnostics(
+            log=log,
+            username=admin_username,
+            startup_kit_location=admin_session_dir,
+            requested_host=server_ip,
         )
 
         sess = new_secure_session_with_host(
