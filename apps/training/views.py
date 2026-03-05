@@ -325,6 +325,9 @@ def _build_flare_port_candidates(default_port: int = 0):
     if default_port and int(default_port) > 0 and int(default_port) not in candidates:
         candidates.append(int(default_port))
 
+    if 8002 not in candidates:
+        candidates.append(8002)
+
     if 8003 not in candidates:
         candidates.append(8003)
 
@@ -406,12 +409,29 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
                 if reachable and os.path.exists(ca_cert_path) and os.path.exists(client_cert_path) and os.path.exists(client_key_path):
                     tls_ok = False
                     tls_detail = ""
+                    peer_cn = ""
+                    peer_san = ""
                     try:
                         tls_ctx = ssl.create_default_context(cafile=ca_cert_path)
                         tls_ctx.check_hostname = False
                         tls_ctx.load_cert_chain(certfile=client_cert_path, keyfile=client_key_path)
                         with socket.create_connection((effective_host, int(port)), timeout=2.5) as raw_sock:
-                            with tls_ctx.wrap_socket(raw_sock, server_hostname=effective_host):
+                            with tls_ctx.wrap_socket(raw_sock, server_hostname=effective_host) as tls_sock:
+                                cert = tls_sock.getpeercert()
+                                subject = cert.get("subject", []) if isinstance(cert, dict) else []
+                                for subject_item in subject:
+                                    for k, v in subject_item:
+                                        if k == "commonName":
+                                            peer_cn = str(v)
+                                            break
+                                    if peer_cn:
+                                        break
+
+                                san_entries = cert.get("subjectAltName", []) if isinstance(cert, dict) else []
+                                if san_entries:
+                                    peer_san = ",".join(
+                                        f"{san_type}:{san_value}" for san_type, san_value in san_entries
+                                    )
                                 tls_ok = True
                     except Exception as e:
                         tls_detail = str(e)
@@ -419,6 +439,8 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
                     log.training.info(
                         "FLARE TLS probe: "
                         f"host={effective_host} port={int(port)} tls_ok={tls_ok}"
+                        + (f" peer_cn={peer_cn}" if peer_cn else "")
+                        + (f" peer_san={peer_san}" if peer_san else "")
                         + (f" detail={tls_detail}" if tls_detail else "")
                     )
             if probes >= max_probes:
