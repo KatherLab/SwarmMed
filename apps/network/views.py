@@ -431,6 +431,72 @@ def new_network(request):
 
                 swarm_network.status = "PROVISIONED"
                 swarm_network.save()
+
+                # Populate SwarmParticipant records from the uploaded kit so
+                # training views can look up client/server names without
+                # falling back to hardcoded defaults.
+                try:
+                    existing_ids = set(
+                        swarm_network.participants.values_list("participant_id", flat=True)
+                    )
+                    discovered_clients = []
+                    discovered_server = None
+
+                    # Source 1: project.yml with full participant list.
+                    _project_yml_path = os.path.join(provision_dir, "project.yml")
+                    if os.path.exists(_project_yml_path):
+                        with open(_project_yml_path) as _f:
+                            _yml = yaml.safe_load(_f) or {}
+                        for _p in _yml.get("participants", []):
+                            _ptype = str(_p.get("type", _p.get("role", ""))).lower()
+                            _pname = str(_p.get("name", "")).strip()
+                            if not _pname:
+                                continue
+                            if _ptype in {"client", "fl_client"}:
+                                discovered_clients.append(_pname)
+                            elif _ptype == "server":
+                                discovered_server = _pname
+
+                    # Source 2: scan prod_00/ subdirectories.
+                    if not discovered_clients:
+                        _EXCL = {"server", "admin_startup", "overseer", "startup",
+                                 "transfer", "local", "logs", "custom"}
+                        for _e in sorted(os.scandir(prod_00_dir), key=lambda x: x.name):
+                            if (_e.is_dir()
+                                    and _e.name not in _EXCL
+                                    and not _e.name.startswith(".")
+                                    and os.path.isdir(os.path.join(_e.path, "startup"))):
+                                discovered_clients.append(_e.name)
+                            elif _e.is_dir() and _e.name == "server":
+                                discovered_server = "server"
+
+                    for _client_name in discovered_clients:
+                        if _client_name not in existing_ids:
+                            SwarmParticipant.objects.create(
+                                network=swarm_network,
+                                role="CLIENT",
+                                participant_id=_client_name,
+                            )
+                            existing_ids.add(_client_name)
+
+                    _srv = discovered_server or "server"
+                    if _srv not in existing_ids:
+                        SwarmParticipant.objects.create(
+                            network=swarm_network,
+                            role="SERVER",
+                            participant_id=_srv,
+                        )
+
+                    if discovered_clients:
+                        log.network.info(
+                            f"Registered {len(discovered_clients)} participant(s) "
+                            f"from uploaded kit: {discovered_clients}"
+                        )
+                except Exception as _pe:
+                    log.network.warning(
+                        f"Could not populate participants from uploaded kit: {_pe}"
+                    )
+
                 log.network.info(
                     f"Startup kit extracted and network '{network_name}' marked as PROVISIONED."
                 )

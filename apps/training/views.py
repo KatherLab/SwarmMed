@@ -1286,6 +1286,63 @@ def start_training(request, network_id):
         )
     )
     if not client_names:
+        # DB has no participant records (uploaded startup kit, not generated via
+        # SwarmCloud provisioning).  Derive client names from the workspace.
+        _workspace_root = os.path.join(
+            settings.BASE_DIR,
+            "workspaces",
+            str(project.identifier),
+            str(network.identifier),
+        )
+        # 1. Parse project.yml — authoritative source with all participants.
+        try:
+            import yaml as _yaml
+            _project_yml = os.path.join(_workspace_root, "project.yml")
+            if os.path.exists(_project_yml):
+                with open(_project_yml) as _f:
+                    _yml = _yaml.safe_load(_f) or {}
+                for _p in _yml.get("participants", []):
+                    _role = str(_p.get("type", _p.get("role", ""))).lower()
+                    _name = str(_p.get("name", "")).strip()
+                    if _name and _role in {"client", "fl_client"}:
+                        client_names.append(_name)
+        except Exception:
+            pass
+
+        # 2. Scan prod_00/ subdirectories — each client has <name>/startup/.
+        if not client_names:
+            try:
+                _prod_00 = os.path.dirname(os.path.abspath(admin_session_dir))
+                _EXCL = {"server", "admin_startup", "overseer", "startup",
+                         "transfer", "local", "logs", "custom"}
+                for _e in sorted(os.scandir(_prod_00), key=lambda x: x.name):
+                    if (_e.is_dir()
+                            and _e.name not in _EXCL
+                            and not _e.name.startswith(".")
+                            and os.path.isdir(os.path.join(_e.path, "startup"))):
+                        client_names.append(_e.name)
+            except Exception:
+                pass
+
+        # 3. Flat layout: prod_00/startup/fed_client.json holds a single client CN.
+        if not client_names:
+            try:
+                _prod_00 = os.path.dirname(os.path.abspath(admin_session_dir))
+                _fcj = os.path.join(_prod_00, "startup", "fed_client.json")
+                if os.path.exists(_fcj):
+                    with open(_fcj) as _f:
+                        _fc = json.load(_f)
+                    _cn = (
+                        _fc.get("client_identity", {}).get("cn", "")
+                        or _fc.get("cn", "")
+                        or ""
+                    ).strip()
+                    if _cn:
+                        client_names = [_cn]
+            except Exception:
+                pass
+
+    if not client_names:
         client_names = ["fl-client-1", "fl-client-2"]
 
     server_names = list(
