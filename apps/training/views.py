@@ -684,10 +684,7 @@ def start_training(request, network_id):
         os.path.join(app_client_custom_dir, "flare_adapter.py"),
     )
 
-    from common.utils import (
-        get_internal_data_proxy_download_url,
-        get_s3_client,
-    )
+    from common.utils import get_internal_s3_download_url, get_s3_client
 
     # Build a manifest of project data files using an S3 paginator.
     # This avoids recursive folder listing calls which become very slow for large datasets.
@@ -716,7 +713,7 @@ def start_training(request, network_id):
             ):
                 continue
 
-            data_manifest[rel_path] = get_internal_data_proxy_download_url(
+            data_manifest[rel_path] = get_internal_s3_download_url(
                 file_key, expires=86400
             )
             file_count += 1

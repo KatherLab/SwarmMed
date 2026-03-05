@@ -10,9 +10,6 @@ import re
 
 from celery import current_app
 from common.utils import format_size, get_s3_client, get_safe_referer
-import time
-import hmac
-import hashlib
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
@@ -849,87 +846,6 @@ def _proxy_s3_download_file(key, filename, inline=False):
             f"Failed to download S3 file {key} via buffered HttpResponse: {e}"
         )
         return HttpResponse("File download failed", status=500)
-
-
-def _resolve_existing_data_key(key):
-    """
-    Resolve a data-object key locally.
-    If the exact key does not exist, try remapping by relative data path across
-    local project UUIDs to tolerate cross-node UUID differences.
-    """
-    if not key:
-        return ""
-
-    try:
-        if default_storage.exists(key):
-            return key
-    except Exception:
-        pass
-
-    if "/data/" not in key:
-        return ""
-
-    rel_path = key.split("/data/", 1)[1].lstrip("/")
-    if not rel_path:
-        return ""
-
-    try:
-        for project_identifier in Project.objects.values_list(
-            "identifier", flat=True
-        ):
-            candidate = f"{project_identifier}/data/{rel_path}"
-            if default_storage.exists(candidate):
-                return candidate
-    except Exception:
-        return ""
-
-    return ""
-
-
-def internal_download_file(request):
-    """
-    Internal signed endpoint for NVFlare clients to download project data files.
-    """
-    key = str(request.GET.get("key", "")).strip()
-    expires = str(request.GET.get("expires", "")).strip()
-    signature = str(request.GET.get("sig", "")).strip()
-
-    if not key or not expires or not signature:
-        return HttpResponse("Missing download signature", status=400)
-
-    try:
-        expires_at = int(expires)
-    except ValueError:
-        return HttpResponse("Invalid expiry", status=400)
-
-    if expires_at < int(time.time()):
-        return HttpResponse("Download URL expired", status=403)
-
-    if "/data/" not in key:
-        return HttpResponse("Invalid data key", status=403)
-
-    expected = hmac.new(
-        settings.SECRET_KEY.encode("utf-8"),
-        f"{key}|{expires_at}".encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-    if not hmac.compare_digest(expected, signature):
-        return HttpResponse("Invalid download signature", status=403)
-
-    resolved_key = _resolve_existing_data_key(key)
-    if not resolved_key:
-        logger.get_logger().data.warning(
-            f"Internal data download key not found: {key}"
-        )
-        return HttpResponse("Data file not found", status=404)
-
-    if resolved_key != key:
-        logger.get_logger().data.info(
-            f"Remapped internal data key from {key} to {resolved_key}"
-        )
-
-    return _proxy_s3_download_file(resolved_key, os.path.basename(resolved_key))
 
 
 @login_required
