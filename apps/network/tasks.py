@@ -108,6 +108,7 @@ def _endpoint_with_localhost(endpoint: str) -> str:
     endpoint = (endpoint or "").strip()
     if not endpoint:
         return ""
+
     if "://" not in endpoint:
         return ""
 
