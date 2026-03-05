@@ -317,15 +317,21 @@ def new_network(request):
                 # We want prod_00_dir/admin_startup/startup/fed_admin.json
                 admin_startup_dir = os.path.join(prod_00_dir, "admin_startup")
                 if os.path.exists(admin_startup_dir):
-                    # Check if 'startup' subdirectory already exists inside it
+                    # 1. Nest files into 'startup' subdirectory if not already done
                     nested_startup = os.path.join(admin_startup_dir, "startup")
                     if not os.path.exists(nested_startup):
-                        # Create a temporary path, move files, then move back to 'startup'
-                        temp_dir = os.path.join(prod_00_dir, "admin_startup_temp")
                         os.makedirs(nested_startup, exist_ok=True)
                         for file in os.listdir(admin_startup_dir):
                             if file == "startup": continue
-                            shutil.move(os.path.join(admin_startup_dir, file), os.path.join(nested_startup, file))
+                            # Only move files, skip directories we might have just created
+                            src_path = os.path.join(admin_startup_dir, file)
+                            if os.path.isfile(src_path):
+                                shutil.move(src_path, os.path.join(nested_startup, file))
+
+                    # 2. Ensure 'local', 'transfer', and 'logs' directories exist.
+                    # NVFlare API validates the presence of these folders in the workspace.
+                    for folder in ["local", "transfer", "logs"]:
+                        os.makedirs(os.path.join(admin_startup_dir, folder), exist_ok=True)
 
                     swarm_network.admin_startup_dir = os.path.abspath(
                         admin_startup_dir
