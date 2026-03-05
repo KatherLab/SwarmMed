@@ -140,6 +140,7 @@ class FlareDataFileSystem:
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region_name=region_name,
             endpoint_url=endpoint_url,
+            verify=False,  # Allow self-signed certificates for internal/local MinIO
             config=Config(
                 signature_version="s3v4",
                 s3={"addressing_style": addressing_style},
