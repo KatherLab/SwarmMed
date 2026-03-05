@@ -311,8 +311,22 @@ def new_network(request):
                             continue
                         shutil.move(src, dst)
 
+                # Ensure admin_startup is properly nested for NVFlare API
+                # Expected: session_dir/startup/fed_admin.json
+                # We currently have prod_00_dir/admin_startup/fed_admin.json
+                # We want prod_00_dir/admin_startup/startup/fed_admin.json
                 admin_startup_dir = os.path.join(prod_00_dir, "admin_startup")
                 if os.path.exists(admin_startup_dir):
+                    # Check if 'startup' subdirectory already exists inside it
+                    nested_startup = os.path.join(admin_startup_dir, "startup")
+                    if not os.path.exists(nested_startup):
+                        # Create a temporary path, move files, then move back to 'startup'
+                        temp_dir = os.path.join(prod_00_dir, "admin_startup_temp")
+                        os.makedirs(nested_startup, exist_ok=True)
+                        for file in os.listdir(admin_startup_dir):
+                            if file == "startup": continue
+                            shutil.move(os.path.join(admin_startup_dir, file), os.path.join(nested_startup, file))
+
                     swarm_network.admin_startup_dir = os.path.abspath(
                         admin_startup_dir
                     )

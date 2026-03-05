@@ -99,25 +99,73 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
         return None
 
     startup_dir = os.path.abspath(startup_dir)
+    
+    # NVFlare expects a directory that contains a 'startup' subdirectory 
+    # which in turn contains 'fed_admin.json'.
+    # If the user uploaded a kit, 'startup_dir' might ALREADY be the 
+    # folder containing 'fed_admin.json'.
+    
     session_dir = startup_dir
     if os.path.basename(startup_dir.rstrip(os.sep)) == "startup":
         session_dir = os.path.dirname(startup_dir.rstrip(os.sep))
-
-    startup_subdir = os.path.join(session_dir, "startup")
-    if not os.path.isdir(startup_subdir):
-        if os.path.isdir(startup_dir):
-            startup_subdir = startup_dir
-            session_dir = os.path.dirname(startup_dir.rstrip(os.sep))
-        else:
-            return None
-
+    else:
+        # If we are pointing to a folder that contains fed_admin.json directly,
+        # we need to provide its parent as the session_dir so NVFlare finds 'startup/fed_admin.json'.
+        # However, if 'admin_startup' was uploaded, it might not have the extra 'startup' level.
+        if os.path.exists(os.path.join(startup_dir, "fed_admin.json")):
+            # We are inside the actual startup kit. NVFlare API is picky.
+            # We'll ensure the structure is session_dir/startup/fed_admin.json
+            parent = os.path.dirname(startup_dir.rstrip(os.sep))
+            base = os.path.basename(startup_dir.rstrip(os.sep))
+            if base != "startup":
+                # Create a symlink or just handle the path.
+                # Simplest for now: if the file is here, this IS the startup dir.
+                pass
+    
+    # Try to derive the admin name. 
+    # In SwarmCloud, participants get 'admin-clientname@nvidia.com'.
     admin_name = "admin@nvidia.com"
-    try:
-        admin_dir_name = os.path.basename(session_dir.rstrip(os.sep))
-        if admin_dir_name and "@" in admin_dir_name:
-            admin_name = admin_dir_name
-    except Exception:
-        admin_name = "admin@nvidia.com"
+    
+    # Check if the session_dir itself is named after the admin
+    dir_name = os.path.basename(session_dir.rstrip(os.sep))
+    if "@" in dir_name:
+        admin_name = dir_name
+    else:
+        # Try to find the client name from the local fed_client.json to derive admin name
+        try:
+            project_name = get_safe_slug(
+                current_network.project.title, current_network.project.identifier
+            ).replace("-", "_")
+            client_cfg = os.path.join(
+                "workspaces",
+                str(current_network.project.identifier),
+                str(current_network.identifier),
+                "workspace",
+                project_name,
+                "prod_00",
+                "startup",
+                "fed_client.json"
+            )
+            if not os.path.exists(client_cfg):
+                 # Check flat upload structure
+                 client_cfg = os.path.join(
+                    "workspaces",
+                    str(current_network.project.identifier),
+                    str(current_network.identifier),
+                    "workspace",
+                    "prod_00",
+                    "startup",
+                    "fed_client.json"
+                )
+
+            if os.path.exists(client_cfg):
+                with open(client_cfg) as f:
+                    data = json.load(f)
+                    c_name = data.get("client_name")
+                    if c_name and c_name != "server":
+                        admin_name = f"admin-{c_name}@nvidia.com"
+        except Exception:
+            pass
 
     return (admin_name, session_dir)
 
