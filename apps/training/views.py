@@ -338,6 +338,9 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
         startup_dir = os.path.join(startup_kit_location, "startup")
         fed_admin_path = os.path.join(startup_dir, "fed_admin.json")
         cert_cn = _extract_cert_common_name(os.path.join(startup_dir, "client.crt"))
+        ca_cert_path = os.path.join(startup_dir, "rootCA.pem")
+        client_cert_path = os.path.join(startup_dir, "client.crt")
+        client_key_path = os.path.join(startup_dir, "client.key")
 
         probe_session = Session(
             username=username,
@@ -368,7 +371,10 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
             f"default_host={default_host or 'n/a'}, "
             f"default_port={default_port or 'n/a'}, "
             f"host_candidates={host_candidates}, "
-            f"port_candidates={port_candidates}"
+            f"port_candidates={port_candidates}, "
+            f"ca_cert_exists={os.path.exists(ca_cert_path)}, "
+            f"client_cert_exists={os.path.exists(client_cert_path)}, "
+            f"client_key_exists={os.path.exists(client_key_path)}"
         )
 
         max_probes = 6
@@ -396,6 +402,25 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
                     f"host={effective_host} port={int(port)} reachable={reachable}"
                     + (f" detail={detail}" if detail else "")
                 )
+
+                if reachable and os.path.exists(ca_cert_path) and os.path.exists(client_cert_path) and os.path.exists(client_key_path):
+                    tls_ok = False
+                    tls_detail = ""
+                    try:
+                        tls_ctx = ssl.create_default_context(cafile=ca_cert_path)
+                        tls_ctx.check_hostname = False
+                        tls_ctx.load_cert_chain(certfile=client_cert_path, keyfile=client_key_path)
+                        with socket.create_connection((effective_host, int(port)), timeout=2.5) as raw_sock:
+                            with tls_ctx.wrap_socket(raw_sock, server_hostname=effective_host):
+                                tls_ok = True
+                    except Exception as e:
+                        tls_detail = str(e)
+
+                    log.training.info(
+                        "FLARE TLS probe: "
+                        f"host={effective_host} port={int(port)} tls_ok={tls_ok}"
+                        + (f" detail={tls_detail}" if tls_detail else "")
+                    )
             if probes >= max_probes:
                 break
 
@@ -407,7 +432,7 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
         log.training.warning(f"FLARE pre-submit diagnostics failed: {e}")
 
 
-def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 5.0):
+def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0):
     """
     Creates a new NVFlare secure session but overrides the host address
     defined in the startup kit's fed_admin.json.
@@ -1132,6 +1157,20 @@ def start_training(request, network_id):
             return redirect("training:training")
 
     try:
+        submit_connect_timeout = 20.0
+        env_timeout = os.getenv("SWARMCLOUD_FLARE_CONNECT_TIMEOUT", "").strip()
+        if env_timeout:
+            try:
+                submit_connect_timeout = float(env_timeout)
+            except ValueError:
+                pass
+
+        log.training.info(
+            "FLARE submit timeout config: "
+            f"requested_timeout={submit_connect_timeout}, "
+            f"env_SWARMCLOUD_FLARE_CONNECT_TIMEOUT={env_timeout or 'unset'}"
+        )
+
         from nvflare.job_config.api import FedJob
         from nvflare.app_common.ccwf import SwarmServerController, SwarmClientController
         from nvflare.apis.dxo import DataKind
@@ -1233,7 +1272,8 @@ def start_training(request, network_id):
         sess = new_secure_session_with_host(
             username=admin_username,
             startup_kit_location=admin_session_dir,
-            host=server_ip
+            host=server_ip,
+            timeout=submit_connect_timeout,
         )
 
         # Create the Job object using the 2.7.1 Job API
