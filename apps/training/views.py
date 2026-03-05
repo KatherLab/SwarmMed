@@ -924,8 +924,30 @@ def start_training(request, network_id):
         # Create the Job object using the 2.7.1 Job API
         job = FedJob(name=f"{project_name}_job")
 
+        private_p2p = (
+            os.getenv("SWARMCLOUD_PRIVATE_P2P", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        starting_client = client_names[0] if client_names else ""
+
         # Define Server side
-        controller = SwarmServerController(num_rounds=10)
+        controller = SwarmServerController(
+            num_rounds=10,
+            participating_clients=client_names,
+            result_clients=client_names,
+            starting_client=starting_client,
+            private_p2p=private_p2p,
+            aggr_clients=client_names,
+            train_clients=client_names,
+        )
+        log.training.info(
+            "Swarm controller config: "
+            f"private_p2p={private_p2p}, "
+            f"starting_client={starting_client}, "
+            f"participants={client_names}"
+        )
         for server_name in server_names:
             job.to(controller, server_name)
             job.to(persistor, server_name, id="persistor")
