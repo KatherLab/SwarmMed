@@ -219,6 +219,31 @@ def _select_nvflare_job(jobs):
     return jobs[0]
 
 
+def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 10.0):
+    """
+    Creates a new NVFlare secure session but overrides the host address
+    defined in the startup kit's fed_admin.json.
+    This avoids breaking the cryptographic signature of the config file.
+    """
+    from nvflare.fuel.flare_api.flare_api import Session
+    
+    # Initialize session (loads config from disk)
+    session = Session(
+        username=username, 
+        startup_path=startup_kit_location, 
+        secure_mode=True, 
+        debug=debug
+    )
+    
+    # Programmatically override the host in the underlying AdminAPI
+    if host and session.api:
+        session.api.host = host
+    
+    # Establish connection
+    session.try_connect(timeout)
+    return session
+
+
 def _nvflare_status_payload(current_network):
     cache_key = f"nvflare_status_payload_{current_network.identifier}"
     cached_payload = cache.get(cache_key)
@@ -231,12 +256,11 @@ def _nvflare_status_payload(current_network):
         return None
 
     try:
-        from nvflare.fuel.flare_api.flare_api import new_secure_session
-
         admin_name, admin_dir, server_ip = admin_target
-        sess = new_secure_session(
+        sess = new_secure_session_with_host(
             username=admin_name, 
-            startup_kit_location=admin_dir
+            startup_kit_location=admin_dir,
+            host=server_ip
         )
         response = sess.api.do_command("list_jobs")
         try:
@@ -870,7 +894,6 @@ def start_training(request, network_id):
             return redirect("training:training")
 
     try:
-        from nvflare.fuel.flare_api.flare_api import new_secure_session
         from nvflare.job_config.api import FedJob
         from nvflare.app_common.ccwf import SwarmServerController, SwarmClientController
         from nvflare.apis.dxo import DataKind
@@ -962,9 +985,10 @@ def start_training(request, network_id):
             f"{executor.__class__.__module__}.{executor.__class__.__name__}"
         )
 
-        sess = new_secure_session(
+        sess = new_secure_session_with_host(
             username=admin_username,
             startup_kit_location=admin_session_dir,
+            host=server_ip
         )
 
         # Create the Job object using the 2.7.1 Job API
@@ -1089,8 +1113,6 @@ def stop_training(request, network_id):
         return redirect("training:training")
 
     try:
-        from nvflare.fuel.flare_api.flare_api import new_secure_session
-
         admin_target = _resolve_admin_session_target(network)
         if not admin_target:
             messages.error(
@@ -1100,9 +1122,10 @@ def stop_training(request, network_id):
             return redirect("training:training")
 
         admin_username, admin_user_dir, server_ip = admin_target
-        sess = new_secure_session(
+        sess = new_secure_session_with_host(
             username=admin_username, 
-            startup_kit_location=admin_user_dir
+            startup_kit_location=admin_user_dir,
+            host=server_ip
         )
         job_uuid = str(job.flare_job_id)
         match = re.search(r"([0-9a-f-]{36})", job_uuid)
