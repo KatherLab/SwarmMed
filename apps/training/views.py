@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import socket
+import ssl
 
 from common.utils import get_safe_slug
 from django.conf import settings
@@ -25,6 +26,23 @@ from .models import TrainingJob
 from .utils import download_s3_folder
 
 logger = get_logger()
+
+
+def _extract_cert_common_name(cert_path: str) -> str:
+    cert_path = (cert_path or "").strip()
+    if not cert_path or not os.path.exists(cert_path):
+        return ""
+
+    try:
+        cert_info = ssl._ssl._test_decode_cert(cert_path)
+        for rdn in cert_info.get("subject", []):
+            for key, value in rdn:
+                if str(key).strip().lower() == "commonname":
+                    return str(value or "").strip()
+    except Exception:
+        return ""
+
+    return ""
 
 
 def _build_training_status_payload(current_network, job):
@@ -153,37 +171,42 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | Non
         except Exception:
             pass
     
-    # Try to derive the admin name. 
-    # In SwarmCloud, participants get 'admin-clientname@nvidia.com'.
+    # Resolve admin name from cert first (authoritative identity for CERT_LOGIN).
     admin_name = "admin@nvidia.com"
+    admin_cert_path = os.path.join(session_dir, "startup", "client.crt")
+    cert_cn = _extract_cert_common_name(admin_cert_path)
+    if cert_cn:
+        admin_name = cert_cn
     
-    # Check if the session_dir itself is named after the admin
-    dir_name = os.path.basename(session_dir.rstrip(os.sep))
-    if "@" in dir_name:
-        admin_name = dir_name
-    else:
+    # Fallback heuristics only if CN is unavailable.
+    if not cert_cn:
+        # Check if the session_dir itself is named after the admin
+        dir_name = os.path.basename(session_dir.rstrip(os.sep))
+        if "@" in dir_name:
+            admin_name = dir_name
+        else:
         # Try to find the client name from the local fed_client.json to derive admin name
-        try:
-            project_name = get_safe_slug(
-                current_network.project.title, current_network.project.identifier
-            ).replace("-", "_")
-            # Search paths for fed_client.json
-            client_cfgs = [
-                os.path.join("workspaces", str(current_network.project.identifier), str(current_network.identifier), "workspace", project_name, "prod_00", "startup", "fed_client.json"),
-                os.path.join("workspaces", str(current_network.project.identifier), str(current_network.identifier), "workspace", "prod_00", "startup", "fed_client.json"),
-                os.path.join(session_dir, "startup", "fed_client.json")
-            ]
-            
-            for client_cfg in client_cfgs:
-                if os.path.exists(client_cfg):
-                    with open(client_cfg) as f:
-                        data = json.load(f)
-                        c_name = data.get("client_name")
-                        if c_name and c_name != "server":
-                            admin_name = f"admin-{c_name}@nvidia.com"
-                            break
-        except Exception:
-            pass
+            try:
+                project_name = get_safe_slug(
+                    current_network.project.title, current_network.project.identifier
+                ).replace("-", "_")
+                # Search paths for fed_client.json
+                client_cfgs = [
+                    os.path.join("workspaces", str(current_network.project.identifier), str(current_network.identifier), "workspace", project_name, "prod_00", "startup", "fed_client.json"),
+                    os.path.join("workspaces", str(current_network.project.identifier), str(current_network.identifier), "workspace", "prod_00", "startup", "fed_client.json"),
+                    os.path.join(session_dir, "startup", "fed_client.json")
+                ]
+                
+                for client_cfg in client_cfgs:
+                    if os.path.exists(client_cfg):
+                        with open(client_cfg) as f:
+                            data = json.load(f)
+                            c_name = data.get("client_name")
+                            if c_name and c_name != "server":
+                                admin_name = f"admin-{c_name}@nvidia.com"
+                                break
+            except Exception:
+                pass
 
     # Resolve Server IP: Use metadata files if they exist, otherwise try to extract from fed_client.json.
     # Keep empty when unknown so Session can rely on fed_admin.json instead of forcing localhost.
@@ -314,6 +337,7 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
 
         startup_dir = os.path.join(startup_kit_location, "startup")
         fed_admin_path = os.path.join(startup_dir, "fed_admin.json")
+        cert_cn = _extract_cert_common_name(os.path.join(startup_dir, "client.crt"))
 
         probe_session = Session(
             username=username,
@@ -337,6 +361,8 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
         log.training.info(
             "FLARE pre-submit diagnostics: "
             f"admin_dir={startup_kit_location}, "
+            f"resolved_username={username}, "
+            f"cert_cn={cert_cn or 'n/a'}, "
             f"startup_exists={os.path.isdir(startup_dir)}, "
             f"fed_admin_exists={os.path.exists(fed_admin_path)}, "
             f"default_host={default_host or 'n/a'}, "
