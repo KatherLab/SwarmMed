@@ -887,22 +887,25 @@ def start_training(request, network_id):
                 from nvflare.app_common.executors.in_process_client_api_executor import (
                     InProcessClientAPIExecutor,
                 )
-                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
 
                 executor = InProcessClientAPIExecutor(
                     task_script_path="custom/training.py"
                 )
-                persistor = NPModelPersistor()
-        else:
+                persistor = PTFileModelPersistor()
+        
+        # If framework is not explicitly TF or PT, default to PT persistor as 
+        # a more robust binary model handler than NumPy.
+        if "persistor" not in locals():
             from nvflare.app_common.executors.in_process_client_api_executor import (
                 InProcessClientAPIExecutor,
             )
-            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+            from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
 
             executor = InProcessClientAPIExecutor(
                 task_script_path="custom/training.py"
             )
-            persistor = NPModelPersistor()
+            persistor = PTFileModelPersistor()
 
         shareable_generator = SimpleModelShareableGenerator()
         aggregator = InTimeAccumulateWeightedAggregator(
@@ -945,7 +948,7 @@ def start_training(request, network_id):
 
         # Map all components to each client target
         for client_name in client_names:
-            # In Job API, we add executors to the app
+            # In Job API, we add executors and required components to the client app
             job.to(
                 executor,
                 client_name,
@@ -956,6 +959,11 @@ def start_training(request, network_id):
                 client_name,
                 tasks=["swarm_*"],
             )
+            
+            # Map required components to the client app as well
+            job.to(persistor, client_name, id="persistor")
+            job.to(shareable_generator, client_name, id="shareable_generator")
+            job.to(aggregator, client_name, id="aggregator")
 
             # Add custom code directory (training.py, flare_adapter.py, data_manifest.json)
             job.to(app_client_custom_dir, client_name)

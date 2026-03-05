@@ -485,6 +485,8 @@ def _build_local_fallback_image(
             rf.write("gunicorn\n")
             rf.write("boto3\n")
             rf.write("python-dotenv\n")
+            rf.write("pandas\n")
+            rf.write("numpy\n")
 
     dockerfile_path = os.path.join(build_dir, "Dockerfile")
     with open(dockerfile_path, "w") as df:
