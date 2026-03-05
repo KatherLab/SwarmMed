@@ -326,6 +326,11 @@ def _dedupe_keep_order(values):
 _NVFLARE_GRPC_PATCHED: bool = False
 _NVFLARE_GRPC_PATCH_LOCK = threading.Lock()
 
+# Use stdlib logger here — this is module-level utility code that runs without
+# a request/user context, so the custom CategoryLogger is not available.
+import logging as _stdlib_logging
+_grpc_patch_log = _stdlib_logging.getLogger(__name__)
+
 
 def _ensure_grpc_ssl_patched(tls_server_name: str) -> None:
     """Permanently patch grpc.secure_channel to inject ssl_target_name_override.
@@ -355,12 +360,12 @@ def _ensure_grpc_ssl_patched(tls_server_name: str) -> None:
 
             _grpc.secure_channel = _patched
             _NVFLARE_GRPC_PATCHED = True
-            logger.debug(
-                f"[FLARE] grpc.secure_channel patched with "
-                f"ssl_target_name_override={tls_server_name!r}"
+            _grpc_patch_log.debug(
+                "[FLARE] grpc.secure_channel patched with "
+                "ssl_target_name_override=%r", tls_server_name
             )
         except Exception as e:
-            logger.warning(f"[FLARE] grpc.secure_channel patch failed: {e}")
+            _grpc_patch_log.warning("[FLARE] grpc.secure_channel patch failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
