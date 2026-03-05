@@ -653,6 +653,13 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                     ):
                         time.sleep(0.15)
 
+                    # CellNet creates the cell object before backbone routing
+                    # to 'server' is established.  A short grace period lets
+                    # the routing table stabilise so the first command doesn't
+                    # hit 'target_unreachable'.
+                    if getattr(session.api, "cell", None) is not None:
+                        time.sleep(1.0)
+
                     submit_cmd_info = None
                     try:
                         submit_cmd_info = session.api.check_command("submit_job")
@@ -693,6 +700,8 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                     and time.monotonic() < _cell_deadline
                 ):
                     time.sleep(0.15)
+                if getattr(session.api, "cell", None) is not None:
+                    time.sleep(1.0)
                 attempt_succeeded = True
                 return session
 
@@ -1294,20 +1303,33 @@ def start_training(request, network_id):
             str(project.identifier),
             str(network.identifier),
         )
-        # 1. Parse project.yml — authoritative source with all participants.
+        # 0. .local_client_names.json written by SwarmCloud provision.py.
         try:
-            import yaml as _yaml
-            _project_yml = os.path.join(_workspace_root, "project.yml")
-            if os.path.exists(_project_yml):
-                with open(_project_yml) as _f:
-                    _yml = _yaml.safe_load(_f) or {}
-                for _p in _yml.get("participants", []):
-                    _role = str(_p.get("type", _p.get("role", ""))).lower()
-                    _name = str(_p.get("name", "")).strip()
-                    if _name and _role in {"client", "fl_client"}:
-                        client_names.append(_name)
+            _prod_00_check = os.path.dirname(os.path.abspath(admin_session_dir))
+            _lcn_file = os.path.join(_prod_00_check, ".local_client_names.json")
+            if os.path.exists(_lcn_file):
+                with open(_lcn_file) as _f:
+                    _lcn = json.load(_f)
+                if isinstance(_lcn, list):
+                    client_names.extend([str(n) for n in _lcn if n])
         except Exception:
             pass
+
+        # 1. Parse project.yml — authoritative source with all participants.
+        if not client_names:
+            try:
+                import yaml as _yaml
+                _project_yml = os.path.join(_workspace_root, "project.yml")
+                if os.path.exists(_project_yml):
+                    with open(_project_yml) as _f:
+                        _yml = _yaml.safe_load(_f) or {}
+                    for _p in _yml.get("participants", []):
+                        _role = str(_p.get("type", _p.get("role", ""))).lower()
+                        _name = str(_p.get("name", "")).strip()
+                        if _name and _role in {"client", "fl_client"}:
+                            client_names.append(_name)
+            except Exception:
+                pass
 
         # 2. Scan prod_00/ subdirectories — each client has <name>/startup/.
         if not client_names:
@@ -1324,7 +1346,7 @@ def start_training(request, network_id):
             except Exception:
                 pass
 
-        # 3. Flat layout: prod_00/startup/fed_client.json holds a single client CN.
+        # 3. Flat layout: prod_00/startup/fed_client.json holds a single client.
         if not client_names:
             try:
                 _prod_00 = os.path.dirname(os.path.abspath(admin_session_dir))
@@ -1333,7 +1355,8 @@ def start_training(request, network_id):
                     with open(_fcj) as _f:
                         _fc = json.load(_f)
                     _cn = (
-                        _fc.get("client_identity", {}).get("cn", "")
+                        _fc.get("client", {}).get("name", "")
+                        or _fc.get("client_identity", {}).get("cn", "")
                         or _fc.get("cn", "")
                         or ""
                     ).strip()

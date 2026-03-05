@@ -474,6 +474,7 @@ def new_network(request):
                         if _client_name not in existing_ids:
                             SwarmParticipant.objects.create(
                                 network=swarm_network,
+                                user=request.user,
                                 role="CLIENT",
                                 participant_id=_client_name,
                             )
@@ -483,6 +484,7 @@ def new_network(request):
                     if _srv not in existing_ids:
                         SwarmParticipant.objects.create(
                             network=swarm_network,
+                            user=request.user,
                             role="SERVER",
                             participant_id=_srv,
                         )
