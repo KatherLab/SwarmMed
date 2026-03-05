@@ -280,7 +280,13 @@ def new_network(request):
                         ):
                             # Skip potentially malicious paths (Zip Slip)
                             continue
-                        zip_ref.extract(member, provision_dir)
+                        
+                        # Special handling for requirements file: ensure it lands in the root provision_dir
+                        if member_path == "docker_compose_requirements.txt":
+                            with open(os.path.join(provision_dir, member_path), "wb") as f:
+                                f.write(zip_ref.read(member))
+                        else:
+                            zip_ref.extract(member, provision_dir)
 
                 # Post-Extraction: Check for compose.yaml and generate if missing (Client Node case)
                 # Client zips only contain: startup/, local/, transfer/, etc.

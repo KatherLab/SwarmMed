@@ -346,5 +346,12 @@ def create_startup_kits_zip(swarm_network):
                     f"{item.name}.zip", client_zip_buffer.getvalue()
                 )
 
+    # If a project-wide requirements file exists in the provision dir, add it to the main zip
+    # as a reference for the downloader/uploader.
+    req_file = Path(base_prod_path).parent.parent / "docker_compose_requirements.txt"
+    if req_file.exists():
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as main_zip:
+            main_zip.write(str(req_file), "docker_compose_requirements.txt")
+
     zip_buffer.seek(0)
     return zip_buffer

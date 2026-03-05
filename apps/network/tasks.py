@@ -522,6 +522,8 @@ def _has_custom_runtime_requirements(provision_dir):
         "gunicorn",
         "boto3",
         "python-dotenv",
+        "pandas",
+        "numpy",
     }
 
     try:

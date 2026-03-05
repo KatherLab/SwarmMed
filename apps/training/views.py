@@ -894,8 +894,8 @@ def start_training(request, network_id):
                 )
                 persistor = PTFileModelPersistor()
         
-        # If framework is not explicitly TF or PT, default to NPModelPersistor
-        # which only requires 'numpy' (already in base requirements).
+        # Default to NPModelPersistor for TF, Generic, or unspecified frameworks
+        # to avoid forcing a 'torch' dependency.
         if "persistor" not in locals():
             from nvflare.app_common.executors.in_process_client_api_executor import (
                 InProcessClientAPIExecutor,
