@@ -93,7 +93,7 @@ def _resolve_admin_startup_dir(current_network) -> str | None:
     return None
 
 
-def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
+def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | None:
     startup_dir = _resolve_admin_startup_dir(current_network)
     if not startup_dir:
         return None
@@ -111,16 +111,8 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
     else:
         # If we are pointing to a folder that contains fed_admin.json directly,
         # we need to provide its parent as the session_dir so NVFlare finds 'startup/fed_admin.json'.
-        # However, if 'admin_startup' was uploaded, it might not have the extra 'startup' level.
         if os.path.exists(os.path.join(startup_dir, "fed_admin.json")):
-            # We are inside the actual startup kit. NVFlare API is picky.
-            # We'll ensure the structure is session_dir/startup/fed_admin.json
-            parent = os.path.dirname(startup_dir.rstrip(os.sep))
-            base = os.path.basename(startup_dir.rstrip(os.sep))
-            if base != "startup":
-                # Create a symlink or just handle the path.
-                # Simplest for now: if the file is here, this IS the startup dir.
-                pass
+            pass
     
     # Try to derive the admin name. 
     # In SwarmCloud, participants get 'admin-clientname@nvidia.com'.
@@ -136,38 +128,43 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str] | None:
             project_name = get_safe_slug(
                 current_network.project.title, current_network.project.identifier
             ).replace("-", "_")
-            client_cfg = os.path.join(
-                "workspaces",
-                str(current_network.project.identifier),
-                str(current_network.identifier),
-                "workspace",
-                project_name,
-                "prod_00",
-                "startup",
-                "fed_client.json"
-            )
-            if not os.path.exists(client_cfg):
-                 # Check flat upload structure
-                 client_cfg = os.path.join(
-                    "workspaces",
-                    str(current_network.project.identifier),
-                    str(current_network.identifier),
-                    "workspace",
-                    "prod_00",
-                    "startup",
-                    "fed_client.json"
-                )
-
-            if os.path.exists(client_cfg):
-                with open(client_cfg) as f:
-                    data = json.load(f)
-                    c_name = data.get("client_name")
-                    if c_name and c_name != "server":
-                        admin_name = f"admin-{c_name}@nvidia.com"
+            # Search paths for fed_client.json
+            client_cfgs = [
+                os.path.join("workspaces", str(current_network.project.identifier), str(current_network.identifier), "workspace", project_name, "prod_00", "startup", "fed_client.json"),
+                os.path.join("workspaces", str(current_network.project.identifier), str(current_network.identifier), "workspace", "prod_00", "startup", "fed_client.json"),
+                os.path.join(session_dir, "startup", "fed_client.json")
+            ]
+            
+            for client_cfg in client_cfgs:
+                if os.path.exists(client_cfg):
+                    with open(client_cfg) as f:
+                        data = json.load(f)
+                        c_name = data.get("client_name")
+                        if c_name and c_name != "server":
+                            admin_name = f"admin-{c_name}@nvidia.com"
+                            break
         except Exception:
             pass
 
-    return (admin_name, session_dir)
+    # Resolve Server IP: Use metadata files if they exist, otherwise try to extract from fed_client.json
+    server_ip = "127.0.0.1"
+    try:
+        # 1. Check for server_host.txt (populated during provisioning or upload)
+        host_file = os.path.join(session_dir, "startup", "server_host.txt")
+        if os.path.exists(host_file):
+            server_ip = open(host_file).read().strip()
+        else:
+            # 2. Extract from fed_client.json
+            client_cfg = os.path.join(session_dir, "startup", "fed_client.json")
+            if os.path.exists(client_cfg):
+                from network.tasks import _extract_host_from_server_endpoint
+                extracted = _extract_host_from_server_endpoint(os.path.dirname(client_cfg))
+                if extracted:
+                    server_ip = extracted
+    except Exception:
+        pass
+
+    return (admin_name, session_dir, server_ip)
 
 
 def _parse_nvflare_jobs(response):
@@ -236,9 +233,11 @@ def _nvflare_status_payload(current_network):
     try:
         from nvflare.fuel.flare_api.flare_api import new_secure_session
 
-        admin_name, admin_dir = admin_target
+        admin_name, admin_dir, server_ip = admin_target
         sess = new_secure_session(
-            username=admin_name, startup_kit_location=admin_dir
+            username=admin_name, 
+            startup_kit_location=admin_dir,
+            host=server_ip
         )
         response = sess.api.do_command("list_jobs")
         try:
@@ -701,7 +700,7 @@ def start_training(request, network_id):
         )
         return redirect("training:training")
 
-    admin_username, admin_session_dir = admin_target
+    admin_username, admin_session_dir, server_ip = admin_target
 
     app_server_dir = os.path.join(job_dir, "app_server")
     app_client_dir = os.path.join(job_dir, "app_client")
@@ -967,6 +966,7 @@ def start_training(request, network_id):
         sess = new_secure_session(
             username=admin_username,
             startup_kit_location=admin_session_dir,
+            host=server_ip
         )
 
         # Create the Job object using the 2.7.1 Job API
@@ -1101,9 +1101,11 @@ def stop_training(request, network_id):
             )
             return redirect("training:training")
 
-        admin_username, admin_user_dir = admin_target
+        admin_username, admin_user_dir, server_ip = admin_target
         sess = new_secure_session(
-            username=admin_username, startup_kit_location=admin_user_dir
+            username=admin_username, 
+            startup_kit_location=admin_user_dir,
+            host=server_ip
         )
         job_uuid = str(job.flare_job_id)
         match = re.search(r"([0-9a-f-]{36})", job_uuid)
