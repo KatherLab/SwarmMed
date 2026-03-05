@@ -1212,6 +1212,18 @@ def start_swarm_network_task(network_id, user_id):
                 "GRPC_ENABLE_FORK_SUPPORT=0",
                 "-e",
                 "NVFLARE_START_METHOD=spawn",
+                "-e",
+                f"SWARMCLOUD_PROJECT_ID={str(swarm_network.project.identifier)}",
+                "-e",
+                f"AWS_ACCESS_KEY_ID={settings.AWS_ACCESS_KEY_ID}",
+                "-e",
+                f"AWS_SECRET_ACCESS_KEY={settings.AWS_SECRET_ACCESS_KEY}",
+                "-e",
+                f"AWS_S3_REGION_NAME={settings.AWS_S3_REGION_NAME}",
+                "-e",
+                f"AWS_STORAGE_BUCKET_NAME={settings.AWS_STORAGE_BUCKET_NAME}",
+                "-e",
+                "SWARMCLOUD_USE_LOCAL_DATA=1",
             ]
 
             if use_host_network:
@@ -1276,6 +1288,21 @@ def start_swarm_network_task(network_id, user_id):
                 )
 
             if role == "client":
+                local_s3_endpoint = os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
+                if not local_s3_endpoint:
+                    if use_host_network:
+                        local_s3_endpoint = "http://127.0.0.1:9000"
+                    else:
+                        local_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
+
+                if local_s3_endpoint:
+                    run_cmd.extend([
+                        "-e",
+                        f"AWS_S3_ENDPOINT_URL={local_s3_endpoint}",
+                        "-e",
+                        f"SWARMCLOUD_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
+                    ])
+
                 if has_server_target:
                     # On nodes that also run the FL server, host-networked clients
                     # should resolve "server" to the local host interface.
