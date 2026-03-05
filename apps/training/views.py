@@ -146,24 +146,29 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | Non
         except Exception:
             pass
 
-    # Resolve Server IP: Use metadata files if they exist, otherwise try to extract from fed_client.json
-    server_ip = "127.0.0.1"
+    # Resolve Server IP: Use metadata files if they exist, otherwise try to extract from fed_client.json.
+    # Keep empty when unknown so Session can rely on fed_admin.json instead of forcing localhost.
+    server_ip = ""
     try:
+        env_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+        if env_host:
+            server_ip = env_host
+
         # 1. Check for server_host.txt in admin startup kit
         host_file = os.path.join(session_dir, "startup", "server_host.txt")
-        if os.path.exists(host_file):
+        if not server_ip and os.path.exists(host_file):
             server_ip = open(host_file).read().strip()
         else:
             # 2. Try sibling kit (prod_00/startup/server_host.txt)
             # session_dir might be .../prod_00/admin_startup
             prod_00 = os.path.dirname(session_dir.rstrip(os.sep))
             sibling_host = os.path.join(prod_00, "startup", "server_host.txt")
-            if os.path.exists(sibling_host):
+            if not server_ip and os.path.exists(sibling_host):
                 server_ip = open(sibling_host).read().strip()
             else:
                 # 3. Extract from sibling fed_client.json
                 client_cfg = os.path.join(prod_00, "startup", "fed_client.json")
-                if os.path.exists(client_cfg):
+                if not server_ip and os.path.exists(client_cfg):
                     from network.tasks import _extract_host_from_server_endpoint
                     extracted = _extract_host_from_server_endpoint(os.path.dirname(client_cfg))
                     if extracted:
@@ -242,12 +247,11 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
         debug=debug
     )
     
-    # Programmatically override the host in the underlying AdminAPI
+    # Programmatically override host only when explicitly resolved.
+    # Port is left as configured in startup kit (fed_admin.json).
     if session.api:
         if host:
             session.api.host = host
-        # Admin API in SwarmCloud always uses port 8003
-        session.api.port = 8003
     
     # Establish connection
     session.try_connect(timeout)
