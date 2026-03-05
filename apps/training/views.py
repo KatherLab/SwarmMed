@@ -304,75 +304,61 @@ def _dedupe_keep_order(values):
 
 
 # ---------------------------------------------------------------------------
-# /etc/hosts patching helpers
-# NVFlare 2.7.1 (CellNet/gRPC) creates gRPC channels WITHOUT
-# ssl_target_name_override.  Overriding session.api.host to a raw IP causes
-# a TLS hostname-mismatch (server cert is CN=server/SAN=DNS:server).  gRPC
-# enters TRANSIENT_FAILURE and retries until the admin timeout expires.
+# gRPC ssl_target_name_override monkey-patch helper
 #
-# Fix: keep session.api.host = "server" (canonical) so TLS validates, and
-# write  "<tailscale_ip>  server"  to /etc/hosts so gRPC's C-core resolver
-# routes the TCP connection to the right IP.
+# NVFlare 2.7.1 (CellNet/gRPC admin) creates gRPC channels WITHOUT
+# ssl_target_name_override.  When session.api.host is a raw IP (e.g. a
+# Tailscale IP like 100.127.11.1), gRPC validates the server cert against
+# that IP.  The provisioned cert has CN=server / SAN=DNS:server only, so
+# TLS fails → TRANSIENT_FAILURE → retries until timeout.
+#
+# The /etc/hosts approach (writing "<ip>  server") is not viable because the
+# container runs as appuser (non-root) and cannot write /etc/hosts.
+#
+# Fix: temporarily monkey-patch grpc.secure_channel to inject
+#   ("grpc.ssl_target_name_override", canonical_host)
+# into every channel's options while keeping session.api.host = actual IP
+# so gRPC routes TCP to the right destination.
+# A module-level lock serialises concurrent FLARE operations so the global
+# monkey-patch is never held by two callers simultaneously.
 # ---------------------------------------------------------------------------
 
-_NVFLARE_HOSTS_LOCK = threading.Lock()
-_NVFLARE_HOSTS_MARKER = "# swarmcloud-nvflare-dynamic"
+import contextlib
+
+_NVFLARE_GRPC_LOCK = threading.Lock()
 
 
-def _write_nvflare_hosts_entry(hostname: str, ip: str) -> bool:
-    """Add/replace a dynamic /etc/hosts line: `<ip>  <hostname>`.
+@contextlib.contextmanager
+def _grpc_ssl_override(tls_server_name: str):
+    """Context manager: inject ssl_target_name_override into grpc.secure_channel.
 
-    Thread-safe via a module-level lock.  Returns True on success.
+    While held, every call to grpc.secure_channel will add
+    ("grpc.ssl_target_name_override", tls_server_name) to its options so
+    that TLS validates against tls_server_name even when the channel target
+    is a raw IP address.
+
+    The module-level _NVFLARE_GRPC_LOCK is acquired for the duration so
+    concurrent callers cannot stomp each other's patch.
     """
-    if not hostname or not ip or hostname == ip:
-        return True
+    import grpc as _grpc
 
-    hosts_path = "/etc/hosts"
-    try:
-        with _NVFLARE_HOSTS_LOCK:
-            try:
-                content = open(hosts_path).read()
-            except OSError:
-                return False
+    _orig_secure_channel = _grpc.secure_channel
 
-            # Remove any previously written marker lines for this hostname.
-            filtered = [
-                line for line in content.splitlines(keepends=True)
-                if not (hostname in line.split() and _NVFLARE_HOSTS_MARKER in line)
-            ]
-            filtered.append(f"{ip}\t{hostname}\t{_NVFLARE_HOSTS_MARKER}\n")
+    def _patched_secure_channel(target, credentials, options=None, **kwargs):
+        opts = list(options or [])
+        if not any(
+            (isinstance(o, (list, tuple)) and len(o) >= 1 and o[0] == "grpc.ssl_target_name_override")
+            for o in opts
+        ):
+            opts.append(("grpc.ssl_target_name_override", tls_server_name))
+        return _orig_secure_channel(target, credentials, options=opts, **kwargs)
 
-            try:
-                with open(hosts_path, "w") as fh:
-                    fh.writelines(filtered)
-                return True
-            except OSError:
-                return False
-    except Exception:
-        return False
-
-
-def _remove_nvflare_hosts_entries() -> None:
-    """Remove all /etc/hosts lines written by _write_nvflare_hosts_entry."""
-    hosts_path = "/etc/hosts"
-    try:
-        with _NVFLARE_HOSTS_LOCK:
-            try:
-                content = open(hosts_path).read()
-            except OSError:
-                return
-
-            filtered = [
-                line for line in content.splitlines(keepends=True)
-                if _NVFLARE_HOSTS_MARKER not in line
-            ]
-            try:
-                with open(hosts_path, "w") as fh:
-                    fh.writelines(filtered)
-            except OSError:
-                pass
-    except Exception:
-        pass
+    with _NVFLARE_GRPC_LOCK:
+        _grpc.secure_channel = _patched_secure_channel
+        try:
+            yield
+        finally:
+            _grpc.secure_channel = _orig_secure_channel
 
 
 # ---------------------------------------------------------------------------
@@ -534,27 +520,28 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
 
 def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0):
     """
-    Creates a new NVFlare secure session, routing gRPC traffic to the right
-    server IP while preserving TLS hostname validation.
+    Creates a new NVFlare secure session that works even when the server is
+    only reachable via a Tailscale/VPN IP.
 
-    Root cause of the connect failures:
+    Root cause:
     NVFlare 2.7.1 (CellNet/gRPC admin) builds gRPC channels WITHOUT
-    ssl_target_name_override.  Overriding session.api.host to a raw IP
-    (e.g. Tailscale IP 100.x.x.x) causes a TLS hostname-mismatch because
-    the provisioned server cert has CN=server / SAN=DNS:server.  gRPC enters
-    TRANSIENT_FAILURE and retries until the admin timeout expires, producing
-    the misleading "cannot connect to server for N seconds" error.
+    ssl_target_name_override.  When session.api.host is a raw IP address
+    (e.g. Tailscale IP 100.x.x.x), gRPC validates the server TLS cert
+    against that IP.  The provisioned cert has CN=server / SAN=DNS:server
+    only, so validation fails → TRANSIENT_FAILURE → retries until timeout.
+    Using the canonical hostname ("server") instead fails too when the
+    hostname is not resolvable (no DNS / no /etc/hosts entry, and appuser
+    cannot write /etc/hosts).
 
     Fix:
-    - Always keep session.api.host = canonical_host ("server") so TLS SNI
-      and certificate validation succeed.
-    - For IP-based candidates (Tailscale, 127.0.0.1, …), temporarily write
-      "<ip>  server" to /etc/hosts.  gRPC's C-core resolver reads /etc/hosts
-      before DNS, so the TCP connection is routed to the correct IP while
-      the hostname seen by TLS remains "server".
-    - Only use port 8003 (admin port).  Port 8002 is the FL training port
-      and does not serve the admin gRPC protocol; trying it wastes the full
-      timeout per attempt.
+    - Set session.api.host = candidate IP/host for correct TCP routing.
+    - Temporarily monkey-patch grpc.secure_channel to inject
+      ("grpc.ssl_target_name_override", canonical_host) so TLS validates
+      against "server" regardless of the TCP target address.
+    - Only try port 8003 (admin port).  Port 8002 is the FL training port
+      and does not serve the admin gRPC protocol.
+    - Fresh Session per candidate — a failed session corrupts the NVFlare
+      API command registry, causing UNKNOWN for submit_job.
     """
     from nvflare.fuel.flare_api.flare_api import Session
 
@@ -583,49 +570,36 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     canonical_host = canonical_host or "server"
     admin_port = admin_port if admin_port > 0 else 8003
 
-    # 2. Build the ordered list of IPs/hosts to route canonical_host → via
-    #    /etc/hosts.  canonical_host itself is tried first (Docker DNS may
-    #    already resolve it when server runs on the same machine).
+    # 2. Build the ordered list of TCP targets to try.
+    #    canonical_host first (works on server node via Docker DNS),
+    #    then the Tailscale/requested IP (works cross-machine via VPN).
     requested_host = (host or "").strip()
     ip_candidates = _dedupe_keep_order([
         c for c in [
-            canonical_host,   # Try direct Docker DNS resolution first (no patch needed)
-            requested_host,   # e.g. Tailscale IP (100.127.11.1) — patch server → IP
-            "127.0.0.1",      # Same-machine fallback
+            canonical_host,   # Docker DNS resolves this on the server node itself
+            requested_host,   # e.g. Tailscale IP 100.127.x.x from a client node
+            "127.0.0.1",
             "localhost",
         ]
-        if c is not None
+        if c
     ])
 
-    # 3. TCP pre-probe (2 s) to identify which IPs are reachable at the
-    #    network layer.  Confirmed-reachable IPs get the full caller timeout
-    #    for the NVFlare auth handshake; others get a short 5 s cap.
-    reachable_ips: set = set()
+    # 3. TCP pre-probe (2 s per candidate) — confirmed-reachable targets get
+    #    the full caller timeout; unreachable ones get a 5 s cap.
+    reachable: set = set()
     for _ip in ip_candidates:
-        if not _ip:
-            continue
         try:
             with socket.create_connection((_ip, admin_port), timeout=2.0):
-                reachable_ips.add(_ip)
+                reachable.add(_ip)
         except Exception:
             pass
 
     connection_errors = []
 
     for candidate in ip_candidates:
-        if not candidate:
-            continue
+        connect_timeout = timeout if candidate in reachable else min(timeout, 5.0)
 
-        connect_timeout = timeout if candidate in reachable_ips else min(timeout, 5.0)
-
-        # For IPs/hosts that differ from canonical, patch /etc/hosts so gRPC
-        # routes TCP to the right destination while TLS uses "server".
-        patched = False
-        if candidate != canonical_host:
-            patched = _write_nvflare_hosts_entry(canonical_host, candidate)
-
-        # Fresh Session every attempt — a failed session corrupts the NVFlare
-        # API object's command registry (gives UNKNOWN for submit_job).
+        # Fresh Session every attempt.
         session = Session(
             username=username,
             startup_path=startup_kit_location,
@@ -644,13 +618,16 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                 except Exception:
                     pass
 
-                # Always use canonical_host ("server") — never an IP.
-                # The /etc/hosts entry routes gRPC traffic to the right IP.
-                session.api.host = canonical_host
+                # Point gRPC TCP connection at the candidate IP/host.
+                session.api.host = candidate
                 session.api.port = int(admin_port)
 
                 try:
-                    session.try_connect(connect_timeout)
+                    # Monkey-patch grpc.secure_channel to inject
+                    # ssl_target_name_override = canonical_host so TLS
+                    # validates against "server" regardless of TCP target.
+                    with _grpc_ssl_override(canonical_host):
+                        session.try_connect(connect_timeout)
 
                     submit_cmd_info = None
                     try:
@@ -677,8 +654,6 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                             pass
                         continue
 
-                    # /etc/hosts entry stays in place for the session's lifetime
-                    # so gRPC can re-resolve on any internal reconnect.
                     attempt_succeeded = True
                     return session
 
@@ -687,7 +662,8 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
                         f"host={candidate} port={admin_port}: {e}"
                     )
             else:
-                session.try_connect(connect_timeout)
+                with _grpc_ssl_override(canonical_host):
+                    session.try_connect(connect_timeout)
                 attempt_succeeded = True
                 return session
 
@@ -695,19 +671,11 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
             connection_errors.append(
                 f"host={candidate} port={admin_port}: {e}"
             )
-        finally:
-            # Remove the /etc/hosts patch when this attempt failed, so the
-            # next candidate starts with a clean state.
-            if patched and not attempt_succeeded:
-                _remove_nvflare_hosts_entries()
 
         try:
             session.close()
         except Exception:
             pass
-
-    # All candidates exhausted — clean up any residual hosts entries.
-    _remove_nvflare_hosts_entries()
 
     if connection_errors:
         raise RuntimeError(
