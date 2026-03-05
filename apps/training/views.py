@@ -277,23 +277,76 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     """
     from nvflare.fuel.flare_api.flare_api import Session
     
-    # Initialize session (loads config from disk)
-    session = Session(
-        username=username, 
-        startup_path=startup_kit_location, 
-        secure_mode=True, 
-        debug=debug
-    )
-    
-    # Programmatically override host only when explicitly resolved.
-    # Port is left as configured in startup kit (fed_admin.json).
-    if session.api:
-        if host:
-            session.api.host = host
-    
-    # Establish connection
-    session.try_connect(timeout)
-    return session
+    requested_host = (host or "").strip()
+    env_admin_port = (os.getenv("SWARMCLOUD_FLARE_ADMIN_PORT", "").strip())
+
+    host_candidates = []
+    for candidate in ["127.0.0.1", "localhost", requested_host, ""]:
+        if candidate in host_candidates:
+            continue
+        host_candidates.append(candidate)
+
+    connection_errors = []
+
+    for host_candidate in host_candidates:
+        session = Session(
+            username=username,
+            startup_path=startup_kit_location,
+            secure_mode=True,
+            debug=debug,
+        )
+
+        try:
+            if session.api:
+                if host_candidate:
+                    session.api.host = host_candidate
+
+                port_candidates = []
+                if env_admin_port:
+                    try:
+                        port_candidates.append(int(env_admin_port))
+                    except ValueError:
+                        pass
+
+                try:
+                    current_port = int(getattr(session.api, "port", 0) or 0)
+                except Exception:
+                    current_port = 0
+
+                if current_port > 0 and current_port not in port_candidates:
+                    port_candidates.append(current_port)
+                if 8003 not in port_candidates:
+                    port_candidates.append(8003)
+
+                for port in port_candidates:
+                    try:
+                        session.api.port = int(port)
+                        session.try_connect(timeout)
+                        return session
+                    except Exception as e:
+                        connection_errors.append(
+                            f"host={session.api.host} port={port}: {e}"
+                        )
+            else:
+                session.try_connect(timeout)
+                return session
+        except Exception as e:
+            connection_errors.append(
+                f"host={(host_candidate or 'startup-config')} port=unknown: {e}"
+            )
+
+        try:
+            session.close()
+        except Exception:
+            pass
+
+    if connection_errors:
+        raise RuntimeError(
+            "cannot connect to FLARE admin API. Attempts: "
+            + " | ".join(connection_errors[:6])
+        )
+
+    raise RuntimeError("cannot connect to FLARE admin API")
 
 
 def _nvflare_status_payload(current_network):

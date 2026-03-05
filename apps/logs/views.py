@@ -191,6 +191,11 @@ def logs_dashboard(request):
                                         text=True,
                                         check=False,
                                     )
+                                    if result.returncode != 0:
+                                        stderr_text = (result.stderr or "").strip()
+                                        if "No such container" in stderr_text:
+                                            continue
+
                                     log_output = result.stdout or result.stderr
 
                                     # Convert raw output lines into mock

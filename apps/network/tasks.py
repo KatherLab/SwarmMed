@@ -882,6 +882,25 @@ def _add_port_mapping_with_fallback(
         run_cmd.extend(["-p", str(container_port)])
 
 
+def _add_required_port_mapping(
+    run_cmd,
+    container_port,
+    logger,
+    participant_name,
+):
+    container_port = int(container_port)
+    if not _is_host_port_available(container_port):
+        raise RuntimeError(
+            f"Required host port {container_port} is already in use for {participant_name}. "
+            "Server/admin ports must be fixed for remote FLARE connectivity."
+        )
+
+    logger.network.info(
+        f"Using fixed host port mapping {container_port}:{container_port} for {participant_name}."
+    )
+    run_cmd.extend(["-p", f"{container_port}:{container_port}"])
+
+
 def _get_container_last_logs(docker_path, container_name, env, lines=40):
     result = subprocess.run(  # nosec B603
         [docker_path, "logs", "--tail", str(lines), container_name],
@@ -1308,13 +1327,13 @@ def start_swarm_network_task(network_id, user_id):
                             f"{host_persist_dir}:/tmp/nvflare",
                         ]
                     )
-                _add_port_mapping_with_fallback(
+                _add_required_port_mapping(
                     run_cmd=run_cmd,
                     container_port=fed_learn_port,
                     logger=logger,
                     participant_name=participant_name,
                 )
-                _add_port_mapping_with_fallback(
+                _add_required_port_mapping(
                     run_cmd=run_cmd,
                     container_port=admin_port,
                     logger=logger,
