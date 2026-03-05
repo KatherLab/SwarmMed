@@ -112,6 +112,44 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | Non
         # If we are pointing to a folder that contains fed_admin.json directly,
         # we need to provide its parent as the session_dir so NVFlare finds 'startup/fed_admin.json'.
         if os.path.exists(os.path.join(startup_dir, "fed_admin.json")):
+            session_dir = os.path.dirname(startup_dir.rstrip(os.sep))
+
+    # Canonicalize session_dir so it always satisfies: session_dir/startup/fed_admin.json
+    candidates = [
+        session_dir,
+        startup_dir,
+        os.path.dirname(startup_dir.rstrip(os.sep)),
+    ]
+    canonical = ""
+    for cand in candidates:
+        if not cand:
+            continue
+        cand = os.path.abspath(cand)
+        if os.path.exists(os.path.join(cand, "startup", "fed_admin.json")):
+            canonical = cand
+            break
+
+        # Some environments provide the startup folder itself as the kit root.
+        if os.path.exists(os.path.join(cand, "fed_admin.json")):
+            if os.path.basename(cand.rstrip(os.sep)) == "startup":
+                canonical = os.path.dirname(cand.rstrip(os.sep))
+            else:
+                canonical = cand
+            break
+
+        # Handle accidental extra nesting: <session>/startup/startup/fed_admin.json
+        if os.path.exists(os.path.join(cand, "startup", "startup", "fed_admin.json")):
+            canonical = os.path.join(cand, "startup")
+            break
+
+    if canonical:
+        session_dir = canonical
+
+    # NVFlare validates these workspace folders for admin sessions.
+    for folder in ["local", "transfer", "logs"]:
+        try:
+            os.makedirs(os.path.join(session_dir, folder), exist_ok=True)
+        except Exception:
             pass
     
     # Try to derive the admin name. 
