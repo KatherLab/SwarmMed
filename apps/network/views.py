@@ -333,6 +333,26 @@ def new_network(request):
                     for folder in ["local", "transfer", "logs"]:
                         os.makedirs(os.path.join(admin_startup_dir, folder), exist_ok=True)
 
+                    # 3. Patch fed_admin.json with the correct server IP
+                    fed_admin_path = os.path.join(nested_startup, "fed_admin.json")
+                    if os.path.exists(fed_admin_path):
+                        try:
+                            with open(fed_admin_path, "r") as f:
+                                admin_cfg = json.load(f)
+                            
+                            # Resolve the server IP
+                            server_ip = "127.0.0.1"
+                            host_file = os.path.join(nested_startup, "server_host.txt")
+                            if os.path.exists(host_file):
+                                server_ip = open(host_file).read().strip()
+                            
+                            if admin_cfg.get("admin", {}).get("host") == "server":
+                                admin_cfg["admin"]["host"] = server_ip
+                                with open(fed_admin_path, "w") as f:
+                                    json.dump(admin_cfg, f, indent=2)
+                        except Exception as e:
+                            logger.network.warning(f"Failed to patch fed_admin.json: {e}")
+
                     swarm_network.admin_startup_dir = os.path.abspath(
                         admin_startup_dir
                     )

@@ -236,8 +236,7 @@ def _nvflare_status_payload(current_network):
         admin_name, admin_dir, server_ip = admin_target
         sess = new_secure_session(
             username=admin_name, 
-            startup_kit_location=admin_dir,
-            host=server_ip
+            startup_kit_location=admin_dir
         )
         response = sess.api.do_command("list_jobs")
         try:
@@ -966,7 +965,6 @@ def start_training(request, network_id):
         sess = new_secure_session(
             username=admin_username,
             startup_kit_location=admin_session_dir,
-            host=server_ip
         )
 
         # Create the Job object using the 2.7.1 Job API
@@ -1104,8 +1102,7 @@ def stop_training(request, network_id):
         admin_username, admin_user_dir, server_ip = admin_target
         sess = new_secure_session(
             username=admin_username, 
-            startup_kit_location=admin_user_dir,
-            host=server_ip
+            startup_kit_location=admin_user_dir
         )
         job_uuid = str(job.flare_job_id)
         match = re.search(r"([0-9a-f-]{36})", job_uuid)
