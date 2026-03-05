@@ -267,6 +267,15 @@ def create_startup_kits_zip(swarm_network):
                 with zipfile.ZipFile(
                     client_zip_buffer, "w", zipfile.ZIP_DEFLATED
                 ) as client_zip:
+                    req_file = (
+                        abs_base_prod_path.parent.parent
+                        / "docker_compose_requirements.txt"
+                    )
+                    if req_file.exists():
+                        client_zip.write(
+                            str(req_file), "docker_compose_requirements.txt"
+                        )
+
                     # os.walk is safe here as client_dir is validated
                     for root, _, files in os.walk(
                         str(client_dir), followlinks=False

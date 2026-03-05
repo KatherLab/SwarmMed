@@ -472,12 +472,13 @@ def _build_local_fallback_image(
     build_dir = os.path.join(base_prod_path, ".swarmcloud_runtime_build")
     os.makedirs(build_dir, exist_ok=True)
 
-    requirements_src = os.path.join(
-        provision_dir, "docker_compose_requirements.txt"
+    requirements_src = _resolve_runtime_requirements_path(
+        provision_dir=provision_dir,
+        base_prod_path=base_prod_path,
     )
     requirements_dst = os.path.join(build_dir, "requirements.txt")
 
-    if os.path.exists(requirements_src):
+    if requirements_src and os.path.exists(requirements_src):
         shutil.copyfile(requirements_src, requirements_dst)
     else:
         with open(requirements_dst, "w") as rf:
@@ -512,9 +513,23 @@ def _build_local_fallback_image(
     )
 
 
-def _has_custom_runtime_requirements(provision_dir):
-    req_path = os.path.join(provision_dir, "docker_compose_requirements.txt")
-    if not os.path.exists(req_path):
+def _resolve_runtime_requirements_path(provision_dir, base_prod_path):
+    candidates = [
+        os.path.join(provision_dir, "docker_compose_requirements.txt"),
+        os.path.join(base_prod_path, "docker_compose_requirements.txt"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return ""
+
+
+def _has_custom_runtime_requirements(provision_dir, base_prod_path):
+    req_path = _resolve_runtime_requirements_path(
+        provision_dir=provision_dir,
+        base_prod_path=base_prod_path,
+    )
+    if not req_path:
         return False
 
     baseline_prefixes = {
@@ -813,7 +828,10 @@ def start_swarm_network_task(network_id, user_id):
             .lower()
             in {"1", "true", "yes", "on"}
         )
-        has_custom_requirements = _has_custom_runtime_requirements(provision_dir)
+        has_custom_requirements = _has_custom_runtime_requirements(
+            provision_dir=provision_dir,
+            base_prod_path=base_prod_path,
+        )
 
         use_configured_image = bool(configured_image)
         if configured_image and has_custom_requirements and not force_configured_image:

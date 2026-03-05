@@ -307,7 +307,11 @@ def new_network(request):
                     # This is a client zip extracted to root. Move to prod_00.
                     os.makedirs(prod_00_dir, exist_ok=True)
                     for item in os.listdir(provision_dir):
-                        if item == "workspaces": continue # Don't move the parent if recursive
+                        if item in {
+                            "workspaces",
+                            "docker_compose_requirements.txt",
+                        }:
+                            continue # Don't move the parent if recursive
                         src = os.path.join(provision_dir, item)
                         dst = os.path.join(prod_00_dir, item)
                         # Avoid moving the target dir into itself
