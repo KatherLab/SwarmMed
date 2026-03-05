@@ -430,6 +430,16 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
 
         try:
             if session.api:
+                # NVFlare auth handshake uses its own msg timeout (default 5s).
+                # Keep it in sync with the caller's requested connect timeout.
+                try:
+                    session.api.authenticate_msg_timeout = max(
+                        float(timeout),
+                        float(getattr(session.api, "authenticate_msg_timeout", 5.0) or 5.0),
+                    )
+                except Exception:
+                    pass
+
                 if host_candidate:
                     session.api.host = host_candidate
 
