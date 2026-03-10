@@ -19,6 +19,7 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 from logs import logger
 from logs.context import set_context
+from logs.utils import format_exception
 from project.models import Project
 from training.models import TrainingJob
 
@@ -30,7 +31,7 @@ from .models import (
 from .visualization import ResultsVisualizationContext
 
 _UUID_RE = re.compile(
-    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
 
 
@@ -170,22 +171,10 @@ def sync_project_results(project_uuid):
                     )
                     if not created:
                         # Update metadata if the file changed.
-                        if tr.file_size != obj.get("Size", 0):
+                        if tr.file_size != obj.get("Size", 0) or tr.created_at != last_modified:
                             tr.file_size = obj.get("Size", 0)
                             tr.created_at = last_modified
                             tr.save(update_fields=["file_size", "created_at"])
-    except Exception as e:
-        log.results.error(
-            f"Results sync failed for project {project_uuid}: {e}",
-            extra=format_exception(e),
-        )
-
-                        if tr.file_size != obj.get("Size", 0):
-                            tr.file_size = obj.get("Size", 0)
-                            tr.save(update_fields=["file_size"])
-                        if tr.created_at != last_modified:
-                            tr.created_at = last_modified
-                            tr.save(update_fields=["created_at"])
                 else:
                     log.results.warning(f"No TrainingJob for S3 result: {key}")
 
@@ -194,7 +183,10 @@ def sync_project_results(project_uuid):
     except Project.DoesNotExist:
         log.results.error(f"Project {project_uuid} not found during sync.")
     except Exception as e:
-        log.results.error(f"Error during results sync: {e}", exc_info=True)
+        log.results.error(
+            f"Results sync failed for project {project_uuid}: {e}",
+            extra=format_exception(e),
+        )
 
 
 @shared_task(bind=True)
