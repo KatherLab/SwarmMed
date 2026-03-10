@@ -11,10 +11,10 @@ import re
 import shutil
 
 from celery import shared_task
-from common.utils import format_exception
 from django.conf import settings
 from django.utils import timezone
 from logs import logger
+from logs.utils import format_exception
 from network.models import SwarmNetwork
 
 from .models import TrainingJob
