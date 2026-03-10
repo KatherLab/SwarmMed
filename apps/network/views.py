@@ -73,21 +73,18 @@ def network(request):
     current_project_uuid, _ = get_user_project(request)
 
     # Get the project object from the user's current project relation
-    # Optimization: select_related to fetch project in one query
     current_project_relation = UserCurrentProject.objects.select_related(
         "project"
     ).get(user=request.user)
     project = current_project_relation.project
 
     # List all networks associated with this specific project
-    # Optimization: select_related to fetch related fields in one query
     swarm_networks = SwarmNetwork.objects.filter(
         project=project
     ).select_related("project", "author")
 
     # Identify which network the user is currently focusing on
     try:
-        # Optimization: select_related to fetch network and its project in one query
         current_network_rel = UserCurrentNetwork.objects.select_related(
             "network__project"
         ).get(user=request.user)
@@ -95,78 +92,97 @@ def network(request):
     except UserCurrentNetwork.DoesNotExist:
         current_network = None
 
-    # If there is an active network, extract participant details from its project.yml
-    # This helps display IP addresses and roles in the dashboard UI.
     participants_details = []
     if current_network:
-        base_workspace = os.path.abspath("workspaces")
-        project_yml_path = os.path.abspath(
-            os.path.join(
-                base_workspace,
-                str(current_network.project.identifier),
-                str(current_network.identifier),
-                "project.yml",
-            )
-        )
+        # Use SwarmParticipant records from DB instead of project.yml for better multi-node consistency
+        participants = current_network.participants.all().order_by("role", "participant_id")
+        
+        # Try to get server logs if the network is running
+        server_logs = ""
+        if current_network.status == "RUNNING":
+            try:
+                from .tasks import _container_name_for
+                import subprocess
+                # Check if we can reach the server container (heuristic)
+                server_container = _container_name_for(current_network.identifier, "server")
+                result = subprocess.run(
+                    ["docker", "logs", "--tail", "1000", server_container],
+                    capture_output=True, text=True, timeout=2
+                )
+                server_logs = (result.stdout + result.stderr).lower()
+            except Exception:
+                pass
 
-        # Security check: Ensure path is within workspaces directory
-        if project_yml_path.startswith(os.path.join(base_workspace, "")):
-            if os.path.exists(project_yml_path):
-                with open(project_yml_path) as f:
-                    project_yml = yaml.safe_load(f)
-                    # Parse the list of participants defined in NVFlare lighter
-                    # config
-                    
-                    # Try to get server logs if the network is running
-                    server_logs = ""
-                    if current_network.status == "RUNNING":
-                        try:
-                            from .tasks import _container_name_for
-                            import subprocess
-                            server_container = _container_name_for(current_network.identifier, "server")
-                            # Get last 500 lines of server logs to check for joined clients
-                            result = subprocess.run(
-                                ["docker", "logs", "--tail", "500", server_container],
-                                capture_output=True, text=True, timeout=2
-                            )
-                            server_logs = result.stdout + result.stderr
-                        except Exception:
-                            pass
-
-                    for participant in project_yml.get("participants", []):
-                        name = participant.get("name")
-                        role = participant.get("type", "client")
-                        
-                        status = "Unknown"
-                        if current_network.status == "RUNNING":
-                            if role == "server":
-                                status = "Online"
-                            else:
-                                # Heuristic: check if "Client: <name> joined" is in logs
-                                if f"Client: {name} joined" in server_logs or f"registered client {name}" in server_logs.lower():
-                                    status = "Joined"
-                                elif f"client {name} disconnected" in server_logs.lower():
-                                    status = "Disconnected"
-                                else:
-                                    status = "Offline"
-                        elif current_network.status == "STARTING":
-                            status = "Starting..."
+        for p in participants:
+            name = p.participant_id
+            role = p.role.lower()
+            
+            status = "Unknown"
+            if current_network.status == "RUNNING":
+                if role == "server":
+                    # Check if server container is actually running
+                    try:
+                        from .tasks import _is_container_running
+                        import shutil
+                        docker_path = shutil.which("docker") or "docker"
+                        env = os.environ.copy()
+                        if _is_container_running(docker_path, _container_name_for(current_network.identifier, "server"), env):
+                            status = "Online"
                         else:
                             status = "Offline"
+                    except Exception:
+                        status = "Online" # Fallback if we can't check docker
+                else:
+                    # Heuristic: check server logs for various "joined" markers
+                    # NVFlare 2.7.1 log patterns:
+                    # - "registered client <name>"
+                    # - "client: <name> joined"
+                    # - "client <name> connected"
+                    # - "received register request from <name>"
+                    joined_markers = [
+                        f"client: {name} joined",
+                        f"registered client {name}",
+                        f"client {name} connected",
+                        f"received register request from {name}",
+                        f"starting communication with client {name}",
+                        f"new client {name} connected"
+                    ]
+                    
+                    is_joined = any(marker in server_logs for marker in joined_markers)
+                    
+                    if is_joined:
+                        # Check for disconnection markers that might have appeared AFTER join
+                        disconnected_markers = [
+                            f"client {name} disconnected",
+                            f"client: {name} left",
+                            f"removed client {name}"
+                        ]
+                        is_disconnected = any(marker in server_logs for marker in disconnected_markers)
+                        
+                        # Note: Simple grep might be fooled by old logs, but it's better than nothing
+                        # without the Admin API.
+                        if is_disconnected and server_logs.rfind(name + " joined") < server_logs.rfind(name + " disconnected"):
+                             status = "Disconnected"
+                        else:
+                             status = "Joined"
+                    else:
+                        status = "Offline"
+            elif current_network.status == "STARTING":
+                status = "Starting..."
+            elif current_network.status == "ERROR":
+                status = "Error"
+            else:
+                status = "Offline"
 
-                        participants_details.append(
-                            {
-                                "name": name,
-                                "org": participant.get("org"),
-                                "role": role,
-                                # NVFlare uses 'listening_host' for static IP
-                                # assignments
-                                "ip": participant.get(
-                                    "listening_host", "dynamic"
-                                ),
-                                "status": status,
-                            }
-                        )
+            participants_details.append({
+                "name": name,
+                "role": p.get_role_display(),
+                "status": status,
+                # Org and IP are optional metadata, we can try to fetch if we had them in DB
+                # or just use placeholders for now since they aren't in the model.
+                "org": "-", 
+                "ip": "-",
+            })
 
     context = {
         "segment": "network",
