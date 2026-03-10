@@ -793,49 +793,55 @@ def get_training_progress_info(training_job, current_network):
 
         try:
             total_rounds = 10
-            server_cfg_path = os.path.join(
-                "workspaces", str(training_job.project.identifier), str(current_network.identifier),
-                "job", "app_server", "config", "config_fed_server.json",
-            )
-            if os.path.exists(server_cfg_path):
-                with open(server_cfg_path) as f:
-                    cfg = json.load(f)
-                    for workflow in cfg.get("workflows", []):
-                        if workflow.get("id") == "swarm_controller":
-                            total_rounds = int(workflow.get("args", {}).get("num_rounds", 10))
-                            break
+            # Be more aggressive about finding the server config
+            workspace_dir = os.path.join("workspaces", str(training_job.project.identifier), str(current_network.identifier), "workspace")
+            for root, dirs, files in os.walk(workspace_dir):
+                if "config_fed_server.json" in files:
+                    try:
+                        with open(os.path.join(root, "config_fed_server.json")) as f:
+                            cfg = json.load(f)
+                            for workflow in cfg.get("workflows", []):
+                                if workflow.get("id") == "swarm_controller":
+                                    total_rounds = int(workflow.get("args", {}).get("num_rounds", 10))
+                                    break
+                    except Exception: pass
+                if total_rounds != 10: break
 
             rounds_finished = 0
-            workspace_dir = os.path.join("workspaces", str(training_job.project.identifier), str(current_network.identifier), "workspace")
             ended = False
             if have_cached_progress:
                 rounds_finished = training_job.rounds_finished or 0
 
-            preferred_log = _find_latest_training_log(str(training_job.project.identifier), str(current_network.identifier), job_uuid)
-            round_re = re.compile(r"finished training round (\d+)")
+            # Robust log scanning regexes
+            round_patterns = [
+                re.compile(r"Finished round\s+(\d+)", re.I),
+                re.compile(r"Round\s+(\d+)\s+\|", re.I),
+                re.compile(r"Round:\s+(\d+)", re.I),
+                re.compile(r"finished training round\s+(\d+)", re.I),
+            ]
 
             def scan_log_tail(fpath: str) -> None:
                 nonlocal ended, rounds_finished
-                data = _tail_text(fpath)
+                data = _tail_text(fpath, max_bytes=512 * 1024)
                 if not data: return
-                if ("ending workflow" in data and "swarm_controller" in data) or ("ending workflow controller" in data) or ("child worker process finished with RC 0" in data):
+                
+                completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!"]
+                if any(m in data for m in completion_markers):
                     ended = True
-                for m in round_re.finditer(data):
-                    rnum = int(m.group(1))
-                    if rnum > rounds_finished: rounds_finished = rnum
+                
+                for pattern in round_patterns:
+                    for m in pattern.finditer(data):
+                        rnum = int(m.group(1))
+                        if rnum > rounds_finished: rounds_finished = rnum
 
             if not have_cached_progress:
-                if preferred_log and os.path.exists(preferred_log):
-                    scan_log_tail(preferred_log)
-                else:
-                    for root, dirs, files in os.walk(workspace_dir):
-                        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
-                        if job_uuid in root:
-                            for fname in files:
-                                if fname.startswith("log") and fname.endswith(".txt"):
-                                    scan_log_tail(os.path.join(root, fname))
-                                    if ended: break
-                        if ended: break
+                for root, dirs, files in os.walk(workspace_dir):
+                    if job_uuid in root:
+                        for fname in files:
+                            if fname.startswith("log") and fname.endswith(".txt"):
+                                scan_log_tail(os.path.join(root, fname))
+                                if ended: break
+                    if ended: break
 
             if ended:
                 training_progress = 100
@@ -844,7 +850,7 @@ def get_training_progress_info(training_job, current_network):
                 if training_job.status != "COMPLETED":
                     training_job.status = "COMPLETED"
                     training_job.completed_at = timezone.now()
-                    training_job.save()
+                    training_job.save(update_fields=["status", "completed_at"])
             elif not have_cached_progress and total_rounds > 0:
                 rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                 training_progress = min(99, int(rounds_completed * 100 / total_rounds))

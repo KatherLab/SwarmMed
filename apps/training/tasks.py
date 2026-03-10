@@ -190,8 +190,16 @@ def monitor_training_jobs():
                 total_rounds = job.total_rounds or 10
 
                 try:
-                    # Scan for rounds in logs
-                    round_re = re.compile(r"finished training round (\d+)")
+                    # Robust log scanning
+                    # Patterns: "Finished round 0", "Round 0 | Epoch 1", "Round: 0"
+                    round_patterns = [
+                        re.compile(r"Finished round\s+(\d+)", re.I),
+                        re.compile(r"Round\s+(\d+)\s+\|", re.I),
+                        re.compile(r"Round:\s+(\d+)", re.I),
+                        re.compile(r"finished training round\s+(\d+)", re.I),
+                    ]
+                    
+                    # Search for logs anywhere in the workspace that mention the job UUID
                     for root, _, files in os.walk(workspace_base):
                         if flare_job_uuid in root:
                             for fname in files:
@@ -199,16 +207,32 @@ def monitor_training_jobs():
                                     try:
                                         with open(os.path.join(root, fname), "rb") as f:
                                             f.seek(0, os.SEEK_END)
-                                            tail = f.read(1024 * 100).decode("utf-8", errors="ignore")
-                                            if not ended and ("ending workflow" in tail or "child worker process finished" in tail):
+                                            # Read a large chunk to catch recent progress
+                                            chunk_size = 1024 * 250
+                                            f.seek(max(0, f.tell() - chunk_size))
+                                            tail = f.read().decode("utf-8", errors="ignore")
+                                            
+                                            # Check for completion markers
+                                            completion_markers = [
+                                                "ending workflow",
+                                                "child worker process finished",
+                                                "MPM: Good Bye!",
+                                                "Training finished",
+                                                "Training completed"
+                                            ]
+                                            if not ended and any(m in tail for m in completion_markers):
                                                 ended = True
-                                            for m in round_re.finditer(tail):
-                                                rnum = int(m.group(1))
-                                                if rnum > rounds_finished: rounds_finished = rnum
+                                            
+                                            for pattern in round_patterns:
+                                                for m in pattern.finditer(tail):
+                                                    rnum = int(m.group(1))
+                                                    if rnum > rounds_finished:
+                                                        rounds_finished = rnum
                                     except Exception:
                                         pass
 
                     if total_rounds > 0:
+                        # Rounds are 0-indexed in logs usually, so finished 0 means we are on round 1
                         rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                         pct = int(rounds_completed * 100 / total_rounds)
                         job.progress_percent = max(0, min(100, pct))
@@ -217,7 +241,7 @@ def monitor_training_jobs():
                     job.progress_updated_at = timezone.now()
                     job.save(update_fields=["rounds_finished", "progress_percent", "progress_updated_at"])
                 except Exception as e:
-                    log.training.debug(format_exception(e))
+                    log.training.debug(f"Progress parse failed: {e}")
 
             # Step 4: If the job is complete, upload participant results to S3.
             if ended:
@@ -227,28 +251,29 @@ def monitor_training_jobs():
 
                 found_folders = []
                 
-                # NVFlare 2.7.1 structure: prod_00/<job_uuid>/app_<participant_name>/
+                # 1. Standard NVFlare 2.7.1: prod_00/<job_uuid>/app_<participant_name>/
                 job_root = os.path.join(workspace_base, flare_job_uuid)
                 if os.path.exists(job_root):
                     for item in os.listdir(job_root):
                         if item.startswith("app_"):
-                            participant = item[4:] # Strip 'app_'
-                            if participant.lower() not in ["admin", "overseer", "server"]:
-                                local_path = os.path.join(job_root, item)
-                                found_folders.append((participant, local_path))
-                        elif item.lower() == "app_server":
-                            # Server also has aggregated results
+                            participant = item[4:]
                             local_path = os.path.join(job_root, item)
-                            found_folders.append(("server", local_path))
+                            found_folders.append((participant, local_path))
 
-                # Fallback to old structure: prod_00/<participant>/<job_uuid>/
+                # 2. Server-side/Hybrid: prod_00/<participant>/<job_uuid>/app_<participant>/
                 if not found_folders:
                     for participant in os.listdir(workspace_base):
                         p_path = os.path.join(workspace_base, participant)
-                        if os.path.isdir(p_path) and participant.lower() not in ["admin", "overseer"]:
+                        if os.path.isdir(p_path) and participant.lower() not in ["admin", "overseer", "startup", "local", "transfer", "logs"]:
                             job_p_path = os.path.join(p_path, flare_job_uuid)
                             if os.path.exists(job_p_path):
-                                found_folders.append((participant, job_p_path))
+                                # Check for app_ subfolder inside
+                                app_sub = f"app_{participant}"
+                                if os.path.exists(os.path.join(job_p_path, app_sub)):
+                                    found_folders.append((participant, os.path.join(job_p_path, app_sub)))
+                                else:
+                                    # Fallback to the job UUID folder itself
+                                    found_folders.append((participant, job_p_path))
 
                 if found_folders:
                     log.training.info(f"Found {len(found_folders)} result folders for upload.")
