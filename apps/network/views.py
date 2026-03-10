@@ -137,12 +137,14 @@ def network(request):
                     # Ensure name is lowered for matching with server_logs.lower()
                     lname = name.lower()
                     joined_markers = [
-                        f"client: {lname} joined",
+                        f"client: new client {lname}@",
                         f"registered client {lname}",
                         f"client {lname} connected",
                         f"received register request from {lname}",
                         f"starting communication with client {lname}",
-                        f"new client {lname} connected"
+                        f"new client {lname} connected",
+                        f"client: {lname} joined",
+                        f"registered client {lname}",
                     ]
                     
                     is_joined = any(marker in server_logs for marker in joined_markers)
@@ -152,7 +154,8 @@ def network(request):
                         disconnected_markers = [
                             f"client {lname} disconnected",
                             f"client: {lname} left",
-                            f"removed client {lname}"
+                            f"removed client {lname}",
+                            f"missing job on client '{lname}'",
                         ]
                         is_disconnected = any(marker in server_logs for marker in disconnected_markers)
                         
