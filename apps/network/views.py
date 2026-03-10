@@ -26,9 +26,9 @@ from project.models import UserCurrentProject
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .provision import generate_flare_startup_kit, is_valid_ip
 from .tasks import start_swarm_network_task, stop_swarm_network_task
-from .utils import (
-    create_startup_kits_zip,
+from common.utils import (
     get_hostname,
+    get_safe_slug,
     get_tailscale_ip,
     is_tailscale_connected,
 )
@@ -436,31 +436,45 @@ def new_network(request):
                 # training views can look up client/server names without
                 # falling back to hardcoded defaults.
                 try:
-                    existing_ids = set(
-                        swarm_network.participants.values_list("participant_id", flat=True)
-                    )
                     discovered_clients = []
-                    discovered_server = None
+                    discovered_server = "server"
+
+                    # Source 0: .all_participants.json (Global view from SwarmCloud provisioning)
+                    _ap_file = os.path.join(prod_00_dir, "admin_startup", "startup", ".all_participants.json")
+                    if not os.path.exists(_ap_file):
+                        # Try other possible locations for .all_participants.json
+                        for root, dirs, files in os.walk(prod_00_dir):
+                            if ".all_participants.json" in files:
+                                _ap_file = os.path.join(root, ".all_participants.json")
+                                break
+
+                    if os.path.exists(_ap_file):
+                        with open(_ap_file) as _f:
+                            _ap = json.load(_f)
+                        if isinstance(_ap, dict) and "clients" in _ap:
+                            discovered_clients.extend([str(n) for n in _ap["clients"] if n])
+                            if "server" in _ap: discovered_server = _ap["server"]
 
                     # Source 1: project.yml with full participant list.
-                    _project_yml_path = os.path.join(provision_dir, "project.yml")
-                    if os.path.exists(_project_yml_path):
-                        with open(_project_yml_path) as _f:
-                            _yml = yaml.safe_load(_f) or {}
-                        for _p in _yml.get("participants", []):
-                            _ptype = str(_p.get("type", _p.get("role", ""))).lower()
-                            _pname = str(_p.get("name", "")).strip()
-                            if not _pname:
-                                continue
-                            if _ptype in {"client", "fl_client"}:
-                                discovered_clients.append(_pname)
-                            elif _ptype == "server":
-                                discovered_server = _pname
+                    if not discovered_clients:
+                        _project_yml_path = os.path.join(provision_dir, "project.yml")
+                        if os.path.exists(_project_yml_path):
+                            with open(_project_yml_path) as _f:
+                                _yml = yaml.safe_load(_f) or {}
+                            for _p in _yml.get("participants", []):
+                                _ptype = str(_p.get("type", _p.get("role", ""))).lower()
+                                _pname = str(_p.get("name", "")).strip()
+                                if not _pname:
+                                    continue
+                                if _ptype in {"client", "fl_client"}:
+                                    discovered_clients.append(_pname)
+                                elif _ptype == "server":
+                                    discovered_server = _pname
 
                     # Source 2: scan prod_00/ subdirectories.
                     if not discovered_clients:
                         _EXCL = {"server", "admin_startup", "overseer", "startup",
-                                 "transfer", "local", "logs", "custom"}
+                                 "transfer", "local", "logs", "custom", "admin"}
                         for _e in sorted(os.scandir(prod_00_dir), key=lambda x: x.name):
                             if (_e.is_dir()
                                     and _e.name not in _EXCL
@@ -470,24 +484,26 @@ def new_network(request):
                             elif _e.is_dir() and _e.name == "server":
                                 discovered_server = "server"
 
-                    for _client_name in discovered_clients:
-                        if _client_name not in existing_ids:
-                            SwarmParticipant.objects.create(
-                                network=swarm_network,
-                                user=request.user,
-                                role="CLIENT",
-                                participant_id=_client_name,
-                            )
-                            existing_ids.add(_client_name)
+                    # Dedup and filter
+                    discovered_clients = _dedupe_keep_order([c for c in discovered_clients if c.lower() not in ["server", "admin"]])
 
-                    _srv = discovered_server or "server"
-                    if _srv not in existing_ids:
+                    # Clear any existing stale participants for this network
+                    swarm_network.participants.all().delete()
+
+                    for _client_name in discovered_clients:
                         SwarmParticipant.objects.create(
                             network=swarm_network,
                             user=request.user,
-                            role="SERVER",
-                            participant_id=_srv,
+                            role="CLIENT",
+                            participant_id=_client_name,
                         )
+
+                    SwarmParticipant.objects.create(
+                        network=swarm_network,
+                        user=request.user,
+                        role="SERVER",
+                        participant_id=discovered_server or "server",
+                    )
 
                     if discovered_clients:
                         log.network.info(

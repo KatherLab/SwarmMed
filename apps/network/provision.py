@@ -12,7 +12,7 @@ import subprocess  # nosec B404
 from pathlib import Path
 
 import yaml
-from common.utils import get_s3_client
+from common.utils import get_safe_slug, get_s3_client
 from django.conf import settings
 from django.utils.text import slugify
 from logs.logger import get_logger
@@ -360,6 +360,14 @@ def generate_flare_startup_kit(
 
         logger.network.info("Provisioning completed successfully")
 
+        # Prepare global participant metadata for distribution in startup kits
+        all_client_names = [c["name"] for c in prepared_clients]
+        all_participants_meta = {
+            "clients": all_client_names,
+            "server": "server",
+            "project": project_name_safe,
+        }
+
         if not local_test:
             try:
                 if client_admin_map:
@@ -380,6 +388,18 @@ def generate_flare_startup_kit(
                 logger.network.warning(
                     f"Failed to persist HA startup distribution metadata: {e}"
                 )
+
+        # Distribute participant metadata into every startup kit
+        try:
+            for item in os.scandir(str(base_prod_path)):
+                if not item.is_dir(): continue
+                startup_dir = Path(item.path) / "startup"
+                if startup_dir.exists():
+                    (startup_dir / ".all_participants.json").write_text(
+                        json.dumps(all_participants_meta, indent=2)
+                    )
+        except Exception as e:
+            logger.network.warning(f"Failed to distribute participant metadata: {e}")
 
         if server_ip and is_valid_ip(server_ip):
             base_prod_path = (
