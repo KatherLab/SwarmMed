@@ -661,54 +661,70 @@ def new_network(request):
                 # Mark as provisioned
                 swarm_network.status = "PROVISIONED"
                 
-                # NEW: Recover Gossip Token from uploaded zip if present
+                # NEW: Recover Gossip Token and Participant List from uploaded zip if present
+                discovered_participants = []
                 try:
                     with zipfile.ZipFile(startup_package, "r") as zip_ref:
-                        if ".gossip_token" in zip_ref.namelist():
+                        file_list = zip_ref.namelist()
+                        
+                        # A. Recover Gossip Token
+                        if ".gossip_token" in file_list:
                             swarm_network.gossip_token = zip_ref.read(".gossip_token").decode("utf-8").strip()
-                except Exception:
-                    pass
+                        
+                        # B. Recover Participant Metadata (The Master List)
+                        if ".participants.json" in file_list:
+                            try:
+                                p_data = json.loads(zip_ref.read(".participants.json").decode("utf-8"))
+                                if isinstance(p_data, list):
+                                    for p in p_data:
+                                        discovered_participants.append({
+                                            "name": p.get("participant_id"),
+                                            "role": p.get("role"),
+                                            "ip": p.get("ip", "-"),
+                                            "org": p.get("org")
+                                        })
+                                    log.network.info(f"Recovered {len(discovered_participants)} participants from .participants.json")
+                            except Exception as json_err:
+                                log.network.warning(f"Failed to parse .participants.json: {json_err}")
+                except Exception as zip_err:
+                    log.network.warning(f"Failed to read metadata from zip: {zip_err}")
                 
                 swarm_network.save()
 
                 # Populate SwarmParticipant records from the uploaded kit
                 try:
-                    discovered_participants = [] # List of dicts: {"name": ..., "role": ..., "ip": ...}
-                    
-                    # 1. Parse project.yml for the full truth (Names + IPs + Roles)
-                    project_yml_path = os.path.join(provision_dir, "project.yml")
-                    if os.path.exists(project_yml_path):
-                        with open(project_yml_path) as f:
-                            yml = yaml.safe_load(f) or {}
-                        for p in yml.get("participants", []):
-                            p_name = str(p.get("name", "")).strip()
-                            p_type = str(p.get("type", p.get("role", ""))).lower()
-                            p_ip = str(p.get("listening_host", "")).strip()
-                            
-                            if not p_name: continue
-                            
-                            role = "CLIENT"
-                            if p_type == "server": role = "SERVER"
-                            
-                            # Sanitize IP
-                            if p_ip.lower() in ["dynamic", "localhost", "127.0.0.1", "server"]:
-                                p_ip = "-"
-                                
-                            discovered_participants.append({
-                                "name": p_name,
-                                "role": role,
-                                "ip": p_ip
-                            })
-
-                    # 2. Fallback to folder scanning if project.yml is missing/incomplete
+                    # If we didn't find the JSON master list, fall back to legacy discovery
                     if not discovered_participants:
-                        _EXCL = {"server", "admin_startup", "overseer", "startup", "transfer", "local", "logs", "custom", "admin"}
-                        for _e in sorted(os.scandir(prod_00_dir), key=lambda x: x.name):
-                            if _e.is_dir() and _e.name not in _EXCL and not _e.name.startswith("."):
-                                if os.path.isdir(os.path.join(_e.path, "startup")):
-                                    discovered_participants.append({"name": _e.name, "role": "CLIENT", "ip": "-"})
-                        if os.path.exists(os.path.join(prod_00_dir, "server")):
-                            discovered_participants.append({"name": "server", "role": "SERVER", "ip": "-"})
+                        # 1. Parse project.yml for the full truth (Names + IPs + Roles)
+                        project_yml_path = os.path.join(provision_dir, "project.yml")
+                        if os.path.exists(project_yml_path):
+                            with open(project_yml_path) as f:
+                                yml = yaml.safe_load(f) or {}
+                            for p in yml.get("participants", []):
+                                p_name = str(p.get("name", "")).strip()
+                                p_type = str(p.get("type", p.get("role", ""))).lower()
+                                p_ip = str(p.get("listening_host", "")).strip()
+                                if not p_name: continue
+                                role = "CLIENT"
+                                if p_type == "server": role = "SERVER"
+                                if p_ip.lower() in ["dynamic", "localhost", "127.0.0.1", "server"]: p_ip = "-"
+                                discovered_participants.append({"name": p_name, "role": role, "ip": p_ip, "org": None})
+
+                        # 2. Check for local fed_client name
+                        client_cfgs = [
+                            os.path.join(prod_00_dir, "startup", "fed_client.json"),
+                            os.path.join(provision_dir, "startup", "fed_client.json")
+                        ]
+                        for cfg_path in client_cfgs:
+                            if os.path.exists(cfg_path):
+                                try:
+                                    with open(cfg_path) as f:
+                                        data = json.load(f)
+                                        c_name = data.get("client_name") or data.get("name")
+                                        if c_name and c_name != "server":
+                                            if not any(dp["name"] == c_name for dp in discovered_participants):
+                                                discovered_participants.append({"name": c_name, "role": "CLIENT", "ip": "-", "org": None})
+                                except Exception: pass
 
                     # Clear any existing stale participants
                     swarm_network.participants.all().delete()
@@ -719,12 +735,12 @@ def new_network(request):
                             user=request.user,
                             role=dp["role"],
                             participant_id=dp["name"],
-                            ip=dp["ip"],
-                            org=f"org_{dp['name'].replace('-', '_')}"
+                            ip=dp.get("ip", "-"),
+                            org=dp.get("org") or f"org_{dp['name'].replace('-', '_')}"
                         )
 
                     if discovered_participants:
-                        log.network.info(f"Registered {len(discovered_participants)} participant(s) from uploaded kit with IP metadata.")
+                        log.network.info(f"Registered {len(discovered_participants)} participant(s) with IP metadata.")
                 except Exception as _pe:
                     log.network.warning(f"Could not populate participants from uploaded kit: {_pe}")
 

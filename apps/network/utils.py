@@ -253,6 +253,17 @@ def create_startup_kits_zip(swarm_network):
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as main_zip:
             main_zip.writestr(".gossip_token", swarm_network.gossip_token)
 
+    # NEW: Prepare the full participant list for Gossip discovery
+    participants_data = []
+    for p in swarm_network.participants.all():
+        participants_data.append({
+            "participant_id": p.participant_id,
+            "role": p.role,
+            "ip": p.ip or "-",
+            "org": p.org or f"org_{p.participant_id.replace('-', '_')}"
+        })
+    participants_json = json.dumps(participants_data, indent=2)
+
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # NVFlare creates a directory for each participant
         for item in os.scandir(str(abs_base_prod_path)):
@@ -277,9 +288,12 @@ def create_startup_kits_zip(swarm_network):
                 with zipfile.ZipFile(
                     client_zip_buffer, "w", zipfile.ZIP_DEFLATED
                 ) as client_zip:
-                    # Embed gossip token into each client zip too
+                    # Embed gossip token into each client zip
                     if swarm_network.gossip_token:
                         client_zip.writestr(".gossip_token", swarm_network.gossip_token)
+                    
+                    # NEW: Embed the master participant list so PC2 knows who else is in the swarm
+                    client_zip.writestr(".participants.json", participants_json)
 
                     req_file = (
                         abs_base_prod_path.parent.parent
