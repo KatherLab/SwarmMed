@@ -248,6 +248,11 @@ def create_startup_kits_zip(swarm_network):
         }
     )
 
+    # NEW: Securely embed the gossip token if it exists for this network
+    if swarm_network.gossip_token:
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as main_zip:
+            main_zip.writestr(".gossip_token", swarm_network.gossip_token)
+
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # NVFlare creates a directory for each participant
         for item in os.scandir(str(abs_base_prod_path)):
@@ -272,6 +277,10 @@ def create_startup_kits_zip(swarm_network):
                 with zipfile.ZipFile(
                     client_zip_buffer, "w", zipfile.ZIP_DEFLATED
                 ) as client_zip:
+                    # Embed gossip token into each client zip too
+                    if swarm_network.gossip_token:
+                        client_zip.writestr(".gossip_token", swarm_network.gossip_token)
+
                     req_file = (
                         abs_base_prod_path.parent.parent
                         / "docker_compose_requirements.txt"

@@ -7,13 +7,14 @@ import socket
 import ssl
 import threading
 import time
+import requests
 
 from common.utils import get_safe_slug
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from logs.logger import get_logger
@@ -28,6 +29,68 @@ from .models import TrainingJob
 from .utils import download_s3_folder
 
 logger = get_logger()
+
+
+@login_required
+def training_api_state(request, network_id):
+    """
+    Internal API: Returns the latest training job state from this node.
+    Used by client nodes to mirror the server node's training state.
+    """
+    network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    job = TrainingJob.objects.filter(network=network).order_by("-created_at").first()
+    
+    if not job:
+        return JsonResponse({"job": None})
+        
+    return JsonResponse({
+        "job": {
+            "flare_job_id": job.flare_job_id,
+            "status": job.status,
+            "total_rounds": job.total_rounds,
+            "rounds_finished": job.rounds_finished,
+            "progress_percent": job.progress_percent,
+            "created_at": job.created_at.isoformat(),
+        }
+    })
+
+
+@login_required
+def training_api_results(request, network_id):
+    """
+    Internal API: Provides the training results (aggregated model) as a download.
+    Server node serves this to client nodes for decentralized sync.
+    """
+    network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    job = TrainingJob.objects.filter(network=network, status="COMPLETED").order_by("-created_at").first()
+    
+    if not job:
+        return JsonResponse({"error": "No completed job found"}, status=404)
+        
+    # Logic to find the aggregated model file in the workspace
+    job_uuid = str(job.flare_job_id)
+    match = re.search(r"([0-9a-f-]{36})", job_uuid)
+    if match: job_uuid = match.group(1)
+    
+    workspace_root = os.path.join(settings.BASE_DIR, "workspaces", str(job.project.identifier), str(network.identifier), "workspace")
+    model_path = None
+    
+    # Heuristic to find the best model file
+    for root, dirs, files in os.walk(workspace_root):
+        if job_uuid in root:
+            for f in files:
+                if f in ["best_FL_model.pt", "model_weights.npz", "global_model.pt"]:
+                    model_path = os.path.join(root, f)
+                    break
+        if model_path: break
+        
+    if not model_path or not os.path.exists(model_path):
+        return JsonResponse({"error": "Model file not found"}, status=404)
+        
+    with open(model_path, "rb") as f:
+        response = HttpResponse(f.read(), content_type="application/octet-stream")
+        response["Content-Disposition"] = f'attachment; filename="{os.path.basename(model_path)}"'
+        return response
 
 
 def _extract_cert_common_name(cert_path: str) -> str:
@@ -1260,7 +1323,40 @@ def training_status_api(request):
     current_network = SwarmNetwork.resolve_current(request.user)
     if not current_network: return JsonResponse({"status": "no_network"})
     
+    # Identify server node and local state
+    server_node = current_network.participants.filter(role="SERVER").first()
+    local_ip = get_tailscale_ip()
+    is_server_node = server_node and server_node.ip == local_ip
+    
     job = TrainingJob.objects.filter(network=current_network).order_by("-created_at").first()
+    
+    # 1. Mirror state from Server node if we are a client node
+    if not is_server_node and server_node and server_node.ip and server_node.ip != "-":
+        try:
+            state_url = f"https://{server_node.ip}:5085/training/api/state/{current_network.identifier}/"
+            resp = requests.get(state_url, timeout=2, verify=False)
+            if resp.status_code == 200:
+                remote_job = resp.json().get("job")
+                if remote_job:
+                    # Update or create local mirror of the training job
+                    flare_id = remote_job["flare_job_id"]
+                    job = TrainingJob.objects.filter(network=current_network, flare_job_id=flare_id).first()
+                    if not job:
+                        job = TrainingJob.objects.create(
+                            project=current_network.project,
+                            network=current_network,
+                            flare_job_id=flare_id,
+                            status=remote_job["status"]
+                        )
+                    else:
+                        job.status = remote_job["status"]
+                        job.total_rounds = remote_job["total_rounds"]
+                        job.rounds_finished = remote_job["rounds_finished"]
+                        job.progress_percent = remote_job["progress_percent"]
+                        job.save()
+        except Exception:
+            pass
+
     nvflare_status = _nvflare_status_payload(current_network)
     
     if nvflare_status and nvflare_status.get("job_id"):
@@ -1271,7 +1367,7 @@ def training_status_api(request):
         if mapped_status:
             job_id_to_match = str(nvflare_status.get("job_id"))
             
-            # Match existing job by exact ID or substring (to handle 'Submitted job:' prefix)
+            # Match existing job by exact ID or substring
             mirror_job = TrainingJob.objects.filter(
                 network=current_network
             ).filter(
@@ -1300,6 +1396,45 @@ def training_status_api(request):
         return JsonResponse({"status": "idle"})
 
     payload = _build_training_status_payload(current_network, job)
+    
+    # 2. Results Sync: Register results from local filesystem to local MinIO if COMPLETED
+    if job.status == "COMPLETED":
+        results_synced_key = f"results_synced_local_{job.identifier}"
+        if not cache.get(results_synced_key):
+            try:
+                job_uuid = str(job.flare_job_id)
+                match = re.search(r"([0-9a-f-]{36})", job_uuid)
+                if match: job_uuid = match.group(1)
+                
+                # Path to local workspace where NVFlare produces results
+                workspace_root = os.path.join(settings.BASE_DIR, "workspaces", str(job.project.identifier), str(current_network.identifier), "workspace")
+                
+                # List of possible result filenames produced by training
+                possible_files = ["best_FL_model.pt", "model_weights.npz", "global_model.pt", "FL_model.pt"]
+                
+                found_and_synced = False
+                from django.core.files.storage import default_storage
+                from django.core.files.base import ContentFile
+
+                for root, dirs, files in os.walk(workspace_root):
+                    if job_uuid in root:
+                        for filename in files:
+                            if filename in possible_files:
+                                local_path = os.path.join(root, filename)
+                                # Target key in local MinIO
+                                s3_key = f"{job.project.identifier}/results/{job_uuid}/{filename}"
+                                
+                                if not default_storage.exists(s3_key):
+                                    with open(local_path, "rb") as f:
+                                        default_storage.save(s3_key, ContentFile(f.read()))
+                                        logger.training.info(f"Registered local result to local MinIO: {s3_key}")
+                                found_and_synced = True
+                
+                if found_and_synced:
+                    cache.set(results_synced_key, True, 3600)
+            except Exception as sync_err:
+                logger.training.error(f"Failed to register local results to local MinIO: {sync_err}")
+
     if nvflare_status:
         local_status = str(payload.get("status", "")).upper().strip()
         nv_status = str(nvflare_status.get("status", "")).upper().strip()

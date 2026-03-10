@@ -51,4 +51,10 @@ urlpatterns = [
         views.get_swarm_network_status,
         name="get_swarm_network_status",
     ),
+    # API: Internal endpoint for live participant statuses from server logs
+    path(
+        "api/status/<uuid:network_id>/",
+        views.network_api_status,
+        name="network_api_status",
+    ),
 ]

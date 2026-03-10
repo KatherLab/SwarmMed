@@ -65,6 +65,14 @@ class SwarmNetwork(AbstractBaseModel):
         null=True,
     )
 
+    # NEW: Secure gossip token for peer-to-peer status sync
+    gossip_token = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Shared secret for authenticating gossip status shouts."
+    )
+
     @staticmethod
     def resolve_current(user) -> 'SwarmNetwork':
         """
@@ -187,6 +195,10 @@ class SwarmParticipant(models.Model):
 
     # IP address or hostname
     ip = models.CharField(max_length=255, blank=True, null=True)
+
+    # NEW: Gossip Status
+    status = models.CharField(max_length=50, default="OFFLINE")
+    last_seen = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # Ensure that participant IDs are unique within a specific network

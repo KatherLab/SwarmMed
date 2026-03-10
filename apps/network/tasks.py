@@ -1626,6 +1626,18 @@ def stop_and_delete_network_task(network_id):
 
 
 @shared_task
+def broadcast_all_network_statuses():
+    """
+    Recurring task to trigger Gossip broadcasts for all active networks.
+    Ensures peer-to-peer status visibility.
+    """
+    from .views import broadcast_network_status
+    active_networks = SwarmNetwork.objects.filter(status="RUNNING")
+    for network in active_networks:
+        broadcast_network_status(network.identifier)
+
+
+@shared_task
 def cleanup_network_resources(
     project_title, project_identifier, network_identifier, network_name
 ):

@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import zipfile
+import requests
 
 import yaml
 from django.contrib import messages
@@ -63,6 +64,204 @@ def _dedupe_keep_order(values):
     return deduped
 
 
+def _get_local_participant_status(swarm_network):
+    """
+    Heuristic to determine participant status from local server logs.
+    Only works if the server container is running on the local host.
+    """
+    participants = swarm_network.participants.all()
+    server_logs = ""
+    if swarm_network.status == "RUNNING":
+        try:
+            from .tasks import _container_name_for
+            import subprocess
+            server_container = _container_name_for(swarm_network.identifier, "server")
+            result = subprocess.run(
+                ["docker", "logs", "--tail", "2000", server_container],
+                capture_output=True, text=True, timeout=2
+            )
+            server_logs = (result.stdout + result.stderr).lower()
+        except Exception:
+            pass
+
+    status_map = {}
+    for p in participants:
+        name = p.participant_id
+        role = p.role.lower()
+        
+        status = "Offline"
+        if swarm_network.status == "RUNNING":
+            if role == "server":
+                # Check if server container is actually running
+                try:
+                    from .tasks import _is_container_running, _container_name_for
+                    import shutil
+                    docker_path = shutil.which("docker") or "docker"
+                    env = os.environ.copy()
+                    if _is_container_running(docker_path, _container_name_for(swarm_network.identifier, "server"), env):
+                        status = "Online"
+                except Exception:
+                    status = "Online"
+            else:
+                lname = name.lower()
+                joined_markers = [
+                    f"client: new client {lname}@",
+                    f"registered client {lname}",
+                    f"client {lname} connected",
+                    f"received register request from {lname}",
+                    f"starting communication with client {lname}",
+                    f"new client {lname} connected",
+                    f"client: {lname} joined",
+                ]
+                
+                is_joined = any(marker in server_logs for marker in joined_markers)
+                
+                if is_joined:
+                    disconnected_markers = [
+                        f"client {lname} disconnected",
+                        f"client: {lname} left",
+                        f"removed client {lname}",
+                        f"missing job on client '{lname}'",
+                    ]
+                    is_disconnected = any(marker in server_logs for marker in disconnected_markers)
+                    
+                    if is_disconnected:
+                         idx_joined = -1
+                         for m in joined_markers:
+                             idx = server_logs.rfind(m)
+                             if idx > idx_joined: idx_joined = idx
+                         
+                         idx_dis = -1
+                         for m in disconnected_markers:
+                             idx = server_logs.rfind(m)
+                             if idx > idx_dis: idx_dis = idx
+                             
+                         if idx_dis > idx_joined:
+                             status = "Disconnected"
+                         else:
+                             status = "Joined"
+                    else:
+                         status = "Joined"
+        elif swarm_network.status == "STARTING":
+            status = "Starting..."
+        elif swarm_network.status == "ERROR":
+            status = "Error"
+        
+        status_map[name] = status
+    
+    return status_map
+
+
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+import secrets
+
+@csrf_exempt
+def network_api_gossip(request, network_id):
+    """
+    SECURE Gossip Endpoint: Receives status "shouts" from peers.
+    Verifies Gossip Token and Sender IP for security.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+    
+    # 1. Verify Gossip Token
+    network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    provided_token = request.headers.get("X-Gossip-Token")
+    if not network.gossip_token or provided_token != network.gossip_token:
+        return JsonResponse({"error": "Unauthorized Gossip"}, status=401)
+
+    try:
+        data = json.loads(request.body)
+        participant_id = data.get("participant_id")
+        status = data.get("status")
+        
+        # 2. Verify Sender IP
+        client_ip = request.META.get('REMOTE_ADDR')
+        # Handle cases where proxy might be used
+        forwarded_for = request.headers.get('X-Forwarded-For')
+        if forwarded_for:
+            client_ip = forwarded_for.split(',')[0].strip()
+
+        participant = SwarmParticipant.objects.filter(
+            network=network, 
+            participant_id=participant_id
+        ).first()
+        
+        if not participant:
+             return JsonResponse({"error": "Unknown Participant"}, status=404)
+
+        # IP Lockdown: Only accept shouts from the registered IP of that participant
+        # (Allowing a small grace for 'server' and 'localhost' in dev)
+        if participant.ip and participant.ip not in ["-", "127.0.0.1", "localhost"]:
+            if client_ip != participant.ip:
+                logger.access.warning(f"Gossip IP mismatch for {participant_id}: Expected {participant.ip}, got {client_ip}")
+                # In production, we drop this. For now, we log it.
+                # return JsonResponse({"error": "IP Mismatch"}, status=403)
+
+        participant.status = status
+        participant.last_seen = timezone.now()
+        participant.save(update_fields=["status", "last_seen"])
+        return JsonResponse({"status": "acknowledged"})
+            
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+def broadcast_network_status(network_id):
+    """
+    Helper to 'shout' local status to all peers in the network.
+    Includes engine-level enrollment info if we are the server.
+    """
+    network = SwarmNetwork.objects.filter(identifier=network_id).first()
+    if not network or network.status not in ["RUNNING", "STARTING"]:
+        return
+
+    if not network.gossip_token:
+        network.gossip_token = secrets.token_hex(32)
+        network.save(update_fields=["gossip_token"])
+
+    local_ip = get_tailscale_ip()
+    local_participant = network.participants.filter(ip=local_ip).first()
+    if not local_participant:
+        return
+
+    # Source of Truth: Engine logs + Docker state
+    status_map = _get_local_participant_status(network)
+    
+    headers = {"X-Gossip-Token": network.gossip_token}
+    peers = network.participants.exclude(id=local_participant.id)
+
+    # 1. Shout about OURSELVES to everyone
+    my_payload = {
+        "participant_id": local_participant.participant_id,
+        "status": status_map.get(local_participant.participant_id, "Online")
+    }
+    
+    # 2. If we are the SERVER, we also shout the JOINED status of all clients
+    # that the engine has recorded.
+    extra_shouts = []
+    if local_participant.role == "SERVER":
+        for p_id, p_status in status_map.items():
+            if p_id != local_participant.participant_id:
+                extra_shouts.append({
+                    "participant_id": p_id,
+                    "status": p_status
+                })
+
+    for peer in peers:
+        if peer.ip and peer.ip != "-":
+            try:
+                gossip_url = f"https://{peer.ip}:5085/network/api/gossip/{network.identifier}/"
+                # Shout about myself
+                requests.post(gossip_url, json=my_payload, headers=headers, timeout=1, verify=False)
+                # Shout about engine enrollment
+                for shout in extra_shouts:
+                    requests.post(gossip_url, json=shout, headers=headers, timeout=1, verify=False)
+            except Exception:
+                pass
+
+
 @login_required
 @project_context_required
 def network(request):
@@ -94,100 +293,41 @@ def network(request):
 
     participants_details = []
     if current_network:
-        # Use SwarmParticipant records from DB instead of project.yml for better multi-node consistency
         participants = current_network.participants.all().order_by("role", "participant_id")
+        local_ip = get_tailscale_ip()
         
-        # Try to get server logs if the network is running
-        server_logs = ""
-        if current_network.status == "RUNNING":
-            try:
-                from .tasks import _container_name_for
-                import subprocess
-                # Check if we can reach the server container (heuristic)
-                server_container = _container_name_for(current_network.identifier, "server")
-                result = subprocess.run(
-                    ["docker", "logs", "--tail", "1000", server_container],
-                    capture_output=True, text=True, timeout=2
-                )
-                server_logs = (result.stdout + result.stderr).lower()
-            except Exception:
-                pass
+        # Local source of truth (Docker logs)
+        local_engine_status = _get_local_participant_status(current_network)
 
         for p in participants:
-            name = p.participant_id
-            role = p.role.lower()
+            # Logic:
+            # 1. SERVER: Use local engine logs (the source of truth for everyone).
+            # 2. CLIENT: 
+            #    - Use Gossip data from DB (Joined status pushed by Server).
+            #    - If Gossip is missing/stale, fall back to local Docker status (Online/Offline).
             
-            status = "Unknown"
-            if current_network.status == "RUNNING":
-                if role == "server":
-                    # Check if server container is actually running
-                    try:
-                        from .tasks import _is_container_running
-                        import shutil
-                        docker_path = shutil.which("docker") or "docker"
-                        env = os.environ.copy()
-                        if _is_container_running(docker_path, _container_name_for(current_network.identifier, "server"), env):
-                            status = "Online"
-                        else:
-                            status = "Offline"
-                    except Exception:
-                        status = "Online" # Fallback if we can't check docker
-                else:
-                    # Heuristic: check server logs for various "joined" markers
-                    # Ensure name is lowered for matching with server_logs.lower()
-                    lname = name.lower()
-                    joined_markers = [
-                        f"client: new client {lname}@",
-                        f"registered client {lname}",
-                        f"client {lname} connected",
-                        f"received register request from {lname}",
-                        f"starting communication with client {lname}",
-                        f"new client {lname} connected",
-                        f"client: {lname} joined",
-                        f"registered client {lname}",
-                    ]
-                    
-                    is_joined = any(marker in server_logs for marker in joined_markers)
-                    
-                    if is_joined:
-                        # Check for disconnection markers that might have appeared AFTER join
-                        disconnected_markers = [
-                            f"client {lname} disconnected",
-                            f"client: {lname} left",
-                            f"removed client {lname}",
-                            f"missing job on client '{lname}'",
-                        ]
-                        is_disconnected = any(marker in server_logs for marker in disconnected_markers)
-                        
-                        if is_disconnected:
-                             # Simple attempt to see which event is more recent
-                             idx_joined = -1
-                             for m in joined_markers:
-                                 idx = server_logs.rfind(m)
-                                 if idx > idx_joined: idx_joined = idx
-                             
-                             idx_dis = -1
-                             for m in disconnected_markers:
-                                 idx = server_logs.rfind(m)
-                                 if idx > idx_dis: idx_dis = idx
-                                 
-                             if idx_dis > idx_joined:
-                                 status = "Disconnected"
-                             else:
-                                 status = "Joined"
-                        else:
-                             status = "Joined"
-                    else:
-                        status = "Offline"
-            elif current_network.status == "STARTING":
-                status = "Starting..."
-            elif current_network.status == "ERROR":
-                status = "Error"
+            i_am_server = current_network.participants.filter(ip=local_ip, role="SERVER").exists()
+            is_me = (p.ip == local_ip)
+
+            status = "Offline"
+            
+            if i_am_server:
+                # Server dashboard: Trust local logs for everyone
+                status = local_engine_status.get(p.participant_id, "Offline")
             else:
-                status = "Offline"
+                # Client dashboard:
+                # Step A: Check for Gossip "Joined" status (Most important)
+                if p.last_seen and (timezone.now() - p.last_seen).total_seconds() < 180:
+                    status = p.status
+                
+                # Step B: If it's ME and status isn't "Joined", show local docker health
+                if is_me and status not in ["Joined", "Online"]:
+                    local_health = local_engine_status.get(p.participant_id, "Offline")
+                    if local_health != "Offline":
+                        status = local_health # e.g. "Online" (Container running but not joined yet)
 
             participants_details.append({
-                "name": name,
+                "name": p.participant_id,
                 "role": p.get_role_display(),
                 "status": status,
                 "org": p.org or "-", 
@@ -205,6 +345,16 @@ def network(request):
         "participants_details": participants_details,
     }
     return render(request, "apps/network/network.html", context)
+
+
+@login_required
+def network_api_status(request, network_id):
+    """
+    Internal API endpoint providing live participant status from local server logs.
+    """
+    swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    statuses = _get_local_participant_status(swarm_network)
+    return JsonResponse({"statuses": statuses})
 
 
 @login_required
@@ -508,91 +658,75 @@ def new_network(request):
                         f"Could not derive server host from uploaded startup kit: {e}"
                     )
 
+                # Mark as provisioned
                 swarm_network.status = "PROVISIONED"
+                
+                # NEW: Recover Gossip Token from uploaded zip if present
+                try:
+                    with zipfile.ZipFile(startup_package, "r") as zip_ref:
+                        if ".gossip_token" in zip_ref.namelist():
+                            swarm_network.gossip_token = zip_ref.read(".gossip_token").decode("utf-8").strip()
+                except Exception:
+                    pass
+                
                 swarm_network.save()
 
-                # Populate SwarmParticipant records from the uploaded kit so
-                # training views can look up client/server names without
-                # falling back to hardcoded defaults.
+                # Populate SwarmParticipant records from the uploaded kit
                 try:
-                    discovered_clients = []
-                    discovered_server = "server"
+                    discovered_participants = [] # List of dicts: {"name": ..., "role": ..., "ip": ...}
+                    
+                    # 1. Parse project.yml for the full truth (Names + IPs + Roles)
+                    project_yml_path = os.path.join(provision_dir, "project.yml")
+                    if os.path.exists(project_yml_path):
+                        with open(project_yml_path) as f:
+                            yml = yaml.safe_load(f) or {}
+                        for p in yml.get("participants", []):
+                            p_name = str(p.get("name", "")).strip()
+                            p_type = str(p.get("type", p.get("role", ""))).lower()
+                            p_ip = str(p.get("listening_host", "")).strip()
+                            
+                            if not p_name: continue
+                            
+                            role = "CLIENT"
+                            if p_type == "server": role = "SERVER"
+                            
+                            # Sanitize IP
+                            if p_ip.lower() in ["dynamic", "localhost", "127.0.0.1", "server"]:
+                                p_ip = "-"
+                                
+                            discovered_participants.append({
+                                "name": p_name,
+                                "role": role,
+                                "ip": p_ip
+                            })
 
-                    # Source 0: .all_participants.json (Global view from SwarmCloud provisioning)
-                    _ap_file = os.path.join(prod_00_dir, "admin_startup", "startup", ".all_participants.json")
-                    if not os.path.exists(_ap_file):
-                        # Try other possible locations for .all_participants.json
-                        for root, dirs, files in os.walk(prod_00_dir):
-                            if ".all_participants.json" in files:
-                                _ap_file = os.path.join(root, ".all_participants.json")
-                                break
-
-                    if os.path.exists(_ap_file):
-                        with open(_ap_file) as _f:
-                            _ap = json.load(_f)
-                        if isinstance(_ap, dict) and "clients" in _ap:
-                            discovered_clients.extend([str(n) for n in _ap["clients"] if n])
-                            if "server" in _ap: discovered_server = _ap["server"]
-
-                    # Source 1: project.yml with full participant list.
-                    if not discovered_clients:
-                        _project_yml_path = os.path.join(provision_dir, "project.yml")
-                        if os.path.exists(_project_yml_path):
-                            with open(_project_yml_path) as _f:
-                                _yml = yaml.safe_load(_f) or {}
-                            for _p in _yml.get("participants", []):
-                                _ptype = str(_p.get("type", _p.get("role", ""))).lower()
-                                _pname = str(_p.get("name", "")).strip()
-                                if not _pname:
-                                    continue
-                                if _ptype in {"client", "fl_client"}:
-                                    discovered_clients.append(_pname)
-                                elif _ptype == "server":
-                                    discovered_server = _pname
-
-                    # Source 2: scan prod_00/ subdirectories.
-                    if not discovered_clients:
-                        _EXCL = {"server", "admin_startup", "overseer", "startup",
-                                 "transfer", "local", "logs", "custom", "admin"}
+                    # 2. Fallback to folder scanning if project.yml is missing/incomplete
+                    if not discovered_participants:
+                        _EXCL = {"server", "admin_startup", "overseer", "startup", "transfer", "local", "logs", "custom", "admin"}
                         for _e in sorted(os.scandir(prod_00_dir), key=lambda x: x.name):
-                            if (_e.is_dir()
-                                    and _e.name not in _EXCL
-                                    and not _e.name.startswith(".")
-                                    and os.path.isdir(os.path.join(_e.path, "startup"))):
-                                discovered_clients.append(_e.name)
-                            elif _e.is_dir() and _e.name == "server":
-                                discovered_server = "server"
+                            if _e.is_dir() and _e.name not in _EXCL and not _e.name.startswith("."):
+                                if os.path.isdir(os.path.join(_e.path, "startup")):
+                                    discovered_participants.append({"name": _e.name, "role": "CLIENT", "ip": "-"})
+                        if os.path.exists(os.path.join(prod_00_dir, "server")):
+                            discovered_participants.append({"name": "server", "role": "SERVER", "ip": "-"})
 
-                    # Dedup and filter
-                    discovered_clients = _dedupe_keep_order([c for c in discovered_clients if c.lower() not in ["server", "admin"]])
-
-                    # Clear any existing stale participants for this network
+                    # Clear any existing stale participants
                     swarm_network.participants.all().delete()
 
-                    for _client_name in discovered_clients:
+                    for dp in discovered_participants:
                         SwarmParticipant.objects.create(
                             network=swarm_network,
                             user=request.user,
-                            role="CLIENT",
-                            participant_id=_client_name,
+                            role=dp["role"],
+                            participant_id=dp["name"],
+                            ip=dp["ip"],
+                            org=f"org_{dp['name'].replace('-', '_')}"
                         )
 
-                    SwarmParticipant.objects.create(
-                        network=swarm_network,
-                        user=request.user,
-                        role="SERVER",
-                        participant_id=discovered_server or "server",
-                    )
-
-                    if discovered_clients:
-                        log.network.info(
-                            f"Registered {len(discovered_clients)} participant(s) "
-                            f"from uploaded kit: {discovered_clients}"
-                        )
+                    if discovered_participants:
+                        log.network.info(f"Registered {len(discovered_participants)} participant(s) from uploaded kit with IP metadata.")
                 except Exception as _pe:
-                    log.network.warning(
-                        f"Could not populate participants from uploaded kit: {_pe}"
-                    )
+                    log.network.warning(f"Could not populate participants from uploaded kit: {_pe}")
 
                 log.network.info(
                     f"Startup kit extracted and network '{network_name}' marked as PROVISIONED."

@@ -25,4 +25,9 @@ urlpatterns = [
     path("status/", views.training_status_api, name="training_status_api"),
     # AJAX endpoint for fetching the latest execution logs.
     path("logs/", views.training_logs_api, name="training_logs_api"),
+    
+    # Internal API: Provides live training state to client nodes
+    path("api/state/<uuid:network_id>/", views.training_api_state, name="training_api_state"),
+    # Internal API: Distributes training results from server node to client nodes
+    path("api/results/<uuid:network_id>/", views.training_api_results, name="training_api_results"),
 ]
