@@ -116,16 +116,55 @@ def network(request):
                     project_yml = yaml.safe_load(f)
                     # Parse the list of participants defined in NVFlare lighter
                     # config
+                    
+                    # Try to get server logs if the network is running
+                    server_logs = ""
+                    if current_network.status == "RUNNING":
+                        try:
+                            from .tasks import _container_name_for
+                            import subprocess
+                            server_container = _container_name_for(current_network.identifier, "server")
+                            # Get last 500 lines of server logs to check for joined clients
+                            result = subprocess.run(
+                                ["docker", "logs", "--tail", "500", server_container],
+                                capture_output=True, text=True, timeout=2
+                            )
+                            server_logs = result.stdout + result.stderr
+                        except Exception:
+                            pass
+
                     for participant in project_yml.get("participants", []):
+                        name = participant.get("name")
+                        role = participant.get("type", "client")
+                        
+                        status = "Unknown"
+                        if current_network.status == "RUNNING":
+                            if role == "server":
+                                status = "Online"
+                            else:
+                                # Heuristic: check if "Client: <name> joined" is in logs
+                                if f"Client: {name} joined" in server_logs or f"registered client {name}" in server_logs.lower():
+                                    status = "Joined"
+                                elif f"client {name} disconnected" in server_logs.lower():
+                                    status = "Disconnected"
+                                else:
+                                    status = "Offline"
+                        elif current_network.status == "STARTING":
+                            status = "Starting..."
+                        else:
+                            status = "Offline"
+
                         participants_details.append(
                             {
-                                "name": participant.get("name"),
+                                "name": name,
                                 "org": participant.get("org"),
+                                "role": role,
                                 # NVFlare uses 'listening_host' for static IP
                                 # assignments
                                 "ip": participant.get(
                                     "listening_host", "dynamic"
                                 ),
+                                "status": status,
                             }
                         )
 
