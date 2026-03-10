@@ -129,7 +129,7 @@ def get_s3_download_url(key, expires=3600):
 def get_internal_s3_download_url(key, expires=3600):
     """
     Generates a temporary presigned URL for internal use within the Docker network.
-    Ensures that the host in the URL is reachable from other containers (uses 'minio').
+    Ensures that the host in the URL is reachable from other containers.
     """
     s3 = get_s3_client()
     url = s3.generate_presigned_url(
@@ -139,11 +139,19 @@ def get_internal_s3_download_url(key, expires=3600):
     )
 
     # If the URL contains localhost or 127.0.0.1, other containers won't be able
-    # to reach it. We replace it with the internal service name 'minio'.
+    # to reach it. We try to replace it with reachable candidates.
+    internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+    if not internal_host:
+        # Fallback to docker gateway
+        internal_host = "172.17.0.1"
+
     if "localhost" in url:
-        url = url.replace("localhost", "minio")
+        url = url.replace("localhost", internal_host)
     elif "127.0.0.1" in url:
-        url = url.replace("127.0.0.1", "minio")
+        url = url.replace("127.0.0.1", internal_host)
+    
+    # Also ensure minio resolves if we are in a custom network
+    # But usually the host IP is safest.
 
     return url
 

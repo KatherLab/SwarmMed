@@ -79,15 +79,25 @@ def monitor_training_jobs():
             response = sess.api.do_command("list_jobs")
             remote_jobs = _parse_nvflare_jobs(response)
             
-            existing_job_ids = set(
+            existing_job_ids = list(
                 TrainingJob.objects.filter(network=network).values_list(
                     "flare_job_id", flat=True
                 )
             )
 
             for rj in remote_jobs:
-                job_id = rj.get("job_id") or rj.get("id")
-                if not job_id or job_id in existing_job_ids:
+                job_id = str(rj.get("job_id") or rj.get("id") or "")
+                if not job_id:
+                    continue
+                
+                # Check for existing match (exact or substring)
+                already_exists = False
+                for ex_id in existing_job_ids:
+                    if job_id in str(ex_id) or str(ex_id) in job_id:
+                        already_exists = True
+                        break
+                
+                if already_exists:
                     continue
                 
                 status = str(rj.get("status") or rj.get("state") or "RUNNING").upper()

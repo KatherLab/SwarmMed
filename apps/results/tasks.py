@@ -73,16 +73,20 @@ def sync_project_results(project_uuid):
     log = logger.get_logger()
     try:
         # Step 1: Trigger training job monitoring to ensure local results are
-        # uploaded.
+        # uploaded and discovered.
         log.results.info(
             f"Running monitor_training_jobs before sync for {project_uuid}"
         )
-        monitor_training_jobs()
+        try:
+            monitor_training_jobs()
+        except Exception as e:
+            log.results.warning(f"monitor_training_jobs failed during results sync: {e}")
 
         project = Project.objects.get(identifier=project_uuid)
         log.results.info(f"Starting results sync for project {project_uuid}")
 
         # Pre-compute job UUID -> TrainingJob mapping once.
+        # We refresh this AFTER monitor_training_jobs to include discovered jobs.
         job_lookup: dict[str, TrainingJob] = {}
         for job in TrainingJob.objects.filter(project=project).only(
             "id", "flare_job_id", "project"
@@ -126,7 +130,7 @@ def sync_project_results(project_uuid):
 
                 job = job_lookup.get(job_id_from_s3_key)
                 if not job:
-                    # Backward-compatible fallback (rare): try icontains once.
+                    # Try icontains once.
                     job = (
                         TrainingJob.objects.filter(
                             project=project,
@@ -135,6 +139,24 @@ def sync_project_results(project_uuid):
                         .only("id", "flare_job_id", "project")
                         .first()
                     )
+                    
+                    if not job:
+                        # Create a skeleton job for orphans found in S3
+                        from network.models import SwarmNetwork
+                        # Use the most recent network for this project if any, or skip
+                        network = SwarmNetwork.objects.filter(project=project).order_by("-created_at").first()
+                        if network:
+                            job = TrainingJob.objects.create(
+                                project=project,
+                                network=network,
+                                flare_job_id=job_id_from_s3_key,
+                                status="COMPLETED",
+                                completed_at=last_modified
+                            )
+                            job_lookup[job_id_from_s3_key] = job
+                            log.results.info(f"Created skeleton TrainingJob for orphaned results: {job_id_from_s3_key}")
+                        else:
+                            continue
 
                 if job:
                     # Step 3: Create or update the TrainingResult record.
@@ -148,6 +170,16 @@ def sync_project_results(project_uuid):
                     )
                     if not created:
                         # Update metadata if the file changed.
+                        if tr.file_size != obj.get("Size", 0):
+                            tr.file_size = obj.get("Size", 0)
+                            tr.created_at = last_modified
+                            tr.save(update_fields=["file_size", "created_at"])
+    except Exception as e:
+        log.results.error(
+            f"Results sync failed for project {project_uuid}: {e}",
+            extra=format_exception(e),
+        )
+
                         if tr.file_size != obj.get("Size", 0):
                             tr.file_size = obj.get("Size", 0)
                             tr.save(update_fields=["file_size"])

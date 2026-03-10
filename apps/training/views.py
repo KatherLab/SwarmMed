@@ -1253,21 +1253,41 @@ def stop_training(request, network_id):
 def training_status_api(request):
     current_network = SwarmNetwork.resolve_current(request.user)
     if not current_network: return JsonResponse({"status": "no_network"})
+    
     job = TrainingJob.objects.filter(network=current_network).order_by("-created_at").first()
     nvflare_status = _nvflare_status_payload(current_network)
+    
     if nvflare_status and nvflare_status.get("job_id"):
         status_map = {"RUNNING": "RUNNING", "COMPLETED": "COMPLETED", "STOPPED": "STOPPED", "FAILED": "FAILED"}
         status_key = str(nvflare_status.get("status", "")).upper().strip()
         mapped_status = status_map.get(status_key)
+        
         if mapped_status:
-            mirror_job = TrainingJob.objects.filter(network=current_network, flare_job_id=str(nvflare_status.get("job_id"))).order_by("-created_at").first()
+            job_id_to_match = str(nvflare_status.get("job_id"))
+            
+            # Match existing job by exact ID or substring (to handle 'Submitted job:' prefix)
+            mirror_job = TrainingJob.objects.filter(
+                network=current_network
+            ).filter(
+                models.Q(flare_job_id=job_id_to_match) | 
+                models.Q(flare_job_id__icontains=job_id_to_match) |
+                models.Q(flare_job_id__endswith=job_id_to_match)
+            ).order_by("-created_at").first()
+            
             if not mirror_job:
-                mirror_job = TrainingJob.objects.create(project=current_network.project, network=current_network, status=mapped_status, flare_job_id=str(nvflare_status.get("job_id")))
+                mirror_job = TrainingJob.objects.create(
+                    project=current_network.project, 
+                    network=current_network, 
+                    status=mapped_status, 
+                    flare_job_id=job_id_to_match
+                )
             elif mirror_job.status != mapped_status:
                 mirror_job.status = mapped_status
                 if mapped_status in {"COMPLETED", "STOPPED", "FAILED"}: mirror_job.completed_at = timezone.now()
                 mirror_job.save(update_fields=["status", "completed_at"])
-            if not job or mirror_job.created_at >= job.created_at: job = mirror_job
+            
+            if not job or (mirror_job and mirror_job.created_at >= job.created_at): 
+                job = mirror_job
 
     if not job:
         if nvflare_status: return JsonResponse(nvflare_status)
