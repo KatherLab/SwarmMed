@@ -129,13 +129,19 @@ def sync_project_results(project_uuid):
                 job_id_from_s3_key = parts[2]
                 last_modified = obj.get("LastModified")
 
-                job = job_lookup.get(job_id_from_s3_key)
+                # Normalize the ID from S3 (it should be a UUID)
+                normalized_s3_uuid = job_id_from_s3_key
+                m_s3 = _UUID_RE.search(job_id_from_s3_key)
+                if m_s3:
+                    normalized_s3_uuid = m_s3.group(1)
+
+                job = job_lookup.get(normalized_s3_uuid)
                 if not job:
-                    # Try icontains once.
+                    # Try icontains once with the normalized UUID
                     job = (
                         TrainingJob.objects.filter(
                             project=project,
-                            flare_job_id__icontains=job_id_from_s3_key,
+                            flare_job_id__icontains=normalized_s3_uuid,
                         )
                         .only("id", "flare_job_id", "project")
                         .first()
@@ -150,12 +156,12 @@ def sync_project_results(project_uuid):
                             job = TrainingJob.objects.create(
                                 project=project,
                                 network=network,
-                                flare_job_id=job_id_from_s3_key,
+                                flare_job_id=normalized_s3_uuid, # Use normalized UUID
                                 status="COMPLETED",
                                 completed_at=last_modified
                             )
-                            job_lookup[job_id_from_s3_key] = job
-                            log.results.info(f"Created skeleton TrainingJob for orphaned results: {job_id_from_s3_key}")
+                            job_lookup[normalized_s3_uuid] = job
+                            log.results.info(f"Created skeleton TrainingJob for orphaned results: {normalized_s3_uuid}")
                         else:
                             continue
 
