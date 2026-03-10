@@ -26,12 +26,13 @@ from project.models import UserCurrentProject
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .provision import generate_flare_startup_kit, is_valid_ip
 from .tasks import start_swarm_network_task, stop_swarm_network_task
-from common.utils import (
+from .utils import (
+    create_startup_kits_zip,
     get_hostname,
-    get_safe_slug,
     get_tailscale_ip,
     is_tailscale_connected,
 )
+from common.utils import get_safe_slug
 
 
 def get_user_project(request):
@@ -51,6 +52,15 @@ def get_user_project(request):
         return str(user_current_project.project.identifier), True
     except UserCurrentProject.DoesNotExist:
         return None, False
+
+
+def _dedupe_keep_order(values):
+    deduped = []
+    for value in values:
+        if value in deduped:
+            continue
+        deduped.append(value)
+    return deduped
 
 
 @login_required
