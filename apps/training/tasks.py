@@ -209,23 +209,40 @@ def monitor_training_jobs():
 
             # Step 4: If the job is complete, upload participant results to S3.
             if ended:
-                # To avoid redundant uploads, check if we've already synced successfully
-                # Or just let S3 handle the overwrite if needed.
                 log.training.info(
                     f"Job {job.identifier} ({flare_job_uuid}) is terminal. Checking for results sync..."
                 )
 
                 found_folders = []
-                for participant in os.listdir(workspace_base):
-                    p_path = os.path.join(workspace_base, participant)
-                    if os.path.isdir(p_path) and participant.lower() not in ["admin", "overseer"]:
-                        job_p_path = os.path.join(p_path, flare_job_uuid)
-                        if os.path.exists(job_p_path):
-                            found_folders.append((participant, job_p_path))
+                
+                # NVFlare 2.7.1 structure: prod_00/<job_uuid>/app_<participant_name>/
+                job_root = os.path.join(workspace_base, flare_job_uuid)
+                if os.path.exists(job_root):
+                    for item in os.listdir(job_root):
+                        if item.startswith("app_"):
+                            participant = item[4:] # Strip 'app_'
+                            if participant.lower() not in ["admin", "overseer", "server"]:
+                                local_path = os.path.join(job_root, item)
+                                found_folders.append((participant, local_path))
+                        elif item.lower() == "app_server":
+                            # Server also has aggregated results
+                            local_path = os.path.join(job_root, item)
+                            found_folders.append(("server", local_path))
+
+                # Fallback to old structure: prod_00/<participant>/<job_uuid>/
+                if not found_folders:
+                    for participant in os.listdir(workspace_base):
+                        p_path = os.path.join(workspace_base, participant)
+                        if os.path.isdir(p_path) and participant.lower() not in ["admin", "overseer"]:
+                            job_p_path = os.path.join(p_path, flare_job_uuid)
+                            if os.path.exists(job_p_path):
+                                found_folders.append((participant, job_p_path))
 
                 if found_folders:
                     log.training.info(f"Found {len(found_folders)} result folders for upload.")
                     for participant, local_path in found_folders:
+                        # Ensure we don't upload the 'startup' folder inside result apps
+                        # S3 path structure: <project>/results/<job_uuid>/<client_name>/
                         s3_prefix = f"{project_id}/results/{flare_job_uuid}/{participant}"
                         upload_folder_to_s3(settings.AWS_STORAGE_BUCKET_NAME, local_path, s3_prefix)
 
@@ -235,6 +252,8 @@ def monitor_training_jobs():
                         job.progress_percent = 100
                         job.save(update_fields=["status", "completed_at", "progress_percent"])
                     log.training.info(f"Job {job.identifier} successfully synced to S3.")
+                else:
+                    log.training.debug(f"No result folders found for {flare_job_uuid} in {workspace_base}")
 
         except Exception as e:
             log.training.error(
