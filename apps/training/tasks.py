@@ -73,6 +73,7 @@ def monitor_training_jobs():
                 startup_kit_location=admin_dir,
                 host=server_ip,
                 timeout=10.0,
+                network_id=network.identifier
             )
             
             response = sess.api.do_command("list_jobs")
@@ -137,6 +138,7 @@ def monitor_training_jobs():
                             startup_kit_location=admin_dir,
                             host=server_ip,
                             timeout=10.0,
+                            network_id=job.network.identifier
                         )
                         resp = sess.api.do_command(f"list_jobs {flare_job_uuid}")
                         rjobs = _parse_nvflare_jobs(resp)

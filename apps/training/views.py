@@ -483,7 +483,7 @@ def _parse_nvflare_clients(response) -> list[str]:
     return _dedupe_keep_order(clients)
 
 
-def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0):
+def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0, network_id=None):
     from nvflare.fuel.flare_api.flare_api import Session
     canonical_host = ""
     admin_port = 0
@@ -514,17 +514,21 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
     admin_port = admin_port if admin_port > 0 else 8003
 
     requested_host = (host or "").strip()
-    ip_candidates = _dedupe_keep_order([
-        c for c in [canonical_host, requested_host, "127.0.0.1", "localhost"]
-        if c
-    ])
+    ip_candidates = [canonical_host, requested_host]
+    
+    if network_id:
+        short_id = str(network_id)[:12]
+        ip_candidates.append(f"swarm-{short_id}-server")
+    
+    ip_candidates.extend(["172.17.0.1", "host.docker.internal", "127.0.0.1", "localhost"])
+    ip_candidates = _dedupe_keep_order([c for c in ip_candidates if c])
 
     _ensure_grpc_ssl_patched(canonical_host)
 
     reachable: set = set()
     for _ip in ip_candidates:
         try:
-            with socket.create_connection((_ip, admin_port), timeout=2.0):
+            with socket.create_connection((_ip, admin_port), timeout=1.0):
                 reachable.add(_ip)
         except Exception:
             pass
@@ -646,7 +650,8 @@ def _nvflare_status_payload(current_network):
             username=admin_name, 
             startup_kit_location=admin_dir,
             host=server_ip,
-            timeout=5.0
+            timeout=5.0,
+            network_id=current_network.identifier
         )
         response = sess.api.do_command("list_jobs")
         try:
@@ -1138,7 +1143,7 @@ def start_training(request, network_id):
 
         _log_flare_pre_submit_diagnostics(log=log, username=admin_username, startup_kit_location=admin_session_dir, requested_host=server_ip)
 
-        sess = new_secure_session_with_host(username=admin_username, startup_kit_location=admin_session_dir, host=server_ip, timeout=submit_connect_timeout)
+        sess = new_secure_session_with_host(username=admin_username, startup_kit_location=admin_session_dir, host=server_ip, timeout=submit_connect_timeout, network_id=network.identifier)
 
         # Dynamic client discovery if local methods yielded nothing or generic defaults
         if not client_names or set(client_names).issubset({"fl-client-1", "fl-client-2"}):
@@ -1218,7 +1223,7 @@ def stop_training(request, network_id):
             return redirect("training:training")
 
         admin_username, admin_user_dir, server_ip = admin_target
-        sess = new_secure_session_with_host(username=admin_username, startup_kit_location=admin_user_dir, host=server_ip)
+        sess = new_secure_session_with_host(username=admin_username, startup_kit_location=admin_user_dir, host=server_ip, network_id=network.identifier)
         job_uuid = str(job.flare_job_id)
         match = re.search(r"([0-9a-f-]{36})", job_uuid)
         if match: job_uuid = match.group(1)
