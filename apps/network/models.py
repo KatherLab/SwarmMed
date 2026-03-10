@@ -182,6 +182,12 @@ class SwarmParticipant(models.Model):
         help_text="Unique identifier used by FLARE (e.g., 'server', 'client-1')",
     )
 
+    # Organization name
+    org = models.CharField(max_length=255, blank=True, null=True)
+
+    # IP address or hostname
+    ip = models.CharField(max_length=255, blank=True, null=True)
+
     class Meta:
         # Ensure that participant IDs are unique within a specific network
         unique_together = ("network", "participant_id")

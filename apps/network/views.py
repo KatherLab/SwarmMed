@@ -134,18 +134,15 @@ def network(request):
                         status = "Online" # Fallback if we can't check docker
                 else:
                     # Heuristic: check server logs for various "joined" markers
-                    # NVFlare 2.7.1 log patterns:
-                    # - "registered client <name>"
-                    # - "client: <name> joined"
-                    # - "client <name> connected"
-                    # - "received register request from <name>"
+                    # Ensure name is lowered for matching with server_logs.lower()
+                    lname = name.lower()
                     joined_markers = [
-                        f"client: {name} joined",
-                        f"registered client {name}",
-                        f"client {name} connected",
-                        f"received register request from {name}",
-                        f"starting communication with client {name}",
-                        f"new client {name} connected"
+                        f"client: {lname} joined",
+                        f"registered client {lname}",
+                        f"client {lname} connected",
+                        f"received register request from {lname}",
+                        f"starting communication with client {lname}",
+                        f"new client {lname} connected"
                     ]
                     
                     is_joined = any(marker in server_logs for marker in joined_markers)
@@ -153,16 +150,28 @@ def network(request):
                     if is_joined:
                         # Check for disconnection markers that might have appeared AFTER join
                         disconnected_markers = [
-                            f"client {name} disconnected",
-                            f"client: {name} left",
-                            f"removed client {name}"
+                            f"client {lname} disconnected",
+                            f"client: {lname} left",
+                            f"removed client {lname}"
                         ]
                         is_disconnected = any(marker in server_logs for marker in disconnected_markers)
                         
-                        # Note: Simple grep might be fooled by old logs, but it's better than nothing
-                        # without the Admin API.
-                        if is_disconnected and server_logs.rfind(name + " joined") < server_logs.rfind(name + " disconnected"):
-                             status = "Disconnected"
+                        if is_disconnected:
+                             # Simple attempt to see which event is more recent
+                             idx_joined = -1
+                             for m in joined_markers:
+                                 idx = server_logs.rfind(m)
+                                 if idx > idx_joined: idx_joined = idx
+                             
+                             idx_dis = -1
+                             for m in disconnected_markers:
+                                 idx = server_logs.rfind(m)
+                                 if idx > idx_dis: idx_dis = idx
+                                 
+                             if idx_dis > idx_joined:
+                                 status = "Disconnected"
+                             else:
+                                 status = "Joined"
                         else:
                              status = "Joined"
                     else:
@@ -178,10 +187,8 @@ def network(request):
                 "name": name,
                 "role": p.get_role_display(),
                 "status": status,
-                # Org and IP are optional metadata, we can try to fetch if we had them in DB
-                # or just use placeholders for now since they aren't in the model.
-                "org": "-", 
-                "ip": "-",
+                "org": p.org or "-", 
+                "ip": p.ip or "-",
             })
 
     context = {
@@ -282,6 +289,8 @@ def new_network(request):
                 user=request.user,
                 role="SERVER",
                 participant_id="server",
+                org="swarm_control_plane",
+                ip=server_ip,
             )
             for client_data in clients:
                 SwarmParticipant.objects.create(
@@ -289,6 +298,8 @@ def new_network(request):
                     user=request.user,
                     role="CLIENT",
                     participant_id=client_data["name"],
+                    org=f"org_{client_data['name'].replace('-', '_')}",
+                    ip=client_data["ip"],
                 )
 
             log.network.info(
