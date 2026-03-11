@@ -804,7 +804,7 @@ def download_startup_kits(request, network_id):
     packages them into a ZIP file, and returns it as a download.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    log = get_logger(user=request.user, project=swarm_network.project)
 
     log.network.info(
         f"User downloaded startup kits for network '{swarm_network.name}' (ID: {swarm_network.identifier})"
@@ -841,7 +841,7 @@ def start_swarm_network(request, network_id):
     using containerized deployment.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    log = get_logger(user=request.user, project=swarm_network.project)
 
     log.network.info(
         f"Starting swarm network '{swarm_network.name}' (ID: {swarm_network.identifier})."
@@ -863,7 +863,7 @@ def stop_swarm_network(request, network_id):
     network containers from containerized deployment.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    log = get_logger(user=request.user, project=swarm_network.project)
 
     log.network.info(
         f"Stopping swarm network '{swarm_network.name}' (ID: {swarm_network.identifier})."
@@ -897,7 +897,7 @@ def delete_swarm_network(request, network_id):
     Only the project author is permitted to delete networks.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    log = logger.get_logger(user=request.user, project=swarm_network.project)
+    log = get_logger(user=request.user, project=swarm_network.project)
 
     if swarm_network.project.author == request.user:
         # If the network is currently active, inform the user about the shutdown phase
