@@ -163,15 +163,27 @@ def _get_local_participant_status(swarm_network):
                 last_cn_closed_idx = -1
                 for cn_id, p_id in conn_map.items():
                     if p_id == lname:
-                        # Find indices in log for this specific ID
-                        j_idx = server_logs.rfind(f"connection [{cn_id}")
-                        if j_idx > last_cn_joined_idx:
-                            last_cn_joined_idx = j_idx
-                        
+                        # Find the position of the CREATION event for this CN ID.
+                        # We must NOT use rfind(cn_id prefix) because the closure line
+                        # ("connection [cnXXXXX not connected] is closed") also starts with
+                        # the same prefix and appears LATER in the log — rfind would return
+                        # the closure position for BOTH j_idx and c_idx, making them equal
+                        # and causing idx_dis > idx_joined to always be False (→ stuck "Joined").
+                        # Instead, use distinct regex patterns that unambiguously target each event.
+                        for m in re.finditer(
+                            rf"connection \[{re.escape(cn_id)}[^\]]*\] is created",
+                            server_logs,
+                        ):
+                            if m.start() > last_cn_joined_idx:
+                                last_cn_joined_idx = m.start()
+
                         if cn_id in closed_conns:
-                            c_idx = server_logs.rfind(f"connection [{cn_id}")
-                            if c_idx > last_cn_closed_idx:
-                                last_cn_closed_idx = c_idx
+                            for m in re.finditer(
+                                rf"connection \[{re.escape(cn_id)}[^\]]*\] is closed",
+                                server_logs,
+                            ):
+                                if m.start() > last_cn_closed_idx:
+                                    last_cn_closed_idx = m.start()
 
                 is_joined = any(marker in server_logs for marker in joined_markers) or (last_cn_joined_idx > -1)
                 
