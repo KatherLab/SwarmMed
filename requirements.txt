@@ -41,6 +41,16 @@ torch==2.9.0
 tensorflow==2.16.1
 keras==3.13.0
 
+# Added frameworks for Swarm Learning
+pytorch-lightning
+fastai
+transformers
+datasets
+monai
+xgboost
+lightgbm
+catboost
+
 # Nvidia Flare
 nvflare==2.7.1
 docker==7.1.0

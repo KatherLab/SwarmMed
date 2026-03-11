@@ -1138,7 +1138,8 @@ def start_training(request, network_id):
                     mod = (node.module or "").split(".")[0].strip()
                     if mod: imported_modules.add(mod)
             if imported_modules.intersection({"tensorflow", "keras"}): framework = "tf"
-            elif imported_modules.intersection({"torch", "pytorch_lightning"}): framework = "pt"
+            elif imported_modules.intersection({"torch", "pytorch_lightning", "lightning", "fastai", "transformers", "monai"}): framework = "pt"
+            elif imported_modules.intersection({"xgboost", "lightgbm", "catboost"}): framework = "np"
             elif "sklearn" in imported_modules: framework = "np"
         except SyntaxError:
             if "tensorflow" in script_text.lower() or "keras" in script_text.lower(): framework = "tf"
