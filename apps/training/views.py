@@ -1351,7 +1351,7 @@ def training_status_api(request):
     docker_results = scrape_docker_progress(participant_ids=participant_ids)
     
     if docker_results:
-        logger.training.debug(f"StatusAPI: Docker scraping found {len(docker_results)} results")
+        logger.training.debug(f"StatusAPI: Docker scraping found {len(docker_results)} results: {docker_results}")
         for res in docker_results:
             job_id = res["job_id"]
             # If we can't find a job ID in logs, try to match with the most recent job in DB
@@ -1359,7 +1359,7 @@ def training_status_api(request):
                 job_id = job.flare_job_id
             
             if job_id:
-                logger.training.debug(f"StatusAPI: Processing docker result for job_id {job_id}")
+                logger.training.debug(f"StatusAPI: Processing docker result for job_id {job_id} (rounds: {res['rounds_finished']}, ended: {res['ended']})")
                 # Find or create mirror job in local database
                 l_job = TrainingJob.objects.filter(network=current_network, flare_job_id=job_id).first()
                 if not l_job:

@@ -67,16 +67,17 @@ def scrape_docker_progress(participant_ids=None):
         re.compile(r"Start aggregation for round\s+(\d+)", re.I),
     ]
     # Match UUIDs (36 chars) after common prefixes
-    job_id_pattern = re.compile(r"(?:Got job|Local Job ID|Deploying job|job_id|job):\s*([0-9a-f-]{36})", re.I)
-    completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished"]
+    # Added 'run' variants common in SwarmClientController logs
+    job_id_pattern = re.compile(r"(?:Got job|Local Job ID|Deploying job|job_id|job|run|run\s*\(|run[:=])\s*[:=]?\s*([0-9a-f-]{36})", re.I)
+    completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished", "Swarm Learning Done"]
 
     for container in candidates:
         try:
             log.training.debug(f"Scrape: Fetching logs for container: {container}")
-            # Get last 1000 lines of logs
+            # Get last 2000 lines of logs for more context
             # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
             log_result = subprocess.run(  # nosec B603
-                [docker_path, "logs", "--tail", "1000", container],
+                [docker_path, "logs", "--tail", "2000", container],
                 capture_output=True, text=True, check=False
             )
             logs = (log_result.stdout or "") + (log_result.stderr or "")
