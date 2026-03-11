@@ -67,14 +67,12 @@ def main(project_id: str):
             predictions = [round(value) for value in preds]
             accuracy = accuracy_score(y_test, predictions)
 
-            # Send model booster as binary/json
-            # Send results
-            # XGBBaggingAggregator expects "model_data" key for the booster.
-            bst_bytes = bst.save_raw()
+            # XGBBaggingAggregator expects "model_data" as a JSON string (json.loads-compatible).
+            # save_raw(raw_format='json') returns numpy uint8 array; decode to UTF-8 string.
+            bst_json_str = bytes(bst.save_raw(raw_format='json')).decode('utf-8')
 
-            # Send results
             flare_adapter.send_model(
-                params={"model_data": bst_bytes},
+                params={"model_data": bst_json_str},
                 metrics={"accuracy": float(accuracy)}
             )
 if __name__ == "__main__":

@@ -335,6 +335,11 @@ def _ensure_transportable(params: dict):
             converted[k] = v.detach().cpu()
         elif hasattr(v, "numpy"):  # Handle TensorFlow/Keras tensors
             converted[k] = v.numpy()
+        elif isinstance(v, (str, bytes, bytearray)):
+            # Pass JSON strings / raw bytes through unchanged so that
+            # aggregators like XGBBaggingAggregator can call json.loads()
+            # on them without receiving a numpy array.
+            converted[k] = v
         else:
             converted[k] = np.array(v)
     return converted
