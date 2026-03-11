@@ -126,6 +126,7 @@ def generate_flare_startup_kit(
     client_admin_map = {}
     client_server_map = {}
     local_client_names = []
+    prepared_clients = []
 
     if local_test:
         # Local test mode: add generic clients for testing on a single machine
@@ -138,12 +139,18 @@ def generate_flare_startup_kit(
                 "admin_port": 8003,
             }
         )
-        participants.extend(
-            [
-                {"name": "fl-client-1", "type": "client", "org": "nvidia"},
-                {"name": "fl-client-2", "type": "client", "org": "nvidia"},
-            ]
-        )
+        test_clients = [
+            {"name": "fl-client-1", "type": "client", "org": "nvidia"},
+            {"name": "fl-client-2", "type": "client", "org": "nvidia"},
+        ]
+        participants.extend(test_clients)
+        # Initialize prepared_clients for metadata distribution
+        for c in test_clients:
+            prepared_clients.append({
+                "name": c["name"],
+                "ip": "127.0.0.1",
+                "org": c["org"]
+            })
     else:
         # Real deployment:
         # 1) sanitize client list
