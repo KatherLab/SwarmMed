@@ -3,12 +3,12 @@ numpy
 scikit-learn
 #torch
 #pytorch-lightning
-#fastai
+fastai
 #transformers
 #datasets
 #monai
 #xgboost
 #lightgbm
 #catboost
-tensorflow
-keras
+#tensorflow
+#keras

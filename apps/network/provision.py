@@ -277,6 +277,8 @@ def generate_flare_startup_kit(
         rf.write("python-dotenv\n")
         rf.write("pandas\n")
         rf.write("numpy\n")
+        rf.write("pytorch\n")
+        rf.write("scikit-learn\n")
 
         # Collect additional requirements from supported sources in S3.
         # Source 1: project.requirements_file (explicit upload in Project settings)
