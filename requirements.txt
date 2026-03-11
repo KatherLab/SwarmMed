@@ -52,3 +52,4 @@ xgboost
 nvflare==2.7.1
 docker==7.1.0
 cryptography>=44.0.0
+ray[data]==2.43.0
