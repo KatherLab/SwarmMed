@@ -36,7 +36,7 @@ from .utils import (
 from common.utils import get_safe_slug
 
 # Standard project-wide logger initialization
-_logger = get_logger()
+logger = get_logger()
 
 
 def get_user_project(request):
