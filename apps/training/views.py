@@ -1185,25 +1185,17 @@ def start_training(request, network_id):
         executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
 
         # Select appropriate persistor based on framework
-        # NOTE: PTFileModelPersistor is used for PT, TF, and NP because it is the most flexible 
+        # NOTE: PTFileModelPersistor is used for PT, TF, XGB and NP because it is the most flexible 
         # standard persistor in NVFlare that handles dictionaries of arrays without requiring 
         # a model instance (which we don't have on the server side).
-        if framework == "xgb":
-            try:
-                from nvflare.app_opt.xgboost.tree_based.model_persistor import XGBModelPersistor
-                persistor = XGBModelPersistor()
-            except (ModuleNotFoundError, ImportError):
-                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-                persistor = NPModelPersistor()
-        else:
-            # pt, tf, np all use PTFileModelPersistor for maximum flexibility with weight dicts.
-            # This avoids 'numpy_key' errors in Scikit-learn and missing 'model' arg in TensorFlow.
-            try:
-                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
-                persistor = PTFileModelPersistor()
-            except (ModuleNotFoundError, ImportError):
-                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-                persistor = NPModelPersistor()
+        # We previously used XGBModelPersistor for XGB, but it has a dependency on NUM_ROUNDS 
+        # in fl_ctx that can cause TypeErrors in Swarm Workflows.
+        try:
+            from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
+            persistor = PTFileModelPersistor()
+        except (ModuleNotFoundError, ImportError):
+            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+            persistor = NPModelPersistor()
 
         if framework == "tf":
             try:

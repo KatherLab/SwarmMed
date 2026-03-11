@@ -68,15 +68,14 @@ def main(project_id: str):
             accuracy = accuracy_score(y_test, predictions)
 
             # Send model booster as binary/json
-            # Note: flare_adapter.send_model expects a dict of numpy-like arrays.
-            # We'll save the booster to a temporary file and read it back as bytes/numpy.
-            bst_json = bst.save_config()
-            
+            # Send results
+            # XGBBaggingAggregator expects "model_data" key for the booster.
+            bst_bytes = bst.save_raw()
+
             # Send results
             flare_adapter.send_model(
-                params={"booster_config": bst_json},
+                params={"model_data": bst_bytes},
                 metrics={"accuracy": float(accuracy)}
             )
-
 if __name__ == "__main__":
     main(project_id="default_project")
