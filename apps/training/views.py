@@ -881,6 +881,8 @@ def get_training_progress_info(training_job, current_network):
                 re.compile(r"Round\s+(\d+)\s+\|", re.I),
                 re.compile(r"Round:\s+(\d+)", re.I),
                 re.compile(r"finished training round\s+(\d+)", re.I),
+                re.compile(r"number of rounds completed\s+(\d+)", re.I),
+                re.compile(r"Start aggregation for round\s+(\d+)", re.I),
             ]
 
             def scan_log_tail(fpath: str) -> None:
@@ -888,8 +890,8 @@ def get_training_progress_info(training_job, current_network):
                 data = _tail_text(fpath, max_bytes=512 * 1024)
                 if not data: return
                 
-                completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!"]
-                if any(m in data for m in completion_markers):
+                completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished", "Swarm Learning Done"]
+                if any(m.lower() in data.lower() for m in completion_markers):
                     ended = True
                 
                 for pattern in round_patterns:
