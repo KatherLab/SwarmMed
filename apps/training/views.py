@@ -31,13 +31,24 @@ from .utils import download_s3_folder
 logger = get_logger()
 
 
-@login_required
 def training_api_state(request, network_id):
     """
     Internal API: Returns the latest training job state from this node.
     Used by client nodes to mirror the server node's training state.
+    Authenticated via the shared gossip token (X-Gossip-Token header).
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
+
+    # Authenticate inter-node requests using the shared gossip token.
+    # Fall back to session auth so the endpoint still works for logged-in users
+    # (e.g. browser-based debugging).
+    provided_token = request.headers.get("X-Gossip-Token")
+    if provided_token:
+        if not network.gossip_token or provided_token != network.gossip_token:
+            return JsonResponse({"error": "Unauthorized"}, status=403)
+    elif not request.user.is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
     job = TrainingJob.objects.filter(network=network).order_by("-created_at").first()
     
     if not job:
@@ -1334,7 +1345,8 @@ def training_status_api(request):
     if not is_server_node and server_node and server_node.ip and server_node.ip != "-":
         try:
             state_url = f"https://{server_node.ip}:5085/training/api/state/{current_network.identifier}/"
-            resp = requests.get(state_url, timeout=2, verify=False)
+            headers = {"X-Gossip-Token": current_network.gossip_token} if current_network.gossip_token else {}
+            resp = requests.get(state_url, timeout=2, verify=False, headers=headers)
             if resp.status_code == 200:
                 remote_job = resp.json().get("job")
                 if remote_job:
