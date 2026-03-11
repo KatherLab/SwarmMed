@@ -288,23 +288,11 @@ def generate_flare_startup_kit(
         if network.project.requirements_file:
             requirement_sources.append(network.project.requirements_file.name)
 
-        # Robust Discovery: search for any .txt file with 'requirements' in the name within code folders
-        try:
-            prefixes = [
-                f"{network.project.identifier}/code/requirements/",
-                f"{network.project.identifier}/code/training/",
-            ]
-            for prefix in prefixes:
-                response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
-                for obj in response.get("Contents", []):
-                    key = obj.get("Key", "")
-                    if key.lower().endswith(".txt") and "requirements" in key.lower():
-                        requirement_sources.append(key)
-        except Exception as e:
-            logger.network.debug(f"S3 requirements discovery skipped or failed: {e}")
-
-        # Ensure we have unique sources
-        requirement_sources = sorted(list(set(requirement_sources)))
+        training_requirements_key = (
+            f"{network.project.identifier}/code/training/requirements.txt"
+        )
+        if training_requirements_key not in requirement_sources:
+            requirement_sources.append(training_requirements_key)
 
         safe_lines = []
         seen_requirements = set()
