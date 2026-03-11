@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
 from monai.networks.nets import DenseNet121
-from monai.transforms import Compose, AddChannel, ScaleIntensity, ToTensor, RandRotate, RandFlip
+from monai.transforms import Compose, EnsureChannelFirst, ScaleIntensity, ToTensor, RandRotate, RandFlip
 import flare_adapter
 
 # --- 1. Dataset Class (Simulated Medical Imaging) ---
@@ -40,7 +40,7 @@ def main(project_id: str):
 
     # MONAI Transforms
     train_transforms = Compose([
-        AddChannel(),
+        EnsureChannelFirst(channel_dim='no_channel'),
         ScaleIntensity(),
         RandRotate(range_x=15, prob=0.5),
         RandFlip(spatial_axis=0, prob=0.5),

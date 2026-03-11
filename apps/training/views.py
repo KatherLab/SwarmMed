@@ -1138,8 +1138,9 @@ def start_training(request, network_id):
                     mod = (node.module or "").split(".")[0].strip()
                     if mod: imported_modules.add(mod)
             if imported_modules.intersection({"tensorflow", "keras"}): framework = "tf"
-            elif imported_modules.intersection({"torch", "pytorch_lightning", "lightning", "fastai", "transformers", "monai"}): framework = "pt"
-            elif imported_modules.intersection({"xgboost", "lightgbm", "catboost"}): framework = "np"
+            elif imported_modules.intersection({"torch", "pytorch_lightning", "lightning", "transformers", "monai"}): framework = "pt"
+            elif imported_modules.intersection({"xgboost"}): framework = "xgb"
+            elif imported_modules.intersection({"sklearn", "numpy", "pandas"}): framework = "np"
             elif "sklearn" in imported_modules: framework = "np"
         except SyntaxError:
             if "tensorflow" in script_text.lower() or "keras" in script_text.lower(): framework = "tf"
@@ -1179,38 +1180,65 @@ def start_training(request, network_id):
         from nvflare.app_common.aggregators.intime_accumulate_model_aggregator import InTimeAccumulateWeightedAggregator
         from nvflare.app_common.ccwf.comps.simple_model_shareable_generator import SimpleModelShareableGenerator
 
+        # Set default executor
+        from nvflare.app_common.executors.in_process_client_api_executor import InProcessClientAPIExecutor
+        executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
+
+        # Select appropriate persistor based on framework
+        # NOTE: PTFileModelPersistor is used for PT, TF, and NP because it is the most flexible 
+        # standard persistor in NVFlare that handles dictionaries of arrays without requiring 
+        # a model instance (which we don't have on the server side).
+        if framework == "xgb":
+            try:
+                from nvflare.app_opt.xgboost.tree_based.model_persistor import XGBModelPersistor
+                persistor = XGBModelPersistor()
+            except (ModuleNotFoundError, ImportError):
+                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+                persistor = NPModelPersistor()
+        else:
+            # pt, tf, np all use PTFileModelPersistor for maximum flexibility with weight dicts.
+            # This avoids 'numpy_key' errors in Scikit-learn and missing 'model' arg in TensorFlow.
+            try:
+                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
+                persistor = PTFileModelPersistor()
+            except (ModuleNotFoundError, ImportError):
+                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+                persistor = NPModelPersistor()
+
         if framework == "tf":
-            from nvflare.app_opt.tf.in_process_client_api_executor import TFInProcessClientAPIExecutor
-            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-            executor = TFInProcessClientAPIExecutor(task_script_path="custom/training.py")
-            persistor = NPModelPersistor()
+            try:
+                from nvflare.app_opt.tf.in_process_client_api_executor import TFInProcessClientAPIExecutor
+                executor = TFInProcessClientAPIExecutor(task_script_path="custom/training.py")
+            except (ModuleNotFoundError, ImportError):
+                pass
         elif framework == "pt":
             use_pt_executor = os.getenv("SWARMCLOUD_ENABLE_PT_EXECUTOR", "").strip().lower() in {"1", "true", "yes", "on"}
             if use_pt_executor:
                 try:
                     from nvflare.app_opt.pt.in_process_client_api_executor import PTInProcessClientAPIExecutor
-                    from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
                     executor = PTInProcessClientAPIExecutor(task_script_path="custom/training.py")
-                    persistor = PTFileModelPersistor()
-                except ModuleNotFoundError:
-                    from nvflare.app_common.executors.in_process_client_api_executor import InProcessClientAPIExecutor
-                    from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-                    executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
-                    persistor = NPModelPersistor()
-            else:
-                from nvflare.app_common.executors.in_process_client_api_executor import InProcessClientAPIExecutor
-                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
-                executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
-                persistor = PTFileModelPersistor()
-        
-        if "persistor" not in locals():
-            from nvflare.app_common.executors.in_process_client_api_executor import InProcessClientAPIExecutor
-            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-            executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
-            persistor = NPModelPersistor()
+                except (ModuleNotFoundError, ImportError):
+                    pass
 
-        shareable_generator = SimpleModelShareableGenerator()
-        aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
+        # Select appropriate shareable generator
+        if framework == "xgb":
+            try:
+                from nvflare.app_opt.xgboost.tree_based.shareable_generator import XGBModelShareableGenerator
+                shareable_generator = XGBModelShareableGenerator()
+            except (ModuleNotFoundError, ImportError):
+                shareable_generator = SimpleModelShareableGenerator()
+        else:
+            shareable_generator = SimpleModelShareableGenerator()
+
+        # Select appropriate aggregator
+        if framework == "xgb":
+            try:
+                from nvflare.app_opt.xgboost.tree_based.bagging_aggregator import XGBBaggingAggregator
+                aggregator = XGBBaggingAggregator()
+            except (ModuleNotFoundError, ImportError):
+                aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
+        else:
+            aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
         log.training.info(f"Selected NVFlare executor: {executor.__class__.__module__}.{executor.__class__.__name__}")
 
         _log_flare_pre_submit_diagnostics(log=log, username=admin_username, startup_kit_location=admin_session_dir, requested_host=server_ip)

@@ -43,13 +43,10 @@ keras==3.13.0
 
 # Added frameworks for Swarm Learning
 pytorch-lightning
-fastai
 transformers
 datasets
 monai
 xgboost
-lightgbm
-catboost
 
 # Nvidia Flare
 nvflare==2.7.1

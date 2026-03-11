@@ -80,7 +80,7 @@ def main(project_id: str):
                 break
 
             # Load parameters into the local model
-            if input_model.params:
+            if input_model.params and "coef" in input_model.params and "intercept" in input_model.params:
                 model.coef_ = input_model.params["coef"]
                 model.intercept_ = input_model.params["intercept"]
                 print(
@@ -88,7 +88,7 @@ def main(project_id: str):
                 )
             else:
                 print(
-                    f"Starting training from scratch for round: {input_model.current_round}"
+                    f"Starting training from scratch or with incompatible global model for round: {input_model.current_round}"
                 )
 
             # 2. Local Training Steps (Incremental fit)

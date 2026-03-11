@@ -399,6 +399,18 @@ def receive_model():
     try:
         input_model = flare.receive()
         if input_model:
+            # Check for NVFlare NPModelPersistor default dummy model
+            # This happens on the first round if no initial model is provided.
+            if (
+                input_model.params
+                and "numpy_key" in input_model.params
+                and len(input_model.params) == 1
+            ):
+                print(
+                    "flare_adapter: Received default dummy model from server. Ignoring parameters for first round."
+                )
+                input_model.params = {}
+
             print(
                 "flare_adapter: Global model received for "
                 f"round {input_model.current_round}."
