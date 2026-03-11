@@ -69,11 +69,14 @@ def _dedupe_keep_order(values):
 
 def _get_local_participant_status(swarm_network):
     """
-    Heuristic to determine participant status from local server logs.
-    Only works if the server container is running on the local host.
+    Heuristic to determine participant status from local server logs and container state.
+    On a Server node, it reads server logs to find Joined/Disconnected clients.
+    On a Client node, it verifies if the local participant's container is alive.
     """
     participants = swarm_network.participants.all()
     server_logs = ""
+    local_ip = get_tailscale_ip()
+    
     if swarm_network.status == "RUNNING":
         try:
             from .tasks import _container_name_for
@@ -91,6 +94,7 @@ def _get_local_participant_status(swarm_network):
     for p in participants:
         name = p.participant_id
         role = p.role.lower()
+        is_me = (p.ip == local_ip)
         
         status = "Offline"
         if swarm_network.status == "RUNNING":
@@ -104,7 +108,8 @@ def _get_local_participant_status(swarm_network):
                     if _is_container_running(docker_path, _container_name_for(swarm_network.identifier, "server"), env):
                         status = "Online"
                 except Exception:
-                    status = "Online"
+                    # Fallback if we can't check docker directly but know we are the server
+                    if is_me: status = "Online"
             else:
                 lname = name.lower()
                 joined_markers = [
@@ -145,6 +150,19 @@ def _get_local_participant_status(swarm_network):
                              status = "Joined"
                     else:
                          status = "Joined"
+                
+                # If we don't have server logs (e.g. on a client node) or it shows offline,
+                # check if OUR local container is running.
+                if status == "Offline" and is_me:
+                    try:
+                        from .tasks import _is_container_running, _container_name_for
+                        import shutil
+                        docker_path = shutil.which("docker") or "docker"
+                        env = os.environ.copy()
+                        if _is_container_running(docker_path, _container_name_for(swarm_network.identifier, p.participant_id), env):
+                            status = "Online"
+                    except Exception:
+                        pass
         elif swarm_network.status == "STARTING":
             status = "Starting..."
         elif swarm_network.status == "ERROR":
@@ -676,6 +694,7 @@ def new_network(request):
                         # A. Recover Gossip Token
                         if ".gossip_token" in file_list:
                             swarm_network.gossip_token = zip_ref.read(".gossip_token").decode("utf-8").strip()
+                            log.network.info(f"Recovered Gossip Token for network {swarm_network.name}")
                         
                         # B. Recover Participant Metadata (The Master List)
                         if ".participants.json" in file_list:

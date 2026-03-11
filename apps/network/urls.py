@@ -57,4 +57,10 @@ urlpatterns = [
         views.network_api_status,
         name="network_api_status",
     ),
+    # API: Internal endpoint for gossip status sync
+    path(
+        "api/gossip/<uuid:network_id>/",
+        views.network_api_gossip,
+        name="network_api_gossip",
+    ),
 ]
