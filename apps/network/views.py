@@ -168,7 +168,11 @@ def network_api_gossip(request, network_id):
     # 1. Verify Gossip Token
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
     provided_token = request.headers.get("X-Gossip-Token")
+    
+    logger.network.debug(f"[GOSSIP RECEIVE] Incoming shout for network {network_id}. Token provided: {provided_token[:8]}...")
+
     if not network.gossip_token or provided_token != network.gossip_token:
+        logger.network.warning(f"[GOSSIP REJECT] Unauthorized token from {request.META.get('REMOTE_ADDR')}. Expected {network.gossip_token[:8]}...")
         return JsonResponse({"error": "Unauthorized Gossip"}, status=401)
 
     try:
@@ -176,9 +180,10 @@ def network_api_gossip(request, network_id):
         participant_id = data.get("participant_id")
         status = data.get("status")
         
+        logger.network.debug(f"[GOSSIP RECEIVE] Peer {participant_id} reports status: {status}")
+
         # 2. Verify Sender IP
         client_ip = request.META.get('REMOTE_ADDR')
-        # Handle cases where proxy might be used
         forwarded_for = request.headers.get('X-Forwarded-For')
         if forwarded_for:
             client_ip = forwarded_for.split(',')[0].strip()
@@ -189,15 +194,13 @@ def network_api_gossip(request, network_id):
         ).first()
         
         if not participant:
+             logger.network.error(f"[GOSSIP REJECT] Unknown participant {participant_id}")
              return JsonResponse({"error": "Unknown Participant"}, status=404)
 
-        # IP Lockdown: Only accept shouts from the registered IP of that participant
-        # (Allowing a small grace for 'server' and 'localhost' in dev)
+        # IP Lockdown log
         if participant.ip and participant.ip not in ["-", "127.0.0.1", "localhost"]:
             if client_ip != participant.ip:
-                logger.access.warning(f"Gossip IP mismatch for {participant_id}: Expected {participant.ip}, got {client_ip}")
-                # In production, we drop this. For now, we log it.
-                # return JsonResponse({"error": "IP Mismatch"}, status=403)
+                logger.network.warning(f"[GOSSIP IP MISMATCH] {participant_id}: DB says {participant.ip}, request came from {client_ip}")
 
         participant.status = status
         participant.last_seen = timezone.now()
@@ -205,6 +208,7 @@ def network_api_gossip(request, network_id):
         return JsonResponse({"status": "acknowledged"})
             
     except Exception as e:
+        logger.network.error(f"[GOSSIP ERROR] Failed to process shout: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
 
@@ -217,17 +221,18 @@ def broadcast_network_status(network_id):
     if not network or network.status not in ["RUNNING", "STARTING"]:
         return
 
-    if not network.gossip_token:
-        network.gossip_token = secrets.token_hex(32)
-        network.save(update_fields=["gossip_token"])
-
     local_ip = get_tailscale_ip()
     local_participant = network.participants.filter(ip=local_ip).first()
+    
+    logger.network.info(f"[GOSSIP BROADCAST] Starting broadcast for network {network.name}. Local IP detected: {local_ip}")
+
     if not local_participant:
+        logger.network.warning(f"[GOSSIP BROADCAST] Could not find myself in participant list for IP {local_ip}")
         return
 
     # Source of Truth: Engine logs + Docker state
     status_map = _get_local_participant_status(network)
+    logger.network.debug(f"[GOSSIP BROADCAST] Local status map: {status_map}")
     
     headers = {"X-Gossip-Token": network.gossip_token}
     peers = network.participants.exclude(id=local_participant.id)
@@ -239,7 +244,6 @@ def broadcast_network_status(network_id):
     }
     
     # 2. If we are the SERVER, we also shout the JOINED status of all clients
-    # that the engine has recorded.
     extra_shouts = []
     if local_participant.role == "SERVER":
         for p_id, p_status in status_map.items():
@@ -253,13 +257,14 @@ def broadcast_network_status(network_id):
         if peer.ip and peer.ip != "-":
             try:
                 gossip_url = f"https://{peer.ip}:5085/network/api/gossip/{network.identifier}/"
-                # Shout about myself
-                requests.post(gossip_url, json=my_payload, headers=headers, timeout=1, verify=False)
-                # Shout about engine enrollment
+                logger.network.debug(f"[GOSSIP SHOUT] Sending my status to {peer.participant_id} at {peer.ip}")
+                requests.post(gossip_url, json=my_payload, headers=headers, timeout=2, verify=False)
+                
                 for shout in extra_shouts:
-                    requests.post(gossip_url, json=shout, headers=headers, timeout=1, verify=False)
-            except Exception:
-                pass
+                    logger.network.debug(f"[GOSSIP SHOUT] Informing {peer.participant_id} that {shout['participant_id']} is {shout['status']}")
+                    requests.post(gossip_url, json=shout, headers=headers, timeout=2, verify=False)
+            except Exception as e:
+                logger.network.error(f"[GOSSIP SHOUT FAILED] Could not reach {peer.participant_id} at {peer.ip}: {e}")
 
 
 @login_required
@@ -298,33 +303,31 @@ def network(request):
         
         # Local source of truth (Docker logs)
         local_engine_status = _get_local_participant_status(current_network)
+        
+        logger.network.debug(f"[DASHBOARD] Rendering dashboard. Local IP: {local_ip}. Engine status: {local_engine_status}")
 
         for p in participants:
-            # Logic:
-            # 1. SERVER: Use local engine logs (the source of truth for everyone).
-            # 2. CLIENT: 
-            #    - Use Gossip data from DB (Joined status pushed by Server).
-            #    - If Gossip is missing/stale, fall back to local Docker status (Online/Offline).
-            
             i_am_server = current_network.participants.filter(ip=local_ip, role="SERVER").exists()
             is_me = (p.ip == local_ip)
 
             status = "Offline"
             
             if i_am_server:
-                # Server dashboard: Trust local logs for everyone
                 status = local_engine_status.get(p.participant_id, "Offline")
             else:
-                # Client dashboard:
-                # Step A: Check for Gossip "Joined" status (Most important)
-                if p.last_seen and (timezone.now() - p.last_seen).total_seconds() < 180:
-                    status = p.status
+                if p.last_seen:
+                    age = (timezone.now() - p.last_seen).total_seconds()
+                    if age < 180:
+                        status = p.status
+                        logger.network.debug(f"[DASHBOARD] Participant {p.participant_id} status from Gossip: {status} (Age: {age}s)")
+                    else:
+                        status = "Offline (Stale)"
                 
-                # Step B: If it's ME and status isn't "Joined", show local docker health
                 if is_me and status not in ["Joined", "Online"]:
                     local_health = local_engine_status.get(p.participant_id, "Offline")
                     if local_health != "Offline":
-                        status = local_health # e.g. "Online" (Container running but not joined yet)
+                        status = local_health
+                        logger.network.debug(f"[DASHBOARD] Falling back to local health for myself: {status}")
 
             participants_details.append({
                 "name": p.participant_id,

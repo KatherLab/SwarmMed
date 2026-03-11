@@ -1633,8 +1633,19 @@ def broadcast_all_network_statuses():
     """
     from .views import broadcast_network_status
     active_networks = SwarmNetwork.objects.filter(status="RUNNING")
+    
+    if not active_networks.exists():
+        return
+
+    from logs.logger import get_logger
+    logger = get_logger()
+    logger.network.debug(f"[CELERY BEAT] Triggering gossip broadcast for {active_networks.count()} active network(s).")
+
     for network in active_networks:
-        broadcast_network_status(network.identifier)
+        try:
+            broadcast_network_status(network.identifier)
+        except Exception as e:
+            logger.network.error(f"[CELERY BEAT] Gossip broadcast failed for {network.name}: {e}")
 
 
 @shared_task

@@ -457,6 +457,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "training.tasks.monitor_training_jobs",
         "schedule": 30.0,  # Every 30 seconds
     },
+    "broadcast-network-statuses": {
+        "task": "network.tasks.broadcast_all_network_statuses",
+        "schedule": 10.0,  # Every 10 seconds
+    },
 }
 
 # --- Logging Configuration ---
