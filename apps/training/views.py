@@ -1182,7 +1182,7 @@ def start_training(request, network_id):
 
         # Set default executor
         from nvflare.app_common.executors.in_process_client_api_executor import InProcessClientAPIExecutor
-        executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
+        executor = InProcessClientAPIExecutor(task_script_path="training.py")
 
         # Select appropriate persistor based on framework
         # NOTE: PTFileModelPersistor is used for PT, TF, and NP because it is the most flexible 
@@ -1208,7 +1208,7 @@ def start_training(request, network_id):
         if framework == "tf":
             try:
                 from nvflare.app_opt.tf.in_process_client_api_executor import TFInProcessClientAPIExecutor
-                executor = TFInProcessClientAPIExecutor(task_script_path="custom/training.py")
+                executor = TFInProcessClientAPIExecutor(task_script_path="training.py")
             except (ModuleNotFoundError, ImportError):
                 pass
         elif framework == "pt":
@@ -1216,7 +1216,7 @@ def start_training(request, network_id):
             if use_pt_executor:
                 try:
                     from nvflare.app_opt.pt.in_process_client_api_executor import PTInProcessClientAPIExecutor
-                    executor = PTInProcessClientAPIExecutor(task_script_path="custom/training.py")
+                    executor = PTInProcessClientAPIExecutor(task_script_path="training.py")
                 except (ModuleNotFoundError, ImportError):
                     pass
 
@@ -1285,7 +1285,7 @@ def start_training(request, network_id):
             job.to(persistor, client_name, id="persistor")
             job.to(shareable_generator, client_name, id="shareable_generator")
             job.to(aggregator, client_name, id="aggregator")
-            job.to(app_client_custom_dir, client_name)
+            job.to(app_client_dir, client_name)
 
         generated_jobs_root = os.path.join(job_dir, "generated")
         os.makedirs(generated_jobs_root, exist_ok=True)
