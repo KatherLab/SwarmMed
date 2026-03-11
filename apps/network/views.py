@@ -17,7 +17,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
-from logs import logger
+from logs.logger import get_logger
 from project.decorators import (
     project_context_required,
     project_membership_required,
@@ -34,6 +34,8 @@ from .utils import (
     is_tailscale_connected,
 )
 from common.utils import get_safe_slug
+
+logger = get_logger()
 
 
 def get_user_project(request):
