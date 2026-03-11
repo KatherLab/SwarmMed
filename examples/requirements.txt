@@ -7,5 +7,6 @@ tensorflow
 keras
 monai
 transformers
+accelerate
 datasets
 xgboost
