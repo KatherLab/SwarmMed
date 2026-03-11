@@ -93,6 +93,25 @@ def _get_local_participant_status(swarm_network):
         except Exception as e:
             logger.network.debug(f"[_get_local_participant_status] Could not read server logs (expected if not server node): {e}")
 
+    # Robust Connection Tracking: Map connection IDs (CNXXXX) to participant IDs
+    # Example log: connection [cn00005 ... ssl calm-swan] is created
+    import re
+    conn_map = {}
+    if server_logs:
+        # Scan for creation logs to map IDs
+        creation_pattern = r"connection \[(cn\d+) .* ssl ([a-z0-9_-]+)\] is created"
+        for match in re.finditer(creation_pattern, server_logs):
+            cn_id, p_id = match.groups()
+            conn_map[cn_id] = p_id
+        
+        # Scan for closure logs to identify disconnections even if name is missing
+        # Example log: connection [cn00005 not connected] is closed
+        closure_pattern = r"connection \[(cn\d+) .*\] is closed"
+        closed_conns = set()
+        for match in re.finditer(closure_pattern, server_logs):
+            cn_id = match.group(1)
+            closed_conns.add(cn_id)
+
     # For debugging: list ALL running containers with our network label
     try:
         import subprocess
@@ -134,36 +153,56 @@ def _get_local_participant_status(swarm_network):
                     f"starting communication with client {lname}",
                     f"new client {lname} connected",
                     f"client: {lname} joined",
+                    f"client {lname} joined",
+                    f"ssl {lname}] is created",
                 ]
                 
-                is_joined = any(marker in server_logs for marker in joined_markers)
+                # Check if any connection ID mapped to this participant was closed LATER than it was joined
+                # This handles the "Connection [CNXXXX Not Connected] is closed" case.
+                last_cn_joined_idx = -1
+                last_cn_closed_idx = -1
+                for cn_id, p_id in conn_map.items():
+                    if p_id == lname:
+                        # Find indices in log for this specific ID
+                        j_idx = server_logs.rfind(f"connection [{cn_id}")
+                        if j_idx > last_cn_joined_idx:
+                            last_cn_joined_idx = j_idx
+                        
+                        if cn_id in closed_conns:
+                            c_idx = server_logs.rfind(f"connection [{cn_id}")
+                            if c_idx > last_cn_closed_idx:
+                                last_cn_closed_idx = c_idx
+
+                is_joined = any(marker in server_logs for marker in joined_markers) or (last_cn_joined_idx > -1)
                 
                 if is_joined:
                     disconnected_markers = [
                         f"client {lname} disconnected",
                         f"client: {lname} left",
+                        f"client {lname} left",
                         f"removed client {lname}",
                         f"missing job on client '{lname}'",
+                        f"client manager: remove client {lname}",
+                        f"client manager: removed client {lname}",
+                        f"disconnected client {lname}",
+                        f"ssl {lname}] is closed",
                     ]
-                    is_disconnected = any(marker in server_logs for marker in disconnected_markers)
                     
-                    if is_disconnected:
-                         idx_joined = -1
-                         for m in joined_markers:
-                             idx = server_logs.rfind(m)
-                             if idx > idx_joined: idx_joined = idx
-                         
-                         idx_dis = -1
-                         for m in disconnected_markers:
-                             idx = server_logs.rfind(m)
-                             if idx > idx_dis: idx_dis = idx
-                             
-                         if idx_dis > idx_joined:
-                             status = "Disconnected"
-                         else:
-                             status = "Joined"
+                    # Find highest indices
+                    idx_joined = last_cn_joined_idx
+                    for m in joined_markers:
+                        idx = server_logs.rfind(m)
+                        if idx > idx_joined: idx_joined = idx
+                    
+                    idx_dis = last_cn_closed_idx
+                    for m in disconnected_markers:
+                        idx = server_logs.rfind(m)
+                        if idx > idx_dis: idx_dis = idx
+                    
+                    if idx_dis > idx_joined:
+                        status = "Disconnected"
                     else:
-                         status = "Joined"
+                        status = "Joined"
                 
                 # If we don't have server logs (e.g. on a client node) or it shows offline,
                 # check if OUR local container is running.
