@@ -58,18 +58,21 @@ def monitor_training_jobs():
 
     log = logger.get_logger()
     local_ip = get_tailscale_ip()
+    log.training.debug(f"Monitor: Starting monitoring task on local_ip={local_ip}")
 
     # 1. DISCOVERY: Find jobs on the FLARE server that aren't in our local database.
-    # Include PROVISIONED because the server node might not be in RUNNING state 
-    # if it was started manually or status wasn't updated.
     active_networks = SwarmNetwork.objects.filter(status__in=["RUNNING", "STARTING", "PROVISIONED"])
+    log.training.debug(f"Monitor: Scanning {active_networks.count()} active networks for discovery")
+    
     for network in active_networks:
         admin_target = _resolve_admin_session_target(network)
         if not admin_target:
+            log.training.debug(f"Monitor: No admin target for network {network.name}")
             continue
 
         try:
             admin_name, admin_dir, server_ip = admin_target
+            log.training.debug(f"Monitor: Connecting to FLARE server {server_ip} for network {network.name}")
             sess = new_secure_session_with_host(
                 username=admin_name,
                 startup_kit_location=admin_dir,
@@ -80,7 +83,7 @@ def monitor_training_jobs():
             
             response = sess.api.do_command("list_jobs")
             remote_jobs = _parse_nvflare_jobs(response)
-            log.training.debug(f"Discovery: Found {len(remote_jobs)} remote jobs for network {network.name}")
+            log.training.debug(f"Monitor: Found {len(remote_jobs)} remote jobs via Admin API for {network.name}")
             
             existing_job_ids = list(
                 TrainingJob.objects.filter(network=network).values_list(
@@ -104,32 +107,32 @@ def monitor_training_jobs():
                     continue
                 
                 status = str(rj.get("status") or rj.get("state") or "RUNNING").upper()
+                log.training.info(f"Monitor: Discovered new remote job: {job_id} ({status})")
                 TrainingJob.objects.create(
                     project=network.project,
                     network=network,
                     flare_job_id=job_id,
                     status=status if status in ["RUNNING", "COMPLETED", "FAILED"] else "RUNNING"
                 )
-                log.training.info(f"Discovered new remote job: {job_id} for network {network.name}")
 
             try:
                 sess.close()
             except Exception:
                 pass
         except Exception as e:
-            log.training.debug(f"Job discovery failed for network {network.name}: {e}")
+            log.training.debug(f"Monitor: Job discovery failed for network {network.name}: {e}")
 
     # 2. LOCAL DOCKER SCRAPING: Check running containers for progress
     for network in active_networks:
         try:
             local_participants = network.participants.filter(ip=local_ip)
             participant_ids = [p.participant_id for p in local_participants]
+            log.training.debug(f"Monitor: Scraping local docker for participants {participant_ids}")
             docker_results = scrape_docker_progress(participant_ids=participant_ids)
             
             for res in docker_results:
                 job_id = res["job_id"]
                 if not job_id:
-                    # Try to find the most recent RUNNING job for this network if job_id not in logs
                     recent_job = TrainingJob.objects.filter(network=network, status="RUNNING").order_by("-created_at").first()
                     if recent_job:
                         job_id = recent_job.flare_job_id
@@ -137,6 +140,7 @@ def monitor_training_jobs():
                 if job_id:
                     l_job = TrainingJob.objects.filter(network=network, flare_job_id=job_id).first()
                     if not l_job:
+                        log.training.info(f"Monitor: Creating local mirror for job {job_id} found in docker logs")
                         l_job = TrainingJob.objects.create(
                             project=network.project,
                             network=network,
@@ -146,6 +150,7 @@ def monitor_training_jobs():
                     
                     if res["rounds_finished"] >= 0:
                         if l_job.rounds_finished is None or res["rounds_finished"] > l_job.rounds_finished:
+                            log.training.info(f"Monitor: Updating job {job_id} progress to round {res['rounds_finished']}")
                             l_job.rounds_finished = res["rounds_finished"]
                             total_rounds = l_job.total_rounds or _get_total_rounds(os.path.join(settings.BASE_DIR, "workspaces", str(l_job.project.identifier), str(l_job.network.identifier)))
                             l_job.progress_percent = min(99, int((l_job.rounds_finished + 1) * 100 / total_rounds))
@@ -153,15 +158,17 @@ def monitor_training_jobs():
                             l_job.save(update_fields=["rounds_finished", "progress_percent", "progress_updated_at"])
                     
                     if res["ended"] and l_job.status == "RUNNING":
+                        log.training.info(f"Monitor: Job {job_id} marked as COMPLETED via local docker logs")
                         l_job.status = "COMPLETED"
                         l_job.progress_percent = 100
                         l_job.completed_at = timezone.now()
                         l_job.save(update_fields=["status", "progress_percent", "completed_at"])
         except Exception as e:
-            log.training.debug(f"Local docker scraping failed for network {network.name}: {e}")
+            log.training.debug(f"Monitor: Local docker scraping failed for network {network.name}: {e}")
 
     # 3. MONITORING: Check RUNNING jobs (filesystem logs).
     jobs = TrainingJob.objects.filter(status__in=["RUNNING", "COMPLETED"])
+    log.training.debug(f"Monitor: Checking filesystem logs for {jobs.count()} jobs")
 
     for job in jobs:
         try:
@@ -169,12 +176,10 @@ def monitor_training_jobs():
             network_id = str(job.network.identifier)
             flare_job_uuid = job.flare_job_id
             
-            # Normalize UUID
             match = re.search(r"([0-9a-f-]{36})", str(job.flare_job_id))
             if match:
                 flare_job_uuid = match.group(1)
 
-            # Locate the prod_00 folder aggressively
             network_workspace_root = os.path.join(settings.BASE_DIR, "workspaces", project_id, network_id)
             workspace_base = None
             for root, dirs, _ in os.walk(network_workspace_root):
@@ -183,7 +188,6 @@ def monitor_training_jobs():
                     break
             
             if not workspace_base:
-                log.training.debug(f"Could not find prod_00 for job {job.identifier} in {network_workspace_root}")
                 continue
 
             # Step 1: Check Admin API status
@@ -212,7 +216,6 @@ def monitor_training_jobs():
                 rounds_finished = 0
                 total_rounds = job.total_rounds or _get_total_rounds(workspace_base)
                 
-                # Robust log scanning regexes
                 round_patterns = [
                     re.compile(r"Finished round\s+(\d+)", re.I),
                     re.compile(r"Round\s+(\d+)\s+\|", re.I),
@@ -221,18 +224,15 @@ def monitor_training_jobs():
                 ]
                 
                 for root, _, files in os.walk(workspace_base):
-                    # Check if this folder belongs to our job
                     if flare_job_uuid in root:
                         for fname in files:
                             if fname.startswith("log") and fname.endswith(".txt"):
                                 try:
                                     with open(os.path.join(root, fname), "rb") as f:
                                         f.seek(0, os.SEEK_END)
-                                        # Read a large chunk
                                         f.seek(max(0, f.tell() - 1024 * 512))
                                         tail = f.read().decode("utf-8", errors="ignore")
                                         
-                                        # Check for completion markers
                                         completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!"]
                                         if not ended and any(m in tail for m in completion_markers):
                                             ended = True
@@ -246,7 +246,6 @@ def monitor_training_jobs():
                 if total_rounds > 0:
                     rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                     pct = int(rounds_completed * 100 / total_rounds)
-                    # Force 100% if ended
                     job.progress_percent = 100 if ended else min(99, pct)
                 
                 job.rounds_finished = rounds_finished
@@ -256,8 +255,6 @@ def monitor_training_jobs():
             # Step 3: Result Sync
             if ended:
                 found_folders = []
-                # Check for standard and server structures
-                # 1. prod_00/<uuid>/app_...
                 job_root = os.path.join(workspace_base, flare_job_uuid)
                 if os.path.exists(job_root):
                     for item in os.listdir(job_root):
@@ -265,7 +262,6 @@ def monitor_training_jobs():
                             participant = item[4:]
                             found_folders.append((participant, os.path.join(job_root, item)))
                 
-                # 2. prod_00/<participant>/<uuid>/app_<participant>
                 if not found_folders:
                     for participant in os.listdir(workspace_base):
                         p_path = os.path.join(workspace_base, participant)
@@ -279,7 +275,7 @@ def monitor_training_jobs():
                                     found_folders.append((participant, target))
 
                 if found_folders:
-                    log.training.info(f"Syncing {len(found_folders)} result folders for job {job.identifier}")
+                    log.training.info(f"Monitor: Syncing results for job {job.identifier}")
                     for participant, local_path in found_folders:
                         s3_prefix = f"{project_id}/results/{flare_job_uuid}/{participant}"
                         upload_folder_to_s3(settings.AWS_STORAGE_BUCKET_NAME, local_path, s3_prefix)
@@ -289,9 +285,5 @@ def monitor_training_jobs():
                         job.completed_at = timezone.now()
                         job.progress_percent = 100
                         job.save(update_fields=["status", "completed_at", "progress_percent"])
-                    log.training.info(f"Job {job.identifier} results synced to S3.")
-                else:
-                    log.training.debug(f"No result folders found for {flare_job_uuid} in {workspace_base}")
-
         except Exception as e:
-            log.training.error(f"Error monitoring job {job.identifier}: {e}", extra=format_exception(e))
+            log.training.error(f"Monitor: Error monitoring job {job.identifier}: {e}", extra=format_exception(e))

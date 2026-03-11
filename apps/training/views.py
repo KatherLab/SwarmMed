@@ -1321,7 +1321,11 @@ def stop_training(request, network_id):
 @project_context_required
 def training_status_api(request):
     current_network = SwarmNetwork.resolve_current(request.user)
-    if not current_network: return JsonResponse({"status": "no_network"})
+    if not current_network: 
+        logger.training.debug("StatusAPI: No current network found for user")
+        return JsonResponse({"status": "no_network"})
+    
+    logger.training.debug(f"StatusAPI: Checking status for network {current_network.identifier} ({current_network.name})")
     
     # Identify server node and local state
     server_node = current_network.participants.filter(role="SERVER").first()
@@ -1329,18 +1333,23 @@ def training_status_api(request):
     local_ip = get_tailscale_ip()
     is_server_node = server_node and server_node.ip == local_ip
     
+    logger.training.debug(f"StatusAPI: local_ip={local_ip}, server_ip={server_node.ip if server_node else 'N/A'}, is_server_node={is_server_node}")
+    
     job = TrainingJob.objects.filter(network=current_network).order_by("-created_at").first()
+    if job:
+        logger.training.debug(f"StatusAPI: Most recent job in DB: {job.flare_job_id} (status: {job.status})")
     
     # NEW: Scrape local docker logs for progress (User priority)
-    # This ensures that even if the central API is unreachable, the local node 
-    # can report its own progress based on what its NVFlare container is doing.
     local_participants = current_network.participants.filter(ip=local_ip)
     participant_ids = [p.participant_id for p in local_participants]
+    
+    logger.training.debug(f"StatusAPI: Local participant IDs: {participant_ids}")
     
     from .utils import scrape_docker_progress
     docker_results = scrape_docker_progress(participant_ids=participant_ids)
     
     if docker_results:
+        logger.training.debug(f"StatusAPI: Docker scraping found {len(docker_results)} results")
         for res in docker_results:
             job_id = res["job_id"]
             # If we can't find a job ID in logs, try to match with the most recent job in DB
@@ -1348,9 +1357,11 @@ def training_status_api(request):
                 job_id = job.flare_job_id
             
             if job_id:
+                logger.training.debug(f"StatusAPI: Processing docker result for job_id {job_id}")
                 # Find or create mirror job in local database
                 l_job = TrainingJob.objects.filter(network=current_network, flare_job_id=job_id).first()
                 if not l_job:
+                    logger.training.info(f"StatusAPI: Creating local mirror for job {job_id}")
                     l_job = TrainingJob.objects.create(
                         project=current_network.project,
                         network=current_network,
@@ -1361,6 +1372,7 @@ def training_status_api(request):
                 # Update rounds and progress
                 if res["rounds_finished"] >= 0:
                     if l_job.rounds_finished is None or res["rounds_finished"] > l_job.rounds_finished:
+                        logger.training.info(f"StatusAPI: Updating job {job_id} progress to round {res['rounds_finished']}")
                         l_job.rounds_finished = res["rounds_finished"]
                         total_rounds = l_job.total_rounds or 10
                         l_job.progress_percent = min(99, int((l_job.rounds_finished + 1) * 100 / total_rounds))
@@ -1369,6 +1381,7 @@ def training_status_api(request):
                 
                 # Update status if ended
                 if res["ended"] and l_job.status == "RUNNING":
+                    logger.training.info(f"StatusAPI: Job {job_id} marked as COMPLETED via docker logs")
                     l_job.status = "COMPLETED"
                     l_job.progress_percent = 100
                     l_job.completed_at = timezone.now()
@@ -1377,16 +1390,20 @@ def training_status_api(request):
                 # Use this job for the response
                 if not job or l_job.created_at >= job.created_at:
                     job = l_job
+    else:
+        logger.training.debug("StatusAPI: No results from docker scraping")
 
     # 1. Mirror state from Server node if we are a client node (Keep as fallback)
     if not is_server_node and server_node and server_node.ip and server_node.ip != "-":
         try:
             state_url = f"https://{server_node.ip}:5085/training/api/state/{current_network.identifier}/"
+            logger.training.debug(f"StatusAPI: Attempting to mirror state from server: {state_url}")
             resp = requests.get(state_url, timeout=2, verify=False)
             if resp.status_code == 200:
                 remote_job = resp.json().get("job")
                 if remote_job:
                     flare_id = remote_job["flare_job_id"]
+                    logger.training.debug(f"StatusAPI: Received remote state for job {flare_id}")
                     j = TrainingJob.objects.filter(network=current_network, flare_job_id=flare_id).first()
                     if not j:
                         j = TrainingJob.objects.create(
@@ -1407,10 +1424,14 @@ def training_status_api(request):
                     
                     if not job or j.created_at >= job.created_at:
                         job = j
-        except Exception:
-            pass
+            else:
+                logger.training.debug(f"StatusAPI: Server state API returned status {resp.status_code}")
+        except Exception as e:
+            logger.training.debug(f"StatusAPI: Failed to mirror state from server: {e}")
 
     nvflare_status = _nvflare_status_payload(current_network)
+    if nvflare_status:
+        logger.training.debug(f"StatusAPI: NVFlare admin API status: {nvflare_status}")
     
     if nvflare_status and nvflare_status.get("job_id"):
         status_map = {"RUNNING": "RUNNING", "COMPLETED": "COMPLETED", "STOPPED": "STOPPED", "FAILED": "FAILED"}
@@ -1445,10 +1466,14 @@ def training_status_api(request):
                 job = mirror_job
 
     if not job:
-        if nvflare_status: return JsonResponse(nvflare_status)
+        if nvflare_status: 
+            logger.training.debug("StatusAPI: Returning NVFlare admin status as fallback")
+            return JsonResponse(nvflare_status)
+        logger.training.debug("StatusAPI: No job found, returning idle")
         return JsonResponse({"status": "idle"})
 
     payload = _build_training_status_payload(current_network, job)
+    logger.training.debug(f"StatusAPI: Final payload for {job.flare_job_id}: {payload}")
     
     # 2. Results Sync: Register results from local filesystem to local MinIO if COMPLETED
     if job.status == "COMPLETED":

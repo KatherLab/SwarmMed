@@ -17,8 +17,12 @@ def scrape_docker_progress(participant_ids=None):
     Scrapes progress from local docker containers running NVFlare clients/servers.
     Returns a list of dictionaries with extracted progress info.
     """
+    from logs.logger import get_logger
+    log = get_logger()
+    
     docker_path = shutil.which("docker") or "docker"
     if not docker_path:
+        log.training.error("Scrape: Docker CLI not found in PATH")
         return []
 
     # Get all running container names
@@ -29,24 +33,28 @@ def scrape_docker_progress(participant_ids=None):
             capture_output=True, text=True, check=True
         )
         container_names = result.stdout.splitlines()
-    except Exception:
+        log.training.debug(f"Scrape: Found running containers: {container_names}")
+    except Exception as e:
+        log.training.error(f"Scrape: Failed to list docker containers: {e}")
         return []
 
     # Filter candidates
     candidates = []
     if participant_ids:
+        log.training.debug(f"Scrape: Looking for participants: {participant_ids}")
         for p_id in participant_ids:
             # Match exact name or name with prefix/suffix (docker-compose style)
-            # Use a robust regex to avoid false positives (e.g. 'client-1' matching 'client-10')
             pattern = re.compile(rf"(^|[^a-zA-Z0-9-]){re.escape(p_id)}($|[^a-zA-Z0-9-])")
             for c_name in container_names:
                 if pattern.search(c_name):
                     candidates.append(c_name)
     else:
-        # Generic fallback: look for containers with 'client' or 'server'
+        log.training.debug("Scrape: No participant_ids provided, falling back to generic search")
         for c_name in container_names:
-            if "client" in c_name.lower() or "server" in c_name.lower():
+            if "client" in c_name.lower() or "server" in c_name.lower() or "nvflare" in c_name.lower():
                 candidates.append(c_name)
+
+    log.training.debug(f"Scrape: Filtered candidate containers: {candidates}")
 
     results = []
     round_patterns = [
@@ -61,7 +69,8 @@ def scrape_docker_progress(participant_ids=None):
 
     for container in candidates:
         try:
-            # Get last 1000 lines of logs to be sure we see the round info
+            log.training.debug(f"Scrape: Fetching logs for container: {container}")
+            # Get last 1000 lines of logs
             # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
             log_result = subprocess.run(  # nosec B603
                 [docker_path, "logs", "--tail", "1000", container],
@@ -69,6 +78,7 @@ def scrape_docker_progress(participant_ids=None):
             )
             logs = (log_result.stdout or "") + (log_result.stderr or "")
             if not logs:
+                log.training.debug(f"Scrape: No logs found for {container}")
                 continue
             
             job_id = None
@@ -79,6 +89,7 @@ def scrape_docker_progress(participant_ids=None):
             job_matches = job_id_pattern.findall(logs)
             if job_matches:
                 job_id = job_matches[-1]
+                log.training.debug(f"Scrape: Found job_id {job_id} in {container} logs")
                 
             # Find Rounds (search from the end)
             for pattern in round_patterns:
@@ -87,9 +98,15 @@ def scrape_docker_progress(participant_ids=None):
                     if rnum > rounds_finished:
                         rounds_finished = rnum
             
+            if rounds_finished >= 0:
+                log.training.debug(f"Scrape: Found rounds_finished {rounds_finished} in {container} logs")
+            
             # Check completion
-            if any(m in logs for m in completion_markers):
-                ended = True
+            for marker in completion_markers:
+                if marker.lower() in logs.lower():
+                    ended = True
+                    log.training.debug(f"Scrape: Found completion marker '{marker}' in {container} logs")
+                    break
                 
             if job_id or rounds_finished >= 0:
                 results.append({
@@ -98,9 +115,11 @@ def scrape_docker_progress(participant_ids=None):
                     "rounds_finished": rounds_finished,
                     "ended": ended
                 })
-        except Exception:
+        except Exception as e:
+            log.training.error(f"Scrape: Error processing container {container}: {e}")
             continue
             
+    log.training.debug(f"Scrape: Final results: {results}")
     return results
 
 
