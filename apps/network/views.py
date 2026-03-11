@@ -77,6 +77,8 @@ def _get_local_participant_status(swarm_network):
     server_logs = ""
     local_ip = get_tailscale_ip()
     
+    logger.network.debug(f"[_get_local_participant_status] Checking local status for network {swarm_network.identifier}. Local IP: {local_ip}")
+
     if swarm_network.status == "RUNNING":
         try:
             from .tasks import _container_name_for
@@ -87,8 +89,21 @@ def _get_local_participant_status(swarm_network):
                 capture_output=True, text=True, timeout=2
             )
             server_logs = (result.stdout + result.stderr).lower()
-        except Exception:
-            pass
+            logger.network.debug(f"[_get_local_participant_status] Successfully read logs from server container {server_container} ({len(server_logs)} bytes)")
+        except Exception as e:
+            logger.network.debug(f"[_get_local_participant_status] Could not read server logs (expected if not server node): {e}")
+
+    # For debugging: list ALL running containers with our network label
+    try:
+        import subprocess
+        label_filter = f"swarmcloud.network_id={swarm_network.identifier}"
+        running_containers = subprocess.run(
+            ["docker", "ps", "--filter", f"label={label_filter}", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=2
+        ).stdout.splitlines()
+        logger.network.debug(f"[_get_local_participant_status] Locally running containers for this network: {running_containers}")
+    except Exception as e:
+        logger.network.debug(f"[_get_local_participant_status] Could not list docker containers: {e}")
 
     status_map = {}
     for p in participants:
@@ -108,7 +123,6 @@ def _get_local_participant_status(swarm_network):
                     if _is_container_running(docker_path, _container_name_for(swarm_network.identifier, "server"), env):
                         status = "Online"
                 except Exception:
-                    # Fallback if we can't check docker directly but know we are the server
                     if is_me: status = "Online"
             else:
                 lname = name.lower()
@@ -159,10 +173,17 @@ def _get_local_participant_status(swarm_network):
                         import shutil
                         docker_path = shutil.which("docker") or "docker"
                         env = os.environ.copy()
-                        if _is_container_running(docker_path, _container_name_for(swarm_network.identifier, p.participant_id), env):
+                        # IMPORTANT: Try both the participant_id and "client" (common fallback)
+                        my_container = _container_name_for(swarm_network.identifier, p.participant_id)
+                        if _is_container_running(docker_path, my_container, env):
                             status = "Online"
-                    except Exception:
-                        pass
+                        else:
+                            fallback_container = _container_name_for(swarm_network.identifier, "client")
+                            if _is_container_running(docker_path, fallback_container, env):
+                                logger.network.debug(f"[_get_local_participant_status] Found local container under fallback name {fallback_container}")
+                                status = "Online"
+                    except Exception as e:
+                        logger.network.debug(f"[_get_local_participant_status] Error checking local container for {p.participant_id}: {e}")
         elif swarm_network.status == "STARTING":
             status = "Starting..."
         elif swarm_network.status == "ERROR":
@@ -183,6 +204,9 @@ def network_api_gossip(request, network_id):
     SECURE Gossip Endpoint: Receives status "shouts" from peers.
     Verifies Gossip Token and Sender IP for security.
     """
+    client_ip = request.META.get('REMOTE_ADDR')
+    logger.network.info(f"[GOSSIP RECEIVE] Incoming POST from {client_ip} for network {network_id}")
+
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
     
@@ -190,10 +214,10 @@ def network_api_gossip(request, network_id):
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
     provided_token = request.headers.get("X-Gossip-Token")
     
-    logger.network.debug(f"[GOSSIP RECEIVE] Incoming shout for network {network_id}. Token provided: {provided_token[:8]}...")
+    logger.network.debug(f"[GOSSIP RECEIVE] Token provided: {provided_token[:8] if provided_token else 'NONE'}... Expected: {network.gossip_token[:8] if network.gossip_token else 'NONE'}...")
 
     if not network.gossip_token or provided_token != network.gossip_token:
-        logger.network.warning(f"[GOSSIP REJECT] Unauthorized token from {request.META.get('REMOTE_ADDR')}. Expected {network.gossip_token[:8]}...")
+        logger.network.warning(f"[GOSSIP REJECT] Unauthorized token from {client_ip}. Expected {network.gossip_token[:8] if network.gossip_token else 'MISSING'}...")
         return JsonResponse({"error": "Unauthorized Gossip"}, status=401)
 
     try:
@@ -201,10 +225,9 @@ def network_api_gossip(request, network_id):
         participant_id = data.get("participant_id")
         status = data.get("status")
         
-        logger.network.debug(f"[GOSSIP RECEIVE] Peer {participant_id} reports status: {status}")
+        logger.network.info(f"[GOSSIP RECEIVE] Peer {participant_id} reports status: {status}")
 
         # 2. Verify Sender IP
-        client_ip = request.META.get('REMOTE_ADDR')
         forwarded_for = request.headers.get('X-Forwarded-For')
         if forwarded_for:
             client_ip = forwarded_for.split(',')[0].strip()
@@ -215,7 +238,10 @@ def network_api_gossip(request, network_id):
         ).first()
         
         if not participant:
-             logger.network.error(f"[GOSSIP REJECT] Unknown participant {participant_id}")
+             logger.network.error(f"[GOSSIP REJECT] Unknown participant {participant_id} (Network: {network.name})")
+             # Log existing participants for debugging
+             all_p = [p.participant_id for p in network.participants.all()]
+             logger.network.debug(f"[GOSSIP REJECT] Known participants in DB: {all_p}")
              return JsonResponse({"error": "Unknown Participant"}, status=404)
 
         # IP Lockdown log
@@ -226,6 +252,7 @@ def network_api_gossip(request, network_id):
         participant.status = status
         participant.last_seen = timezone.now()
         participant.save(update_fields=["status", "last_seen"])
+        logger.network.debug(f"[GOSSIP ACK] Updated {participant_id} to {status}")
         return JsonResponse({"status": "acknowledged"})
             
     except Exception as e:
@@ -319,6 +346,13 @@ def network(request):
 
     participants_details = []
     if current_network:
+        # Trigger an immediate gossip broadcast when the dashboard is viewed
+        # This acts as a 'manual' sync to ensure peer-to-peer visibility.
+        try:
+            broadcast_network_status(current_network.identifier)
+        except Exception as e:
+            logger.network.warning(f"[DASHBOARD] Manual gossip broadcast failed: {e}")
+
         participants = current_network.participants.all().order_by("role", "participant_id")
         local_ip = get_tailscale_ip()
         

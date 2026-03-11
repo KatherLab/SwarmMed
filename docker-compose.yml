@@ -65,7 +65,7 @@ services:
 
   celery_worker:
     container_name: celery_worker
-    command: celery -A core worker --loglevel=info --concurrency=8 --prefetch-multiplier=2
+    command: celery -A core worker -B --loglevel=info --concurrency=8 --prefetch-multiplier=2
     restart: always
     build:
       context: .
