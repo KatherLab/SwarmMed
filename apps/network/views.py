@@ -437,18 +437,20 @@ def new_network(request):
         project = current_project_relation.project
         log = get_logger(user=request.user, project=project)
 
-        # Create the basic database record for this network
-        swarm_network = SwarmNetwork.objects.create(
-            name=network_name,
-            project=project,
-            description=description,
-            author=request.user,
-        )
-        log.network.info(
-            f"Initialized new network record: {network_name} (ID: {swarm_network.identifier})"
-        )
+        # We create the record inside each method to allow identifier recovery for uploads
+        swarm_network = None
 
         if creation_method == "create":
+            swarm_network = SwarmNetwork.objects.create(
+                name=network_name,
+                project=project,
+                description=description,
+                author=request.user,
+            )
+            log.network.info(
+                f"Initialized new network record: {network_name} (ID: {swarm_network.identifier})"
+            )
+
             # Extract client JSON data from the dynamic form fields
             clients_json = request.POST.getlist("clients")
             # Automatically detect the Tailscale IP for the server (this machine)
@@ -530,6 +532,39 @@ def new_network(request):
             # Handle user upload of a pre-existing startup kit
             startup_package = request.FILES.get("startup_package")
             if startup_package:
+                # OPTIMIZATION: Extract original network identifier from zip path
+                # Path format in zip: workspaces/PROJECT_ID/NETWORK_ID/workspace/...
+                original_network_id = None
+                try:
+                    with zipfile.ZipFile(startup_package, "r") as zip_peek:
+                        for name in zip_peek.namelist():
+                            if name.startswith("workspaces/"):
+                                parts = name.split("/")
+                                if len(parts) >= 3:
+                                    # parts[0] = 'workspaces', parts[1] = project_id, parts[2] = network_id
+                                    original_network_id = parts[2]
+                                    break
+                except Exception as peek_err:
+                    log.network.warning(f"Failed to peek into zip for identifier: {peek_err}")
+
+                create_args = {
+                    "name": network_name,
+                    "project": project,
+                    "description": description,
+                    "author": request.user,
+                }
+                if original_network_id:
+                    try:
+                        import uuid
+                        uuid.UUID(original_network_id) # Verify format
+                        create_args["identifier"] = original_network_id
+                        log.network.info(f"Recovered original network identifier: {original_network_id}")
+                    except Exception: pass
+
+                # Create the database record
+                swarm_network = SwarmNetwork.objects.create(**create_args)
+                log.network.info(f"Initialized uploaded network record: {network_name} (ID: {swarm_network.identifier})")
+
                 provision_dir = os.path.join(
                     "workspaces",
                     str(project.identifier),
