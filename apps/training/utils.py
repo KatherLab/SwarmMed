@@ -63,6 +63,8 @@ def scrape_docker_progress(participant_ids=None):
         re.compile(r"Round\s+(\d+)\s+\|", re.I),
         re.compile(r"Round:\s+(\d+)", re.I),
         re.compile(r"finished training round\s+(\d+)", re.I),
+        re.compile(r"number of rounds completed\s+(\d+)", re.I),
+        re.compile(r"Start aggregation for round\s+(\d+)", re.I),
     ]
     # Match UUIDs (36 chars) after common prefixes
     job_id_pattern = re.compile(r"(?:Got job|Local Job ID|Deploying job|job_id|job):\s*([0-9a-f-]{36})", re.I)
