@@ -1325,12 +1325,60 @@ def training_status_api(request):
     
     # Identify server node and local state
     server_node = current_network.participants.filter(role="SERVER").first()
+    from network.utils import get_tailscale_ip
     local_ip = get_tailscale_ip()
     is_server_node = server_node and server_node.ip == local_ip
     
     job = TrainingJob.objects.filter(network=current_network).order_by("-created_at").first()
     
-    # 1. Mirror state from Server node if we are a client node
+    # NEW: Scrape local docker logs for progress (User priority)
+    # This ensures that even if the central API is unreachable, the local node 
+    # can report its own progress based on what its NVFlare container is doing.
+    local_participants = current_network.participants.filter(ip=local_ip)
+    participant_ids = [p.participant_id for p in local_participants]
+    
+    from .utils import scrape_docker_progress
+    docker_results = scrape_docker_progress(participant_ids=participant_ids)
+    
+    if docker_results:
+        for res in docker_results:
+            job_id = res["job_id"]
+            # If we can't find a job ID in logs, try to match with the most recent job in DB
+            if not job_id and job:
+                job_id = job.flare_job_id
+            
+            if job_id:
+                # Find or create mirror job in local database
+                l_job = TrainingJob.objects.filter(network=current_network, flare_job_id=job_id).first()
+                if not l_job:
+                    l_job = TrainingJob.objects.create(
+                        project=current_network.project,
+                        network=current_network,
+                        flare_job_id=job_id,
+                        status="RUNNING"
+                    )
+                
+                # Update rounds and progress
+                if res["rounds_finished"] >= 0:
+                    if l_job.rounds_finished is None or res["rounds_finished"] > l_job.rounds_finished:
+                        l_job.rounds_finished = res["rounds_finished"]
+                        total_rounds = l_job.total_rounds or 10
+                        l_job.progress_percent = min(99, int((l_job.rounds_finished + 1) * 100 / total_rounds))
+                        l_job.progress_updated_at = timezone.now()
+                        l_job.save(update_fields=["rounds_finished", "progress_percent", "progress_updated_at"])
+                
+                # Update status if ended
+                if res["ended"] and l_job.status == "RUNNING":
+                    l_job.status = "COMPLETED"
+                    l_job.progress_percent = 100
+                    l_job.completed_at = timezone.now()
+                    l_job.save(update_fields=["status", "progress_percent", "completed_at"])
+                
+                # Use this job for the response
+                if not job or l_job.created_at >= job.created_at:
+                    job = l_job
+
+    # 1. Mirror state from Server node if we are a client node (Keep as fallback)
     if not is_server_node and server_node and server_node.ip and server_node.ip != "-":
         try:
             state_url = f"https://{server_node.ip}:5085/training/api/state/{current_network.identifier}/"
@@ -1338,22 +1386,27 @@ def training_status_api(request):
             if resp.status_code == 200:
                 remote_job = resp.json().get("job")
                 if remote_job:
-                    # Update or create local mirror of the training job
                     flare_id = remote_job["flare_job_id"]
-                    job = TrainingJob.objects.filter(network=current_network, flare_job_id=flare_id).first()
-                    if not job:
-                        job = TrainingJob.objects.create(
+                    j = TrainingJob.objects.filter(network=current_network, flare_job_id=flare_id).first()
+                    if not j:
+                        j = TrainingJob.objects.create(
                             project=current_network.project,
                             network=current_network,
                             flare_job_id=flare_id,
                             status=remote_job["status"]
                         )
-                    else:
-                        job.status = remote_job["status"]
-                        job.total_rounds = remote_job["total_rounds"]
-                        job.rounds_finished = remote_job["rounds_finished"]
-                        job.progress_percent = remote_job["progress_percent"]
-                        job.save()
+                    
+                    # Only update from remote if remote has more progress or terminal status
+                    remote_rounds = remote_job.get("rounds_finished", 0)
+                    if j.rounds_finished is None or remote_rounds > j.rounds_finished or remote_job["status"] in ["COMPLETED", "FAILED", "STOPPED"]:
+                        j.status = remote_job["status"]
+                        j.total_rounds = remote_job.get("total_rounds", j.total_rounds)
+                        j.rounds_finished = remote_rounds
+                        j.progress_percent = remote_job.get("progress_percent", j.progress_percent)
+                        j.save()
+                    
+                    if not job or j.created_at >= job.created_at:
+                        job = j
         except Exception:
             pass
 

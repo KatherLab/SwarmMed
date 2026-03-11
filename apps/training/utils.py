@@ -5,8 +5,103 @@ and uploading results from the training workspace.
 """
 
 import os
+import re
+import shutil
+import subprocess
 
 from common.utils import get_s3_client
+
+
+def scrape_docker_progress(participant_ids=None):
+    """
+    Scrapes progress from local docker containers running NVFlare clients/servers.
+    Returns a list of dictionaries with extracted progress info.
+    """
+    docker_path = shutil.which("docker") or "docker"
+    if not docker_path:
+        return []
+
+    # Get all running container names
+    try:
+        # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
+        result = subprocess.run(  # nosec B603
+            [docker_path, "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, check=True
+        )
+        container_names = result.stdout.splitlines()
+    except Exception:
+        return []
+
+    # Filter candidates
+    candidates = []
+    if participant_ids:
+        for p_id in participant_ids:
+            # Match exact name or name with prefix/suffix (docker-compose style)
+            # Use a robust regex to avoid false positives (e.g. 'client-1' matching 'client-10')
+            pattern = re.compile(rf"(^|[^a-zA-Z0-9-]){re.escape(p_id)}($|[^a-zA-Z0-9-])")
+            for c_name in container_names:
+                if pattern.search(c_name):
+                    candidates.append(c_name)
+    else:
+        # Generic fallback: look for containers with 'client' or 'server'
+        for c_name in container_names:
+            if "client" in c_name.lower() or "server" in c_name.lower():
+                candidates.append(c_name)
+
+    results = []
+    round_patterns = [
+        re.compile(r"Finished round\s+(\d+)", re.I),
+        re.compile(r"Round\s+(\d+)\s+\|", re.I),
+        re.compile(r"Round:\s+(\d+)", re.I),
+        re.compile(r"finished training round\s+(\d+)", re.I),
+    ]
+    # Match UUIDs (36 chars) after common prefixes
+    job_id_pattern = re.compile(r"(?:Got job|Local Job ID|Deploying job|job_id|job):\s*([0-9a-f-]{36})", re.I)
+    completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished"]
+
+    for container in candidates:
+        try:
+            # Get last 1000 lines of logs to be sure we see the round info
+            # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
+            log_result = subprocess.run(  # nosec B603
+                [docker_path, "logs", "--tail", "1000", container],
+                capture_output=True, text=True, check=False
+            )
+            logs = (log_result.stdout or "") + (log_result.stderr or "")
+            if not logs:
+                continue
+            
+            job_id = None
+            rounds_finished = -1
+            ended = False
+            
+            # Find Job ID (search from the end)
+            job_matches = job_id_pattern.findall(logs)
+            if job_matches:
+                job_id = job_matches[-1]
+                
+            # Find Rounds (search from the end)
+            for pattern in round_patterns:
+                for m in pattern.finditer(logs):
+                    rnum = int(m.group(1))
+                    if rnum > rounds_finished:
+                        rounds_finished = rnum
+            
+            # Check completion
+            if any(m in logs for m in completion_markers):
+                ended = True
+                
+            if job_id or rounds_finished >= 0:
+                results.append({
+                    "container": container,
+                    "job_id": job_id,
+                    "rounds_finished": rounds_finished,
+                    "ended": ended
+                })
+        except Exception:
+            continue
+            
+    return results
 
 
 def download_s3_folder(bucket_name, s3_folder, local_dir):

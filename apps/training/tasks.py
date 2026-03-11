@@ -46,14 +46,18 @@ def monitor_training_jobs():
     """
     Periodic task to monitor training jobs, discover new ones from the FLARE server,
     and automatically upload finalized results to S3.
+    Now also scrapes local Docker logs for more reliable realtime sync.
     """
     from .views import (
         _parse_nvflare_jobs,
         _resolve_admin_session_target,
         new_secure_session_with_host,
     )
+    from network.utils import get_tailscale_ip
+    from .utils import scrape_docker_progress
 
     log = logger.get_logger()
+    local_ip = get_tailscale_ip()
 
     # 1. DISCOVERY: Find jobs on the FLARE server that aren't in our local database.
     # Include PROVISIONED because the server node might not be in RUNNING state 
@@ -115,7 +119,48 @@ def monitor_training_jobs():
         except Exception as e:
             log.training.debug(f"Job discovery failed for network {network.name}: {e}")
 
-    # 2. MONITORING: Check RUNNING jobs.
+    # 2. LOCAL DOCKER SCRAPING: Check running containers for progress
+    for network in active_networks:
+        try:
+            local_participants = network.participants.filter(ip=local_ip)
+            participant_ids = [p.participant_id for p in local_participants]
+            docker_results = scrape_docker_progress(participant_ids=participant_ids)
+            
+            for res in docker_results:
+                job_id = res["job_id"]
+                if not job_id:
+                    # Try to find the most recent RUNNING job for this network if job_id not in logs
+                    recent_job = TrainingJob.objects.filter(network=network, status="RUNNING").order_by("-created_at").first()
+                    if recent_job:
+                        job_id = recent_job.flare_job_id
+                
+                if job_id:
+                    l_job = TrainingJob.objects.filter(network=network, flare_job_id=job_id).first()
+                    if not l_job:
+                        l_job = TrainingJob.objects.create(
+                            project=network.project,
+                            network=network,
+                            flare_job_id=job_id,
+                            status="RUNNING"
+                        )
+                    
+                    if res["rounds_finished"] >= 0:
+                        if l_job.rounds_finished is None or res["rounds_finished"] > l_job.rounds_finished:
+                            l_job.rounds_finished = res["rounds_finished"]
+                            total_rounds = l_job.total_rounds or _get_total_rounds(os.path.join(settings.BASE_DIR, "workspaces", str(l_job.project.identifier), str(l_job.network.identifier)))
+                            l_job.progress_percent = min(99, int((l_job.rounds_finished + 1) * 100 / total_rounds))
+                            l_job.progress_updated_at = timezone.now()
+                            l_job.save(update_fields=["rounds_finished", "progress_percent", "progress_updated_at"])
+                    
+                    if res["ended"] and l_job.status == "RUNNING":
+                        l_job.status = "COMPLETED"
+                        l_job.progress_percent = 100
+                        l_job.completed_at = timezone.now()
+                        l_job.save(update_fields=["status", "progress_percent", "completed_at"])
+        except Exception as e:
+            log.training.debug(f"Local docker scraping failed for network {network.name}: {e}")
+
+    # 3. MONITORING: Check RUNNING jobs (filesystem logs).
     jobs = TrainingJob.objects.filter(status__in=["RUNNING", "COMPLETED"])
 
     for job in jobs:
