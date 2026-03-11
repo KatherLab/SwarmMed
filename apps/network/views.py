@@ -306,11 +306,11 @@ def broadcast_network_status(network_id):
             try:
                 gossip_url = f"https://{peer.ip}:5085/network/api/gossip/{network.identifier}/"
                 logger.network.debug(f"[GOSSIP SHOUT] Sending my status to {peer.participant_id} at {peer.ip}")
-                requests.post(gossip_url, json=my_payload, headers=headers, timeout=2, verify=False)
+                requests.post(gossip_url, json=my_payload, headers=headers, timeout=5, verify=False)
                 
                 for shout in extra_shouts:
                     logger.network.debug(f"[GOSSIP SHOUT] Informing {peer.participant_id} that {shout['participant_id']} is {shout['status']}")
-                    requests.post(gossip_url, json=shout, headers=headers, timeout=2, verify=False)
+                    requests.post(gossip_url, json=shout, headers=headers, timeout=5, verify=False)
             except Exception as e:
                 logger.network.error(f"[GOSSIP SHOUT FAILED] Could not reach {peer.participant_id} at {peer.ip}: {e}")
 
@@ -532,18 +532,24 @@ def new_network(request):
             # Handle user upload of a pre-existing startup kit
             startup_package = request.FILES.get("startup_package")
             if startup_package:
-                # OPTIMIZATION: Extract original network identifier from zip path
-                # Path format in zip: workspaces/PROJECT_ID/NETWORK_ID/workspace/...
+                # OPTIMIZATION: Extract original network identifier from zip
                 original_network_id = None
                 try:
                     with zipfile.ZipFile(startup_package, "r") as zip_peek:
-                        for name in zip_peek.namelist():
-                            if name.startswith("workspaces/"):
-                                parts = name.split("/")
-                                if len(parts) >= 3:
-                                    # parts[0] = 'workspaces', parts[1] = project_id, parts[2] = network_id
-                                    original_network_id = parts[2]
-                                    break
+                        file_list = zip_peek.namelist()
+                        
+                        # 1. Check for dedicated .network_id file (highest priority)
+                        if ".network_id" in file_list:
+                            original_network_id = zip_peek.read(".network_id").decode("utf-8").strip()
+                        
+                        # 2. Fallback: Parse path if it was compressed with parent folders
+                        if not original_network_id:
+                            for name in file_list:
+                                if name.startswith("workspaces/"):
+                                    parts = name.split("/")
+                                    if len(parts) >= 3:
+                                        original_network_id = parts[2]
+                                        break
                 except Exception as peek_err:
                     log.network.warning(f"Failed to peek into zip for identifier: {peek_err}")
 

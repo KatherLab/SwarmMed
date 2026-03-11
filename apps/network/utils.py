@@ -232,6 +232,7 @@ def create_startup_kits_zip(swarm_network):
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # 1. Add Metadata to main bundle
+        main_zip.writestr(".network_id", str(swarm_network.identifier))
         main_zip.writestr(".gossip_token", swarm_network.gossip_token)
         main_zip.writestr(".participants.json", participants_json)
 
@@ -243,6 +244,7 @@ def create_startup_kits_zip(swarm_network):
 
                 client_zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(client_zip_buffer, "w", zipfile.ZIP_DEFLATED) as client_zip:
+                    client_zip.writestr(".network_id", str(swarm_network.identifier))
                     client_zip.writestr(".gossip_token", swarm_network.gossip_token)
                     client_zip.writestr(".participants.json", participants_json)
                     
