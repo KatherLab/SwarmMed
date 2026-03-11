@@ -73,6 +73,19 @@ class SwarmNetwork(AbstractBaseModel):
         help_text="Shared secret for authenticating gossip status shouts."
     )
 
+    # NEW: Track how the network was created
+    CREATION_METHOD_CHOICES = [
+        ("CREATED", "Created (locally provisioned)"),
+        ("UPLOADED", "Uploaded (imported)"),
+        ("LOCAL_TEST", "Local Test"),
+    ]
+    creation_method = models.CharField(
+        max_length=20,
+        choices=CREATION_METHOD_CHOICES,
+        default="CREATED",
+        help_text="How this network configuration was initialized."
+    )
+
     @staticmethod
     def resolve_current(user) -> 'SwarmNetwork':
         """

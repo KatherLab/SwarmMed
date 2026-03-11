@@ -283,11 +283,12 @@
                             <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8.6 5.2A1 1 0 0 0 7 6v12a1 1 0 0 0 1.6.8l8-6a1 1 0 0 0 0-1.6l-8-6Z"/></svg>
                             Set as Current
                         </a>
+                        {% if network.creation_method == 'CREATED' %}
                         <a href="{% url 'network:download_startup_kits' network.identifier %}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-blue-700 bg-blue-100 rounded-lg dark:text-blue-300 border border-blue-100 hover:border-blue-700 dark:border-gray-700 dark:hover:border-blue-300 {% if forloop.counter|divisibleby:2 %}dark:bg-gray-800{% else %}dark:bg-gray-700{% endif %}">
                             <svg class="w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24"> <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M4 15v2a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-2m-8 1V4m0 12-4-4m4 4 4-4"/></svg>
                             Kits
                         </a>
-                        
+                        {% endif %}
                         <form method="POST" action="{% url 'network:delete_swarm_network' network.identifier %}" onsubmit="return confirm('Are you sure you want to delete this network?');">
                             {% csrf_token %}
                             <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-red-700 bg-red-100 rounded-lg dark:text-red-300 border border-red-100 hover:border-red-700 dark:border-gray-700 dark:hover:border-red-300 {% if forloop.counter|divisibleby:2 %}dark:bg-gray-800{% else %}dark:bg-gray-700{% endif %}">

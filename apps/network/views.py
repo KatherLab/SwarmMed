@@ -497,6 +497,7 @@ def new_network(request):
                 project=project,
                 description=description,
                 author=request.user,
+                creation_method="CREATED",
             )
             log.network.info(
                 f"Initialized new network record: {network_name} (ID: {swarm_network.identifier})"
@@ -609,6 +610,7 @@ def new_network(request):
                     "project": project,
                     "description": description,
                     "author": request.user,
+                    "creation_method": "UPLOADED",
                 }
                 if original_network_id:
                     try:
@@ -900,6 +902,13 @@ def new_network(request):
                 )
 
         elif creation_method == "local_test":
+            swarm_network = SwarmNetwork.objects.create(
+                name=network_name,
+                project=project,
+                description=description,
+                author=request.user,
+                creation_method="LOCAL_TEST",
+            )
             log.network.info(
                 f"Provisioning local testing network '{network_name}'."
             )
