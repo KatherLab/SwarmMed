@@ -382,7 +382,7 @@ def new_network(request):
             user=request.user
         )
         project = current_project_relation.project
-        log = logger.get_logger(user=request.user, project=project)
+        log = get_logger(user=request.user, project=project)
 
         # Create the basic database record for this network
         swarm_network = SwarmNetwork.objects.create(
