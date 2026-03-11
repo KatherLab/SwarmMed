@@ -185,14 +185,12 @@ def create_startup_kits_zip(swarm_network):
     them into a single ZIP file for the user to download.
     """
     import secrets
-    # Ensure gossip token exists so it can be shared with clients
+    # Ensure gossip token exists
     if not swarm_network.gossip_token:
         swarm_network.gossip_token = secrets.token_hex(32)
         swarm_network.save(update_fields=["gossip_token"])
 
-    # Sanitize project name to prevent path traversal
     project_name = slugify(swarm_network.project.title).replace("-", "_")
-
     workspaces_root = Path(settings.BASE_DIR) / "workspaces"
     base_prod_path = (
         workspaces_root
@@ -208,21 +206,8 @@ def create_startup_kits_zip(swarm_network):
         return zip_buffer
 
     abs_base_prod_path = base_prod_path.resolve()
-    default_admin_startup_dir = abs_base_prod_path / "admin@nvidia.com" / "startup"
-    server_startup_dir = abs_base_prod_path / "server" / "startup"
-    client_admin_map = {}
-    client_server_map = {}
     
-    try:
-        if (abs_base_prod_path / ".client_admin_map.json").exists():
-            client_admin_map = json.loads((abs_base_prod_path / ".client_admin_map.json").read_text())
-        if (abs_base_prod_path / ".client_server_map.json").exists():
-            client_server_map = json.loads((abs_base_prod_path / ".client_server_map.json").read_text())
-    except Exception: pass
-
-    server_dir_names = {"server"}
-    server_dir_names.update({str(s) for s in client_server_map.values() if s})
-
+    # Participant Metadata
     participants_data = []
     for p in swarm_network.participants.all():
         participants_data.append({
@@ -233,12 +218,24 @@ def create_startup_kits_zip(swarm_network):
         })
     participants_json = json.dumps(participants_data, indent=2)
 
+    client_admin_map = {}
+    client_server_map = {}
+    try:
+        if (abs_base_prod_path / ".client_admin_map.json").exists():
+            client_admin_map = json.loads((abs_base_prod_path / ".client_admin_map.json").read_text())
+        if (abs_base_prod_path / ".client_server_map.json").exists():
+            client_server_map = json.loads((abs_base_prod_path / ".client_server_map.json").read_text())
+    except Exception: pass
+
+    server_dir_names = {"server"}
+    server_dir_names.update({str(s) for s in client_server_map.values() if s})
+
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
-        # 1. Add Metadata to main zip
+        # 1. Add Metadata to main bundle
         main_zip.writestr(".gossip_token", swarm_network.gossip_token)
         main_zip.writestr(".participants.json", participants_json)
 
-        # 2. Package individual client kits
+        # 2. Add individual kits
         for item in os.scandir(str(abs_base_prod_path)):
             if item.is_dir() and item.name not in server_dir_names and "admin" not in item.name:
                 startup_dir = Path(item.path) / "startup"
@@ -246,48 +243,45 @@ def create_startup_kits_zip(swarm_network):
 
                 client_zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(client_zip_buffer, "w", zipfile.ZIP_DEFLATED) as client_zip:
-                    # Embed gossip token and participant list inside the client zip
                     client_zip.writestr(".gossip_token", swarm_network.gossip_token)
                     client_zip.writestr(".participants.json", participants_json)
-
-                    # Add requirements if present
+                    
+                    # Requirements
                     req_file = abs_base_prod_path.parent.parent / "docker_compose_requirements.txt"
                     if req_file.exists():
                         client_zip.write(str(req_file), "docker_compose_requirements.txt")
 
-                    # Add client files
+                    # Kit Files
                     for root, _, files in os.walk(item.path):
                         for file in files:
                             file_path = Path(root) / file
-                            arcname = file_path.relative_to(item.path)
-                            client_zip.write(str(file_path), str(arcname))
+                            client_zip.write(str(file_path), str(file_path.relative_to(item.path)))
 
-                    # Add admin startup
+                    # Admin and Server partials
                     mapped_admin = client_admin_map.get(item.name, "")
-                    adm_dir = abs_base_prod_path / mapped_admin / "startup" if mapped_admin else default_admin_startup_dir
+                    adm_dir = abs_base_prod_path / mapped_admin / "startup" if mapped_admin else (abs_base_prod_path / "admin@nvidia.com" / "startup")
                     if adm_dir.exists():
                         for root, _, files in os.walk(str(adm_dir)):
                             for file in files:
-                                file_path = Path(root) / file
-                                arcname = Path("admin_startup") / file_path.relative_to(adm_dir)
-                                client_zip.write(str(file_path), str(arcname))
+                                f_path = Path(root) / file
+                                client_zip.write(str(f_path), str(Path("admin_startup") / f_path.relative_to(adm_dir)))
 
-                    # Add server startup (for certs/host info)
                     mapped_srv = client_server_map.get(item.name, "")
-                    srv_dir = abs_base_prod_path / mapped_srv / "startup" if mapped_srv else server_startup_dir
+                    srv_dir = abs_base_prod_path / mapped_srv / "startup" if mapped_srv else (abs_base_prod_path / "server" / "startup")
                     if srv_dir.exists():
                         for root, _, files in os.walk(str(srv_dir)):
                             for file in files:
-                                file_path = Path(root) / file
-                                arcname = Path("server_startup") / file_path.relative_to(srv_dir)
-                                client_zip.write(str(file_path), str(arcname))
+                                f_path = Path(root) / file
+                                client_zip.write(str(f_path), str(Path("server_startup") / f_path.relative_to(srv_dir)))
 
                 main_zip.writestr(f"{item.name}.zip", client_zip_buffer.getvalue())
 
-        # Add project requirements to main zip
-        req_file = Path(base_prod_path).parent.parent / "docker_compose_requirements.txt"
-        if req_file.exists():
-            main_zip.write(str(req_file), "docker_compose_requirements.txt")
+        # Root project files
+        project_yml = abs_base_prod_path.parent.parent / "project.yml"
+        if project_yml.exists(): main_zip.write(str(project_yml), "project.yml")
+        
+        req_root = abs_base_prod_path.parent.parent / "docker_compose_requirements.txt"
+        if req_root.exists(): main_zip.write(str(req_root), "docker_compose_requirements.txt")
 
     zip_buffer.seek(0)
     return zip_buffer
