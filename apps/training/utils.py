@@ -44,7 +44,8 @@ def scrape_docker_progress(participant_ids=None):
         log.training.debug(f"Scrape: Looking for participants: {participant_ids}")
         for p_id in participant_ids:
             # Match exact name or name with prefix/suffix (docker-compose style)
-            pattern = re.compile(rf"(^|[^a-zA-Z0-9-]){re.escape(p_id)}($|[^a-zA-Z0-9-])")
+            # Fix: Allow dashes as separators by removing them from the exclusion set
+            pattern = re.compile(rf"(^|[^a-zA-Z0-9]){re.escape(p_id)}($|[^a-zA-Z0-9])")
             for c_name in container_names:
                 if pattern.search(c_name):
                     candidates.append(c_name)
