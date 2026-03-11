@@ -523,6 +523,8 @@ def _build_local_fallback_image(
             rf.write("python-dotenv\n")
             rf.write("pandas\n")
             rf.write("numpy\n")
+            rf.write("torch\n")
+            rf.write("scikit-learn\n")
 
     dockerfile_path = os.path.join(build_dir, "Dockerfile")
     with open(dockerfile_path, "w") as df:
@@ -585,6 +587,8 @@ def _collect_project_runtime_requirements(project, logger):
         "python-dotenv",
         "pandas",
         "numpy",
+        "torch",
+        "scikit-learn",
     ]
 
     merged = []

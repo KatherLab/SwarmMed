@@ -272,13 +272,14 @@ def generate_flare_startup_kit(
     with open(req_file_path, "w") as rf:
         # Basic requirements for all participants
         rf.write("nvflare==2.7.1\n")
-        rf.write("gunicorn\n")
-        rf.write("boto3\n")
-        rf.write("python-dotenv\n")
-        rf.write("pandas\n")
-        rf.write("numpy\n")
-        rf.write("torch\n")
-        rf.write("scikit-learn\n")
+        rf.write("gunicorn==23.0.0\n")
+        rf.write("boto3==1.34.100\n")
+        rf.write("python-dotenv==1.0.1\n")
+        rf.write("pandas==2.3.3\n")
+        rf.write("numpy<2.0.0\n")
+        rf.write("torch==2.9.0\n")
+        rf.write("scikit-learn==1.8.0\n")
+        rf.write("ray[data]==2.43.0\n")
 
         # Collect additional requirements from supported sources in S3.
         # Source 1: project.requirements_file (explicit upload in Project settings)
