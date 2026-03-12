@@ -1,7 +1,6 @@
 import glob
 import os
 import math
-
 import flare_adapter
 import keras
 import numpy as np

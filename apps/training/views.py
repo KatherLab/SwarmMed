@@ -1286,6 +1286,7 @@ def start_training(request, network_id):
             job.to(aggregator, server_name, id="aggregator")
 
         swarm_client_controller = SwarmClientController(
+            num_rounds=swarm_rounds,
             learn_task_name="train", persistor_id="persistor", aggregator_id="aggregator",
             shareable_generator_id="shareable_generator", min_responses_required=len(client_names),
         )
