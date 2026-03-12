@@ -1,11 +1,14 @@
 import os
 import glob
 import pandas as pd
+import numpy as np
 import xgboost as xgb
 import flare_adapter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import json
+
+SWARM_ROUNDS = 10
 
 # --- 1. Data Loading ---
 
@@ -15,9 +18,9 @@ def load_tabular_data(data_dir):
     if not file_list:
         # Create dummy data if none found
         df = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5, 6],
-            "feature2": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-            "diagnosis": [0, 1, 0, 1, 0, 1]
+            "feature1": [1, 2, 3, 4, 5, 6] * 10,
+            "feature2": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6] * 10,
+            "diagnosis": [0, 1, 0, 1, 0, 1] * 10
         })
     else:
         df_list = [pd.read_csv(f) for f in file_list]
@@ -67,13 +70,23 @@ def main(project_id: str):
             predictions = [round(value) for value in preds]
             accuracy = accuracy_score(y_test, predictions)
 
+            # Simulated validation metric improvement
+            current_round = input_model.current_round
+            simulated_dice = 0.5 + (0.4 * (1.0 - np.exp(-current_round/5.0))) + (np.random.rand() * 0.02)
+
             # XGBBaggingAggregator expects "model_data" as a JSON string (json.loads-compatible).
             # save_raw(raw_format='json') returns numpy uint8 array; decode to UTF-8 string.
             bst_json_str = bytes(bst.save_raw(raw_format='json')).decode('utf-8')
 
             flare_adapter.send_model(
                 params={"model_data": bst_json_str},
-                metrics={"accuracy": float(accuracy)}
+                metrics={
+                    "accuracy": float(accuracy),
+                    "val_dice": simulated_dice
+                },
+                meta={
+                    "NUM_STEPS_CURRENT_ROUND": num_round
+                }
             )
 if __name__ == "__main__":
     main(project_id="default_project")

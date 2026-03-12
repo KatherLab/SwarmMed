@@ -1255,8 +1255,22 @@ def start_training(request, network_id):
         private_p2p = os.getenv("SWARMCLOUD_PRIVATE_P2P", "").strip().lower() in {"1", "true", "yes", "on"}
         starting_client = client_names[0] if client_names else ""
 
+        # Try to extract the number of swarm rounds from the training script
+        swarm_rounds = 10
+        try:
+            training_script_path = os.path.join(app_client_custom_dir, "training.py")
+            if os.path.exists(training_script_path):
+                with open(training_script_path, "r") as f:
+                    content = f.read()
+                    match = re.search(r"SWARM_ROUNDS\s*=\s*(\d+)", content)
+                    if match:
+                        swarm_rounds = int(match.group(1))
+                        log.training.info(f"Extracted SWARM_ROUNDS={swarm_rounds} from training script.")
+        except Exception as e:
+            log.training.warning(f"Failed to extract SWARM_ROUNDS from training script: {e}")
+
         controller = SwarmServerController(
-            num_rounds=10, participating_clients=client_names, result_clients=client_names,
+            num_rounds=swarm_rounds, participating_clients=client_names, result_clients=client_names,
             starting_client=starting_client, private_p2p=private_p2p, aggr_clients=client_names, train_clients=client_names,
         )
         log.training.info(f"Swarm controller config: private_p2p={private_p2p}, starting_client={starting_client}, participants={client_names}")

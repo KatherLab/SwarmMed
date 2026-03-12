@@ -8,6 +8,8 @@ from monai.networks.nets import DenseNet121
 from monai.transforms import Compose, EnsureChannelFirst, ScaleIntensity, ToTensor, RandRotate, RandFlip
 import flare_adapter
 
+SWARM_ROUNDS = 10
+
 # --- 1. Dataset Class (Simulated Medical Imaging) ---
 
 class MedicalImageDataset(Dataset):

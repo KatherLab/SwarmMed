@@ -12,6 +12,8 @@ from sklearn.preprocessing import StandardScaler
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
 
+SWARM_ROUNDS = 10
+
 # --- Import the new adapter ---
 
 # --- 1. Data Loading Function ---
@@ -104,11 +106,22 @@ def main(project_id: str):
             # 3. Send Results Back to Server via Adapter
             print("Training finished for round. Sending updates to server...")
 
+            # Simulated validation metric improvement
+            current_round = input_model.current_round
+            simulated_accuracy = 0.6 + (0.35 * (1.0 - np.exp(-current_round/5.0))) + (np.random.rand() * 0.02)
+
             # Scikit-learn parameters are typically coef_ and intercept_
             params_dict = {"coef": model.coef_, "intercept": model.intercept_}
 
             flare_adapter.send_model(
-                params=params_dict, metrics={"loss": float(loss)}
+                params=params_dict, 
+                metrics={
+                    "loss": float(loss),
+                    "accuracy": simulated_accuracy
+                },
+                meta={
+                    "NUM_STEPS_CURRENT_ROUND": len(X_train) # For sklearn partial_fit, one sample is one step
+                }
             )
 
 

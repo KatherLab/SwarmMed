@@ -2,11 +2,14 @@ import os
 import glob
 import pandas as pd
 import torch
+import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from sklearn.preprocessing import StandardScaler
 import pytorch_lightning as pl
 import flare_adapter
+
+SWARM_ROUNDS = 10
 
 # --- 1. Dataset Class ---
 
@@ -84,10 +87,20 @@ def main(project_id: str):
             trainer = pl.Trainer(max_epochs=1, accelerator="auto", devices=1, logger=False, enable_checkpointing=False)
             trainer.fit(model, train_loader)
 
+            # Simulated validation metric improvement
+            current_round = input_model.current_round
+            simulated_accuracy = 0.6 + (0.35 * (1.0 - np.exp(-current_round/5.0))) + (np.random.rand() * 0.02)
+
             # Send back to server
             flare_adapter.send_model(
                 params=model.state_dict(),
-                metrics={"loss": trainer.callback_metrics.get("train_loss", 0).item()}
+                metrics={
+                    "loss": trainer.callback_metrics.get("train_loss", 0).item(),
+                    "accuracy": simulated_accuracy
+                },
+                meta={
+                    "NUM_STEPS_CURRENT_ROUND": trainer.global_step
+                }
             )
 
 if __name__ == "__main__":

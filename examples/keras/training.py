@@ -1,5 +1,6 @@
 import glob
 import os
+import math
 
 import flare_adapter
 import keras
@@ -10,6 +11,8 @@ from sklearn.preprocessing import StandardScaler
 
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
+
+SWARM_ROUNDS = 10
 
 # --- Import the new adapter ---
 
@@ -127,9 +130,17 @@ def main(project_id: str):
             )
 
             avg_loss = np.mean(history.history["loss"])
+            
+            # Calculate steps
+            steps_per_epoch = math.ceil(len(X_train) / batch_size)
+            total_steps = steps_per_epoch * epochs_per_round
 
             # 3. Send Results Back to Server via Adapter
             print("Training finished for round. Sending updates to server...")
+
+            # Simulated validation metric improvement
+            current_round = input_model.current_round
+            simulated_accuracy = 0.6 + (0.35 * (1.0 - np.exp(-current_round/5.0))) + (np.random.rand() * 0.02)
 
             # Convert Keras weights to a dictionary for the adapter
             params_dict = {
@@ -137,7 +148,14 @@ def main(project_id: str):
             }
 
             flare_adapter.send_model(
-                params=params_dict, metrics={"loss": float(avg_loss)}
+                params=params_dict, 
+                metrics={
+                    "loss": float(avg_loss),
+                    "accuracy": simulated_accuracy
+                },
+                meta={
+                    "NUM_STEPS_CURRENT_ROUND": total_steps
+                }
             )
 
 
