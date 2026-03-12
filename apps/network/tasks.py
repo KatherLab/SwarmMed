@@ -86,8 +86,10 @@ def _extract_host_from_server_endpoint(startup_dir):
     fed_client_json = os.path.join(startup_dir, "fed_client.json")
     config = _load_json_file(fed_client_json)
 
-    agent_args = config.get("overseer_agent", {}).get("args", {})
-    endpoint = agent_args.get("sp_end_point") or agent_args.get(
+    # Use 'ha_agent' terminology while maintaining compatibility with NVFlare 'overseer_agent' key
+    ha_agent_cfg = config.get("overseer_agent", {})
+    ha_agent_args = ha_agent_cfg.get("args", {})
+    endpoint = ha_agent_args.get("sp_end_point") or ha_agent_args.get(
         "overseer_end_point", ""
     )
     if not endpoint:

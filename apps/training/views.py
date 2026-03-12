@@ -1111,7 +1111,7 @@ def start_training(request, network_id):
         if not client_names:
             try:
                 _prod_00 = os.path.dirname(os.path.abspath(admin_session_dir))
-                _EXCL = {"server", "admin_startup", "overseer", "startup", "transfer", "local", "logs", "custom"}
+                _EXCL = {"server", "admin_startup", "startup", "transfer", "local", "logs", "custom"}
                 for _e in sorted(os.scandir(_prod_00), key=lambda x: x.name):
                     if (_e.is_dir() and _e.name not in _EXCL and not _e.name.startswith(".") and os.path.isdir(os.path.join(_e.path, "startup"))):
                         client_names.append(_e.name)

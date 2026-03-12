@@ -762,13 +762,12 @@ def new_network(request):
                         if os.path.exists(fed_client_json):
                             with open(fed_client_json) as f:
                                 cfg = json.load(f) or {}
+                            # Try to extract the server endpoint from the High Availability agent configuration (NVFlare uses 'overseer_agent' key)
+                            ha_agent_cfg = cfg.get("overseer_agent", {})
+                            ha_agent_args = ha_agent_cfg.get("args", {})
                             endpoint = (
-                                cfg.get("overseer_agent", {})
-                                .get("args", {})
-                                .get("sp_end_point", "")
-                                or cfg.get("overseer_agent", {})
-                                .get("args", {})
-                                .get("overseer_end_point", "")
+                                ha_agent_args.get("sp_end_point", "")
+                                or ha_agent_args.get("overseer_end_point", "")
                             )
                             endpoint = str(endpoint).strip()
                             if endpoint:

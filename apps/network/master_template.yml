@@ -63,15 +63,6 @@ readme_fs: |
 
   Please always safeguard the server.key.
 
-gunicorn_conf_py: |
-  bind="0.0.0.0:{~~port~~}"
-  cert_reqs=2
-  do_handshake_on_connect=True
-  timeout=30
-  worker_class="nvflare.ha.overseer.worker.ClientAuthWorker"
-  workers=1
-  wsgi_app="nvflare.ha.overseer.overseer:app"
-
 local_client_resources: |
   {
     "format_version": 2,
@@ -369,11 +360,6 @@ log_config: |
 
   [formatter_fullFormatter]
   format=%(asctime)s - %(name)s - %(levelname)s - %(message)s
-
-start_ovsr_sh: |
-  #!/usr/bin/env bash
-  DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-  NVFL_OVERSEER_HEARTBEAT_TIMEOUT=10 AUTHZ_FILE=$DIR/privilege.yml gunicorn -c $DIR/gunicorn.conf.py --keyfile $DIR/overseer.key --certfile $DIR/overseer.crt --ca-certs $DIR/rootCA.pem
 
 start_cln_sh: |
   #!/usr/bin/env bash
@@ -722,15 +708,6 @@ docker_adm_sh: |
   # NOTE: This compose file uses named volumes to avoid issues with Docker for Mac file sharing.
   # This means that the workspace data is not directly accessible from the host.
   services:
-    __overseer__:
-      build: ./nvflare
-      image: ${IMAGE_NAME}
-      volumes:
-        - ./overseer:/workspace
-      command: ["/workspace/startup/start.sh"]
-      ports:
-        - "8443:8443"
-
     __flserver__:
       image: ${IMAGE_NAME}
       shm_size: '10.24gb'
@@ -807,19 +784,6 @@ helm_chart_chart: |
   version: 0.1.0
   appVersion: "2.7.1"
 
-helm_chart_service_overseer: |
-  apiVersion: v1
-  kind: Service
-  metadata:
-    name: overseer
-  spec:
-    selector:
-      system: overseer
-    ports:
-      - protocol: TCP
-        port: 8443
-        targetPort: overseer-port
-
 helm_chart_service_server: |
   apiVersion: v1
   kind: Service
@@ -840,40 +804,6 @@ helm_chart_service_server: |
         port: 8003
         targetPort: admin-port
 
-helm_chart_deployment_overseer: |
-  apiVersion: apps/v1
-  kind: Deployment
-  metadata:
-    name: overseer
-    labels:
-      system: overseer
-  spec:
-    replicas: 1
-    selector:
-      matchLabels:
-        system: overseer
-    template:
-      metadata:
-        labels:
-          system: overseer
-      spec:
-        volumes:
-          - name: workspace
-            hostPath:
-              path:
-              type: Directory
-        containers:
-          - name: overseer
-            image: nvflare-min:2.7.1
-            imagePullPolicy: IfNotPresent
-            volumeMounts:
-              - name: workspace
-                mountPath: /workspace
-            command: ["/workspace/overseer/startup/start.sh"]
-            ports:
-              - name: overseer-port
-                containerPort: 8443
-                protocol: TCP
 helm_chart_deployment_server: |
   apiVersion: apps/v1
   kind: Deployment

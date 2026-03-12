@@ -99,18 +99,11 @@ def generate_flare_startup_kit(
     if server_ip and is_valid_ip(server_ip):
         try:
             template_text = target_template.read_text()
-            updated = template_text.replace(
-                "https://server:8443/api/v1",
-                f"https://{server_ip}:8443/api/v1",
-            )
-            updated = updated.replace(
-                "https://server:8443", f"https://{server_ip}:8443"
-            )
-            updated = updated.replace("${SERVER_IP}", server_ip)
+            updated = template_text.replace("${SERVER_IP}", server_ip)
             if template_text != updated:
                 target_template.write_text(updated)
                 logger.network.info(
-                    f"Injected server endpoint and server IP {server_ip} into master template"
+                    f"Injected server IP {server_ip} into master template"
                 )
         except Exception as e:
             logger.network.warning(
@@ -173,11 +166,6 @@ def generate_flare_startup_kit(
                     "ip": ip,
                     "org": center_org_name,
                 }
-            )
-
-        if ha_servers not in (None, 1, "1"):
-            logger.network.info(
-                "Ignoring ha_servers value because multi-server topology is not supported for NVFlare 2.7.1"
             )
 
         participants.append(

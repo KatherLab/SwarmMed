@@ -265,7 +265,7 @@ def monitor_training_jobs():
                 if not found_folders:
                     for participant in os.listdir(workspace_base):
                         p_path = os.path.join(workspace_base, participant)
-                        if os.path.isdir(p_path) and participant.lower() not in ["admin", "overseer", "startup", "logs", "local", "transfer", "custom"]:
+                        if os.path.isdir(p_path) and participant.lower() not in ["admin", "startup", "logs", "local", "transfer", "custom"]:
                             target = os.path.join(p_path, flare_job_uuid)
                             if os.path.exists(target):
                                 app_sub = os.path.join(target, f"app_{participant}")
