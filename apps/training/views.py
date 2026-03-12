@@ -1228,9 +1228,9 @@ def start_training(request, network_id):
                 from nvflare.app_opt.xgboost.tree_based.bagging_aggregator import XGBBaggingAggregator
                 aggregator = XGBBaggingAggregator()
             except (ModuleNotFoundError, ImportError):
-                aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
+                aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS, best_metric_name="accuracy")
         else:
-            aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
+            aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS, best_metric_name="accuracy")
         log.training.info(f"Selected NVFlare executor: {executor.__class__.__module__}.{executor.__class__.__name__}")
 
         _log_flare_pre_submit_diagnostics(log=log, username=admin_username, startup_kit_location=admin_session_dir, requested_host=server_ip)
