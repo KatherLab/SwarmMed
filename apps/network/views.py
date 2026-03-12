@@ -233,14 +233,6 @@ def _get_local_participant_status(swarm_network):
         status_map[name] = status
     
     return status_map
-        elif swarm_network.status == "STARTING":
-            status = "Starting..."
-        elif swarm_network.status == "ERROR":
-            status = "Error"
-        
-        status_map[name] = status
-    
-    return status_map
 
 
 from django.utils import timezone
