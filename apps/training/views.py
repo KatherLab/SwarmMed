@@ -1146,7 +1146,7 @@ def start_training(request, network_id):
 
     log.training.info(f"Detected training framework: {framework}")
     if framework == "pt":
-        runtime_requirements_path = os.path.join(settings.BASE_DIR, "workspaces", str(project.identifier), str(network.identifier), "docker_compose_requirements.txt")
+        runtime_requirements_path = os.path.join(settings.BASE_DIR, "workspaces", str(project.identifier), str(network.identifier), "runtime_requirements.txt")
         has_torch_dependency = False
         if os.path.exists(runtime_requirements_path):
             try:

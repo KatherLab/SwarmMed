@@ -663,7 +663,7 @@ def new_network(request):
                             continue
                         
                         # Special handling for requirements file: ensure it lands in the root provision_dir
-                        if member_path == "docker_compose_requirements.txt":
+                        if member_path == "runtime_requirements.txt":
                             with open(os.path.join(provision_dir, member_path), "wb") as f:
                                 f.write(zip_ref.read(member))
                         else:
@@ -682,7 +682,7 @@ def new_network(request):
                     for item in os.listdir(provision_dir):
                         if item in {
                             "workspaces",
-                            "docker_compose_requirements.txt",
+                            "runtime_requirements.txt",
                         }:
                             continue # Don't move the parent if recursive
                         src = os.path.join(provision_dir, item)

@@ -236,7 +236,7 @@ def generate_flare_startup_kit(
                 "path": "nvflare.lighter.impl.docker.DockerBuilder",
                 "args": {
                     "base_image": "python:3.12-slim",
-                    "requirements_file": "docker_compose_requirements.txt",
+                    "requirements_file": "runtime_requirements.txt",
                 },
             },
             {
@@ -255,7 +255,7 @@ def generate_flare_startup_kit(
     # 4. Handle Python Requirements
     # We create a requirements file that DockerBuilder will inject into images
     req_file_path = os.path.join(
-        provision_dir, "docker_compose_requirements.txt"
+        provision_dir, "runtime_requirements.txt"
     )
     with open(req_file_path, "w") as rf:
         # Basic requirements for all participants

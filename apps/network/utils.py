@@ -249,9 +249,9 @@ def create_startup_kits_zip(swarm_network):
                     client_zip.writestr(".participants.json", participants_json)
                     
                     # Requirements
-                    req_file = abs_base_prod_path.parent.parent / "docker_compose_requirements.txt"
+                    req_file = abs_base_prod_path.parent.parent / "runtime_requirements.txt"
                     if req_file.exists():
-                        client_zip.write(str(req_file), "docker_compose_requirements.txt")
+                        client_zip.write(str(req_file), "runtime_requirements.txt")
 
                     # Kit Files
                     for root, _, files in os.walk(item.path):
@@ -282,8 +282,8 @@ def create_startup_kits_zip(swarm_network):
         project_yml = abs_base_prod_path.parent.parent / "project.yml"
         if project_yml.exists(): main_zip.write(str(project_yml), "project.yml")
         
-        req_root = abs_base_prod_path.parent.parent / "docker_compose_requirements.txt"
-        if req_root.exists(): main_zip.write(str(req_root), "docker_compose_requirements.txt")
+        req_root = abs_base_prod_path.parent.parent / "runtime_requirements.txt"
+        if req_root.exists(): main_zip.write(str(req_root), "runtime_requirements.txt")
 
     zip_buffer.seek(0)
     return zip_buffer

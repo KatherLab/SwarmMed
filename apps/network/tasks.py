@@ -554,8 +554,8 @@ def _build_local_fallback_image(
 
 def _resolve_runtime_requirements_path(provision_dir, base_prod_path):
     candidates = [
-        os.path.join(provision_dir, "docker_compose_requirements.txt"),
-        os.path.join(base_prod_path, "docker_compose_requirements.txt"),
+        os.path.join(provision_dir, "runtime_requirements.txt"),
+        os.path.join(base_prod_path, "runtime_requirements.txt"),
     ]
     for candidate in candidates:
         if os.path.exists(candidate):
@@ -730,7 +730,7 @@ def _ensure_runtime_requirements_file(
         return ""
 
     os.makedirs(provision_dir, exist_ok=True)
-    out_path = os.path.join(provision_dir, "docker_compose_requirements.txt")
+    out_path = os.path.join(provision_dir, "runtime_requirements.txt")
     try:
         with open(out_path, "w") as wf:
             wf.write("\n".join(merged) + "\n")
