@@ -1261,6 +1261,8 @@ def start_swarm_network_task(network_id, user_id):
                 "-d",
                 "--name",
                 container_name,
+                "--shm-size",
+                "10.24gb",
                 "--label",
                 f"swarmcloud.network_id={swarm_network.identifier}",
                 "--label",
@@ -1282,6 +1284,17 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 "SWARMCLOUD_USE_LOCAL_DATA=1",
             ]
+
+            # Enable GPU access if available
+            gpu_enabled = (
+                os.getenv("SWARMCLOUD_ENABLE_GPU", "true")
+                .strip()
+                .lower()
+                in {"1", "true", "yes", "on"}
+            )
+            if gpu_enabled:
+                run_cmd.insert(2, "--gpus")
+                run_cmd.insert(3, "all")
 
             if use_host_network:
                 run_cmd.extend(["--network", "host"])

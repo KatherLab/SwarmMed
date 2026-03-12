@@ -661,7 +661,7 @@ docker_cln_sh: |
   # before running docker.sh
 
   # for all gpus use line below 
-  #GPU2USE='--gpus=all'
+  GPU2USE='--gpus=all'
   # for 2 gpus use line below
   #GPU2USE='--gpus=2' 
   # for specific gpus as gpu#0 and gpu#2 use line below
@@ -675,12 +675,12 @@ docker_cln_sh: |
   mode="${1:--r}"
   if [ $mode = "-d" ]
   then
-    docker run -d --rm --name={~~client_name~~} $GPU2USE -u $(id -u):$(id -g) \
+    docker run -d --rm --name={~~client_name~~} --shm-size 10.24gb $GPU2USE -u $(id -u):$(id -g) \
     -v /etc/passwd:/etc/passwd -v /etc/group:/etc/group -v $DIR/..:/workspace/ \
     -v $MY_DATA_DIR:/data/:ro -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE \
     /bin/bash -c "python -u -m nvflare.private.fed.app.client.client_train -m /workspace -s fed_client.json --set uid={~~client_name~~} secure_train=true config_folder=config org={~~org_name~~}"
   else
-    docker run --rm -it --name={~~client_name~~} $GPU2USE -u $(id -u):$(id -g) \
+    docker run --rm -it --name={~~client_name~~} --shm-size 10.24gb $GPU2USE -u $(id -u):$(id -g) \
     -v /etc/passwd:/etc/passwd -v /etc/group:/etc/group -v $DIR/..:/workspace/ \
     -v $MY_DATA_DIR:/data/:ro -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE /bin/bash
   fi
@@ -699,11 +699,11 @@ docker_svr_sh: |
   mode="${1:-r}"
   if [ $mode = "-d" ]
   then
-    docker run -d --rm --name=$svr_name -v $DIR/..:/workspace/ -w /workspace \
+    docker run -d --rm --name=$svr_name --shm-size 10.24gb -v $DIR/..:/workspace/ -w /workspace \
     --ipc=host $NETARG $DOCKER_IMAGE /bin/bash -c \
     "python -u -m nvflare.private.fed.app.server.server_train -m /workspace -s fed_server.json --set secure_train=true config_folder=config org={~~org_name~~}"
   else
-    docker run --rm -it --name=$svr_name -v $DIR/..:/workspace/ -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE /bin/bash
+    docker run --rm -it --name=$svr_name --shm-size 10.24gb -v $DIR/..:/workspace/ -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE /bin/bash
   fi
 
 docker_adm_sh: |
@@ -733,6 +733,7 @@ docker_adm_sh: |
 
     __flserver__:
       image: ${IMAGE_NAME}
+      shm_size: '10.24gb'
       ports:
         - "{~~fed_learn_port~~}:{~~fed_learn_port~~}"
         - "{~~admin_port~~}:{~~admin_port~~}"
@@ -762,6 +763,7 @@ docker_adm_sh: |
 
     __flclient__:
       image: ${IMAGE_NAME}
+      shm_size: '10.24gb'
       volumes:
         - ./fl-client:/workspace
       extra_hosts:

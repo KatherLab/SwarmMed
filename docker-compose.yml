@@ -3,6 +3,7 @@ services:
     container_name: swarmcloud
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 8 --worker-class gthread --access-logfile - --error-logfile - --log-level info --max-requests 1000 --max-requests-jitter 50 core.wsgi:application
     restart: always
+    shm_size: '10.24gb'
     build:
       context: .
     networks:
@@ -34,6 +35,13 @@ services:
       - DOCKER_HOST=tcp://docker-proxy:2375
       - TAILSCALE_STATUS_BASE_URL=http://tailscale-status:9002
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   nginx:
     image: nginx:latest
@@ -67,6 +75,7 @@ services:
     container_name: celery_worker
     command: celery -A core worker -B --loglevel=info --concurrency=8 --prefetch-multiplier=2
     restart: always
+    shm_size: '10.24gb'
     build:
       context: .
     networks:
@@ -99,6 +108,13 @@ services:
       - DOCKER_HOST=tcp://docker-proxy:2375
       - TAILSCALE_STATUS_BASE_URL=http://tailscale-status:9002
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   docker-proxy:
     image: tecnativa/docker-socket-proxy:latest
@@ -124,6 +140,7 @@ services:
     container_name: sandbox-dind
     privileged: true
     restart: always
+    shm_size: '10.24gb'
     networks:
       - db_network
     environment:
@@ -137,6 +154,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   tailscale-status:
     build:

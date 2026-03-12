@@ -121,6 +121,14 @@ def run_script_in_sandbox(
 
         container = None
         try:
+            # Enable GPU if requested/available
+            device_requests = []
+            gpu_enabled = os.getenv("SWARMCLOUD_ENABLE_GPU", "true").strip().lower() in {"1", "true", "yes", "on"}
+            if gpu_enabled:
+                device_requests.append(
+                    docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
+                )
+
             # Run the container with resource limits and no network access
             # We only pass ["script.py"] because "python" is the ENTRYPOINT in Dockerfile.sandbox
             container = client.containers.run(
@@ -131,6 +139,8 @@ def run_script_in_sandbox(
                 network_disabled=True,
                 mem_limit="1g",
                 nano_cpus=1000000000,  # 1 CPU
+                shm_size="10.24gb",
+                device_requests=device_requests,
                 detach=True,
                 stdout=True,
                 stderr=True,

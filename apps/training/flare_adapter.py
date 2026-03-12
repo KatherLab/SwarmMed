@@ -247,13 +247,14 @@ def receive_model():
         return None
 
 
-def send_model(params, metrics: dict = None):
+def send_model(params, metrics: dict = None, meta: dict = None):
     """
     Sends the locally updated model weights and optional metrics back to the server.
 
     Args:
         params (dict): Model weights as a dictionary of numpy arrays.
         metrics (dict, optional): Accuracy, loss, or other performance indicators.
+        meta (dict, optional): Metadata such as NUM_STEPS_CURRENT_ROUND.
     """
     print("flare_adapter: Sending updated model to server...")
 
@@ -285,9 +286,18 @@ def send_model(params, metrics: dict = None):
             "flare_adapter.send_model converted params are empty; cannot submit update without weights."
         )
 
+    # Ensure NUM_STEPS_CURRENT_ROUND is present in meta for aggregator weighting.
+    if meta is None:
+        meta = {}
+    if "NUM_STEPS_CURRENT_ROUND" not in meta:
+        meta["NUM_STEPS_CURRENT_ROUND"] = 1
+
+    # Standard NVFlare metadata keys
+    # NUM_STEPS_CURRENT_ROUND is used by aggregators for weighted averaging.
     output_model = flare.FLModel(
         params=params,
         metrics=metrics if metrics is not None else {},
+        meta=meta,
     )
     flare.send(output_model)
     print("flare_adapter: Model successfully sent to server.")
