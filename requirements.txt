@@ -46,7 +46,6 @@ pytorch-lightning
 transformers
 datasets
 monai
-xgboost
 
 # Nvidia Flare
 nvflare==2.7.1

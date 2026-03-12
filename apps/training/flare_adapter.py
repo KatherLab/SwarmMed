@@ -353,7 +353,7 @@ def _ensure_transportable(params: dict):
             converted[k] = v.numpy()
         elif isinstance(v, (str, bytes, bytearray)):
             # Pass JSON strings / raw bytes through unchanged so that
-            # aggregators like XGBBaggingAggregator can call json.loads()
+            # aggregators can call json.loads()
             # on them without receiving a numpy array.
             converted[k] = v
         else:

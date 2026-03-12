@@ -9,4 +9,3 @@ monai
 transformers
 accelerate
 datasets
-xgboost
