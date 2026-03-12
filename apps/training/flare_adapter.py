@@ -46,6 +46,7 @@ class FlareDataFileSystem:
             in {"1", "true", "yes", "on"}
         )
 
+        self.bucket = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip()
         self.local_s3_endpoint = (
             os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
             or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
@@ -82,8 +83,7 @@ class FlareDataFileSystem:
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             if self.use_local_data:
-                # Force local endpoint (e.g. minio:9000) for Ray to stream from.
-                # We replace the scheme and netloc (host:port) while keeping the path and query.
+                # Local mode: ensure we use the local endpoint.
                 new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", self.local_s3_endpoint.rstrip("/"))
                 updated_manifest[rel_path] = new_url
             else:
@@ -105,34 +105,62 @@ class FlareDataFileSystem:
                 ray.init(address="auto", ignore_reinit_error=True)
             except Exception:
                 # Fallback to a lightweight local instance.
-                # We cap CPUs to handle container constraints and use default configs for stability.
-                ray.init(
-                    ignore_reinit_error=True, 
-                    include_dashboard=False,
-                    num_cpus=1,
+                # We cap CPUs and use 127.0.0.1 for GCS stability in containers.
+                try:
+                    ray.init(
+                        ignore_reinit_error=True, 
+                        include_dashboard=False,
+                        num_cpus=1,
+                        _node_ip_address="127.0.0.1",
+                        _system_config={
+                            "gcs_rpc_server_reconnect_timeout_s": 60,
+                        }
+                    )
+                except Exception:
+                    ray.init(ignore_reinit_error=True)
+
+    def _get_arrow_filesystem(self):
+        """Creates a PyArrow S3FileSystem configured for the local MinIO instance."""
+        if self.use_local_data:
+            try:
+                from pyarrow import fs
+                parsed = urlparse(self.local_s3_endpoint)
+                return fs.S3FileSystem(
+                    access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+                    secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                    endpoint_override=parsed.netloc,
+                    scheme=parsed.scheme or "http",
+                    verify_ssl=False,
+                    force_virtual_addressing=False
                 )
+            except Exception as e:
+                print(f"FlareDataFileSystem: Failed to init Arrow S3 filesystem: {e}")
+        return None
+
+    def _get_ray_paths(self):
+        """Returns s3:// URIs for local mode to bypass URL/SSL issues with Ray Data."""
+        if self.use_local_data and self.bucket:
+            return [f"s3://{self.bucket}/{self.project_uuid}/data/{rel_path}" for rel_path in self.manifest.keys()]
+        return list(self.manifest.values())
 
     def to_ray_dataset(self) -> ray.data.Dataset:
         """
         Scalable Interface: Converts the manifest into a Ray Dataset.
-        This allows for streaming data directly from S3 and parallel preprocessing.
         """
         self._init_ray()
-        paths = list(self.manifest.values())
+        paths = self._get_ray_paths()
+        filesystem = self._get_arrow_filesystem()
+        
         if not paths:
             raise ValueError("FlareDataFileSystem: Manifest is empty.")
 
-        # Determine format from first file.
-        ext = os.path.splitext(paths[0])[1].lower()
-        
-        # We pass the manifest URLs (presigned) directly to Ray.
+        ext = os.path.splitext(list(self.manifest.keys())[0])[1].lower()
         if ext == ".csv":
-            return ray.data.read_csv(paths)
+            return ray.data.read_csv(paths, filesystem=filesystem)
         elif ext == ".json":
-            return ray.data.read_json(paths)
+            return ray.data.read_json(paths, filesystem=filesystem)
         else:
-            # Default to binary (images/volumes) for medical data.
-            return ray.data.read_binary_files(paths)
+            return ray.data.read_binary_files(paths, filesystem=filesystem)
 
     def preprocess(self, ds: ray.data.Dataset, fn: Callable[[Any], Any]) -> ray.data.Dataset:
         """
@@ -154,28 +182,28 @@ class FlareDataFileSystem:
             return
 
         self._init_ray()
-        paths = list(self.manifest.values())
+        paths = self._get_ray_paths()
+        filesystem = self._get_arrow_filesystem()
         
         print(f"FlareDataFileSystem: Streaming {len(paths)} files via Ray Data...")
         
-        # Use binary files to get the raw content of any file type.
-        # Ray Data handles the S3 connections via the presigned URLs.
-        ds = ray.data.read_binary_files(paths, include_paths=True)
+        ds = ray.data.read_binary_files(paths, include_paths=True, filesystem=filesystem)
         
         temp_dir = self.temp_dir
-        manifest = self.manifest
+        if self.use_local_data and self.bucket:
+            path_to_rel = {f"s3://{self.bucket}/{self.project_uuid}/data/{k}": k for k in self.manifest.keys()}
+        else:
+            path_to_rel = {v: k for k, v in self.manifest.items()}
 
         def save_to_disk(row):
-            url = row["path"]
-            # Match URL back to relative path from our manifest.
-            rel_path = next((k for k, v in manifest.items() if v == url), os.path.basename(url))
+            ray_path = row["path"]
+            rel_path = path_to_rel.get(ray_path, os.path.basename(ray_path))
             local_path = os.path.join(temp_dir, rel_path)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             with open(local_path, "wb") as f:
                 f.write(row["bytes"])
             return {"rel_path": rel_path, "local_path": local_path}
 
-        # Trigger the Ray execution and collect results.
         # No serial fallback is provided; this will raise an exception if streaming fails.
         results = ds.map(save_to_disk).take_all()
         for res in results:
