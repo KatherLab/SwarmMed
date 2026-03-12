@@ -55,9 +55,9 @@ class FlareDataFileSystem:
         self.local_s3_endpoint = (
             os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
             or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
-            or ""
+            or "http://minio:9000"
         )
-        self.local_s3_region = os.getenv("AWS_S3_REGION_NAME", "").strip()
+        self.local_s3_region = os.getenv("AWS_S3_REGION_NAME", "").strip() or "us-east-1"
         self.http_timeout = float(
             os.getenv("SWARMCLOUD_HTTP_TIMEOUT", "20").strip() or "20"
         )
@@ -76,18 +76,13 @@ class FlareDataFileSystem:
                     addressing_style="path",
                 )
             except Exception as e:
-                print(f"FlareDataFileSystem: Failed to init local S3: {e}")
+                print(f"FlareDataFileSystem: Failed to init local S3 client: {e}")
 
         # Load the data manifest.
         self.manifest = self._load_manifest()
 
-        # Initialize Ray for scalable preprocessing.
-        if not ray.is_initialized():
-            try:
-                # Attempt to connect to an existing cluster or start locally.
-                ray.init(address="auto", ignore_reinit_error=True)
-            except Exception:
-                ray.init(ignore_reinit_error=True)
+        # Ray is now lazy-initialized in to_ray_dataset/preprocess to avoid 
+        # unnecessary resource overhead and GCS connection issues in simple scripts.
 
         # Setup SSL context for internal S3 downloads.
         self.ssl_context = ssl.create_default_context()
@@ -111,29 +106,47 @@ class FlareDataFileSystem:
                     continue
         
         # Post-process URLs to ensure they are reachable from remote clients.
-        # Replace 'localhost', '127.0.0.1', or 'minio' with the server's accessible IP.
-        internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
-        if internal_host:
-            updated_manifest = {}
-            for rel_path, url in manifest.items():
-                if "localhost" in url:
-                    url = url.replace("localhost", internal_host)
-                elif "127.0.0.1" in url:
-                    url = url.replace("127.0.0.1", internal_host)
-                elif "minio" in url:
-                    parsed = urlparse(url)
-                    if parsed.hostname == "minio":
-                        url = url.replace("minio", internal_host, 1)
-                updated_manifest[rel_path] = url
-            return updated_manifest
+        # IF we are not using local data (i.e. downloading from central server).
+        updated_manifest = {}
+        for rel_path, url in manifest.items():
+            parsed = urlparse(url)
+            if self.use_local_data:
+                # Force local endpoint (minio:9000) for Ray to stream from
+                # We replace the scheme and netloc (host:port)
+                new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", self.local_s3_endpoint.rstrip("/"))
+                updated_manifest[rel_path] = new_url
+            else:
+                # Remote mode: replace localhost/minio with server host
+                internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+                if internal_host:
+                    new_url = url.replace("localhost", internal_host).replace("127.0.0.1", internal_host).replace("minio", internal_host)
+                    updated_manifest[rel_path] = new_url
+                else:
+                    updated_manifest[rel_path] = url
 
-        return manifest
+        return updated_manifest
+
+    def _init_ray(self):
+        """Lazy-initialize Ray only when distributed data features are used."""
+        if not ray.is_initialized():
+            try:
+                # Attempt to connect to an existing cluster or start locally.
+                ray.init(address="auto", ignore_reinit_error=True)
+            except Exception:
+                # For local/docker test mode, we use a single-node setup with minimal overhead.
+                ray.init(
+                    ignore_reinit_error=True, 
+                    include_dashboard=False,
+                    num_cpus=os.cpu_count() or 2,
+                    _system_config={"gcs_rpc_server_reconnect_timeout_s": 60}
+                )
 
     def to_ray_dataset(self) -> ray.data.Dataset:
         """
         Scalable Interface: Converts the manifest into a Ray Dataset.
         This allows for streaming data directly from S3 and parallel preprocessing.
         """
+        self._init_ray()
         paths = list(self.manifest.values())
         if not paths:
             raise ValueError("FlareDataFileSystem: Manifest is empty.")
@@ -154,41 +167,77 @@ class FlareDataFileSystem:
         """
         Applies a parallel preprocessing function across the Ray dataset.
         """
+        self._init_ray()
         return ds.map(fn)
 
     def get_data_path(self) -> str:
         """
-        Legacy Interface: Downloads all project data locally and returns the root path.
-        Recommended only for small datasets or legacy training scripts.
+        Legacy Interface: Streams all project data to the local filesystem using Ray Data.
         """
-        self._download_all_from_manifest()
+        self._download_all_via_ray()
         return self.temp_dir
 
-    def _build_s3_client(self, endpoint_url, region_name, addressing_style):
-        return boto3.client(
-            "s3",
-            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-            region_name=region_name,
-            endpoint_url=endpoint_url,
-            verify=False,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": addressing_style},
-                connect_timeout=self.s3_connect_timeout,
-                read_timeout=self.s3_read_timeout,
-                retries={"max_attempts": 2},
-            ),
-        )
-
-    def _download_all_from_manifest(self):
+    def _download_all_via_ray(self):
+        """Uses Ray Data to stream all project files to the local temp directory."""
         if not self.manifest:
             return
 
+        self._init_ray()
+        paths = list(self.manifest.values())
+        
+        print(f"FlareDataFileSystem: Streaming {len(paths)} files via Ray Data...")
+        try:
+            # Use binary files to get the raw content of any file type.
+            ds = ray.data.read_binary_files(paths, include_paths=True)
+            
+            # Helper to write to our temp dir
+            temp_dir = self.temp_dir
+            manifest = self.manifest
+
+            def save_to_disk(row):
+                url = row["path"]
+                # Match URL back to relative path
+                rel_path = next((k for k, v in manifest.items() if v == url), os.path.basename(url))
+                local_path = os.path.join(temp_dir, rel_path)
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                with open(local_path, "wb") as f:
+                    f.write(row["bytes"])
+                return {"rel_path": rel_path, "local_path": local_path}
+
+            # Trigger the Ray execution and collect results
+            results = ds.map(save_to_disk).take_all()
+            for res in results:
+                self._downloaded_files[res["rel_path"]] = res["local_path"]
+            
+            print(f"FlareDataFileSystem: Successfully streamed {len(results)} files.")
+                
+        except Exception as e:
+            print(f"FlareDataFileSystem: Ray Data streaming failed: {e}. Falling back to serial download.")
+            self._download_all_from_manifest_serial()
+
+    def _download_all_from_manifest_serial(self):
+        """Serial fallback for downloading files."""
         for rel_path, url in self.manifest.items():
             local_path = os.path.join(self.temp_dir, rel_path)
-            if local_path not in self._downloaded_files.values():
-                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            if rel_path in self._downloaded_files:
+                continue
+
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            
+            # 1. Prioritize local S3 download if configured
+            downloaded = False
+            if self.use_local_data and self.s3_client and self.bucket:
+                try:
+                    # Construct S3 key: project_uuid/data/rel_path
+                    key = f"{self.project_uuid}/data/{rel_path}"
+                    self.s3_client.download_file(self.bucket, key, local_path)
+                    self._downloaded_files[rel_path] = local_path
+                    downloaded = True
+                except Exception as e:
+                    print(f"FlareDataFileSystem: Local S3 download failed for {rel_path}: {e}. Falling back to URL.")
+
+            # 2. Fallback to URL download via urllib (useful if downloading from server)
+            if not downloaded:
                 try:
                     opener = urllib.request.build_opener(
                         urllib.request.HTTPSHandler(context=self.ssl_context)
@@ -197,7 +246,8 @@ class FlareDataFileSystem:
                         shutil.copyfileobj(resp, f)
                     self._downloaded_files[rel_path] = local_path
                 except Exception as e:
-                    print(f"FlareDataFileSystem: Download failed for {rel_path}: {e}")
+                    print(f"FlareDataFileSystem: Serial download failed for {rel_path}: {e}")
+
 
     def __enter__(self):
         return self
