@@ -1,6 +1,7 @@
 import glob
 import os
 
+import numpy as np
 import flare_adapter
 import pandas as pd
 import torch
@@ -13,7 +14,7 @@ from torch.utils.data import DataLoader, Dataset
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
 
-SWARM_ROUNDS = 10
+SWARM_ROUNDS = 5
 
 # --- Import the new adapter ---
 
