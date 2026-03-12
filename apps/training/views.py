@@ -1270,7 +1270,11 @@ def start_training(request, network_id):
                     match = re.search(r"SWARM_ROUNDS\s*=\s*(\d+)", content)
                     if match:
                         swarm_rounds = int(match.group(1))
-                        log.training.info(f"Extracted SWARM_ROUNDS={swarm_rounds} from training script.")
+                        log.training.info(f"Extracted SWARM_ROUNDS={swarm_rounds} from training script: {training_script_path}")
+                    else:
+                        log.training.warning(f"SWARM_ROUNDS not found in {training_script_path}, defaulting to 10")
+            else:
+                log.training.warning(f"Training script not found at {training_script_path} for round extraction, defaulting to 10")
         except Exception as e:
             log.training.warning(f"Failed to extract SWARM_ROUNDS from training script: {e}")
 
@@ -1286,7 +1290,6 @@ def start_training(request, network_id):
             job.to(aggregator, server_name, id="aggregator")
 
         swarm_client_controller = SwarmClientController(
-            num_rounds=swarm_rounds,
             learn_task_name="train", persistor_id="persistor", aggregator_id="aggregator",
             shareable_generator_id="shareable_generator", min_responses_required=len(client_names),
         )
