@@ -85,7 +85,7 @@ def _get_local_participant_status(swarm_network):
             import subprocess
             server_container = _container_name_for(swarm_network.identifier, "server")
             result = subprocess.run(
-                ["docker", "logs", "--tail", "2000", server_container],
+                ["docker", "logs", "--tail", "3000", server_container],
                 capture_output=True, text=True, timeout=2
             )
             server_logs = (result.stdout + result.stderr).lower()
@@ -94,18 +94,18 @@ def _get_local_participant_status(swarm_network):
             logger.network.debug(f"[_get_local_participant_status] Could not read server logs (expected if not server node): {e}")
 
     # Robust Connection Tracking: Map connection IDs (CNXXXX) to participant IDs
-    # Example log: connection [cn00005 ... ssl calm-swan] is created
     import re
     conn_map = {}
     if server_logs:
-        # Scan for creation logs to map IDs
+        # Scan for creation logs to map IDs. 
+        # IMPORTANT: Ignore 'admin-' prefixed users as they are short-lived health checks.
         creation_pattern = r"connection \[(cn\d+) .* ssl ([a-z0-9_-]+)\] is created"
         for match in re.finditer(creation_pattern, server_logs):
             cn_id, p_id = match.groups()
-            conn_map[cn_id] = p_id
+            if not p_id.startswith("admin"):
+                conn_map[cn_id] = p_id
         
-        # Scan for closure logs to identify disconnections even if name is missing
-        # Example log: connection [cn00005 not connected] is closed
+        # Scan for closure logs to identify disconnections.
         closure_pattern = r"connection \[(cn\d+) .*\] is closed"
         closed_conns = set()
         for match in re.finditer(closure_pattern, server_logs):
@@ -145,6 +145,7 @@ def _get_local_participant_status(swarm_network):
                     if is_me: status = "Online"
             else:
                 lname = name.lower()
+                # Joined markers for long-lived training clients
                 joined_markers = [
                     f"client: new client {lname}@",
                     f"registered client {lname}",
@@ -154,22 +155,14 @@ def _get_local_participant_status(swarm_network):
                     f"new client {lname} connected",
                     f"client: {lname} joined",
                     f"client {lname} joined",
-                    f"ssl {lname}] is created",
                 ]
                 
-                # Check if any connection ID mapped to this participant was closed LATER than it was joined
-                # This handles the "Connection [CNXXXX Not Connected] is closed" case.
+                # Check mapping for actual connection activity
                 last_cn_joined_idx = -1
                 last_cn_closed_idx = -1
                 for cn_id, p_id in conn_map.items():
                     if p_id == lname:
                         # Find the position of the CREATION event for this CN ID.
-                        # We must NOT use rfind(cn_id prefix) because the closure line
-                        # ("connection [cnXXXXX not connected] is closed") also starts with
-                        # the same prefix and appears LATER in the log — rfind would return
-                        # the closure position for BOTH j_idx and c_idx, making them equal
-                        # and causing idx_dis > idx_joined to always be False (→ stuck "Joined").
-                        # Instead, use distinct regex patterns that unambiguously target each event.
                         for m in re.finditer(
                             rf"connection \[{re.escape(cn_id)}[^\]]*\] is created",
                             server_logs,
@@ -197,7 +190,6 @@ def _get_local_participant_status(swarm_network):
                         f"client manager: remove client {lname}",
                         f"client manager: removed client {lname}",
                         f"disconnected client {lname}",
-                        f"ssl {lname}] is closed",
                     ]
                     
                     # Find highest indices
@@ -224,17 +216,23 @@ def _get_local_participant_status(swarm_network):
                         import shutil
                         docker_path = shutil.which("docker") or "docker"
                         env = os.environ.copy()
-                        # IMPORTANT: Try both the participant_id and "client" (common fallback)
                         my_container = _container_name_for(swarm_network.identifier, p.participant_id)
                         if _is_container_running(docker_path, my_container, env):
                             status = "Online"
                         else:
                             fallback_container = _container_name_for(swarm_network.identifier, "client")
                             if _is_container_running(docker_path, fallback_container, env):
-                                logger.network.debug(f"[_get_local_participant_status] Found local container under fallback name {fallback_container}")
                                 status = "Online"
                     except Exception as e:
                         logger.network.debug(f"[_get_local_participant_status] Error checking local container for {p.participant_id}: {e}")
+        elif swarm_network.status == "STARTING":
+            status = "Starting..."
+        elif swarm_network.status == "ERROR":
+            status = "Error"
+        
+        status_map[name] = status
+    
+    return status_map
         elif swarm_network.status == "STARTING":
             status = "Starting..."
         elif swarm_network.status == "ERROR":

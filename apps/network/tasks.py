@@ -588,9 +588,10 @@ def _collect_project_runtime_requirements(project, logger):
         "boto3",
         "python-dotenv",
         "pandas",
-        "numpy",
-        "torch",
-        "scikit-learn",
+        "numpy<2.0.0",
+        "torch==2.9.0",
+        "scikit-learn==1.8.0",
+        "ray[data]==2.43.0",
     ]
 
     merged = []
@@ -1257,6 +1258,15 @@ def start_swarm_network_task(network_id, user_id):
             )
             use_host_network = role == "client" and client_host_network_enabled
 
+            remote_host = (
+                os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+                or (Path(startup_dir) / "server_host.txt").read_text().strip()
+                if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
+                else ""
+            )
+            if not remote_host and role == "client":
+                remote_host = _extract_host_from_server_endpoint(startup_dir)
+
             run_cmd = [
                 docker_path,
                 "run",
@@ -1286,6 +1296,8 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 "SWARMCLOUD_USE_LOCAL_DATA=1",
             ]
+            if remote_host:
+                run_cmd.extend(["-e", f"SWARMCLOUD_SERVER_HOST={remote_host}"])
 
             # Enable GPU access if available
             gpu_enabled = (

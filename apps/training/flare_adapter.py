@@ -100,14 +100,34 @@ class FlareDataFileSystem:
             os.path.join(os.path.dirname(__file__), "data_manifest.json"),
             os.path.join(os.getcwd(), "custom", "data_manifest.json"),
         ]
+        manifest = {}
         for loc in manifest_locations:
             if os.path.exists(loc):
                 try:
                     with open(loc) as f:
-                        return json.load(f)
+                        manifest = json.load(f)
+                        break
                 except Exception:
                     continue
-        return {}
+        
+        # Post-process URLs to ensure they are reachable from remote clients.
+        # Replace 'localhost', '127.0.0.1', or 'minio' with the server's accessible IP.
+        internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+        if internal_host:
+            updated_manifest = {}
+            for rel_path, url in manifest.items():
+                if "localhost" in url:
+                    url = url.replace("localhost", internal_host)
+                elif "127.0.0.1" in url:
+                    url = url.replace("127.0.0.1", internal_host)
+                elif "minio" in url:
+                    parsed = urlparse(url)
+                    if parsed.hostname == "minio":
+                        url = url.replace("minio", internal_host, 1)
+                updated_manifest[rel_path] = url
+            return updated_manifest
+
+        return manifest
 
     def to_ray_dataset(self) -> ray.data.Dataset:
         """

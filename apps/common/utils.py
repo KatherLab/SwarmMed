@@ -138,8 +138,8 @@ def get_internal_s3_download_url(key, expires=3600):
         ExpiresIn=expires,
     )
 
-    # If the URL contains localhost or 127.0.0.1, other containers won't be able
-    # to reach it. We try to replace it with reachable candidates.
+    # If the URL contains localhost, 127.0.0.1 or 'minio', other containers or
+    # remote nodes won't be able to reach it. We try to replace it with reachable candidates.
     internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
     if not internal_host:
         # Fallback to docker gateway
@@ -149,10 +149,11 @@ def get_internal_s3_download_url(key, expires=3600):
         url = url.replace("localhost", internal_host)
     elif "127.0.0.1" in url:
         url = url.replace("127.0.0.1", internal_host)
+    elif "minio" in url:
+        parsed = urlparse(url)
+        if parsed.hostname == "minio":
+            url = url.replace("minio", internal_host, 1)
     
-    # Also ensure minio resolves if we are in a custom network
-    # But usually the host IP is safest.
-
     return url
 
 
