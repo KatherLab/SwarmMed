@@ -121,13 +121,28 @@ def run_script_in_sandbox(
 
         container = None
         try:
-            # Enable GPU if requested/available
+            # Enable GPU if requested and available on the daemon
             device_requests = []
-            gpu_enabled = os.getenv("SWARMCLOUD_ENABLE_GPU", "true").strip().lower() in {"1", "true", "yes", "on"}
+            gpu_enabled = (
+                os.getenv("SWARMCLOUD_ENABLE_GPU", "false").strip().lower()
+                in {"1", "true", "yes", "on"}
+            )
             if gpu_enabled:
-                device_requests.append(
-                    docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
-                )
+                try:
+                    info = client.info()
+                    runtimes = info.get("Runtimes", {})
+                    # Check if 'nvidia' runtime is available
+                    if "nvidia" in runtimes:
+                        device_requests.append(
+                            docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
+                        )
+                    else:
+                        log.data.warning(
+                            "GPU was requested but 'nvidia' runtime is not available on the sandbox daemon. "
+                            "Falling back to CPU."
+                        )
+                except Exception as e:
+                    log.data.warning(f"Could not check for GPU support: {e}. Falling back to CPU.")
 
             # Run the container with resource limits and no network access
             # We only pass ["script.py"] because "python" is the ENTRYPOINT in Dockerfile.sandbox
