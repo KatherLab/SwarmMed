@@ -43,8 +43,10 @@ def cleanup_project_files(folder_path):
 def delete_all_project_files(project_identifier):
     """
     Deletes all files associated with a project identifier when the project is deleted.
+    Includes both the uploaded media files and the local workspace directory.
     """
     try:
+        # 1. Delete media files (S3 or local)
         folder_path = f"{str(project_identifier)}/"
         if hasattr(default_storage, "bucket"):
             prefix = folder_path
@@ -60,6 +62,17 @@ def delete_all_project_files(project_identifier):
                 logger.info(
                     f"Successfully deleted all local files for project: {project_identifier}"
                 )
+
+        # 2. Delete local workspace directory
+        workspace_path = os.path.join(
+            settings.BASE_DIR, "workspaces", str(project_identifier)
+        )
+        if os.path.exists(workspace_path):
+            shutil.rmtree(workspace_path)
+            logger.info(
+                f"Successfully deleted local workspace for project: {project_identifier}"
+            )
+
     except Exception as e:
         logger.error(
             f"Error during full project cleanup for {project_identifier}: {str(e)}"
