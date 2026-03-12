@@ -1186,17 +1186,23 @@ def start_training(request, network_id):
         executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
 
         # Select appropriate persistor based on framework
-        # NOTE: PTFileModelPersistor is used for PT, TF, XGB and NP because it is the most flexible 
-        # standard persistor in NVFlare that handles dictionaries of arrays without requiring 
-        # a model instance (which we don't have on the server side).
-        # We previously used XGBModelPersistor for XGB, but it has a dependency on NUM_ROUNDS 
-        # in fl_ctx that can cause TypeErrors in Swarm Workflows.
-        try:
-            from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
-            persistor = PTFileModelPersistor()
-        except (ModuleNotFoundError, ImportError):
-            from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-            persistor = NPModelPersistor()
+        # NOTE: PTFileModelPersistor is used for PT and TF because it handles dictionaries of arrays.
+        # However, for XGB and NP, we prefer NPModelPersistor because XGBoost tree structures 
+        # (dicts/lists) cause PTFileModelPersistor to crash when it tries to convert them to tensors.
+        if framework in ["xgb", "np"]:
+            try:
+                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+                persistor = NPModelPersistor()
+            except (ModuleNotFoundError, ImportError):
+                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
+                persistor = PTFileModelPersistor()
+        else:
+            try:
+                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
+                persistor = PTFileModelPersistor()
+            except (ModuleNotFoundError, ImportError):
+                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+                persistor = NPModelPersistor()
 
         if framework == "tf":
             try:
