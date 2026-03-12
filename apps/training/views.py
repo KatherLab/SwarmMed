@@ -1179,6 +1179,7 @@ def start_training(request, network_id):
         from nvflare.apis.dxo import DataKind
         from nvflare.app_common.aggregators.intime_accumulate_model_aggregator import InTimeAccumulateWeightedAggregator
         from nvflare.app_common.ccwf.comps.simple_model_shareable_generator import SimpleModelShareableGenerator
+        from nvflare.app_common.ccwf.comps.simple_intime_model_selector import SimpleIntimeModelSelector
 
         # Set default executor
         from nvflare.app_common.executors.in_process_client_api_executor import InProcessClientAPIExecutor
@@ -1228,9 +1229,13 @@ def start_training(request, network_id):
                 from nvflare.app_opt.xgboost.tree_based.bagging_aggregator import XGBBaggingAggregator
                 aggregator = XGBBaggingAggregator()
             except (ModuleNotFoundError, ImportError):
-                aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS, best_metric_name="accuracy")
+                aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
         else:
-            aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS, best_metric_name="accuracy")
+            aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
+        
+        # Add model selector for tracking best model
+        model_selector = SimpleIntimeModelSelector(validation_metric_name="accuracy")
+        
         log.training.info(f"Selected NVFlare executor: {executor.__class__.__module__}.{executor.__class__.__name__}")
 
         _log_flare_pre_submit_diagnostics(log=log, username=admin_username, startup_kit_location=admin_session_dir, requested_host=server_ip)
@@ -1291,6 +1296,7 @@ def start_training(request, network_id):
             job.to(persistor, client_name, id="persistor")
             job.to(shareable_generator, client_name, id="shareable_generator")
             job.to(aggregator, client_name, id="aggregator")
+            job.to(model_selector, client_name, id="model_selector")
             job.to(app_client_custom_dir, client_name)
 
         generated_jobs_root = os.path.join(job_dir, "generated")
