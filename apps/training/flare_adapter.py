@@ -105,15 +105,11 @@ class FlareDataFileSystem:
                 ray.init(address="auto", ignore_reinit_error=True)
             except Exception:
                 # Fallback to a lightweight local instance.
-                # We cap CPUs and provide a generous GCS timeout to handle container constraints.
+                # We cap CPUs to handle container constraints and use default configs for stability.
                 ray.init(
                     ignore_reinit_error=True, 
                     include_dashboard=False,
                     num_cpus=1,
-                    _system_config={
-                        "gcs_rpc_server_reconnect_timeout_s": 60,
-                        "gcs_server_request_timeout_ms": 30000,
-                    }
                 )
 
     def to_ray_dataset(self) -> ray.data.Dataset:
