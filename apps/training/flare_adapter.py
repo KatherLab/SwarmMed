@@ -289,8 +289,14 @@ def send_model(params, metrics: dict = None, meta: dict = None):
     # Ensure NUM_STEPS_CURRENT_ROUND is present in meta for aggregator weighting.
     if meta is None:
         meta = {}
-    if "NUM_STEPS_CURRENT_ROUND" not in meta:
+    
+    # InTimeAccumulateWeightedAggregator specifically looks for 'aggregation_weight'
+    # We map NUM_STEPS_CURRENT_ROUND to it for compatibility.
+    if "NUM_STEPS_CURRENT_ROUND" in meta:
+        meta["aggregation_weight"] = meta["NUM_STEPS_CURRENT_ROUND"]
+    elif "aggregation_weight" not in meta:
         meta["NUM_STEPS_CURRENT_ROUND"] = 1
+        meta["aggregation_weight"] = 1.0
 
     # Standard NVFlare metadata keys
     # NUM_STEPS_CURRENT_ROUND is used by aggregators for weighted averaging.
