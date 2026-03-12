@@ -1186,10 +1186,35 @@ def start_training(request, network_id):
         executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
 
         # Select appropriate persistor based on framework
-        # NOTE: PTFileModelPersistor is used for PT and TF because it handles dictionaries of arrays.
-        # However, for XGB and NP, we prefer NPModelPersistor because XGBoost tree structures 
-        # (dicts/lists) cause PTFileModelPersistor to crash when it tries to convert them to tensors.
-        if framework in ["xgb", "np"]:
+        # NOTE: For XGB, we use XGBModelPersistor but must patch it to work with Swarm workflows
+        # because the default implementation has a strict check on NUM_ROUNDS that can fail.
+        if framework == "xgb":
+            try:
+                from nvflare.app_opt.xgboost.tree_based.model_persistor import XGBModelPersistor
+                
+                # Patch XGBModelPersistor.save_model to remove the NUM_ROUNDS check
+                # which causes TypeErrors or logic failures in Swarm Learning.
+                def patched_save_model(self, model_learnable, fl_ctx):
+                    if model_learnable:
+                        from nvflare.app_common.abstract.model import ModelLearnableKey
+                        self.logger.info(f"Saving model to {os.path.abspath(self.save_path)}")
+                        model = model_learnable[ModelLearnableKey.WEIGHTS]
+                        with open(self.save_path, "w") as f:
+                            if isinstance(model, dict):
+                                json.dump(model, f)
+                            elif isinstance(model, (bytes, bytearray, str)):
+                                if isinstance(model, (bytes, bytearray)):
+                                    model = model.decode("utf-8")
+                                json.dump(json.loads(model), f)
+                            else:
+                                self.logger.error(f"Unknown model format: {type(model)}")
+
+                XGBModelPersistor.save_model = patched_save_model
+                persistor = XGBModelPersistor()
+            except (ModuleNotFoundError, ImportError):
+                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
+                persistor = NPModelPersistor()
+        elif framework == "np":
             try:
                 from nvflare.app_common.np.np_model_persistor import NPModelPersistor
                 persistor = NPModelPersistor()
