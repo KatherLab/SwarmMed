@@ -1404,8 +1404,9 @@ def start_swarm_network_task(network_id, user_id):
                 if has_server_target:
                     # On nodes that also run the FL server, host-networked clients
                     # should resolve "server" and "minio" to the local host interface.
-                    run_cmd.extend(["--add-host", "server:127.0.0.1"])
-                    run_cmd.extend(["--add-host", "minio:127.0.0.1"])
+                    if use_host_network:
+                        run_cmd.extend(["--add-host", "server:127.0.0.1"])
+                        run_cmd.extend(["--add-host", "minio:127.0.0.1"])
                 else:
                     remote_host = (
                         os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
@@ -1417,8 +1418,9 @@ def start_swarm_network_task(network_id, user_id):
                         remote_host = _extract_host_from_server_endpoint(startup_dir)
                     if remote_host:
                         run_cmd.extend(["--add-host", f"server:{remote_host}"])
-                        # Always point minio to local host for decentralized data
-                        run_cmd.extend(["--add-host", "minio:127.0.0.1"])
+                        # Point minio to local host ONLY if using host network
+                        if use_host_network:
+                            run_cmd.extend(["--add-host", "minio:127.0.0.1"])
 
                         aliases_file = os.path.join(startup_dir, "server_aliases.txt")
                         if os.path.exists(aliases_file):
