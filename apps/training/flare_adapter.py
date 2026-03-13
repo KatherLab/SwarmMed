@@ -77,17 +77,27 @@ class FlareDataFileSystem:
         
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
+            # 1. First, handle potential use_local_data override
             if self.use_local_data:
-                endpoint = self.local_s3_endpoint
+                endpoint = self.local_s3_endpoint.rstrip("/")
                 # Replace the whole scheme and netloc with the provided endpoint
-                new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", endpoint.rstrip("/"))
-                updated_manifest[rel_path] = new_url
+                # e.g. https://127.0.0.1:9000 -> http://minio:9000
+                old_base = f"{parsed.scheme}://{parsed.netloc}"
+                new_url = url.replace(old_base, endpoint)
             else:
-                if internal_host:
-                    new_url = url.replace("localhost", internal_host).replace("127.0.0.1", internal_host).replace("minio", internal_host)
-                    updated_manifest[rel_path] = new_url
-                else:
-                    updated_manifest[rel_path] = url
+                new_url = url
+
+            # 2. Robustly replace internal host candidates if they persist
+            # This handles cases where minio is used as a hostname or 127.0.0.1 is still present
+            if internal_host:
+                # We replace the hostname but keep the protocol and port if they were already correct
+                # Or if we just did a replacement above and it still contains local references
+                new_url = new_url.replace("localhost", internal_host)
+                new_url = new_url.replace("127.0.0.1", internal_host)
+                new_url = new_url.replace("://minio", f"://{internal_host}")
+            
+            updated_manifest[rel_path] = new_url
+            
         return updated_manifest
 
     def ls(self, path: str = "") -> List[str]:
