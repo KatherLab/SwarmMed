@@ -50,8 +50,7 @@ class FlareDataFileSystem:
         self.manifest = self._load_manifest()
         
         # Initialize fsspec HTTP filesystem for streaming.
-        # We disable SSL verification for internal MinIO self-signed certs.
-        self.fs = fsspec.filesystem("http", ssl=False)
+        self.fs = fsspec.filesystem("http")
         
         # Create a temporary directory only for legacy compatibility or if explicitly needed.
         self.temp_dir = tempfile.mkdtemp(prefix=f"flare_{self.project_uuid}_")

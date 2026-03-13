@@ -72,7 +72,7 @@ class ValidationHelper:
         self.output_file = output_file
         self.checks = []
         # Internal streaming filesystem
-        self.fs = fsspec.filesystem("http", ssl=False)
+        self.fs = fsspec.filesystem("http")
 
     def add_check(self, name, status, message="", details=None):
         self.checks.append({{
@@ -108,7 +108,7 @@ class ValidationHelper:
         with open(self.output_file, 'w') as f:
             json.dump({{'checks': self.checks}}, f)
 
-validation = ValidationHelper('data_manifest.json', 'results.json')
+validation = ValidationHelper('/home/sandboxuser/data/data_manifest.json', 'results.json')
 
 # --- User script ---
 {script_content}
@@ -207,7 +207,7 @@ class VisualizationHelper:
             self.manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        self.fs = fsspec.filesystem("http", ssl=False)
+        self.fs = fsspec.filesystem("http")
 
     def save_plot(self, title="Untitled Plot"):
 
@@ -256,7 +256,7 @@ class VisualizationHelper:
         prefix = path + "/"
         return [k[len(prefix):] for k in self.manifest.keys() if k.startswith(prefix)]
 
-visualization = VisualizationHelper('data_manifest.json', 'plots')
+visualization = VisualizationHelper('/home/sandboxuser/data/data_manifest.json', 'plots')
 
 # --- User script ---
 {script_content}

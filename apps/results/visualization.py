@@ -37,7 +37,7 @@ class ResultsVisualizationContext:
         self.plots = []
         self.current_plot_number = 0
         self.log = logger.get_logger()
-        self.fs = fsspec.filesystem("http", ssl=False)
+        self.fs = fsspec.filesystem("http")
 
         try:
             self.job = TrainingJob.objects.get(identifier=job_identifier)

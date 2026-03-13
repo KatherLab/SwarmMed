@@ -32,7 +32,7 @@ from .models import (
 from .visualization import ResultsVisualizationContext
 
 _UUID_RE = re.compile(
-    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
 
 
@@ -157,7 +157,7 @@ def run_results_visualization_task(run_id):
                     key = obj["Key"]
                     if key.endswith(("/", ".py", ".pyc")): continue
                     rel_path = key[len(results_prefix):]
-                    manifest[f"results/{{rel_path}}"] = get_internal_s3_download_url(key, expires=3600)
+                    manifest[f"results/{rel_path}"] = get_internal_s3_download_url(key, expires=3600)
 
             manifest_path = os.path.join(context.filesystem.temp_dir, "data_manifest.json")
             with open(manifest_path, "w") as f:
@@ -184,7 +184,7 @@ class ResultsVisualizationHelper:
             self.manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        self.fs = fsspec.filesystem("http", client_kwargs={{'ssl': False}})
+        self.fs = fsspec.filesystem("http")
 
     def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
         # Look for model in results/ prefix
@@ -257,7 +257,7 @@ class ResultsVisualizationHelper:
         prefix = p + "/"
         return [k[len(prefix):] for k in self.manifest.keys() if k.startswith(prefix)]
 
-visualization = ResultsVisualizationHelper('data_manifest.json', 'plots')
+visualization = ResultsVisualizationHelper('/home/sandboxuser/data/data_manifest.json', 'plots')
 
 # --- User script ---
 {script_content}
@@ -296,7 +296,7 @@ visualization = ResultsVisualizationHelper('data_manifest.json', 'plots')
         return {"success": run.success}
 
     except Exception as e:
-        log.results.error(f"Results visualization task failed: {{e}}")
+        log.results.error(f"Results visualization task failed: {e}")
         try:
             run = ResultsVisualizationRun.objects.get(id=run_id)
             run.status = "failed"
