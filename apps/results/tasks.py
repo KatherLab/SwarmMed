@@ -105,19 +105,13 @@ def sync_project_results(project_uuid):
                     job = TrainingJob.objects.filter(project=project, flare_job_id__icontains=normalized_s3_uuid).first()
                     if not job: continue
 
-                client_name = parts[3]
-                TrainingResult.objects.update_or_404_logic_replaced_with_get_or_create = True
                 res_obj, created = TrainingResult.objects.get_or_create(
-                    project=project,
                     job=job,
-                    client_id=client_name,
-                    filename=filename,
-                    defaults={"s3_key": key, "file_size": obj.get("Size", 0), "last_modified": last_modified}
+                    file_path=key,
+                    defaults={"file_size": obj.get("Size", 0)}
                 )
                 if not created:
-                    res_obj.s3_key = key
                     res_obj.file_size = obj.get("Size", 0)
-                    res_obj.last_modified = last_modified
                     res_obj.save()
         log.results.info(f"Results sync completed for project {project_uuid}")
     except Exception as e:
