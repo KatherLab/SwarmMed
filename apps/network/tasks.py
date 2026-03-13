@@ -1381,17 +1381,10 @@ def start_swarm_network_task(network_id, user_id):
             if role == "client":
                 local_s3_endpoint = os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
                 if not local_s3_endpoint:
-                    configured_endpoint = (
+                    local_s3_endpoint = (
                         os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
                         or getattr(settings, "AWS_S3_ENDPOINT_URL", "")
                     )
-                    if use_host_network:
-                        local_s3_endpoint = (
-                            _endpoint_with_localhost(configured_endpoint)
-                            or "http://127.0.0.1:9000"
-                        )
-                    else:
-                        local_s3_endpoint = configured_endpoint
 
                 if local_s3_endpoint:
                     run_cmd.extend([
@@ -1401,12 +1394,10 @@ def start_swarm_network_task(network_id, user_id):
                         f"SWARMCLOUD_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
                     ])
 
-                if has_server_target:
-                    # On nodes that also run the FL server, host-networked clients
-                    # should resolve "server" and "minio" to the local host interface.
-                    if use_host_network:
-                        run_cmd.extend(["--add-host", "server:127.0.0.1"])
-                        run_cmd.extend(["--add-host", "minio:127.0.0.1"])
+                if use_host_network:
+                    # Resolve 'server' and 'minio' to the local host interface.
+                    run_cmd.extend(["--add-host", "server:127.0.0.1"])
+                    run_cmd.extend(["--add-host", "minio:127.0.0.1"])
                 else:
                     remote_host = (
                         os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
@@ -1416,12 +1407,15 @@ def start_swarm_network_task(network_id, user_id):
                     )
                     if not remote_host:
                         remote_host = _extract_host_from_server_endpoint(startup_dir)
+                    
                     if remote_host:
                         run_cmd.extend(["--add-host", f"server:{remote_host}"])
-                        # Point minio to local host ONLY if using host network
-                        if use_host_network:
-                            run_cmd.extend(["--add-host", "minio:127.0.0.1"])
-
+                        
+                        # In decentralized mode, if we are NOT on the server node, 
+                        # we still map 'minio' to local 127.0.0.1 for host network
+                        # or let it resolve naturally in bridge network.
+                        # (The 'minio' service name is reliable in bridge networks).
+                        
                         aliases_file = os.path.join(startup_dir, "server_aliases.txt")
                         if os.path.exists(aliases_file):
                             try:
