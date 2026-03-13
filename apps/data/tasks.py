@@ -72,7 +72,7 @@ class ValidationHelper:
         self.output_file = output_file
         self.checks = []
         # Internal streaming filesystem
-        self.fs = fsspec.filesystem("http")
+        self.fs = fsspec.filesystem("http", ssl=False)
 
     def add_check(self, name, status, message="", details=None):
         self.checks.append({{
