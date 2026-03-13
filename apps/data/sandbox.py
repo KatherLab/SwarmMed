@@ -79,6 +79,29 @@ def ensure_sandbox_image():
             raise RuntimeError(f"Sandbox build failed: {e}") from e
 
 
+def ensure_sandbox_network():
+    """
+    Ensures that the 'sandbox_internal' network exists in the sandbox daemon.
+    """
+    log = logger.get_logger()
+    client = get_docker_client(target="sandbox")
+
+    try:
+        client.networks.get("sandbox_internal")
+    except docker.errors.NotFound:
+        log.data.info("Creating 'sandbox_internal' network in sandbox...")
+        try:
+            client.networks.create(
+                "sandbox_internal",
+                driver="bridge",
+                internal=True,
+                check_duplicate=True,
+            )
+        except Exception as e:
+            log.data.error(f"Failed to create sandbox network: {e}")
+            raise
+
+
 def run_script_in_sandbox(
     script_content, data_dir, project_uuid, run_type="validation"
 ):
@@ -87,6 +110,7 @@ def run_script_in_sandbox(
     """
     log = logger.get_logger()
     ensure_sandbox_image()
+    ensure_sandbox_network()
 
     client = get_docker_client(target="sandbox")
 
