@@ -141,9 +141,8 @@ def run_results_visualization_task(run_id, flare_id):
             # Build manifest for both project data and results data
             manifest = context.filesystem.build_manifest()
             
-            # Add results files to the manifest as well
-            flare_id_normalized = _extract_flare_job_uuid(job.flare_job_id) or job.identifier
-            results_prefix = f"{project.identifier}/results/{flare_id_normalized}/"
+            # Use the provided flare_id which is already processed by the view
+            results_prefix = f"{project.identifier}/results/{flare_id}/"
             
             log.results.info(f"Building results manifest with prefix: {results_prefix}")
             
