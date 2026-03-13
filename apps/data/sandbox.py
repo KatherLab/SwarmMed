@@ -176,18 +176,17 @@ def run_script_in_sandbox(
                 except Exception as e:
                     log.data.warning(f"Could not check for GPU support: {e}. Falling back to CPU.")
 
-            # Run the container with resource limits and restricted network access.
-            # We connect it to 'sandbox_internal' so it can stream from MinIO.
+            # Run the container with resource limits.
+            # We use network_mode="host" so the sandbox container shares the 
+            # network namespace of the 'sandbox-dind' container. This allows it
+            # to reach 'minio' and other services on the main Docker network
+            # using their container names, without needing complex port forwarding.
             container = client.containers.run(
                 image="swarmcloud-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
-                network="sandbox_internal",
-                extra_hosts={
-                    "host.docker.internal": "host-gateway",
-                    "minio": "host-gateway",
-                },
+                network_mode="host",
                 mem_limit="1g",
                 nano_cpus=1000000000,  # 1 CPU
                 shm_size="10.24gb",
@@ -195,7 +194,7 @@ def run_script_in_sandbox(
                 detach=True,
                 stdout=True,
                 stderr=True,
-                remove=False,  # We want to check status before removal
+                remove=False,
             )
 
             # Wait for completion (max 5 minutes)

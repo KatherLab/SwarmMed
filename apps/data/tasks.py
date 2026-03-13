@@ -75,36 +75,14 @@ class ValidationHelper:
     def __init__(self, manifest_file, output_file):
         print(f"--- ValidationHelper Initializing ---")
         with open(manifest_file) as f:
-            manifest = json.load(f)
+            self.manifest = json.load(f)
         self.output_file = output_file
         self.checks = []
-        # Internal streaming filesystem with SSL verification disabled
+        # Internal streaming filesystem with SSL verification disabled.
+        # We rely on network_mode="host" in the sandbox container to reach 'minio'
+        # via container name directly from the 'sandbox-dind' network namespace.
         self.fs = fsspec.filesystem("http", ssl=False)
-        self.manifest = self._process_manifest(manifest)
         print(f"--- ValidationHelper Ready ---")
-
-    def _process_manifest(self, manifest):
-        # Discover reachable internal host
-        internal_host = "minio"
-        import socket
-        try:
-            ip = socket.gethostbyname("minio")
-            print(f"Discovered 'minio' at {{ip}}")
-        except socket.gaierror:
-            print("Warning: 'minio' not resolvable, falling back to 'host.docker.internal'")
-            internal_host = "host.docker.internal"
-
-        updated = {{}}
-        for rel_path, url in manifest.items():
-            p = urlparse(url)
-            # If the hostname is a Tailscale IP or localhost, replace it with internal_host
-            if p.hostname != internal_host:
-                new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
-                print(f"Rewrote {{rel_path}}: {{url}} -> {{new_url}}")
-            else:
-                new_url = url
-            updated[rel_path] = new_url
-        return updated
 
     def add_check(self, name, status, message="", details=None):
         self.checks.append({{
@@ -254,35 +232,12 @@ class VisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
         print(f"--- VisualizationHelper Initializing ---")
         with open(manifest_file) as f:
-            manifest = json.load(f)
+            self.manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
-        self.manifest = self._process_manifest(manifest)
         print(f"--- VisualizationHelper Ready ---")
-
-    def _process_manifest(self, manifest):
-        # Discover reachable internal host
-        internal_host = "minio"
-        import socket
-        try:
-            ip = socket.gethostbyname("minio")
-            print(f"Discovered 'minio' at {{ip}}")
-        except socket.gaierror:
-            print("Warning: 'minio' not resolvable, falling back to 'host.docker.internal'")
-            internal_host = "host.docker.internal"
-
-        updated = {{}}
-        for rel_path, url in manifest.items():
-            p = urlparse(url)
-            if p.hostname != internal_host:
-                new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
-                print(f"Rewrote {{rel_path}}: {{url}} -> {{new_url}}")
-            else:
-                new_url = url
-            updated[rel_path] = new_url
-        return updated
 
     def save_plot(self, title="Untitled Plot"):
 
@@ -375,7 +330,7 @@ except Exception as e:
                 if plot_data.get("image_data"):
                     img_name = f"plot_{plot_data['plot_number']}.png"
                     img_content = ContentFile(
-                        base64.b64decode(plot_data["image_data"]),
+                        base64.b64encode(plot_data["image_data"]),
                         name=img_name,
                     )
                     plot_obj.image_data.save(img_name, img_content, save=False)
