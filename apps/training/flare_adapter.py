@@ -7,9 +7,8 @@ with the NVFlare system and the project's S3 data storage.
 import json
 import os
 import shutil
-import ssl
 import tempfile
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import numpy as np
@@ -26,7 +25,7 @@ class FlareDataFileSystem:
     A Ray-powered virtual filesystem for NVFlare jobs.
 
     Provides access to data stored in an S3-compatible service (MinIO). It strictly
-    uses Ray Data streaming for scalable, parallel data access.
+    uses Ray Data streaming for scalable, parallel data access via presigned URLs.
     """
 
     def __init__(self, project_uuid: str):
@@ -46,21 +45,14 @@ class FlareDataFileSystem:
             in {"1", "true", "yes", "on"}
         )
 
-        self.bucket = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip() or "swarmcloud"
         self.local_s3_endpoint = (
             os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
             or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
             or "http://minio:9000"
         )
-        
-        self.http_timeout = float(
-            os.getenv("SWARMCLOUD_HTTP_TIMEOUT", "20").strip() or "20"
-        )
 
         # Load and process the data manifest.
         self.manifest = self._load_manifest()
-
-        # Ray is lazy-initialized in to_ray_dataset/preprocess/get_data_path.
 
     def _load_manifest(self) -> dict:
         manifest_locations = [
@@ -83,7 +75,8 @@ class FlareDataFileSystem:
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             if self.use_local_data:
-                # Local mode: ensure we use the local endpoint.
+                # Force local endpoint (e.g. minio:9000 or 127.0.0.1:9000)
+                # We replace the scheme and netloc while keeping the path and query (presigned params)
                 new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", self.local_s3_endpoint.rstrip("/"))
                 updated_manifest[rel_path] = new_url
             else:
@@ -105,73 +98,35 @@ class FlareDataFileSystem:
                 ray.init(address="auto", ignore_reinit_error=True)
             except Exception:
                 # Fallback to a lightweight local instance.
-                # We use 127.0.0.1 for GCS stability in containers and avoid invalid config parameters.
-                try:
-                    ray.init(
-                        ignore_reinit_error=True, 
-                        include_dashboard=False,
-                        num_cpus=1,
-                        _node_ip_address="127.0.0.1",
-                        _system_config={
-                            "gcs_rpc_server_reconnect_timeout_s": 60,
-                        }
-                    )
-                except Exception:
-                    ray.init(ignore_reinit_error=True)
-
-    def _get_arrow_filesystem(self):
-        """Creates a PyArrow S3FileSystem configured for the local MinIO instance."""
-        if self.use_local_data:
-            try:
-                from pyarrow import fs
-                # Ensure we handle localhost/127.0.0.1 correctly inside container
-                endpoint = self.local_s3_endpoint
-                parsed = urlparse(endpoint)
-                
-                # If we are in host network mode, 127.0.0.1 is fine.
-                # If not, and endpoint is 127.0.0.1, it might fail unless we use host.docker.internal.
-                # SwarmCloud tasks.py usually sets up host network mode for clients.
-                
-                return fs.S3FileSystem(
-                    access_key=os.getenv("AWS_ACCESS_KEY_ID"),
-                    secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                    endpoint_override=parsed.netloc,
-                    scheme=parsed.scheme or "http",
-                    tls_verify_certificates=False, # Correct parameter for recent pyarrow
-                    force_virtual_addressing=False  # Required for MinIO
+                # We use 127.0.0.1 for GCS stability in containers.
+                ray.init(
+                    ignore_reinit_error=True, 
+                    include_dashboard=False,
+                    num_cpus=1,
+                    _node_ip_address="127.0.0.1",
                 )
-            except Exception as e:
-                print(f"FlareDataFileSystem: Failed to init Arrow S3 filesystem: {e}")
-        return None
-
-    def _get_ray_paths(self):
-        """Returns s3:// URIs for local mode to bypass URL/SSL issues with Ray Data."""
-        if self.use_local_data and self.bucket:
-            # We must use the bucket name from environment
-            return [f"s3://{self.bucket}/{self.project_uuid}/data/{rel_path}" for rel_path in self.manifest.keys()]
-        return list(self.manifest.values())
 
     def to_ray_dataset(self) -> ray.data.Dataset:
         """
         Scalable Interface: Converts the manifest into a Ray Dataset.
         """
         self._init_ray()
-        paths = self._get_ray_paths()
-        filesystem = self._get_arrow_filesystem()
-        
+        paths = list(self.manifest.values())
         if not paths:
             raise ValueError("FlareDataFileSystem: Manifest is empty.")
 
+        # storage_options for fsspec (used for HTTP/HTTPS URLs)
+        # Disable SSL verification for local MinIO setups with self-signed certs.
+        storage_options = {"ssl": False} if self.use_local_data else {}
+
         # Determine format from first file extension.
         ext = os.path.splitext(list(self.manifest.keys())[0])[1].lower()
-        
         if ext == ".csv":
-            return ray.data.read_csv(paths, filesystem=filesystem)
+            return ray.data.read_csv(paths, storage_options=storage_options)
         elif ext == ".json":
-            return ray.data.read_json(paths, filesystem=filesystem)
+            return ray.data.read_json(paths, storage_options=storage_options)
         else:
-            # Default to binary for medical imaging/volumes.
-            return ray.data.read_binary_files(paths, filesystem=filesystem)
+            return ray.data.read_binary_files(paths, storage_options=storage_options)
 
     def preprocess(self, ds: ray.data.Dataset, fn: Callable[[Any], Any]) -> ray.data.Dataset:
         """
@@ -193,31 +148,35 @@ class FlareDataFileSystem:
             return
 
         self._init_ray()
-        paths = self._get_ray_paths()
-        filesystem = self._get_arrow_filesystem()
+        paths = list(self.manifest.values())
         
         print(f"FlareDataFileSystem: Streaming {len(paths)} files via Ray Data...")
         
+        # storage_options for fsspec
+        storage_options = {"ssl": False} if self.use_local_data else {}
+        
         # Read files as binary blobs.
-        ds = ray.data.read_binary_files(paths, include_paths=True, filesystem=filesystem)
+        ds = ray.data.read_binary_files(paths, include_paths=True, storage_options=storage_options)
         
         temp_dir = self.temp_dir
-        # Map paths back to relative keys for local storage
-        if self.use_local_data and self.bucket:
-            uri_to_rel = {f"s3://{self.bucket}/{self.project_uuid}/data/{k}": k for k in self.manifest.keys()}
-        else:
-            uri_to_rel = {v: k for k, v in self.manifest.items()}
+        
+        # Robust URL-to-relative-path mapping (ignoring query parameters)
+        def get_clean_path(p):
+            return p.split('?')[0]
+            
+        url_to_rel = {get_clean_path(v): k for k, v in self.manifest.items()}
 
         def save_to_disk(row):
-            uri = row["path"]
-            rel_path = uri_to_rel.get(uri, os.path.basename(uri))
+            url = row["path"]
+            clean_url = get_clean_path(url)
+            rel_path = url_to_rel.get(clean_url, os.path.basename(clean_url))
             local_path = os.path.join(temp_dir, rel_path)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             with open(local_path, "wb") as f:
                 f.write(row["bytes"])
             return {"rel_path": rel_path, "local_path": local_path}
 
-        # Trigger execution and collect results. 
+        # Trigger execution and collect results.
         results = ds.map(save_to_disk).take_all()
         for res in results:
             self._downloaded_files[res["rel_path"]] = res["local_path"]
@@ -259,9 +218,6 @@ def get_data_filesystem(project_id: str) -> FlareDataFileSystem:
 def receive_model():
     """
     Receives the latest global model (aggregated weights) from the server.
-
-    Returns:
-        flare.FLModel: The received model object, or None if training is done.
     """
     print("flare_adapter: Receiving global model from server...")
     try:
