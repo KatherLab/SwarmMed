@@ -10,6 +10,7 @@ import json
 import os
 import re
 import traceback
+import textwrap
 
 import boto3
 from celery import shared_task
@@ -169,6 +170,9 @@ def run_results_visualization_task(run_id, flare_id):
             if isinstance(script_content, bytes):
                 script_content = script_content.decode("utf-8")
 
+            # Properly indent the user script for the try block
+            indented_script = textwrap.indent(script_content, "    ")
+
             # Wrapper for Results Visualization
             script_wrapper = f"""
 import json
@@ -305,7 +309,7 @@ visualization = ResultsVisualizationHelper('/home/sandboxuser/data/data_manifest
 
 # --- User script ---
 try:
-{script_content}
+{indented_script}
 except Exception as e:
     print(f"CRITICAL ERROR in visualization script: {{e}}")
     traceback.print_exc()
