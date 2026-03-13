@@ -591,7 +591,8 @@ def _collect_project_runtime_requirements(project, logger):
         "numpy<2.0.0",
         "torch==2.9.0",
         "scikit-learn==1.8.0",
-        "ray[data]==2.43.0",
+        "fsspec==2025.2.0",
+        "aiohttp==3.11.13",
     ]
 
     merged = []

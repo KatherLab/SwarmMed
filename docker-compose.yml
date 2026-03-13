@@ -143,6 +143,7 @@ services:
     shm_size: '10.24gb'
     networks:
       - db_network
+      - sandbox_internal
     environment:
       - DOCKER_TLS_CERTDIR=/certs
       - DOCKER_TLS_SAN=DNS:sandbox-dind
@@ -275,6 +276,7 @@ services:
     command: server /data --console-address ":9001"
     networks:
       - db_network
+      - sandbox_internal
 
 
 networks:
@@ -282,6 +284,9 @@ networks:
     driver: bridge
   web_network:
     driver: bridge
+  sandbox_internal:
+    driver: bridge
+    internal: true
 
 volumes:
 

@@ -267,7 +267,8 @@ def generate_flare_startup_kit(
         rf.write("numpy<2.0.0\n")
         rf.write("torch==2.9.0\n")
         rf.write("scikit-learn==1.8.0\n")
-        rf.write("ray[data]==2.43.0\n")
+        rf.write("fsspec==2025.2.0\n")
+        rf.write("aiohttp==3.11.13\n")
 
         # Collect additional requirements from supported sources in S3.
         # Source 1: project.requirements_file (explicit upload in Project settings)

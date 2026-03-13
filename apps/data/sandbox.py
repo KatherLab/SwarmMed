@@ -144,14 +144,15 @@ def run_script_in_sandbox(
                 except Exception as e:
                     log.data.warning(f"Could not check for GPU support: {e}. Falling back to CPU.")
 
-            # Run the container with resource limits and no network access
-            # We only pass ["script.py"] because "python" is the ENTRYPOINT in Dockerfile.sandbox
+            # Run the container with resource limits and restricted network access.
+            # We connect it to 'sandbox_internal' so it can stream from MinIO
+            # but has no gateway to the internet.
             container = client.containers.run(
                 image="swarmcloud-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
-                network_disabled=True,
+                network="sandbox_internal",  # Use isolated internal network
                 mem_limit="1g",
                 nano_cpus=1000000000,  # 1 CPU
                 shm_size="10.24gb",

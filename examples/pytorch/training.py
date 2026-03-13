@@ -1,4 +1,3 @@
-import glob
 import os
 
 import numpy as np
@@ -16,26 +15,27 @@ load_dotenv(find_dotenv())
 
 SWARM_ROUNDS = 5
 
-# --- Import the new adapter ---
-
-# --- 1. Dataset Class (reads from a local path) ---
+# --- 1. Dataset Class (Streaming via Adapter) ---
 
 
 class BiomedTabularDataset(Dataset):
-    def __init__(self, data_dir):
+    def __init__(self, fs):
         """
-        Initializes the dataset from a local directory of CSV files.
+        Initializes the dataset by streaming CSV files directly from the virtual filesystem.
         """
-        file_pattern = os.path.join(data_dir, "**", "*.csv")
-        file_list = glob.glob(file_pattern, recursive=True)
+        file_list = fs.glob("*.csv")
 
         if not file_list:
-            raise RuntimeError(
-                f"No CSV files found in '{data_dir}' or its subdirectories."
-            )
+            raise RuntimeError("No CSV files found in the project data.")
 
-        print(f"Found {len(file_list)} CSV files in {data_dir}.")
-        df_list = [pd.read_csv(f) for f in file_list]
+        print(f"Found {len(file_list)} CSV files. Streaming data...")
+        
+        # Stream files directly from fsspec into pandas
+        df_list = []
+        for f_path in file_list:
+            with fs.open(f_path) as f:
+                df_list.append(pd.read_csv(f))
+        
         self.full_df = pd.concat(df_list, ignore_index=True)
 
         self.X = self.full_df.drop(
@@ -88,29 +88,24 @@ class BioMedNet(nn.Module):
 def main(project_id: str):
     # A. Initialize NVFlare
     flare_adapter.init_flare()
-    print("--- NVFlare Client Initialized via Adapter ---")
 
-    # B. Use the adapter to get a local data path
+    # B. Use the adapter to get a virtual streaming filesystem
     with flare_adapter.get_data_filesystem(project_id) as fs:
-        data_dir = (
-            fs.get_data_path()
-        )  # This downloads the data and returns a local path
-
         batch_size = 32
         lr = 0.001
         epochs_per_round = 5
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Load Data from the local path provided by the adapter
+        # Load Data using the streaming filesystem
         try:
-            dataset = BiomedTabularDataset(data_dir)
+            dataset = BiomedTabularDataset(fs)
             train_loader = DataLoader(
                 dataset, batch_size=batch_size, shuffle=True
             )
             input_dim = dataset.X.shape[1]
         except Exception as e:
-            print(f"Data loading error in training script: {e}")
+            print(f"Data loading error: {e}")
             return
 
         # Initialize Model
@@ -127,71 +122,41 @@ def main(project_id: str):
                 print("Training finished or aborted.")
                 break
 
-            # Manually load parameters into the local model
+            # Load parameters into the local model
             if input_model.params:
-                # Use helper to convert dict back to Tensors (handles received
-                # NumPy arrays)
                 state_dict = flare_adapter.get_pytorch_state_dict(
                     input_model.params
                 )
                 model.load_state_dict(state_dict)
-                print(
-                    f"Received and loaded global model for round: {input_model.current_round}"
-                )
+                print(f"Round {input_model.current_round}: Global model loaded.")
             else:
-                print(
-                    f"Starting training from scratch for round: {input_model.current_round}"
-                )
+                print(f"Round {input_model.current_round}: Starting from scratch.")
 
             # 2. Local Training Steps
             model.train()
             total_loss = 0.0
             steps = 0
-
             for epoch in range(epochs_per_round):
-                epoch_loss = 0
-                for X_batch, y_batch in train_loader:
-                    X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-
+                for inputs, targets in train_loader:
+                    inputs, targets = inputs.to(device), targets.to(device)
                     optimizer.zero_grad()
-                    output = model(X_batch)
-                    loss = criterion(output, y_batch)
+                    outputs = model(inputs)
+                    loss = criterion(outputs, targets)
                     loss.backward()
                     optimizer.step()
-
-                    epoch_loss += loss.item()
+                    total_loss += loss.item()
                     steps += 1
-
-                avg_epoch_loss = epoch_loss / len(train_loader)
-                print(
-                    f" Round {input_model.current_round} | Epoch {epoch + 1} | Loss: {avg_epoch_loss:.4f}"
-                )
-                total_loss += avg_epoch_loss
+            
+            avg_loss = total_loss / steps if steps > 0 else 0
+            print(f"Round {input_model.current_round} complete. Avg Loss: {avg_loss:.4f}")
 
             # 3. Send Results Back to Server via Adapter
-            print("Training finished for round. Sending updates to server...")
-
-            # Simulated validation metric improvement
-            current_round = input_model.current_round
-            simulated_accuracy = 0.6 + (0.35 * (1.0 - np.exp(-current_round/5.0))) + (np.random.rand() * 0.02)
-
-            # Manually extract parameters from the model as a dictionary
             flare_adapter.send_model(
-                params=model.cpu().state_dict(),
-                metrics={
-                    "loss": total_loss / (epochs_per_round * len(train_loader)),
-                    "accuracy": simulated_accuracy,
-                },
-                meta={
-                    "NUM_STEPS_CURRENT_ROUND": steps
-                }
+                params=model.state_dict(),
+                metrics={"loss": avg_loss},
+                meta={"NUM_STEPS_CURRENT_ROUND": steps}
             )
-
-            model.to(device)
 
 
 if __name__ == "__main__":
-    # This script expects a project_id to be passed to main().
-    # The view injects this, e.g., main(project_id="...")
-    # Providing a default for local testing if needed.
     main(project_id="default_project")
