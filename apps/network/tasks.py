@@ -1295,6 +1295,12 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 f"AWS_STORAGE_BUCKET_NAME={settings.AWS_STORAGE_BUCKET_NAME}",
                 "-e",
+                f"AWS_S3_ENDPOINT_URL={settings.AWS_S3_ENDPOINT_URL}",
+                "-e",
+                f"SWARMCLOUD_LOCAL_S3_ENDPOINT={getattr(settings, 'SWARMCLOUD_LOCAL_S3_ENDPOINT', settings.AWS_S3_ENDPOINT_URL)}",
+                "-e",
+                f"PUBLIC_URL={settings.PUBLIC_URL}",
+                "-e",
                 "SWARMCLOUD_USE_LOCAL_DATA=1",
             ]
             if remote_host:

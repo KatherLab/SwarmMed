@@ -142,7 +142,15 @@ def get_internal_s3_download_url(key, expires=3600):
     # remote nodes won't be able to reach it. We try to replace it with reachable candidates.
     internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
     if not internal_host:
-        # Fallback to docker gateway
+        # Try to extract host from PUBLIC_URL as a better candidate than generic gateway
+        public_url = getattr(settings, "PUBLIC_URL", "")
+        if public_url:
+            parsed_public = urlparse(public_url)
+            if parsed_public.hostname and parsed_public.hostname not in {"localhost", "127.0.0.1"}:
+                internal_host = parsed_public.hostname
+    
+    if not internal_host:
+        # Fallback to docker gateway (works for Linux, for macOS host.docker.internal is better but requires DNS)
         internal_host = "172.17.0.1"
 
     # Robustly replace all local host candidates

@@ -75,26 +75,44 @@ class FlareDataFileSystem:
         updated_manifest = {}
         internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
         
+        # If no internal host is set, try to discover a reachable IP/Hostname.
+        if not internal_host:
+            import socket
+            try:
+                # Check if we can resolve minio hostname (standard docker compose)
+                socket.gethostbyname("minio")
+                internal_host = "minio"
+            except socket.gaierror:
+                # Check for public_url host as candidate (e.g. Tailscale IP)
+                public_url = os.getenv("PUBLIC_URL", "")
+                if public_url:
+                    p = urlparse(public_url)
+                    if p.hostname and p.hostname not in {"localhost", "127.0.0.1"}:
+                        internal_host = p.hostname
+                
+                if not internal_host:
+                    # Fallback to macOS special host for Docker
+                    internal_host = "host.docker.internal"
+
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             # 1. First, handle potential use_local_data override
             if self.use_local_data:
                 endpoint = self.local_s3_endpoint.rstrip("/")
                 # Replace the whole scheme and netloc with the provided endpoint
-                # e.g. https://127.0.0.1:9000 -> http://minio:9000
                 old_base = f"{parsed.scheme}://{parsed.netloc}"
                 new_url = url.replace(old_base, endpoint)
             else:
                 new_url = url
 
-            # 2. Robustly replace internal host candidates if they persist
-            # This handles cases where minio is used as a hostname or 127.0.0.1 is still present
-            if internal_host:
-                # We replace the hostname but keep the protocol and port if they were already correct
-                # Or if we just did a replacement above and it still contains local references
-                new_url = new_url.replace("localhost", internal_host)
-                new_url = new_url.replace("127.0.0.1", internal_host)
-                new_url = new_url.replace("://minio", f"://{internal_host}")
+            # 2. Robustly replace internal host candidates if they persist (127.0.0.1/localhost)
+            new_url = new_url.replace("localhost", internal_host)
+            new_url = new_url.replace("127.0.0.1", internal_host)
+            
+            # If the hostname is exactly 'minio', replace it with internal_host if it's different
+            parsed_new = urlparse(new_url)
+            if parsed_new.hostname == "minio" and internal_host != "minio":
+                new_url = new_url.replace("minio", internal_host, 1)
             
             updated_manifest[rel_path] = new_url
             
