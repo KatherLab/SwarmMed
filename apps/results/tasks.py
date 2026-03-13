@@ -170,11 +170,13 @@ import base64
 import fsspec
 import torch
 import numpy as np
+import traceback
 import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 
 class ResultsVisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
+        print("--- ResultsVisualizationHelper Initializing ---")
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.plots_dir = plots_dir
@@ -182,25 +184,20 @@ class ResultsVisualizationHelper:
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
         self.manifest = self._process_manifest(manifest)
+        print("--- ResultsVisualizationHelper Ready ---")
 
     def _process_manifest(self, manifest):
-        # Discover reachable internal host
         internal_host = "minio"
-        import socket
-        try:
-            socket.gethostbyname("minio")
-        except socket.gaierror:
-            internal_host = "host.docker.internal"
-
+        # Since we use network_mode="host" in sandbox, we rewrite URLs to minio:9000
+        first_url = next(iter(manifest.values()), "")
+        scheme = "https" if first_url.startswith("https") else "http"
+        internal_endpoint = f"{{scheme}}://{{internal_host}}:9000"
+        
         updated = {{}}
         for rel_path, url in manifest.items():
             p = urlparse(url)
-            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
-            # which is reachable inside the Docker network.
-            if p.hostname != internal_host:
-                new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
-            else:
-                new_url = url
+            old_base = f"{{p.scheme}}://{{p.netloc}}"
+            new_url = url.replace(old_base, internal_endpoint)
             updated[rel_path] = new_url
         return updated
 
@@ -217,17 +214,24 @@ class ResultsVisualizationHelper:
         if path not in self.manifest:
             raise FileNotFoundError("Model weights not found in manifest.")
             
-        with self.fs.open(self.manifest[path], "rb") as f:
-            if path.endswith(".pt"):
-                data = torch.load(f, map_location='cpu', weights_only=True)
-                if isinstance(data, dict):
-                    data = data.get("numpy_key", data.get("weights", data.get("model", data)))
-                return data
-            elif path.endswith(".npy"):
-                return np.load(f, allow_pickle=False)
-            elif path.endswith(".npz"):
-                d = np.load(f, allow_pickle=False)
-                return d.get("params", d.get("weights", d))
+        url = self.manifest[path]
+        print(f"Loading model from: {{url}}")
+        try:
+            with self.fs.open(url, "rb") as f:
+                if path.endswith(".pt"):
+                    data = torch.load(f, map_location='cpu', weights_only=True)
+                    if isinstance(data, dict):
+                        data = data.get("numpy_key", data.get("weights", data.get("model", data)))
+                    return data
+                elif path.endswith(".npy"):
+                    return np.load(f, allow_pickle=False)
+                elif path.endswith(".npz"):
+                    d = np.load(f, allow_pickle=False)
+                    return d.get("params", d.get("weights", d))
+        except Exception as e:
+            print(f"ERROR loading model {{url}}: {{e}}")
+            traceback.print_exc()
+            raise
         return None
 
     def load_weights(self, model, client_name="fl-client-1", model_filename="model.pt"):
@@ -264,7 +268,14 @@ class ResultsVisualizationHelper:
     def open(self, relative_path, mode='r', **kwargs):
         path = relative_path.lstrip("/")
         if path not in self.manifest: raise FileNotFoundError(f"File {{path}} not in manifest.")
-        return self.fs.open(self.manifest[path], mode=mode, **kwargs)
+        url = self.manifest[path]
+        print(f"Opening streaming connection to: {{url}}")
+        try:
+            return self.fs.open(url, mode=mode, **kwargs)
+        except Exception as e:
+            print(f"ERROR opening {{url}}: {{e}}")
+            traceback.print_exc()
+            raise
 
     def exists(self, relative_path):
         return relative_path.lstrip("/") in self.manifest
@@ -278,7 +289,11 @@ class ResultsVisualizationHelper:
 visualization = ResultsVisualizationHelper('/home/sandboxuser/data/data_manifest.json', 'plots')
 
 # --- User script ---
+try:
 {script_content}
+except Exception as e:
+    print(f"CRITICAL ERROR in visualization script: {{e}}")
+    traceback.print_exc()
 """
 
             result = run_script_in_sandbox(
