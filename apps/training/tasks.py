@@ -56,23 +56,19 @@ def monitor_training_jobs():
     from network.utils import get_tailscale_ip
     from .utils import scrape_docker_progress
 
-    log = logger.get_logger()
     local_ip = get_tailscale_ip()
-    log.training.debug(f"Monitor: Starting monitoring task on local_ip={local_ip}")
+    log = logger.get_logger()
 
     # 1. DISCOVERY: Find jobs on the FLARE server that aren't in our local database.
     active_networks = SwarmNetwork.objects.filter(status__in=["RUNNING", "STARTING", "PROVISIONED"])
-    log.training.debug(f"Monitor: Scanning {active_networks.count()} active networks for discovery")
     
     for network in active_networks:
         admin_target = _resolve_admin_session_target(network)
         if not admin_target:
-            log.training.debug(f"Monitor: No admin target for network {network.name}")
             continue
 
         try:
             admin_name, admin_dir, server_ip = admin_target
-            log.training.debug(f"Monitor: Connecting to FLARE server {server_ip} for network {network.name}")
             sess = new_secure_session_with_host(
                 username=admin_name,
                 startup_kit_location=admin_dir,
@@ -83,7 +79,6 @@ def monitor_training_jobs():
             
             response = sess.api.do_command("list_jobs")
             remote_jobs = _parse_nvflare_jobs(response)
-            log.training.debug(f"Monitor: Found {len(remote_jobs)} remote jobs via Admin API for {network.name}")
             
             existing_job_ids = list(
                 TrainingJob.objects.filter(network=network).values_list(
@@ -119,15 +114,14 @@ def monitor_training_jobs():
                 sess.close()
             except Exception:
                 pass
-        except Exception as e:
-            log.training.debug(f"Monitor: Job discovery failed for network {network.name}: {e}")
+        except Exception:
+            continue
 
     # 2. LOCAL DOCKER SCRAPING: Check running containers for progress
     for network in active_networks:
         try:
             local_participants = network.participants.filter(ip=local_ip)
             participant_ids = [p.participant_id for p in local_participants]
-            log.training.debug(f"Monitor: Scraping local docker for participants {participant_ids}")
             docker_results = scrape_docker_progress(participant_ids=participant_ids)
             
             for res in docker_results:
@@ -163,12 +157,11 @@ def monitor_training_jobs():
                         l_job.progress_percent = 100
                         l_job.completed_at = timezone.now()
                         l_job.save(update_fields=["status", "progress_percent", "completed_at"])
-        except Exception as e:
-            log.training.debug(f"Monitor: Local docker scraping failed for network {network.name}: {e}")
+        except Exception:
+            continue
 
     # 3. MONITORING: Check RUNNING jobs (filesystem logs).
     jobs = TrainingJob.objects.filter(status__in=["RUNNING", "COMPLETED"])
-    log.training.debug(f"Monitor: Checking filesystem logs for {jobs.count()} jobs")
 
     for job in jobs:
         try:
