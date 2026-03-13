@@ -7,6 +7,20 @@ SwarmCloud is a decentralized medical data storage and collaborative training pl
 
 ---
 
+## 🧠 Supported Frameworks
+
+SwarmCloud is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
+
+- **PyTorch** & **PyTorch Lightning**
+- **TensorFlow** & **Keras**
+- **Scikit-learn**
+- **HuggingFace Transformers**
+- **MONAI** (Medical Open Network for AI)
+
+The platform handles the streaming of data from S3-compatible storage (MinIO) and the secure loading of model weights across all common formats (`.pt`, `.pth`, `.ckpt`, `.h5`, `.keras`, `.npy`, `.pkl`, `.joblib`).
+
+---
+
 ## 🚀 Installation & Setup
 
 ### 1. Prerequisites

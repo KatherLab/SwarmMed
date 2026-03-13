@@ -10,7 +10,21 @@ description: Installation and setup instructions for the SwarmCloud platform.
 
 SwarmCloud is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
 
-This documentation provides a comprehensive guide to understanding, setting up, and using the SwarmCloud platform.
+---
+
+## 🧠 Supported Frameworks
+
+SwarmCloud is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
+
+- **PyTorch** & **PyTorch Lightning**
+- **TensorFlow** & **Keras**
+- **Scikit-learn**
+- **HuggingFace Transformers**
+- **MONAI** (Medical Open Network for AI)
+
+The platform handles the streaming of data from S3-compatible storage (MinIO) and the secure loading of model weights across all common formats (`.pt`, `.pth`, `.ckpt`, `.h5`, `.keras`, `.npy`, `.pkl`, `.joblib`).
+
+---
 
 ## Key Features
 <div class="grid cards" markdown>
