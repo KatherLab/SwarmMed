@@ -73,14 +73,16 @@ class FlareDataFileSystem:
         
         # Post-process URLs to ensure they are reachable from inside the container.
         updated_manifest = {}
+        internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+        
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             if self.use_local_data:
                 endpoint = self.local_s3_endpoint
+                # Replace the whole scheme and netloc with the provided endpoint
                 new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", endpoint.rstrip("/"))
                 updated_manifest[rel_path] = new_url
             else:
-                internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
                 if internal_host:
                     new_url = url.replace("localhost", internal_host).replace("127.0.0.1", internal_host).replace("minio", internal_host)
                     updated_manifest[rel_path] = new_url

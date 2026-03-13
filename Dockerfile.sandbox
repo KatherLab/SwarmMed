@@ -21,7 +21,10 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     matplotlib \
     seaborn \
     scikit-learn \
-    torch
+    torch \
+    fsspec \
+    aiohttp \
+    requests
 
 # Create a non-privileged user to run the scripts
 RUN useradd -m sandboxuser
