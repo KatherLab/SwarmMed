@@ -1417,7 +1417,8 @@ def start_swarm_network_task(network_id, user_id):
                         remote_host = _extract_host_from_server_endpoint(startup_dir)
                     if remote_host:
                         run_cmd.extend(["--add-host", f"server:{remote_host}"])
-                        run_cmd.extend(["--add-host", f"minio:{remote_host}"])
+                        # Always point minio to local host for decentralized data
+                        run_cmd.extend(["--add-host", "minio:127.0.0.1"])
 
                         aliases_file = os.path.join(startup_dir, "server_aliases.txt")
                         if os.path.exists(aliases_file):

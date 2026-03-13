@@ -104,10 +104,18 @@ class FlareDataFileSystem:
                 # Replace the whole scheme and netloc with the provided endpoint
                 old_base = f"{parsed.scheme}://{parsed.netloc}"
                 new_url = url.replace(old_base, endpoint)
+                
+                # In local data mode, we STOP here for this URL. 
+                # We do NOT want the aggressive internal_host replacement below 
+                # to point us back to the coordinator if our local endpoint 
+                # is 'localhost', '127.0.0.1', or 'minio'.
+                updated_manifest[rel_path] = new_url
+                continue
             else:
                 new_url = url
 
             # 2. Robustly replace internal host candidates if they persist (127.0.0.1/localhost)
+            # This is only reached if NOT using local data (streaming from coordinator).
             new_url = new_url.replace("localhost", internal_host)
             new_url = new_url.replace("127.0.0.1", internal_host)
             
