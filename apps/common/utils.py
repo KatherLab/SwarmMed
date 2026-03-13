@@ -145,10 +145,13 @@ def get_internal_s3_download_url(key, expires=3600):
         # Fallback to docker gateway
         internal_host = "172.17.0.1"
 
+    # Robustly replace all local host candidates
     if "localhost" in url:
         url = url.replace("localhost", internal_host)
-    elif "127.0.0.1" in url:
+    if "127.0.0.1" in url:
         url = url.replace("127.0.0.1", internal_host)
+    if "://minio" in url:
+        url = url.replace("://minio", f"://{internal_host}")
     elif "minio" in url:
         parsed = urlparse(url)
         if parsed.hostname == "minio":
