@@ -144,14 +144,22 @@ def run_results_visualization_task(run_id, flare_id):
             flare_id_normalized = _extract_flare_job_uuid(job.flare_job_id) or job.identifier
             results_prefix = f"{project.identifier}/results/{flare_id_normalized}/"
             
+            log.results.info(f"Building results manifest with prefix: {results_prefix}")
+            
             s3 = get_s3_client()
             paginator = s3.get_paginator("list_objects_v2")
+            found_count = 0
             for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=results_prefix):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
                     if key.endswith(("/", ".py", ".pyc")): continue
                     rel_path = key[len(results_prefix):]
-                    manifest[f"results/{rel_path}"] = get_internal_s3_download_url(key, expires=3600)
+                    download_url = get_internal_s3_download_url(key, expires=3600)
+                    manifest[f"results/{rel_path}"] = download_url
+                    found_count += 1
+                    log.results.debug(f"Added to manifest: results/{rel_path}")
+
+            log.results.info(f"Found {found_count} result files in S3.")
 
             manifest_path = os.path.join(context.filesystem.temp_dir, "data_manifest.json")
             with open(manifest_path, "w") as f:
@@ -176,6 +184,7 @@ from urllib.parse import urlparse
 
 class ResultsVisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
+        print("--- ResultsVisualizationHelper Initializing ---")
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.plots_dir = plots_dir
@@ -183,6 +192,8 @@ class ResultsVisualizationHelper:
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
         self.manifest = self._process_manifest(manifest)
+        print(f"Manifest keys: {{list(self.manifest.keys())}}")
+        print("--- ResultsVisualizationHelper Ready ---")
 
     def _process_manifest(self, manifest):
         internal_host = "minio"
@@ -203,28 +214,39 @@ class ResultsVisualizationHelper:
     def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
         # Look for model in results/ prefix
         path = f"results/{{client_name}}/{{model_filename}}"
+        print(f"Searching for model at: {{path}}")
+        
         if path not in self.manifest:
+            print(f"Path {{path}} not found, trying fallback...")
             # Fallback to any model file
             for k in self.manifest:
                 if k.startswith("results/") and k.endswith((".pt", ".npy", ".npz")):
+                    print(f"Fallback found model at: {{k}}")
                     path = k
                     break
         
         if path not in self.manifest:
+            print("ERROR: No model file found in results/ prefix of manifest.")
             raise FileNotFoundError("Model weights not found in manifest.")
             
         url = self.manifest[path]
-        with self.fs.open(url, "rb") as f:
-            if path.endswith(".pt"):
-                data = torch.load(f, map_location='cpu', weights_only=True)
-                if isinstance(data, dict):
-                    data = data.get("numpy_key", data.get("weights", data.get("model", data)))
-                return data
-            elif path.endswith(".npy"):
-                return np.load(f, allow_pickle=False)
-            elif path.endswith(".npz"):
-                d = np.load(f, allow_pickle=False)
-                return d.get("params", d.get("weights", d))
+        print(f"Loading model from: {{url}}")
+        try:
+            with self.fs.open(url, "rb") as f:
+                if path.endswith(".pt"):
+                    data = torch.load(f, map_location='cpu', weights_only=True)
+                    if isinstance(data, dict):
+                        data = data.get("numpy_key", data.get("weights", data.get("model", data)))
+                    return data
+                elif path.endswith(".npy"):
+                    return np.load(f, allow_pickle=False)
+                elif path.endswith(".npz"):
+                    d = np.load(f, allow_pickle=False)
+                    return d.get("params", d.get("weights", d))
+        except Exception as e:
+            print(f"ERROR loading model {{url}}: {{e}}")
+            traceback.print_exc()
+            raise
         return None
 
     def load_weights(self, model, client_name="fl-client-1", model_filename="model.pt"):
@@ -261,7 +283,14 @@ class ResultsVisualizationHelper:
     def open(self, relative_path, mode='r', **kwargs):
         path = relative_path.lstrip("/")
         if path not in self.manifest: raise FileNotFoundError(f"File {{path}} not in manifest.")
-        return self.fs.open(self.manifest[path], mode=mode, **kwargs)
+        url = self.manifest[path]
+        print(f"Opening streaming connection to: {{url}}")
+        try:
+            return self.fs.open(url, mode=mode, **kwargs)
+        except Exception as e:
+            print(f"ERROR opening {{url}}: {{e}}")
+            traceback.print_exc()
+            raise
 
     def exists(self, relative_path):
         return relative_path.lstrip("/") in self.manifest
@@ -275,7 +304,11 @@ class ResultsVisualizationHelper:
 visualization = ResultsVisualizationHelper('/home/sandboxuser/data/data_manifest.json', 'plots')
 
 # --- User script ---
+try:
 {script_content}
+except Exception as e:
+    print(f"CRITICAL ERROR in visualization script: {{e}}")
+    traceback.print_exc()
 """
 
             result = run_script_in_sandbox(
