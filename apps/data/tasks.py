@@ -75,14 +75,33 @@ class ValidationHelper:
     def __init__(self, manifest_file, output_file):
         print(f"--- ValidationHelper Initializing ---")
         with open(manifest_file) as f:
-            self.manifest = json.load(f)
+            manifest = json.load(f)
         self.output_file = output_file
         self.checks = []
         # Internal streaming filesystem with SSL verification disabled.
-        # We rely on network_mode="host" in the sandbox container to reach 'minio'
-        # via container name directly from the 'sandbox-dind' network namespace.
         self.fs = fsspec.filesystem("http", ssl=False)
+        
+        # Rewrite URLs to use the internal 'minio' hostname which is reachable
+        # in host network mode from the DIND container.
+        self.manifest = self._process_manifest(manifest)
         print(f"--- ValidationHelper Ready ---")
+
+    def _process_manifest(self, manifest):
+        internal_host = "minio"
+        # Check if we should use https or http based on original URLs
+        # (Assuming all URLs in a manifest use the same scheme for MinIO)
+        first_url = next(iter(manifest.values()), "")
+        scheme = "https" if first_url.startswith("https") else "http"
+        internal_endpoint = f"{{scheme}}://{{internal_host}}:9000"
+        
+        updated = {{}}
+        for rel_path, url in manifest.items():
+            p = urlparse(url)
+            # Replace whatever the current host is (IP or localhost) with 'minio'
+            old_base = f"{{p.scheme}}://{{p.netloc}}"
+            new_url = url.replace(old_base, internal_endpoint)
+            updated[rel_path] = new_url
+        return updated
 
     def add_check(self, name, status, message="", details=None):
         self.checks.append({{
@@ -232,12 +251,29 @@ class VisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
         print(f"--- VisualizationHelper Initializing ---")
         with open(manifest_file) as f:
-            self.manifest = json.load(f)
+            manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
+        
+        # Rewrite URLs to use the internal 'minio' hostname
+        self.manifest = self._process_manifest(manifest)
         print(f"--- VisualizationHelper Ready ---")
+
+    def _process_manifest(self, manifest):
+        internal_host = "minio"
+        first_url = next(iter(manifest.values()), "")
+        scheme = "https" if first_url.startswith("https") else "http"
+        internal_endpoint = f"{{scheme}}://{{internal_host}}:9000"
+        
+        updated = {{}}
+        for rel_path, url in manifest.items():
+            p = urlparse(url)
+            old_base = f"{{p.scheme}}://{{p.netloc}}"
+            new_url = url.replace(old_base, internal_endpoint)
+            updated[rel_path] = new_url
+        return updated
 
     def save_plot(self, title="Untitled Plot"):
 
