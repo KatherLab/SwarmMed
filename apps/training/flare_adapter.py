@@ -46,19 +46,9 @@ class FlareDataFileSystem:
             or "http://minio:9000"
         )
 
-        self._internal_hosts = {
-            "minio",
-            "localhost",
-            "127.0.0.1",
-            "host.docker.internal",
-        }
-        self.local_s3_endpoint = self._normalize_local_endpoint(
-            self.local_s3_endpoint
-        )
-
         # Load and process the data manifest.
         self.manifest = self._load_manifest()
-
+        
         # Initialize fsspec HTTP filesystem for streaming.
         self.fs = fsspec.filesystem("http")
         
@@ -128,15 +118,6 @@ class FlareDataFileSystem:
             
         return updated_manifest
 
-    def _normalize_local_endpoint(self, endpoint: str) -> str:
-        parsed = urlparse(endpoint)
-        if (
-            parsed.scheme == "https"
-            and (parsed.hostname or "").lower() in self._internal_hosts
-        ):
-            return endpoint.replace("https://", "http://", 1)
-        return endpoint
-
     def ls(self, path: str = "") -> List[str]:
         """Lists available files in the virtual filesystem."""
         path = path.strip("/")
@@ -183,34 +164,9 @@ class FlareDataFileSystem:
         clean_path = path.lstrip("/")
         if clean_path not in self.manifest:
             raise FileNotFoundError(f"File not found in manifest: {path}")
-
-        primary_url = self.manifest[clean_path]
-        candidate_urls = [primary_url]
-
-        parsed_primary = urlparse(primary_url)
-        # If an internal endpoint is accidentally exposed as HTTPS, try HTTP fallback.
-        if (
-            parsed_primary.scheme == "https"
-            and (parsed_primary.hostname or "").lower() in self._internal_hosts
-        ):
-            candidate_urls.append(primary_url.replace("https://", "http://", 1))
-
-        last_error = None
-        for candidate_url in candidate_urls:
-            try:
-                open_kwargs = dict(kwargs)
-                parsed_candidate = urlparse(candidate_url)
-                if parsed_candidate.scheme == "https":
-                    client_kwargs = dict(open_kwargs.get("client_kwargs", {}))
-                    client_kwargs.setdefault("ssl", False)
-                    open_kwargs["client_kwargs"] = client_kwargs
-                return self.fs.open(candidate_url, mode=mode, **open_kwargs)
-            except Exception as e:
-                last_error = e
-
-        raise RuntimeError(
-            f"Failed to open streamed file '{clean_path}' from URL '{primary_url}': {last_error}"
-        )
+        
+        url = self.manifest[clean_path]
+        return self.fs.open(url, mode=mode, **kwargs)
 
     def read_bytes(self, path: str) -> bytes:
         """Reads all bytes from a file."""
