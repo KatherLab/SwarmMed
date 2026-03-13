@@ -1394,44 +1394,25 @@ def start_swarm_network_task(network_id, user_id):
 
             if role == "client":
                 # Determine which host the 'server' (and its aliases) should map to.
-                # In host network mode, if we ARE the server, we use localhost.
-                # Otherwise, if we have a remote host, we map the server to that IP.
+                # In bridge mode, we use --add-host.
+                # In host network mode, we rely on the IP being correctly provisioned
+                # in the config files via provision.py (listening_host).
                 server_map_host = None
-                if use_host_network and has_server_target:
-                    server_map_host = "127.0.0.1"
-                elif remote_host and not has_server_target:
+                if not has_server_target and remote_host:
                     server_map_host = remote_host
 
-                if server_map_host:
-                    # In host network mode, we MUST patch the config files because --add-host is ignored.
-                    if use_host_network:
-                        for config_file in ["fed_client.json", "fed_server.json"]:
-                            cfg_path = os.path.join(startup_dir, config_file)
-                            if os.path.exists(cfg_path):
-                                try:
-                                    with open(cfg_path, "r") as f:
-                                        content = f.read()
-                                    # Replace "server" with the actual IP in the config
-                                    updated_content = content.replace('"server"', f'"{server_map_host}"')
-                                    updated_content = updated_content.replace(': "server:', f': "{server_map_host}:')
-                                    if updated_content != content:
-                                        with open(cfg_path, "w") as f:
-                                            f.write(updated_content)
-                                        logger.network.info(f"Patched {config_file} with server IP {server_map_host} for host network mode.")
-                                except Exception as e:
-                                    logger.network.warning(f"Failed to patch {config_file}: {e}")
-                    else:
-                        # Standard bridge mode: --add-host works fine
-                        run_cmd.extend(["--add-host", f"server:{server_map_host}"])
+                if server_map_host and not use_host_network:
+                    # Standard bridge mode: --add-host works fine
+                    run_cmd.extend(["--add-host", f"server:{server_map_host}"])
 
-                    # Add aliases if present (only for bridge mode)
+                    # Add aliases if present
                     aliases_file = os.path.join(startup_dir, "server_aliases.txt")
                     if os.path.exists(aliases_file):
                         try:
                             with open(aliases_file) as af:
                                 for alias in af.read().splitlines():
                                     alias = alias.strip()
-                                    if alias and not use_host_network:
+                                    if alias:
                                         run_cmd.extend(["--add-host", f"{alias}:{server_map_host}"])
                         except Exception:
                             pass

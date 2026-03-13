@@ -130,6 +130,7 @@ def generate_flare_startup_kit(
                 "org": control_plane_org,
                 "fed_learn_port": 8002,
                 "admin_port": 8003,
+                "listening_host": server_ip if (server_ip and is_valid_ip(server_ip)) else "server",
             }
         )
         test_clients = [
@@ -175,6 +176,7 @@ def generate_flare_startup_kit(
                 "org": control_plane_org,
                 "fed_learn_port": 8002,
                 "admin_port": 8003,
+                "listening_host": server_ip if (server_ip and is_valid_ip(server_ip)) else "server",
             }
         )
 
