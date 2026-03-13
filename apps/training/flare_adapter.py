@@ -9,7 +9,6 @@ import os
 import shutil
 import ssl
 import tempfile
-import urllib.request
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -77,9 +76,10 @@ class FlareDataFileSystem:
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             if self.use_local_data:
-                # Force local endpoint. 
-                # We normalize to HTTP for local mode to simplify Ray/urllib connectivity.
-                endpoint = self.local_s3_endpoint.replace("https://", "http://")
+                # Local mode: Normalize to the local endpoint.
+                # If MinIO certs are present in docker-compose, it's likely HTTPS.
+                # However, for internal Ray-to-MinIO streaming, we try to use the provided endpoint directly.
+                endpoint = self.local_s3_endpoint
                 new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", endpoint.rstrip("/"))
                 updated_manifest[rel_path] = new_url
             else:
@@ -101,6 +101,7 @@ class FlareDataFileSystem:
                 ray.init(address="auto", ignore_reinit_error=True)
             except Exception:
                 # Fallback to a lightweight local instance.
+                # Using 127.0.0.1 avoids complex interface resolution issues in Docker.
                 ray.init(
                     ignore_reinit_error=True, 
                     include_dashboard=False,
@@ -111,41 +112,44 @@ class FlareDataFileSystem:
     def to_ray_dataset(self) -> ray.data.Dataset:
         """
         Scalable Interface: Converts the manifest into a Ray Dataset.
-        Uses parallel urllib streaming for maximum reliability with internal endpoints and SSL.
+        Uses parallel orchestrated streaming via urllib for max reliability.
         """
         self._init_ray()
-        items = list(self.manifest.items())
+        items = [{"rel_path": k, "url": v} for k, v in self.manifest.items()]
         if not items:
             raise ValueError("FlareDataFileSystem: Manifest is empty.")
 
-        # Construct base dataset from manifest entries
-        ds = ray.data.from_items([{"rel_path": k, "url": v} for k, v in items])
+        # Create a base dataset from our items
+        ds = ray.data.from_items(items)
         
-        # SSL context for urllib (ignoring self-signed certs)
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-
-        def stream_data(row):
-            url = row["url"]
-            with urllib.request.urlopen(url, context=ssl_ctx) as response:
-                row["bytes"] = response.read()
+        # The worker function MUST handle its own SSL context to be serializable
+        def stream_worker(row):
+            import urllib.request
+            import ssl
+            
+            # Disable SSL verification for local MinIO with self-signed certs
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            with urllib.request.urlopen(row["url"], context=ctx) as resp:
+                row["bytes"] = resp.read()
             return row
 
-        # Parallel download into Ray memory
-        binary_ds = ds.map(stream_data)
+        # Perform parallel fetch
+        binary_ds = ds.map(stream_worker)
         
-        # Determine format from first file extension.
-        ext = os.path.splitext(items[0][0])[1].lower()
+        # Check if we should auto-parse (e.g. for .csv files)
+        first_rel_path = items[0]["rel_path"]
+        if first_rel_path.lower().endswith(".csv"):
+            def parse_csv_batch(batch):
+                import pandas as pd
+                import io
+                dfs = [pd.read_csv(io.BytesIO(b)) for b in batch["bytes"]]
+                return pd.concat(dfs)
+            return binary_ds.map_batches(parse_csv_batch)
         
-        if ext == ".csv":
-            import pandas as pd
-            import io
-            return binary_ds.map_batches(lambda batch: pd.read_csv(io.BytesIO(batch["bytes"][0])))
-        elif ext == ".json":
-            return binary_ds.map_batches(lambda batch: json.loads(batch["bytes"][0]))
-        else:
-            return binary_ds
+        return binary_ds
 
     def preprocess(self, ds: ray.data.Dataset, fn: Callable[[Any], Any]) -> ray.data.Dataset:
         """
@@ -162,39 +166,43 @@ class FlareDataFileSystem:
         return self.temp_dir
 
     def _download_all_via_ray(self):
-        """Uses Ray Data to stream all project files to the local temp directory."""
+        """Uses Ray Data to stream all project files to the local temp directory in parallel."""
         if not self.manifest:
             return
 
         self._init_ray()
-        items = list(self.manifest.items())
+        items = [{"rel_path": k, "url": v} for k, v in self.manifest.items()]
         
-        print(f"FlareDataFileSystem: Parallel streaming {len(items)} files via Ray Data...")
+        print(f"FlareDataFileSystem: Orchestrating parallel stream of {len(items)} files via Ray...")
         
-        # Construct base dataset
-        ds = ray.data.from_items([{"rel_path": k, "url": v} for k, v in items])
+        ds = ray.data.from_items(items)
         
-        temp_dir = self.temp_dir
-        # SSL context for urllib
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
+        # Capture temp_dir for the worker closure
+        target_temp_dir = self.temp_dir
 
-        def download_file(row):
-            rel_path = row["rel_path"]
-            url = row["url"]
-            local_path = os.path.join(temp_dir, rel_path)
+        def download_worker(row):
+            import urllib.request
+            import ssl
+            import os
+            import shutil
+            
+            local_path = os.path.join(target_temp_dir, row["rel_path"])
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             
-            # Use urllib for proven reliability with SSL/proxies in this project
-            with urllib.request.urlopen(url, context=ssl_ctx) as response, open(local_path, "wb") as f:
-                shutil.copyfileobj(response, f)
+            # Internal worker SSL setup
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            with urllib.request.urlopen(row["url"], context=ctx) as resp, open(local_path, "wb") as f:
+                shutil.copyfileobj(resp, f)
                 
             row["local_path"] = local_path
             return row
 
-        # Trigger parallel execution
-        results = ds.map(download_file).take_all()
+        # take_all() triggers the Ray execution across all items
+        results = ds.map(download_worker).take_all()
+        
         for res in results:
             self._downloaded_files[res["rel_path"]] = res["local_path"]
         
@@ -240,6 +248,7 @@ def receive_model():
     try:
         input_model = flare.receive()
         if input_model:
+            # Check for NVFlare NPModelPersistor default dummy model
             if (
                 input_model.params
                 and "numpy_key" in input_model.params
