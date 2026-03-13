@@ -8,7 +8,6 @@ import base64
 import json
 import os
 import traceback
-import textwrap
 
 from celery import shared_task
 from django.core.files.base import ContentFile
@@ -60,36 +59,25 @@ def run_validation_task(self, validation_run_id):
             if isinstance(script_content, bytes):
                 script_content = script_content.decode("utf-8")
 
-            # Properly indent the user script for the try block
-            indented_script = textwrap.indent(script_content, "    ")
-
             # Wrap user script with helper for sandbox streaming
             script_wrapper = f"""
 import json
 import os
 import fsspec
-import traceback
 from urllib.parse import urlparse
 
 class ValidationHelper:
     def __init__(self, manifest_file, output_file):
-        print(f"--- ValidationHelper Initializing ---")
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.output_file = output_file
         self.checks = []
         # Internal streaming filesystem with SSL verification disabled.
         self.fs = fsspec.filesystem("http", ssl=False)
-        
-        # Rewrite URLs to use the internal 'minio' hostname which is reachable
-        # in host network mode from the DIND container.
         self.manifest = self._process_manifest(manifest)
-        print(f"--- ValidationHelper Ready ---")
 
     def _process_manifest(self, manifest):
         internal_host = "minio"
-        # Check if we should use https or http based on original URLs
-        # (Assuming all URLs in a manifest use the same scheme for MinIO)
         first_url = next(iter(manifest.values()), "")
         scheme = "https" if first_url.startswith("https") else "http"
         internal_endpoint = f"{{scheme}}://{{internal_host}}:9000"
@@ -97,7 +85,6 @@ class ValidationHelper:
         updated = {{}}
         for rel_path, url in manifest.items():
             p = urlparse(url)
-            # Replace whatever the current host is (IP or localhost) with 'minio'
             old_base = f"{{p.scheme}}://{{p.netloc}}"
             new_url = url.replace(old_base, internal_endpoint)
             updated[rel_path] = new_url
@@ -120,15 +107,7 @@ class ValidationHelper:
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
-        
-        url = self.manifest[path]
-        print(f"Opening streaming connection to: {{url}}")
-        try:
-            return self.fs.open(url, mode=mode, **kwargs)
-        except Exception as e:
-            print(f"ERROR opening {{url}}: {{e}}")
-            traceback.print_exc()
-            raise
+        return self.fs.open(self.manifest[path], mode=mode, **kwargs)
 
     def exists(self, relative_path):
         return relative_path.lstrip("/") in self.manifest
@@ -147,12 +126,7 @@ class ValidationHelper:
 validation = ValidationHelper('/home/sandboxuser/data/data_manifest.json', 'results.json')
 
 # --- User script ---
-try:
-{indented_script}
-except Exception as e:
-    print(f"CRITICAL ERROR in validation script: {{e}}")
-    traceback.print_exc()
-    validation.add_check("Script Error", "error", f"Unhandled exception: {{str(e)}}")
+{script_content}
 """
 
             # Run in sandbox
@@ -233,9 +207,6 @@ def run_visualization_task(self, visualization_run_id):
             if isinstance(script_content, bytes):
                 script_content = script_content.decode("utf-8")
 
-            # Properly indent the user script for the try block
-            indented_script = textwrap.indent(script_content, "    ")
-
             # Wrap user script
             script_wrapper = f"""
 import json
@@ -243,23 +214,18 @@ import os
 import io
 import base64
 import fsspec
-import traceback
 import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 
 class VisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
-        print(f"--- VisualizationHelper Initializing ---")
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
-        
-        # Rewrite URLs to use the internal 'minio' hostname
         self.manifest = self._process_manifest(manifest)
-        print(f"--- VisualizationHelper Ready ---")
 
     def _process_manifest(self, manifest):
         internal_host = "minio"
@@ -310,15 +276,7 @@ class VisualizationHelper:
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
-        
-        url = self.manifest[path]
-        print(f"Opening streaming connection to: {{url}}")
-        try:
-            return self.fs.open(url, mode=mode, **kwargs)
-        except Exception as e:
-            print(f"ERROR opening {{url}}: {{e}}")
-            traceback.print_exc()
-            raise
+        return self.fs.open(self.manifest[path], mode=mode, **kwargs)
 
     def exists(self, relative_path):
         return relative_path.lstrip("/") in self.manifest
@@ -333,11 +291,7 @@ class VisualizationHelper:
 visualization = VisualizationHelper('/home/sandboxuser/data/data_manifest.json', 'plots')
 
 # --- User script ---
-try:
-{indented_script}
-except Exception as e:
-    print(f"CRITICAL ERROR in visualization script: {{e}}")
-    traceback.print_exc()
+{script_content}
 """
 
             # Run in sandbox
@@ -366,7 +320,7 @@ except Exception as e:
                 if plot_data.get("image_data"):
                     img_name = f"plot_{plot_data['plot_number']}.png"
                     img_content = ContentFile(
-                        base64.b64encode(plot_data["image_data"]),
+                        base64.b64decode(plot_data["image_data"]),
                         name=img_name,
                     )
                     plot_obj.image_data.save(img_name, img_content, save=False)
