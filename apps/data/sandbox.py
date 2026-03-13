@@ -177,6 +177,7 @@ def run_script_in_sandbox(
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
                 network="sandbox_internal",  # Use isolated internal network
+                extra_hosts={"host.docker.internal": "host-gateway"},
                 mem_limit="1g",
                 nano_cpus=1000000000,  # 1 CPU
                 shm_size="10.24gb",
