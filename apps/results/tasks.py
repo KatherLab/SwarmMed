@@ -119,7 +119,7 @@ def sync_project_results(project_uuid):
 
 
 @shared_task
-def run_results_visualization_task(run_id):
+def run_results_visualization_task(run_id, flare_id):
     """
     Background task to execute a results visualization script with fsspec streaming.
     """
