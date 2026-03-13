@@ -141,8 +141,8 @@ def run_results_visualization_task(run_id, flare_id):
             manifest = context.filesystem.build_manifest()
             
             # Add results files to the manifest as well
-            flare_id = _extract_flare_job_uuid(job.flare_job_id) or job.identifier
-            results_prefix = f"{project.identifier}/results/{flare_id}/"
+            flare_id_normalized = _extract_flare_job_uuid(job.flare_job_id) or job.identifier
+            results_prefix = f"{project.identifier}/results/{flare_id_normalized}/"
             
             s3 = get_s3_client()
             paginator = s3.get_paginator("list_objects_v2")
@@ -176,7 +176,6 @@ from urllib.parse import urlparse
 
 class ResultsVisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
-        print("--- ResultsVisualizationHelper Initializing ---")
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.plots_dir = plots_dir
@@ -184,11 +183,11 @@ class ResultsVisualizationHelper:
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
         self.manifest = self._process_manifest(manifest)
-        print("--- ResultsVisualizationHelper Ready ---")
 
     def _process_manifest(self, manifest):
         internal_host = "minio"
         # Since we use network_mode="host" in sandbox, we rewrite URLs to minio:9000
+        if not manifest: return {{}}
         first_url = next(iter(manifest.values()), "")
         scheme = "https" if first_url.startswith("https") else "http"
         internal_endpoint = f"{{scheme}}://{{internal_host}}:9000"
@@ -215,23 +214,17 @@ class ResultsVisualizationHelper:
             raise FileNotFoundError("Model weights not found in manifest.")
             
         url = self.manifest[path]
-        print(f"Loading model from: {{url}}")
-        try:
-            with self.fs.open(url, "rb") as f:
-                if path.endswith(".pt"):
-                    data = torch.load(f, map_location='cpu', weights_only=True)
-                    if isinstance(data, dict):
-                        data = data.get("numpy_key", data.get("weights", data.get("model", data)))
-                    return data
-                elif path.endswith(".npy"):
-                    return np.load(f, allow_pickle=False)
-                elif path.endswith(".npz"):
-                    d = np.load(f, allow_pickle=False)
-                    return d.get("params", d.get("weights", d))
-        except Exception as e:
-            print(f"ERROR loading model {{url}}: {{e}}")
-            traceback.print_exc()
-            raise
+        with self.fs.open(url, "rb") as f:
+            if path.endswith(".pt"):
+                data = torch.load(f, map_location='cpu', weights_only=True)
+                if isinstance(data, dict):
+                    data = data.get("numpy_key", data.get("weights", data.get("model", data)))
+                return data
+            elif path.endswith(".npy"):
+                return np.load(f, allow_pickle=False)
+            elif path.endswith(".npz"):
+                d = np.load(f, allow_pickle=False)
+                return d.get("params", d.get("weights", d))
         return None
 
     def load_weights(self, model, client_name="fl-client-1", model_filename="model.pt"):
@@ -268,14 +261,7 @@ class ResultsVisualizationHelper:
     def open(self, relative_path, mode='r', **kwargs):
         path = relative_path.lstrip("/")
         if path not in self.manifest: raise FileNotFoundError(f"File {{path}} not in manifest.")
-        url = self.manifest[path]
-        print(f"Opening streaming connection to: {{url}}")
-        try:
-            return self.fs.open(url, mode=mode, **kwargs)
-        except Exception as e:
-            print(f"ERROR opening {{url}}: {{e}}")
-            traceback.print_exc()
-            raise
+        return self.fs.open(self.manifest[path], mode=mode, **kwargs)
 
     def exists(self, relative_path):
         return relative_path.lstrip("/") in self.manifest
@@ -289,11 +275,7 @@ class ResultsVisualizationHelper:
 visualization = ResultsVisualizationHelper('/home/sandboxuser/data/data_manifest.json', 'plots')
 
 # --- User script ---
-try:
 {script_content}
-except Exception as e:
-    print(f"CRITICAL ERROR in visualization script: {{e}}")
-    traceback.print_exc()
 """
 
             result = run_script_in_sandbox(
@@ -307,6 +289,11 @@ except Exception as e:
             run.output = result["output"]
             if not result["success"]:
                 run.error_message = result.get("error", "Sandbox execution failed")
+                # Log the failure output to the results logger
+                log.results.error(f"Results visualization sandbox failed for job {flare_id}:\n{run.output}")
+            else:
+                # Log successful output to results logger
+                log.results.info(f"Results visualization sandbox completed for job {flare_id}:\n{run.output}")
 
             for plot_data in result.get("plots", []):
                 plot_obj = ResultsVisualizationPlot(
@@ -325,7 +312,7 @@ except Exception as e:
         run.status = "completed"
         run.completed_at = timezone.now()
         run.save()
-        log.results.info("Results visualization task finished.")
+        log.results.info(f"Results visualization task finished for job {flare_id}.")
         return {"success": run.success}
 
     except Exception as e:
