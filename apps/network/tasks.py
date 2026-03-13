@@ -1394,15 +1394,13 @@ def start_swarm_network_task(network_id, user_id):
 
             if role == "client":
                 # Determine which host the 'server' (and its aliases) should map to.
-                # In bridge mode, we use --add-host.
-                # In host network mode, we rely on the IP being correctly provisioned
-                # in the config files via provision.py (listening_host).
                 server_map_host = None
                 if not has_server_target and remote_host:
                     server_map_host = remote_host
+                elif use_host_network and has_server_target:
+                    server_map_host = "127.0.0.1"
 
-                if server_map_host and not use_host_network:
-                    # Standard bridge mode: --add-host works fine
+                if server_map_host:
                     run_cmd.extend(["--add-host", f"server:{server_map_host}"])
 
                     # Add aliases if present
