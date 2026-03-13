@@ -271,6 +271,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const runBtn = document.getElementById('run-visualization-btn');
     const stopBtn = document.getElementById('stop-visualization-btn');
     const statusContainer = document.getElementById('visualization-status-container');
+    const outputContainer = document.getElementById('visualization-output-container');
+    const outputPre = document.getElementById('visualization-output');
     
     // Helper to toggle placeholders/images
     function showPlaceholders() {
@@ -302,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const getCsrfToken = () => document.querySelector('[name=csrfmiddlewaretoken]').value;
 
-    function setStatus(status, message, isError = false) {
+    function setStatus(status, message, isError = false, output = null) {
         // Customize status message display to match data page style
         let html = '<div class="space-y-4">';
         
@@ -313,9 +315,8 @@ document.addEventListener('DOMContentLoaded', function() {
                           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>${message}</button>`;
         } else if (status === 'completed') {
-             // Success - show nothing
+             // Success - show nothing in status but keep message for logs
              statusContainer.innerHTML = '';
-             return;
         } else if (status === 'failed' || isError) {
              html += `<div class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-800 dark:text-red-400 border border-red-100 dark:border-800" role="alert">
                         <div class="flex items-center">
@@ -324,7 +325,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             </svg>
                             <div>
                                 <span class="font-medium">Visualization failed:</span> ${message}
-                                <div class="mt-2">Please check the <a href="/logs/" class="font-bold underline hover:no-underline">Logs page</a> for the full technical error output.</div>
                             </div>
                         </div>
                       </div>`;
@@ -335,7 +335,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         html += '</div>';
-        statusContainer.innerHTML = html;
+        if (status !== 'completed') {
+            statusContainer.innerHTML = html;
+        }
+
+        // Handle Output Logs
+        if (output) {
+            outputPre.textContent = output;
+            outputContainer.classList.remove('hidden');
+        } else if (status === 'pending' || status === 'running') {
+            // Keep output hidden while starting
+            outputContainer.classList.add('hidden');
+        }
     }
 
     function updateUIForState(state) {
@@ -438,16 +449,29 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (data.status === 'completed') {
             if (data.success) {
-                setStatus('completed', 'Visualization generated successfully.');
+                setStatus('completed', 'Visualization generated successfully.', false, data.output);
                 renderPlots(data.plots);
             } else {
-                setStatus('failed', data.error_message || 'Visualization script execution failed.', true);
+                setStatus('failed', data.error_message || 'Visualization script execution failed.', true, data.output);
                 showPlaceholders();
             }
         } else if (data.status === 'failed') {
-            setStatus('failed', data.error_message || 'An unknown error occurred.', true);
+            setStatus('failed', data.error_message || 'An unknown error occurred.', true, data.output);
             showPlaceholders();
         } else if (data.status === 'running' || data.status === 'pending') {
+            setStatus(data.status, 'Visualization is in progress...');
+        } else if (data.status === 'none') {
+             // setStatus('none', 'Click "Run Visualization" to generate plots.');
+             // showPlaceholders();
+        } else if (data.status === 'cancelled') {
+             setStatus('cancelled', 'Visualization was cancelled.', false, data.output);
+             showPlaceholders();
+        }
+        
+        if (currentRunId) {
+             stopBtn.dataset.runId = currentRunId;
+        }
+    }
             setStatus(data.status, 'Visualization is in progress...');
         } else if (data.status === 'none') {
              // setStatus('none', 'Click "Run Visualization" to generate plots.');
