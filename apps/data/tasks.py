@@ -72,7 +72,7 @@ class ValidationHelper:
         self.output_file = output_file
         self.checks = []
         # Internal streaming filesystem
-        self.fs = fsspec.filesystem("http", client_kwargs={{'ssl': False}})
+        self.fs = fsspec.filesystem("http", ssl=False)
 
     def add_check(self, name, status, message="", details=None):
         self.checks.append({{
@@ -207,9 +207,10 @@ class VisualizationHelper:
             self.manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        self.fs = fsspec.filesystem("http", client_kwargs={{'ssl': False}})
+        self.fs = fsspec.filesystem("http", ssl=False)
 
     def save_plot(self, title="Untitled Plot"):
+
         if self.plot_count >= 4:
             return
         self.plot_count += 1
