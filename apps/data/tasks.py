@@ -64,10 +64,12 @@ def run_validation_task(self, validation_run_id):
 import json
 import os
 import fsspec
+import traceback
 from urllib.parse import urlparse
 
 class ValidationHelper:
     def __init__(self, manifest_file, output_file):
+        print(f"--- ValidationHelper Initializing ---")
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.output_file = output_file
@@ -75,23 +77,26 @@ class ValidationHelper:
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
         self.manifest = self._process_manifest(manifest)
+        print(f"--- ValidationHelper Ready ---")
 
     def _process_manifest(self, manifest):
         # Discover reachable internal host
         internal_host = "minio"
         import socket
         try:
-            socket.gethostbyname("minio")
+            ip = socket.gethostbyname("minio")
+            print(f"Discovered 'minio' at {{ip}}")
         except socket.gaierror:
+            print("Warning: 'minio' not resolvable, falling back to 'host.docker.internal'")
             internal_host = "host.docker.internal"
 
         updated = {{}}
         for rel_path, url in manifest.items():
             p = urlparse(url)
-            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
-            # which is reachable inside the sandbox_internal network.
+            # If the hostname is a Tailscale IP or localhost, replace it with internal_host
             if p.hostname != internal_host:
                 new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
+                print(f"Rewrote {{rel_path}}: {{url}} -> {{new_url}}")
             else:
                 new_url = url
             updated[rel_path] = new_url
@@ -114,7 +119,15 @@ class ValidationHelper:
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
-        return self.fs.open(self.manifest[path], mode=mode, **kwargs)
+        
+        url = self.manifest[path]
+        print(f"Opening streaming connection to: {{url}}")
+        try:
+            return self.fs.open(url, mode=mode, **kwargs)
+        except Exception as e:
+            print(f"ERROR opening {{url}}: {{e}}")
+            traceback.print_exc()
+            raise
 
     def exists(self, relative_path):
         return relative_path.lstrip("/") in self.manifest
@@ -133,7 +146,12 @@ class ValidationHelper:
 validation = ValidationHelper('/home/sandboxuser/data/data_manifest.json', 'results.json')
 
 # --- User script ---
+try:
 {script_content}
+except Exception as e:
+    print(f"CRITICAL ERROR in validation script: {{e}}")
+    traceback.print_exc()
+    validation.add_check("Script Error", "error", f"Unhandled exception: {{str(e)}}")
 """
 
             # Run in sandbox
@@ -221,11 +239,13 @@ import os
 import io
 import base64
 import fsspec
+import traceback
 import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 
 class VisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
+        print(f"--- VisualizationHelper Initializing ---")
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.plots_dir = plots_dir
@@ -233,23 +253,25 @@ class VisualizationHelper:
         # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
         self.manifest = self._process_manifest(manifest)
+        print(f"--- VisualizationHelper Ready ---")
 
     def _process_manifest(self, manifest):
         # Discover reachable internal host
         internal_host = "minio"
         import socket
         try:
-            socket.gethostbyname("minio")
+            ip = socket.gethostbyname("minio")
+            print(f"Discovered 'minio' at {{ip}}")
         except socket.gaierror:
+            print("Warning: 'minio' not resolvable, falling back to 'host.docker.internal'")
             internal_host = "host.docker.internal"
 
         updated = {{}}
         for rel_path, url in manifest.items():
             p = urlparse(url)
-            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
-            # which is reachable inside the sandbox_internal network.
             if p.hostname != internal_host:
                 new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
+                print(f"Rewrote {{rel_path}}: {{url}} -> {{new_url}}")
             else:
                 new_url = url
             updated[rel_path] = new_url
@@ -290,7 +312,15 @@ class VisualizationHelper:
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
-        return self.fs.open(self.manifest[path], mode=mode, **kwargs)
+        
+        url = self.manifest[path]
+        print(f"Opening streaming connection to: {{url}}")
+        try:
+            return self.fs.open(url, mode=mode, **kwargs)
+        except Exception as e:
+            print(f"ERROR opening {{url}}: {{e}}")
+            traceback.print_exc()
+            raise
 
     def exists(self, relative_path):
         return relative_path.lstrip("/") in self.manifest
@@ -305,7 +335,11 @@ class VisualizationHelper:
 visualization = VisualizationHelper('/home/sandboxuser/data/data_manifest.json', 'plots')
 
 # --- User script ---
+try:
 {script_content}
+except Exception as e:
+    print(f"CRITICAL ERROR in visualization script: {{e}}")
+    traceback.print_exc()
 """
 
             # Run in sandbox
