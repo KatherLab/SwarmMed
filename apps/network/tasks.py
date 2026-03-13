@@ -1395,42 +1395,37 @@ def start_swarm_network_task(network_id, user_id):
                     ])
 
                 if use_host_network:
-                    # Resolve 'server' and 'minio' to the local host interface.
-                    run_cmd.extend(["--add-host", "server:127.0.0.1"])
+                    # In host network mode, 'minio' is always the local machine
                     run_cmd.extend(["--add-host", "minio:127.0.0.1"])
-                else:
-                    remote_host = (
-                        os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
-                        or (Path(startup_dir) / "server_host.txt").read_text().strip()
-                        if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
-                        else ""
-                    )
-                    if not remote_host:
-                        remote_host = _extract_host_from_server_endpoint(startup_dir)
-                    
-                    if remote_host:
-                        run_cmd.extend(["--add-host", f"server:{remote_host}"])
-                        
-                        # In decentralized mode, if we are NOT on the server node, 
-                        # we still map 'minio' to local 127.0.0.1 for host network
-                        # or let it resolve naturally in bridge network.
-                        # (The 'minio' service name is reliable in bridge networks).
-                        
-                        aliases_file = os.path.join(startup_dir, "server_aliases.txt")
-                        if os.path.exists(aliases_file):
-                            try:
-                                with open(aliases_file) as af:
-                                    for alias in af.read().splitlines():
-                                        alias = alias.strip()
-                                        if alias:
-                                            run_cmd.extend(
-                                                [
-                                                    "--add-host",
-                                                    f"{alias}:{remote_host}",
-                                                ]
-                                            )
-                            except Exception:
-                                pass
+
+                # Determine which host the 'server' (and its aliases) should map to.
+                # In host network mode, if we ARE the server, we use localhost.
+                # Otherwise, if we have a remote host, we map the server to that IP.
+                server_map_host = None
+                if use_host_network and has_server_target:
+                    server_map_host = "127.0.0.1"
+                elif remote_host and not has_server_target:
+                    server_map_host = remote_host
+
+                if server_map_host:
+                    run_cmd.extend(["--add-host", f"server:{server_map_host}"])
+
+                    # Add aliases if present (for both network modes)
+                    aliases_file = os.path.join(startup_dir, "server_aliases.txt")
+                    if os.path.exists(aliases_file):
+                        try:
+                            with open(aliases_file) as af:
+                                for alias in af.read().splitlines():
+                                    alias = alias.strip()
+                                    if alias:
+                                        run_cmd.extend(
+                                            [
+                                                "--add-host",
+                                                f"{alias}:{server_map_host}",
+                                            ]
+                                        )
+                        except Exception:
+                            pass
 
             run_cmd.extend([image_name] + command)
 

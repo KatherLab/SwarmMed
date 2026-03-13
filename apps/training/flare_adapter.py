@@ -176,7 +176,11 @@ class FlareDataFileSystem:
             raise FileNotFoundError(f"File not found in manifest: {path}")
         
         url = self.manifest[clean_path]
-        return self.fs.open(url, mode=mode, **kwargs)
+        try:
+            return self.fs.open(url, mode=mode, **kwargs)
+        except Exception as e:
+            print(f"FlareDataFileSystem: Error opening {url}: {e}")
+            raise
 
     def read_bytes(self, path: str) -> bytes:
         """Reads all bytes from a file."""
