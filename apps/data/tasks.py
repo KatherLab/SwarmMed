@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import traceback
+import textwrap
 
 from celery import shared_task
 from django.core.files.base import ContentFile
@@ -58,6 +59,9 @@ def run_validation_task(self, validation_run_id):
             script_content = project.data_validation_script.read()
             if isinstance(script_content, bytes):
                 script_content = script_content.decode("utf-8")
+
+            # Properly indent the user script for the try block
+            indented_script = textwrap.indent(script_content, "    ")
 
             # Wrap user script with helper for sandbox streaming
             script_wrapper = f"""
@@ -147,7 +151,7 @@ validation = ValidationHelper('/home/sandboxuser/data/data_manifest.json', 'resu
 
 # --- User script ---
 try:
-{script_content}
+{indented_script}
 except Exception as e:
     print(f"CRITICAL ERROR in validation script: {{e}}")
     traceback.print_exc()
@@ -231,6 +235,9 @@ def run_visualization_task(self, visualization_run_id):
             script_content = project.data_visualization_script.read()
             if isinstance(script_content, bytes):
                 script_content = script_content.decode("utf-8")
+
+            # Properly indent the user script for the try block
+            indented_script = textwrap.indent(script_content, "    ")
 
             # Wrap user script
             script_wrapper = f"""
@@ -336,7 +343,7 @@ visualization = VisualizationHelper('/home/sandboxuser/data/data_manifest.json',
 
 # --- User script ---
 try:
-{script_content}
+{indented_script}
 except Exception as e:
     print(f"CRITICAL ERROR in visualization script: {{e}}")
     traceback.print_exc()
