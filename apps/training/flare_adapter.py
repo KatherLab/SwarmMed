@@ -38,7 +38,7 @@ class FlareDataFileSystem:
         )
 
         # Create a temporary directory for local file fallback.
-        self.temp_dir = tempfile.mkdtemp(prefix=f"flare_{project_uuid}_")
+        self.temp_dir = tempfile.mkdtemp(prefix=f"flare_{self.project_uuid}_")
         self._downloaded_files = {}
 
         self.use_local_data = (
@@ -46,7 +46,7 @@ class FlareDataFileSystem:
             in {"1", "true", "yes", "on"}
         )
 
-        self.bucket = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip()
+        self.bucket = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip() or "swarmcloud"
         self.local_s3_endpoint = (
             os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
             or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
@@ -105,7 +105,7 @@ class FlareDataFileSystem:
                 ray.init(address="auto", ignore_reinit_error=True)
             except Exception:
                 # Fallback to a lightweight local instance.
-                # We cap CPUs and use 127.0.0.1 for GCS stability in containers.
+                # We use 127.0.0.1 for GCS stability in containers and avoid invalid config parameters.
                 try:
                     ray.init(
                         ignore_reinit_error=True, 
@@ -124,14 +124,21 @@ class FlareDataFileSystem:
         if self.use_local_data:
             try:
                 from pyarrow import fs
-                parsed = urlparse(self.local_s3_endpoint)
+                # Ensure we handle localhost/127.0.0.1 correctly inside container
+                endpoint = self.local_s3_endpoint
+                parsed = urlparse(endpoint)
+                
+                # If we are in host network mode, 127.0.0.1 is fine.
+                # If not, and endpoint is 127.0.0.1, it might fail unless we use host.docker.internal.
+                # SwarmCloud tasks.py usually sets up host network mode for clients.
+                
                 return fs.S3FileSystem(
                     access_key=os.getenv("AWS_ACCESS_KEY_ID"),
                     secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
                     endpoint_override=parsed.netloc,
                     scheme=parsed.scheme or "http",
-                    verify_ssl=False,
-                    force_virtual_addressing=False
+                    tls_verify_certificates=False, # Correct parameter for recent pyarrow
+                    force_virtual_addressing=False  # Required for MinIO
                 )
             except Exception as e:
                 print(f"FlareDataFileSystem: Failed to init Arrow S3 filesystem: {e}")
@@ -140,6 +147,7 @@ class FlareDataFileSystem:
     def _get_ray_paths(self):
         """Returns s3:// URIs for local mode to bypass URL/SSL issues with Ray Data."""
         if self.use_local_data and self.bucket:
+            # We must use the bucket name from environment
             return [f"s3://{self.bucket}/{self.project_uuid}/data/{rel_path}" for rel_path in self.manifest.keys()]
         return list(self.manifest.values())
 
@@ -154,12 +162,15 @@ class FlareDataFileSystem:
         if not paths:
             raise ValueError("FlareDataFileSystem: Manifest is empty.")
 
+        # Determine format from first file extension.
         ext = os.path.splitext(list(self.manifest.keys())[0])[1].lower()
+        
         if ext == ".csv":
             return ray.data.read_csv(paths, filesystem=filesystem)
         elif ext == ".json":
             return ray.data.read_json(paths, filesystem=filesystem)
         else:
+            # Default to binary for medical imaging/volumes.
             return ray.data.read_binary_files(paths, filesystem=filesystem)
 
     def preprocess(self, ds: ray.data.Dataset, fn: Callable[[Any], Any]) -> ray.data.Dataset:
@@ -187,24 +198,26 @@ class FlareDataFileSystem:
         
         print(f"FlareDataFileSystem: Streaming {len(paths)} files via Ray Data...")
         
+        # Read files as binary blobs.
         ds = ray.data.read_binary_files(paths, include_paths=True, filesystem=filesystem)
         
         temp_dir = self.temp_dir
+        # Map paths back to relative keys for local storage
         if self.use_local_data and self.bucket:
-            path_to_rel = {f"s3://{self.bucket}/{self.project_uuid}/data/{k}": k for k in self.manifest.keys()}
+            uri_to_rel = {f"s3://{self.bucket}/{self.project_uuid}/data/{k}": k for k in self.manifest.keys()}
         else:
-            path_to_rel = {v: k for k, v in self.manifest.items()}
+            uri_to_rel = {v: k for k, v in self.manifest.items()}
 
         def save_to_disk(row):
-            ray_path = row["path"]
-            rel_path = path_to_rel.get(ray_path, os.path.basename(ray_path))
+            uri = row["path"]
+            rel_path = uri_to_rel.get(uri, os.path.basename(uri))
             local_path = os.path.join(temp_dir, rel_path)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             with open(local_path, "wb") as f:
                 f.write(row["bytes"])
             return {"rel_path": rel_path, "local_path": local_path}
 
-        # No serial fallback is provided; this will raise an exception if streaming fails.
+        # Trigger execution and collect results. 
         results = ds.map(save_to_disk).take_all()
         for res in results:
             self._downloaded_files[res["rel_path"]] = res["local_path"]
@@ -260,18 +273,8 @@ def receive_model():
                 and "numpy_key" in input_model.params
                 and len(input_model.params) == 1
             ):
-                print(
-                    "flare_adapter: Received default dummy model from server. Ignoring parameters for first round."
-                )
                 input_model.params = {}
-
-            print(
-                "flare_adapter: Global model received for "
-                f"round {input_model.current_round}."
-            )
             return input_model
-
-        print("flare_adapter: No model received. Training is likely complete.")
         return None
     except Exception as e:
         print(f"flare_adapter: Exception during model reception: {e}")
@@ -292,9 +295,6 @@ def send_model(params, metrics: dict = None, meta: dict = None):
         params = {str(i): v for i, v in enumerate(params)}
     elif not isinstance(params, dict):
         raise TypeError(f"flare_adapter.send_model expects dict/list/tuple for params, got {type(params)}")
-
-    if len(params) == 0:
-        raise ValueError("flare_adapter.send_model received empty params.")
 
     # Ensure all data types (like PyTorch tensors) are converted to numpy for transport.
     params = _ensure_transportable(params)
@@ -333,7 +333,7 @@ def get_pytorch_state_dict(params: dict):
 
 
 def _ensure_transportable(params: dict):
-    """Ensure all parameters are converted to numpy arrays."""
+    """Utility to ensure all parameters are converted to numpy arrays."""
     converted = {}
     for k, v in params.items():
         if hasattr(v, "detach") and hasattr(v, "cpu"):
