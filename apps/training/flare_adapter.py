@@ -7,7 +7,9 @@ with the NVFlare system and the project's S3 data storage.
 import json
 import os
 import shutil
+import ssl
 import tempfile
+import urllib.request
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -25,7 +27,7 @@ class FlareDataFileSystem:
     A Ray-powered virtual filesystem for NVFlare jobs.
 
     Provides access to data stored in an S3-compatible service (MinIO). It strictly
-    uses Ray Data streaming for scalable, parallel data access via presigned URLs.
+    uses Ray Data streaming for scalable, parallel data access.
     """
 
     def __init__(self, project_uuid: str):
@@ -70,14 +72,15 @@ class FlareDataFileSystem:
                 except Exception:
                     continue
         
-        # Post-process URLs to ensure they are reachable from remote clients.
+        # Post-process URLs to ensure they are reachable.
         updated_manifest = {}
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             if self.use_local_data:
-                # Force local endpoint (e.g. minio:9000 or 127.0.0.1:9000)
-                # We replace the scheme and netloc while keeping the path and query (presigned params)
-                new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", self.local_s3_endpoint.rstrip("/"))
+                # Force local endpoint. 
+                # We normalize to HTTP for local mode to simplify Ray/urllib connectivity.
+                endpoint = self.local_s3_endpoint.replace("https://", "http://")
+                new_url = url.replace(f"{parsed.scheme}://{parsed.netloc}", endpoint.rstrip("/"))
                 updated_manifest[rel_path] = new_url
             else:
                 # Remote mode: replace localhost/minio with server host if provided.
@@ -98,7 +101,6 @@ class FlareDataFileSystem:
                 ray.init(address="auto", ignore_reinit_error=True)
             except Exception:
                 # Fallback to a lightweight local instance.
-                # We use 127.0.0.1 for GCS stability in containers.
                 ray.init(
                     ignore_reinit_error=True, 
                     include_dashboard=False,
@@ -109,24 +111,41 @@ class FlareDataFileSystem:
     def to_ray_dataset(self) -> ray.data.Dataset:
         """
         Scalable Interface: Converts the manifest into a Ray Dataset.
+        Uses parallel urllib streaming for maximum reliability with internal endpoints and SSL.
         """
         self._init_ray()
-        paths = list(self.manifest.values())
-        if not paths:
+        items = list(self.manifest.items())
+        if not items:
             raise ValueError("FlareDataFileSystem: Manifest is empty.")
 
-        # storage_options for fsspec (used for HTTP/HTTPS URLs)
-        # Disable SSL verification for local MinIO setups with self-signed certs.
-        storage_options = {"ssl": False} if self.use_local_data else {}
+        # Construct base dataset from manifest entries
+        ds = ray.data.from_items([{"rel_path": k, "url": v} for k, v in items])
+        
+        # SSL context for urllib (ignoring self-signed certs)
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
 
+        def stream_data(row):
+            url = row["url"]
+            with urllib.request.urlopen(url, context=ssl_ctx) as response:
+                row["bytes"] = response.read()
+            return row
+
+        # Parallel download into Ray memory
+        binary_ds = ds.map(stream_data)
+        
         # Determine format from first file extension.
-        ext = os.path.splitext(list(self.manifest.keys())[0])[1].lower()
+        ext = os.path.splitext(items[0][0])[1].lower()
+        
         if ext == ".csv":
-            return ray.data.read_csv(paths, storage_options=storage_options)
+            import pandas as pd
+            import io
+            return binary_ds.map_batches(lambda batch: pd.read_csv(io.BytesIO(batch["bytes"][0])))
         elif ext == ".json":
-            return ray.data.read_json(paths, storage_options=storage_options)
+            return binary_ds.map_batches(lambda batch: json.loads(batch["bytes"][0]))
         else:
-            return ray.data.read_binary_files(paths, storage_options=storage_options)
+            return binary_ds
 
     def preprocess(self, ds: ray.data.Dataset, fn: Callable[[Any], Any]) -> ray.data.Dataset:
         """
@@ -148,36 +167,34 @@ class FlareDataFileSystem:
             return
 
         self._init_ray()
-        paths = list(self.manifest.values())
+        items = list(self.manifest.items())
         
-        print(f"FlareDataFileSystem: Streaming {len(paths)} files via Ray Data...")
+        print(f"FlareDataFileSystem: Parallel streaming {len(items)} files via Ray Data...")
         
-        # storage_options for fsspec
-        storage_options = {"ssl": False} if self.use_local_data else {}
-        
-        # Read files as binary blobs.
-        ds = ray.data.read_binary_files(paths, include_paths=True, storage_options=storage_options)
+        # Construct base dataset
+        ds = ray.data.from_items([{"rel_path": k, "url": v} for k, v in items])
         
         temp_dir = self.temp_dir
-        
-        # Robust URL-to-relative-path mapping (ignoring query parameters)
-        def get_clean_path(p):
-            return p.split('?')[0]
-            
-        url_to_rel = {get_clean_path(v): k for k, v in self.manifest.items()}
+        # SSL context for urllib
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
 
-        def save_to_disk(row):
-            url = row["path"]
-            clean_url = get_clean_path(url)
-            rel_path = url_to_rel.get(clean_url, os.path.basename(clean_url))
+        def download_file(row):
+            rel_path = row["rel_path"]
+            url = row["url"]
             local_path = os.path.join(temp_dir, rel_path)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            with open(local_path, "wb") as f:
-                f.write(row["bytes"])
-            return {"rel_path": rel_path, "local_path": local_path}
+            
+            # Use urllib for proven reliability with SSL/proxies in this project
+            with urllib.request.urlopen(url, context=ssl_ctx) as response, open(local_path, "wb") as f:
+                shutil.copyfileobj(response, f)
+                
+            row["local_path"] = local_path
+            return row
 
-        # Trigger execution and collect results.
-        results = ds.map(save_to_disk).take_all()
+        # Trigger parallel execution
+        results = ds.map(download_file).take_all()
         for res in results:
             self._downloaded_files[res["rel_path"]] = res["local_path"]
         
@@ -223,7 +240,6 @@ def receive_model():
     try:
         input_model = flare.receive()
         if input_model:
-            # Check for NVFlare NPModelPersistor default dummy model
             if (
                 input_model.params
                 and "numpy_key" in input_model.params
@@ -246,13 +262,11 @@ def send_model(params, metrics: dict = None, meta: dict = None):
     if params is None:
         raise ValueError("flare_adapter.send_model received params=None.")
 
-    # normalization to dict[str, value].
     if isinstance(params, (list, tuple)):
         params = {str(i): v for i, v in enumerate(params)}
     elif not isinstance(params, dict):
         raise TypeError(f"flare_adapter.send_model expects dict/list/tuple for params, got {type(params)}")
 
-    # Ensure all data types (like PyTorch tensors) are converted to numpy for transport.
     params = _ensure_transportable(params)
 
     if meta is None:
