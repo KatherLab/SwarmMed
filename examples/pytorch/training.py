@@ -106,7 +106,7 @@ def main(project_id: str):
             input_dim = dataset.X.shape[1]
         except Exception as e:
             print(f"Data loading error: {e}")
-            return
+            raise RuntimeError("Unable to initialize dataset for FL training") from e
 
         # Initialize Model
         model = BioMedNet(input_dim).to(device)
