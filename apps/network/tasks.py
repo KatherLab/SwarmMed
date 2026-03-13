@@ -1259,6 +1259,20 @@ def start_swarm_network_task(network_id, user_id):
             )
             use_host_network = role == "client" and client_host_network_enabled
 
+            # Determine appropriate S3 endpoint based on network mode.
+            # In host network mode, we MUST use 127.0.0.1 because --add-host is ignored by Docker
+            # and the host's /etc/hosts typically doesn't contain 'minio'.
+            # Containers in bridge mode (like the server) should still use 'minio'.
+            raw_local_s3 = getattr(settings, "SWARMCLOUD_LOCAL_S3_ENDPOINT", settings.AWS_S3_ENDPOINT_URL)
+            raw_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
+
+            if use_host_network:
+                local_s3_endpoint = raw_local_s3.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
+                container_s3_endpoint = raw_s3_endpoint.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
+            else:
+                local_s3_endpoint = raw_local_s3
+                container_s3_endpoint = raw_s3_endpoint
+
             remote_host = (
                 os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
                 or (Path(startup_dir) / "server_host.txt").read_text().strip()
@@ -1295,9 +1309,9 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 f"AWS_STORAGE_BUCKET_NAME={settings.AWS_STORAGE_BUCKET_NAME}",
                 "-e",
-                f"AWS_S3_ENDPOINT_URL={settings.AWS_S3_ENDPOINT_URL}",
+                f"AWS_S3_ENDPOINT_URL={container_s3_endpoint}",
                 "-e",
-                f"SWARMCLOUD_LOCAL_S3_ENDPOINT={getattr(settings, 'SWARMCLOUD_LOCAL_S3_ENDPOINT', settings.AWS_S3_ENDPOINT_URL)}",
+                f"SWARMCLOUD_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
                 "-e",
                 f"PUBLIC_URL={settings.PUBLIC_URL}",
                 "-e",
@@ -1377,55 +1391,6 @@ def start_swarm_network_task(network_id, user_id):
                     logger=logger,
                     participant_name=participant_name,
                 )
-
-            if role == "client":
-                local_s3_endpoint = os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
-                if not local_s3_endpoint:
-                    local_s3_endpoint = (
-                        os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
-                        or getattr(settings, "AWS_S3_ENDPOINT_URL", "")
-                    )
-
-                if local_s3_endpoint:
-                    run_cmd.extend([
-                        "-e",
-                        f"AWS_S3_ENDPOINT_URL={local_s3_endpoint}",
-                        "-e",
-                        f"SWARMCLOUD_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
-                    ])
-
-                if use_host_network:
-                    # In host network mode, 'minio' is always the local machine
-                    run_cmd.extend(["--add-host", "minio:127.0.0.1"])
-
-                # Determine which host the 'server' (and its aliases) should map to.
-                # In host network mode, if we ARE the server, we use localhost.
-                # Otherwise, if we have a remote host, we map the server to that IP.
-                server_map_host = None
-                if use_host_network and has_server_target:
-                    server_map_host = "127.0.0.1"
-                elif remote_host and not has_server_target:
-                    server_map_host = remote_host
-
-                if server_map_host:
-                    run_cmd.extend(["--add-host", f"server:{server_map_host}"])
-
-                    # Add aliases if present (for both network modes)
-                    aliases_file = os.path.join(startup_dir, "server_aliases.txt")
-                    if os.path.exists(aliases_file):
-                        try:
-                            with open(aliases_file) as af:
-                                for alias in af.read().splitlines():
-                                    alias = alias.strip()
-                                    if alias:
-                                        run_cmd.extend(
-                                            [
-                                                "--add-host",
-                                                f"{alias}:{server_map_host}",
-                                            ]
-                                        )
-                        except Exception:
-                            pass
 
             run_cmd.extend([image_name] + command)
 
