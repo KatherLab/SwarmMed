@@ -11,6 +11,8 @@ import os
 import re
 import traceback
 import textwrap
+import tempfile
+import shutil
 
 import boto3
 from celery import shared_task
@@ -182,6 +184,7 @@ import fsspec
 import torch
 import numpy as np
 import traceback
+import pickle
 import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 
@@ -221,9 +224,10 @@ class ResultsVisualizationHelper:
         
         if path not in self.manifest:
             print(f"Path {{path}} not found, trying fallback...")
-            # Fallback to any model file
+            # Fallback to any common model file extension
+            extensions = (".pt", ".pth", ".ckpt", ".npy", ".npz", ".pkl", ".joblib", ".h5", ".keras")
             for k in self.manifest:
-                if k.startswith("results/") and k.endswith((".pt", ".npy", ".npz")):
+                if k.startswith("results/") and k.lower().endswith(extensions):
                     print(f"Fallback found model at: {{k}}")
                     path = k
                     break
@@ -235,17 +239,34 @@ class ResultsVisualizationHelper:
         url = self.manifest[path]
         print(f"Loading model from: {{url}}")
         try:
+            # Handle Keras formats which often require a local file path
+            if path.lower().endswith((".h5", ".keras")):
+                import keras
+                temp_path = os.path.join("/tmp", os.path.basename(path))
+                with self.fs.open(url, "rb") as remote_f, open(temp_path, "wb") as local_f:
+                    local_f.write(remote_f.read())
+                model = keras.models.load_model(temp_path)
+                return model.get_weights()
+
+            # Handle standard streaming formats
             with self.fs.open(url, "rb") as f:
-                if path.endswith(".pt"):
+                if path.lower().endswith((".pt", ".pth", ".ckpt")):
                     data = torch.load(f, map_location='cpu', weights_only=True)
                     if isinstance(data, dict):
-                        data = data.get("numpy_key", data.get("weights", data.get("model", data)))
+                        # Handle NVFlare or Lightning wrappers
+                        data = data.get("numpy_key", data.get("weights", data.get("model", data.get("state_dict", data))))
                     return data
-                elif path.endswith(".npy"):
+                elif path.lower().endswith(".npy"):
                     return np.load(f, allow_pickle=False)
-                elif path.endswith(".npz"):
+                elif path.lower().endswith(".npz"):
                     d = np.load(f, allow_pickle=False)
                     return d.get("params", d.get("weights", d))
+                elif path.lower().endswith((".pkl", ".joblib")):
+                    try:
+                        import joblib
+                        return joblib.load(f)
+                    except ImportError:
+                        return pickle.load(f)
         except Exception as e:
             print(f"ERROR loading model {{url}}: {{e}}")
             traceback.print_exc()
@@ -254,11 +275,16 @@ class ResultsVisualizationHelper:
 
     def load_weights(self, model, client_name="fl-client-1", model_filename="model.pt"):
         weights = self.get_model(client_name, model_filename)
+        if weights is None: return False
+
         if hasattr(model, "load_state_dict"):
-            state_dict = {{k: torch.as_tensor(v) for k, v in weights.items()}}
-            model.load_state_dict(state_dict, strict=False)
-            return True
+            # PyTorch
+            if isinstance(weights, dict):
+                state_dict = {{k: torch.as_tensor(v) for k, v in weights.items()}}
+                model.load_state_dict(state_dict, strict=False)
+                return True
         elif hasattr(model, "set_weights"):
+            # Keras
             if isinstance(weights, dict):
                 try:
                     keys = sorted(weights.keys(), key=lambda x: int(x))
@@ -267,6 +293,12 @@ class ResultsVisualizationHelper:
                     weights = [np.array(v) for k, v in sorted(weights.items())]
             model.set_weights(weights)
             return True
+        elif hasattr(model, "coef_"):
+            # Scikit-learn
+            if isinstance(weights, dict):
+                if "coef" in weights: model.coef_ = weights["coef"]
+                if "intercept" in weights: model.intercept_ = weights["intercept"]
+                return True
         return False
 
     def save_plot(self, title="Untitled Plot"):

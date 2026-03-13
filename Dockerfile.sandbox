@@ -22,6 +22,12 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     seaborn \
     scikit-learn \
     torch \
+    pytorch-lightning \
+    tensorflow \
+    keras \
+    monai \
+    transformers \
+    datasets \
     fsspec \
     aiohttp \
     requests
@@ -34,4 +40,3 @@ WORKDIR /home/sandboxuser/run
 
 # The actual script and data will be mounted via volumes for security.
 ENTRYPOINT ["python"]
-
