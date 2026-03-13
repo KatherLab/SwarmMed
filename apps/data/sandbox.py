@@ -82,19 +82,27 @@ def ensure_sandbox_image():
 def ensure_sandbox_network():
     """
     Ensures that the 'sandbox_internal' network exists in the sandbox daemon.
+    We make it a standard bridge network (internal=False) so that containers
+    can reach the host gateway to talk to MinIO.
     """
     log = logger.get_logger()
     client = get_docker_client(target="sandbox")
 
     try:
-        client.networks.get("sandbox_internal")
+        net = client.networks.get("sandbox_internal")
+        # If the existing network is internal, it won't have a gateway.
+        # We recreate it to ensure connectivity to the host.
+        if net.attrs.get("Internal", False):
+            log.data.info("Recreating 'sandbox_internal' network to allow host gateway access...")
+            net.remove()
+            raise docker.errors.NotFound("Recreating")
     except docker.errors.NotFound:
         log.data.info("Creating 'sandbox_internal' network in sandbox...")
         try:
             client.networks.create(
                 "sandbox_internal",
                 driver="bridge",
-                internal=True,
+                internal=False,
                 check_duplicate=True,
             )
         except Exception as e:
@@ -169,15 +177,17 @@ def run_script_in_sandbox(
                     log.data.warning(f"Could not check for GPU support: {e}. Falling back to CPU.")
 
             # Run the container with resource limits and restricted network access.
-            # We connect it to 'sandbox_internal' so it can stream from MinIO
-            # but has no gateway to the internet.
+            # We connect it to 'sandbox_internal' so it can stream from MinIO.
             container = client.containers.run(
                 image="swarmcloud-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
-                network="sandbox_internal",  # Use isolated internal network
-                extra_hosts={"host.docker.internal": "host-gateway"},
+                network="sandbox_internal",
+                extra_hosts={
+                    "host.docker.internal": "host-gateway",
+                    "minio": "host-gateway",
+                },
                 mem_limit="1g",
                 nano_cpus=1000000000,  # 1 CPU
                 shm_size="10.24gb",
