@@ -1,6 +1,3 @@
-import glob
-import os
-
 import flare_adapter
 import numpy as np
 import pandas as pd
@@ -14,25 +11,26 @@ load_dotenv(find_dotenv())
 
 SWARM_ROUNDS = 10
 
-# --- Import the new adapter ---
-
 # --- 1. Data Loading Function ---
 
 
-def load_data(data_dir):
+def load_data(fs):
     """
-    Reads all CSV files from the directory and prepares them for Scikit-learn.
+    Reads all CSV files from the virtual filesystem and prepares them for Scikit-learn.
     """
-    file_pattern = os.path.join(data_dir, "**", "*.csv")
-    file_list = glob.glob(file_pattern, recursive=True)
+    file_list = fs.glob("*.csv")
 
     if not file_list:
-        raise RuntimeError(
-            f"No CSV files found in '{data_dir}' or its subdirectories."
-        )
+        raise RuntimeError("No CSV files found in the project data.")
 
-    print(f"Found {len(file_list)} CSV files in {data_dir}.")
-    df_list = [pd.read_csv(f) for f in file_list]
+    print(f"Found {len(file_list)} CSV files. Streaming data...")
+    
+    # Stream files directly into pandas
+    df_list = []
+    for f_path in file_list:
+        with fs.open(f_path) as f:
+            df_list.append(pd.read_csv(f))
+            
     full_df = pd.concat(df_list, ignore_index=True)
 
     X = full_df.drop(columns=["patient_id", "diagnosis"]).values.astype(
@@ -54,19 +52,17 @@ def main(project_id: str):
     flare_adapter.init_flare()
     print("--- NVFlare Client Initialized via Adapter (Scikit-learn) ---")
 
-    # B. Use the adapter to get a local data path
+    # B. Use the adapter to get a virtual streaming filesystem
     with flare_adapter.get_data_filesystem(project_id) as fs:
-        data_dir = fs.get_data_path()
-
         # Initialize Model (using SGDClassifier for online/incremental
         # learning)
         model = SGDClassifier(
             loss="log_loss", learning_rate="constant", eta0=0.01
         )
 
-        # Load Data
+        # Load Data using the streaming filesystem
         try:
-            X_train, y_train = load_data(data_dir)
+            X_train, y_train = load_data(fs)
             classes = np.unique(y_train)
         except Exception as e:
             print(f"Data loading error in training script: {e}")

@@ -64,15 +64,38 @@ def run_validation_task(self, validation_run_id):
 import json
 import os
 import fsspec
+from urllib.parse import urlparse
 
 class ValidationHelper:
     def __init__(self, manifest_file, output_file):
         with open(manifest_file) as f:
-            self.manifest = json.load(f)
+            manifest = json.load(f)
         self.output_file = output_file
         self.checks = []
-        # Internal streaming filesystem
+        # Internal streaming filesystem with SSL verification disabled
         self.fs = fsspec.filesystem("http", ssl=False)
+        self.manifest = self._process_manifest(manifest)
+
+    def _process_manifest(self, manifest):
+        # Discover reachable internal host
+        internal_host = "minio"
+        import socket
+        try:
+            socket.gethostbyname("minio")
+        except socket.gaierror:
+            internal_host = "host.docker.internal"
+
+        updated = {{}}
+        for rel_path, url in manifest.items():
+            p = urlparse(url)
+            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
+            # which is reachable inside the sandbox_internal network.
+            if p.hostname != internal_host:
+                new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
+            else:
+                new_url = url
+            updated[rel_path] = new_url
+        return updated
 
     def add_check(self, name, status, message="", details=None):
         self.checks.append({{
@@ -84,7 +107,6 @@ class ValidationHelper:
         self._save()
 
     def get_data_path(self, relative_path=""):
-        # Legacy support: returns the URL if needed, or raises if path requested
         if not relative_path: return "."
         return self.manifest.get(relative_path.lstrip("/"))
 
@@ -200,14 +222,38 @@ import io
 import base64
 import fsspec
 import matplotlib.pyplot as plt
+from urllib.parse import urlparse
 
 class VisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
         with open(manifest_file) as f:
-            self.manifest = json.load(f)
+            manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        self.fs = fsspec.filesystem("http")
+        # Internal streaming filesystem with SSL verification disabled
+        self.fs = fsspec.filesystem("http", ssl=False)
+        self.manifest = self._process_manifest(manifest)
+
+    def _process_manifest(self, manifest):
+        # Discover reachable internal host
+        internal_host = "minio"
+        import socket
+        try:
+            socket.gethostbyname("minio")
+        except socket.gaierror:
+            internal_host = "host.docker.internal"
+
+        updated = {{}}
+        for rel_path, url in manifest.items():
+            p = urlparse(url)
+            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
+            # which is reachable inside the sandbox_internal network.
+            if p.hostname != internal_host:
+                new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
+            else:
+                new_url = url
+            updated[rel_path] = new_url
+        return updated
 
     def save_plot(self, title="Untitled Plot"):
 

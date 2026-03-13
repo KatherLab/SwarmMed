@@ -7,6 +7,8 @@ stored data and model weights.
 import base64
 import io
 import os
+import socket
+from urllib.parse import urlparse
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -51,10 +53,33 @@ class ResultsVisualizationContext:
         self.filesystem.__enter__()
         if not self.filesystem.manifest:
             self.filesystem.build_manifest()
+        
+        # Post-process manifest for internal reachability (e.g. from sandbox)
+        self.filesystem.manifest = self._process_manifest(self.filesystem.manifest)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
+
+    def _process_manifest(self, manifest: dict) -> dict:
+        """Ensures that URLs in the manifest are reachable from the current environment."""
+        internal_host = "minio"
+        try:
+            socket.gethostbyname("minio")
+        except socket.gaierror:
+            internal_host = "host.docker.internal"
+
+        updated = {}
+        for rel_path, url in manifest.items():
+            p = urlparse(url)
+            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
+            # which is reachable inside the Docker network.
+            if p.hostname != internal_host:
+                new_url = url.replace(p.netloc, f"{internal_host}:{p.port or 9000}")
+            else:
+                new_url = url
+            updated[rel_path] = new_url
+        return updated
 
     def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
         """Loads and returns model weights using streaming fsspec."""

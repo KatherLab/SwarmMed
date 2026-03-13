@@ -1,5 +1,4 @@
 import os
-import glob
 import pandas as pd
 import torch
 import numpy as np
@@ -14,13 +13,19 @@ SWARM_ROUNDS = 10
 # --- 1. Dataset Class ---
 
 class BiomedTabularDataset(Dataset):
-    def __init__(self, data_dir):
-        file_pattern = os.path.join(data_dir, "**", "*.csv")
-        file_list = glob.glob(file_pattern, recursive=True)
+    def __init__(self, fs):
+        file_list = fs.glob("*.csv")
         if not file_list:
-            raise RuntimeError(f"No CSV files found in '{data_dir}'.")
+            raise RuntimeError("No CSV files found in project data.")
 
-        df_list = [pd.read_csv(f) for f in file_list]
+        print(f"Found {len(file_list)} CSV files. Streaming data...")
+        
+        # Stream files directly into pandas
+        df_list = []
+        for f_path in file_list:
+            with fs.open(f_path) as f:
+                df_list.append(pd.read_csv(f))
+                
         self.full_df = pd.concat(df_list, ignore_index=True)
         self.X = self.full_df.drop(columns=["patient_id", "diagnosis"]).values.astype("float32")
         self.y = self.full_df["diagnosis"].values.astype("float32").reshape(-1, 1)
@@ -67,8 +72,8 @@ def main(project_id: str):
     flare_adapter.init_flare()
 
     with flare_adapter.get_data_filesystem(project_id) as fs:
-        data_dir = fs.get_data_path()
-        dataset = BiomedTabularDataset(data_dir)
+        # Load data using streaming filesystem
+        dataset = BiomedTabularDataset(fs)
         train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
         input_dim = dataset.X.shape[1]
 

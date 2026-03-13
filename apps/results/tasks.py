@@ -177,14 +177,38 @@ import fsspec
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from urllib.parse import urlparse
 
 class ResultsVisualizationHelper:
     def __init__(self, manifest_file, plots_dir):
         with open(manifest_file) as f:
-            self.manifest = json.load(f)
+            manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        self.fs = fsspec.filesystem("http")
+        # Internal streaming filesystem with SSL verification disabled
+        self.fs = fsspec.filesystem("http", ssl=False)
+        self.manifest = self._process_manifest(manifest)
+
+    def _process_manifest(self, manifest):
+        # Discover reachable internal host
+        internal_host = "minio"
+        import socket
+        try:
+            socket.gethostbyname("minio")
+        except socket.gaierror:
+            internal_host = "host.docker.internal"
+
+        updated = {{}}
+        for rel_path, url in manifest.items():
+            p = urlparse(url)
+            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
+            # which is reachable inside the Docker network.
+            if p.hostname != internal_host:
+                new_url = url.replace(p.netloc, f"{{internal_host}}:{{p.port or 9000}}")
+            else:
+                new_url = url
+            updated[rel_path] = new_url
+        return updated
 
     def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
         # Look for model in results/ prefix

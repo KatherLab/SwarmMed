@@ -1,5 +1,4 @@
 import os
-import glob
 import pandas as pd
 import torch
 import numpy as np
@@ -11,10 +10,9 @@ SWARM_ROUNDS = 10
 
 # --- 1. Data Loading ---
 
-def get_data(data_dir):
+def get_data(fs):
     # For this example, we assume CSVs have 'text' and 'label' columns
-    file_pattern = os.path.join(data_dir, "**", "*.csv")
-    file_list = glob.glob(file_pattern, recursive=True)
+    file_list = fs.glob("*.csv")
     if not file_list:
         # Create dummy data if none found for demonstration
         df = pd.DataFrame({
@@ -22,7 +20,11 @@ def get_data(data_dir):
             "label": [1, 0, 1] * 10
         })
     else:
-        df_list = [pd.read_csv(f) for f in file_list]
+        print(f"Found {len(file_list)} CSV files. Streaming data...")
+        df_list = []
+        for f_path in file_list:
+            with fs.open(f_path) as f:
+                df_list.append(pd.read_csv(f))
         df = pd.concat(df_list, ignore_index=True)
         # Ensure we have text and label columns
         if "diagnosis" in df.columns:
@@ -45,8 +47,8 @@ def main(project_id: str):
         return tokenizer(examples["text"], padding="max_length", truncation=True)
 
     with flare_adapter.get_data_filesystem(project_id) as fs:
-        data_dir = fs.get_data_path()
-        raw_dataset = get_data(data_dir)
+        # Load data using streaming filesystem
+        raw_dataset = get_data(fs)
         tokenized_dataset = raw_dataset.map(tokenize_function, batched=True)
 
         model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
