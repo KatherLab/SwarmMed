@@ -1,4 +1,5 @@
 import os
+import traceback
 
 import numpy as np
 import flare_adapter
@@ -29,12 +30,46 @@ class BiomedTabularDataset(Dataset):
             raise RuntimeError("No CSV files found in the project data.")
 
         print(f"Found {len(file_list)} CSV files. Streaming data...")
-        
-        # Stream files directly from fsspec into pandas
+
+        # Stream files directly from fsspec into pandas, skipping files
+        # that remain unreadable after retries.
         df_list = []
+        failed_files = []
         for f_path in file_list:
-            with fs.open(f_path) as f:
-                df_list.append(pd.read_csv(f))
+            loaded = False
+            last_error = None
+            for attempt in range(1, 4):
+                try:
+                    with fs.open(f_path) as f:
+                        df_list.append(pd.read_csv(f))
+                    loaded = True
+                    break
+                except Exception as e:
+                    last_error = e
+                    print(
+                        f"Data stream read failed for {f_path} "
+                        f"(attempt {attempt}/3): {type(e).__name__}: {e!r}"
+                    )
+
+            if not loaded:
+                failed_files.append((f_path, last_error))
+
+        if failed_files:
+            print(
+                "Data stream warnings: "
+                f"{len(failed_files)} of {len(file_list)} file(s) could not be loaded."
+            )
+            for file_name, err in failed_files:
+                print(
+                    f" - skipped {file_name}: "
+                    f"{type(err).__name__ if err else 'UnknownError'}: {err!r}"
+                )
+
+        if not df_list:
+            raise RuntimeError(
+                "Unable to load any CSV data file from manifest; "
+                "all stream attempts failed."
+            )
         
         self.full_df = pd.concat(df_list, ignore_index=True)
 
@@ -105,8 +140,11 @@ def main(project_id: str):
             )
             input_dim = dataset.X.shape[1]
         except Exception as e:
-            print(f"Data loading error: {e}")
-            return
+            print(
+                f"Data loading error ({type(e).__name__}): {e!r}\n"
+                f"{traceback.format_exc()}"
+            )
+            raise
 
         # Initialize Model
         model = BioMedNet(input_dim).to(device)

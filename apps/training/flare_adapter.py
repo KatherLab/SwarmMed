@@ -46,6 +46,14 @@ class FlareDataFileSystem:
             or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
             or "http://minio:9000"
         )
+        try:
+            parsed_local = urlparse(self.local_s3_endpoint)
+            if parsed_local.hostname in {"minio", "localhost", "127.0.0.1"}:
+                local_port = parsed_local.port or 9000
+                # Local MinIO in this runtime is plain HTTP.
+                self.local_s3_endpoint = f"http://127.0.0.1:{local_port}"
+        except Exception:
+            pass
         self.http_timeout_sec = float(
             os.getenv("SWARMCLOUD_DATA_HTTP_TIMEOUT_SEC", "10").strip() or "10"
         )

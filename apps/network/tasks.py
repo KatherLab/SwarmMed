@@ -1266,9 +1266,20 @@ def start_swarm_network_task(network_id, user_id):
             raw_local_s3 = getattr(settings, "SWARMCLOUD_LOCAL_S3_ENDPOINT", settings.AWS_S3_ENDPOINT_URL)
             raw_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
 
+            def _host_mode_s3_endpoint(raw_endpoint):
+                endpoint = str(raw_endpoint or "").strip()
+                if not endpoint:
+                    return "http://127.0.0.1:9000"
+
+                parsed = urlparse(endpoint if "://" in endpoint else f"http://{endpoint}")
+                port = parsed.port or 9000
+                # Local MinIO in our swarm runtime is plain HTTP; using HTTPS here
+                # leads to repeated fsspec timeouts during data reads.
+                return f"http://127.0.0.1:{port}"
+
             if use_host_network:
-                local_s3_endpoint = raw_local_s3.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
-                container_s3_endpoint = raw_s3_endpoint.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
+                local_s3_endpoint = _host_mode_s3_endpoint(raw_local_s3)
+                container_s3_endpoint = _host_mode_s3_endpoint(raw_s3_endpoint)
             else:
                 local_s3_endpoint = raw_local_s3
                 container_s3_endpoint = raw_s3_endpoint
