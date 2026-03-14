@@ -187,17 +187,27 @@ class FlareDataFileSystem:
         # Try the preferred URL first (typically local endpoint), then fallback.
         last_error = None
         tried = []
-        for url in candidates:
+        first_failed_url = None
+        for idx, url in enumerate(candidates):
             if not url or url in tried:
                 continue
             tried.append(url)
             try:
-                return self.fs.open(url, mode=mode, **kwargs)
+                stream = self.fs.open(url, mode=mode, **kwargs)
+                if idx > 0 and first_failed_url:
+                    print(
+                        "FlareDataFileSystem: primary URL failed; "
+                        f"using fallback URL for {clean_path}"
+                    )
+                return stream
             except Exception as e:
                 last_error = e
-                print(f"FlareDataFileSystem: Error opening {url}: {e}")
+                if first_failed_url is None:
+                    first_failed_url = url
 
         if last_error:
+            for url in tried:
+                print(f"FlareDataFileSystem: Error opening {url}: {last_error}")
             raise last_error
         raise FileNotFoundError(f"No valid URL candidates for: {path}")
 
