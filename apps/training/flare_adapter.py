@@ -114,6 +114,8 @@ class FlareDataFileSystem:
             # We prioritize local-to-the-node addresses if USE_LOCAL_DATA is set.
             host_candidates = []
             if self.use_local_data:
+                # 'minio' is best if on same docker network.
+                # '172.17.0.1' is best if MinIO is bound to host ports.
                 host_candidates.extend(["minio", "172.17.0.1", "host.docker.internal", "localhost", "127.0.0.1"])
             
             # Always add the configured internal_host and the original host.
@@ -124,14 +126,15 @@ class FlareDataFileSystem:
 
             # 3. Build the final candidate URL list.
             final_urls = []
-            for host in host_candidates:
-                # For each host, try both https and http.
-                for proto in ["https", "http"]:
+            
+            # If the user says it should be HTTPS, we prioritize HTTPS candidates.
+            for proto in ["https", "http"]:
+                for host in host_candidates:
                     new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
                     if new_url not in final_urls:
                         final_urls.append(new_url)
             
-            # Ensure the original URL is in the list as a last resort.
+            # Ensure the original URL is in the list.
             if url not in final_urls:
                 final_urls.append(url)
             
@@ -188,6 +191,9 @@ class FlareDataFileSystem:
             print(f"flare_adapter: File NOT found in manifest: {path}")
             raise FileNotFoundError(f"File not found in manifest: {path}")
 
+        # Ensure SSL verification is disabled for self-signed certs.
+        if "ssl" not in kwargs:
+            kwargs["ssl"] = False
         if "timeout" not in kwargs:
             kwargs["timeout"] = self.http_timeout_sec
 
@@ -203,14 +209,7 @@ class FlareDataFileSystem:
             print(f"flare_adapter: No valid URL candidates for: {path}")
             raise FileNotFoundError(f"No valid URL candidates for: {path}")
 
-        print(f"flare_adapter: Opening {clean_path} with {len(deduped_candidates)} candidates. Primary: {deduped_candidates[0]}")
-
-        if len(deduped_candidates) == 1:
-            try:
-                return self.fs.open(deduped_candidates[0], mode=mode, **kwargs)
-            except Exception as e:
-                print(f"flare_adapter: Error opening {deduped_candidates[0]}: {e}")
-                raise
+        print(f"flare_adapter: Opening {clean_path} with {len(deduped_candidates)} candidates.")
 
         return _FallbackHTTPStream(
             fs=self.fs,
