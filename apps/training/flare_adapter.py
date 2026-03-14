@@ -87,70 +87,56 @@ class FlareDataFileSystem:
         updated_manifest = {}
         self._manifest_candidates = {}
         
-        # 1. Determine the best internal host for reaching the server/coordinator/minio.
+        # 1. Determine the best internal host for reaching the server/coordinator.
         internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
-        
-        if not internal_host:
-            # Try common hostnames used in the SwarmCloud ecosystem.
-            # In a Docker Compose network, 'minio' is usually the most reliable way 
-            # for containers on the same host to talk to the storage service.
+        if internal_host:
+            print(f"flare_adapter: Server host from environment: {internal_host}")
+        else:
+            # Fallback discovery
             for candidate in ["minio", "server", "coordinator"]:
                 try:
                     socket.gethostbyname(candidate)
                     internal_host = candidate
-                    print(f"flare_adapter: Discovered server host via DNS: {internal_host}")
+                    print(f"flare_adapter: Discovered server host: {internal_host}")
                     break
                 except socket.gaierror:
                     continue
-            
             if not internal_host:
-                # Check for public_url host as candidate (e.g. Tailscale IP)
-                public_url = os.getenv("PUBLIC_URL", "")
-                if public_url:
-                    p = urlparse(public_url)
-                    if p.hostname and p.hostname not in {"localhost", "127.0.0.1"}:
-                        internal_host = p.hostname
-                        print(f"flare_adapter: Using server host from PUBLIC_URL: {internal_host}")
-                
-                if not internal_host:
-                    # Fallback to macOS special host for Docker
-                    internal_host = "host.docker.internal"
-                    print(f"flare_adapter: Falling back to default server host: {internal_host}")
-        else:
-            print(f"flare_adapter: Using server host from environment: {internal_host}")
+                internal_host = "172.17.0.1" # Default Docker Bridge Gateway
+                print(f"flare_adapter: Using default bridge gateway: {internal_host}")
 
         # 2. Process each URL in the manifest.
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
-            original_url = url
+            port = f":{parsed.port}" if parsed.port else ""
             
-            # Use local S3 endpoint if requested.
+            # Generate a list of host candidates to try.
+            # We prioritize local-to-the-node addresses if USE_LOCAL_DATA is set.
+            host_candidates = []
             if self.use_local_data:
-                endpoint = self.local_s3_endpoint.rstrip("/")
-                old_base = f"{parsed.scheme}://{parsed.netloc}"
-                new_url = url.replace(old_base, endpoint)
-            else:
-                new_url = url
+                host_candidates.extend(["minio", "172.17.0.1", "host.docker.internal", "localhost", "127.0.0.1"])
+            
+            # Always add the configured internal_host and the original host.
+            if internal_host and internal_host not in host_candidates:
+                host_candidates.append(internal_host)
+            if parsed.hostname and parsed.hostname not in host_candidates:
+                host_candidates.append(parsed.hostname)
 
-            # 3. CRITICAL: Replace loopback addresses with the reachable internal_host.
-            # Inside a container, 127.0.0.1/localhost refer to the container itself,
-            # which is almost never where MinIO or the Coordinator are running.
-            if "127.0.0.1" in new_url or "localhost" in new_url:
-                new_url = new_url.replace("127.0.0.1", internal_host).replace("localhost", internal_host)
+            # 3. Build the final candidate URL list.
+            final_urls = []
+            for host in host_candidates:
+                # For each host, try both https and http.
+                for proto in ["https", "http"]:
+                    new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
+                    if new_url not in final_urls:
+                        final_urls.append(new_url)
             
-            updated_manifest[rel_path] = new_url
+            # Ensure the original URL is in the list as a last resort.
+            if url not in final_urls:
+                final_urls.append(url)
             
-            # 4. Generate candidate list for fallback.
-            # If our 'new_url' used HTTPS but it fails, we want a fallback to HTTP.
-            candidates = [new_url]
-            if new_url.startswith("https://"):
-                candidates.append(new_url.replace("https://", "http://", 1))
-            
-            # Also keep the original URL if it was different.
-            if original_url not in candidates:
-                candidates.append(original_url)
-                
-            self._manifest_candidates[rel_path] = candidates
+            updated_manifest[rel_path] = final_urls[0]
+            self._manifest_candidates[rel_path] = final_urls
             
         return updated_manifest
 

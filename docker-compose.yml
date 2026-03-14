@@ -267,8 +267,8 @@ services:
       - minio_data:/data
       - ./.secrets/certs/internal/minio_certs:/root/.minio/certs:ro
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "9000:9000"
+      - "9001:9001"
     env_file:
       - .env
     environment:
