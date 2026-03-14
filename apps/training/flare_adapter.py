@@ -9,7 +9,6 @@ import os
 import shutil
 import ssl
 import tempfile
-
 import socket
 from typing import Any, List, Optional
 from urllib.parse import urlparse
@@ -51,10 +50,8 @@ class FlareDataFileSystem:
             parsed_local = urlparse(self.local_s3_endpoint)
             if parsed_local.hostname in {"minio", "localhost", "127.0.0.1"}:
                 local_port = parsed_local.port or 9000
-                local_scheme = parsed_local.scheme or "http"
-                # Local MinIO in this runtime is reachable at 127.0.0.1.
-                # We preserve the scheme to support both HTTP and HTTPS.
-                self.local_s3_endpoint = f"{local_scheme}://127.0.0.1:{local_port}"
+                # Local MinIO in this runtime is plain HTTP.
+                self.local_s3_endpoint = f"http://127.0.0.1:{local_port}"
         except Exception:
             pass
         self.http_timeout_sec = float(
@@ -71,7 +68,7 @@ class FlareDataFileSystem:
         # instances using self-signed certificates.
         self.fs = fsspec.filesystem(
             "http",
-            client_kwargs={"ssl": False},
+            ssl=False,
             timeout=self.http_timeout_sec,
         )
         
