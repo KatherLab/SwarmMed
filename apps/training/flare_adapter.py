@@ -185,6 +185,7 @@ class FlareDataFileSystem:
         """
         clean_path = path.lstrip("/")
         if clean_path not in self.manifest:
+            print(f"flare_adapter: File NOT found in manifest: {path}")
             raise FileNotFoundError(f"File not found in manifest: {path}")
 
         if "timeout" not in kwargs:
@@ -199,10 +200,17 @@ class FlareDataFileSystem:
                 deduped_candidates.append(url)
 
         if not deduped_candidates:
+            print(f"flare_adapter: No valid URL candidates for: {path}")
             raise FileNotFoundError(f"No valid URL candidates for: {path}")
 
+        print(f"flare_adapter: Opening {clean_path} with {len(deduped_candidates)} candidates. Primary: {deduped_candidates[0]}")
+
         if len(deduped_candidates) == 1:
-            return self.fs.open(deduped_candidates[0], mode=mode, **kwargs)
+            try:
+                return self.fs.open(deduped_candidates[0], mode=mode, **kwargs)
+            except Exception as e:
+                print(f"flare_adapter: Error opening {deduped_candidates[0]}: {e}")
+                raise
 
         return _FallbackHTTPStream(
             fs=self.fs,
@@ -214,6 +222,7 @@ class FlareDataFileSystem:
 
     def read_bytes(self, path: str) -> bytes:
         """Reads all bytes from a file."""
+        print(f"flare_adapter: Reading bytes from {path}")
         with self.open(path, "rb") as f:
             return f.read()
 

@@ -33,10 +33,18 @@ class BiomedTabularDataset(Dataset):
         # Stream files directly from fsspec into pandas
         df_list = []
         for f_path in file_list:
-            with fs.open(f_path) as f:
-                df_list.append(pd.read_csv(f))
+            print(f"BiomedTabularDataset: Loading {f_path}...")
+            try:
+                with fs.open(f_path) as f:
+                    df = pd.read_csv(f)
+                    print(f"BiomedTabularDataset: Successfully loaded {f_path} ({len(df)} rows).")
+                    df_list.append(df)
+            except Exception as e:
+                print(f"BiomedTabularDataset: Error loading {f_path}: {e}")
+                raise
         
         self.full_df = pd.concat(df_list, ignore_index=True)
+        print(f"BiomedTabularDataset: Total rows loaded: {len(self.full_df)}")
 
         self.X = self.full_df.drop(
             columns=["patient_id", "diagnosis"]
@@ -114,6 +122,7 @@ def main(project_id: str):
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
         # C. NVFlare Loop
+        print("Starting NVFlare training loop...")
         while True:
             # 1. Receive the Global Model via Adapter
             input_model = flare_adapter.receive_model()
