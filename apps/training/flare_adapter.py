@@ -45,6 +45,8 @@ class FlareDataFileSystem:
             or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
             or "http://minio:9000"
         )
+        # Keep per-file fallback URL candidates (first item is preferred).
+        self._manifest_candidates = {}
 
         # Load and process the data manifest.
         self.manifest = self._load_manifest()
@@ -75,6 +77,7 @@ class FlareDataFileSystem:
         
         # Post-process URLs to ensure they are reachable from inside the container.
         updated_manifest = {}
+        self._manifest_candidates = {}
         internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
         
         # If no internal host is set, try to discover a reachable IP/Hostname.
@@ -104,6 +107,7 @@ class FlareDataFileSystem:
                 # Replace the whole scheme and netloc with the provided endpoint
                 old_base = f"{parsed.scheme}://{parsed.netloc}"
                 new_url = url.replace(old_base, endpoint)
+                self._manifest_candidates[rel_path] = [new_url, url]
                 
                 # In local data mode, we STOP here for this URL. 
                 # We do NOT want the aggressive internal_host replacement below 
@@ -125,6 +129,7 @@ class FlareDataFileSystem:
                 new_url = new_url.replace("minio", internal_host, 1)
             
             updated_manifest[rel_path] = new_url
+            self._manifest_candidates[rel_path] = [new_url, url]
             
         return updated_manifest
 
@@ -175,12 +180,26 @@ class FlareDataFileSystem:
         if clean_path not in self.manifest:
             raise FileNotFoundError(f"File not found in manifest: {path}")
         
-        url = self.manifest[clean_path]
-        try:
-            return self.fs.open(url, mode=mode, **kwargs)
-        except Exception as e:
-            print(f"FlareDataFileSystem: Error opening {url}: {e}")
-            raise
+        candidates = self._manifest_candidates.get(clean_path) or [
+            self.manifest[clean_path]
+        ]
+
+        # Try the preferred URL first (typically local endpoint), then fallback.
+        last_error = None
+        tried = []
+        for url in candidates:
+            if not url or url in tried:
+                continue
+            tried.append(url)
+            try:
+                return self.fs.open(url, mode=mode, **kwargs)
+            except Exception as e:
+                last_error = e
+                print(f"FlareDataFileSystem: Error opening {url}: {e}")
+
+        if last_error:
+            raise last_error
+        raise FileNotFoundError(f"No valid URL candidates for: {path}")
 
     def read_bytes(self, path: str) -> bytes:
         """Reads all bytes from a file."""
