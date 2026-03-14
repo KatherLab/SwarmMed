@@ -113,7 +113,9 @@ def main(project_id: str):
             )
             input_dim = dataset.X.shape[1]
         except Exception as e:
+            import traceback
             print(f"Data loading error: {e}")
+            traceback.print_exc()
             return
 
         # Initialize Model

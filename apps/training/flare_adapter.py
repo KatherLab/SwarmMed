@@ -86,57 +86,71 @@ class FlareDataFileSystem:
         # Post-process URLs to ensure they are reachable from inside the container.
         updated_manifest = {}
         self._manifest_candidates = {}
+        
+        # 1. Determine the best internal host for reaching the server/coordinator/minio.
         internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
         
-        # If no internal host is set, try to discover a reachable IP/Hostname.
         if not internal_host:
-            try:
-                # Check if we can resolve minio hostname (standard docker compose)
-                socket.gethostbyname("minio")
-                internal_host = "minio"
-            except socket.gaierror:
+            # Try common hostnames used in the SwarmCloud ecosystem.
+            # In a Docker Compose network, 'minio' is usually the most reliable way 
+            # for containers on the same host to talk to the storage service.
+            for candidate in ["minio", "server", "coordinator"]:
+                try:
+                    socket.gethostbyname(candidate)
+                    internal_host = candidate
+                    print(f"flare_adapter: Discovered server host via DNS: {internal_host}")
+                    break
+                except socket.gaierror:
+                    continue
+            
+            if not internal_host:
                 # Check for public_url host as candidate (e.g. Tailscale IP)
                 public_url = os.getenv("PUBLIC_URL", "")
                 if public_url:
                     p = urlparse(public_url)
                     if p.hostname and p.hostname not in {"localhost", "127.0.0.1"}:
                         internal_host = p.hostname
+                        print(f"flare_adapter: Using server host from PUBLIC_URL: {internal_host}")
                 
                 if not internal_host:
                     # Fallback to macOS special host for Docker
                     internal_host = "host.docker.internal"
+                    print(f"flare_adapter: Falling back to default server host: {internal_host}")
+        else:
+            print(f"flare_adapter: Using server host from environment: {internal_host}")
 
+        # 2. Process each URL in the manifest.
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
-            # 1. First, handle potential use_local_data override
+            original_url = url
+            
+            # Use local S3 endpoint if requested.
             if self.use_local_data:
                 endpoint = self.local_s3_endpoint.rstrip("/")
-                # Replace the whole scheme and netloc with the provided endpoint
                 old_base = f"{parsed.scheme}://{parsed.netloc}"
                 new_url = url.replace(old_base, endpoint)
-                self._manifest_candidates[rel_path] = [new_url, url]
-                
-                # In local data mode, we STOP here for this URL. 
-                # We do NOT want the aggressive internal_host replacement below 
-                # to point us back to the coordinator if our local endpoint 
-                # is 'localhost', '127.0.0.1', or 'minio'.
-                updated_manifest[rel_path] = new_url
-                continue
             else:
                 new_url = url
 
-            # 2. Robustly replace internal host candidates if they persist (127.0.0.1/localhost)
-            # This is only reached if NOT using local data (streaming from coordinator).
-            new_url = new_url.replace("localhost", internal_host)
-            new_url = new_url.replace("127.0.0.1", internal_host)
-            
-            # If the hostname is exactly 'minio', replace it with internal_host if it's different
-            parsed_new = urlparse(new_url)
-            if parsed_new.hostname == "minio" and internal_host != "minio":
-                new_url = new_url.replace("minio", internal_host, 1)
+            # 3. CRITICAL: Replace loopback addresses with the reachable internal_host.
+            # Inside a container, 127.0.0.1/localhost refer to the container itself,
+            # which is almost never where MinIO or the Coordinator are running.
+            if "127.0.0.1" in new_url or "localhost" in new_url:
+                new_url = new_url.replace("127.0.0.1", internal_host).replace("localhost", internal_host)
             
             updated_manifest[rel_path] = new_url
-            self._manifest_candidates[rel_path] = [new_url, url]
+            
+            # 4. Generate candidate list for fallback.
+            # If our 'new_url' used HTTPS but it fails, we want a fallback to HTTP.
+            candidates = [new_url]
+            if new_url.startswith("https://"):
+                candidates.append(new_url.replace("https://", "http://", 1))
+            
+            # Also keep the original URL if it was different.
+            if original_url not in candidates:
+                candidates.append(original_url)
+                
+            self._manifest_candidates[rel_path] = candidates
             
         return updated_manifest
 
