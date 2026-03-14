@@ -79,64 +79,113 @@ class FlareDataFileSystem:
                 try:
                     with open(loc) as f:
                         manifest = json.load(f)
+                        print(f"flare_adapter: Loaded base manifest from {loc}")
                         break
                 except Exception:
                     continue
         
-        # Post-process URLs to ensure they are reachable from inside the container.
-        updated_manifest = {}
-        self._manifest_candidates = {}
+        # 1. Determine the node-specific Workspace ID.
+        workspace_id = os.getenv("SWARMCLOUD_PROJECT_ID", "").strip() or self.project_uuid
+        if not workspace_id and manifest:
+            # Try to extract from one of the URLs in the manifest
+            first_url = next(iter(manifest.values()), "")
+            if "/swarmcloud/" in first_url:
+                workspace_id = first_url.split("/swarmcloud/")[1].split("/")[0]
         
-        # 1. Determine the best internal host for reaching the server/coordinator.
+        if workspace_id:
+            print(f"flare_adapter: Using Workspace ID: {workspace_id}")
+
+        # 2. Determine the best internal host for reaching the local MinIO.
         internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
-        if internal_host:
-            print(f"flare_adapter: Server host from environment: {internal_host}")
-        else:
-            # Fallback discovery
-            for candidate in ["minio", "server", "coordinator"]:
+        if not internal_host:
+            for candidate in ["minio", "172.17.0.1", "server", "coordinator"]:
                 try:
                     socket.gethostbyname(candidate)
                     internal_host = candidate
-                    print(f"flare_adapter: Discovered server host: {internal_host}")
+                    print(f"flare_adapter: Discovered local host: {internal_host}")
                     break
                 except socket.gaierror:
                     continue
             if not internal_host:
-                internal_host = "172.17.0.1" # Default Docker Bridge Gateway
-                print(f"flare_adapter: Using default bridge gateway: {internal_host}")
+                internal_host = "127.0.0.1"
 
-        # 2. Process each URL in the manifest.
+        # 3. If USE_LOCAL_DATA is set, try to DYNAMICALLY build the manifest from the local MinIO.
+        if self.use_local_data and workspace_id:
+            print("flare_adapter: SWARMCLOUD_USE_LOCAL_DATA is enabled. Attempting local discovery...")
+            try:
+                import boto3
+                from botocore.config import Config
+                
+                # We use internal MinIO credentials (default for SwarmCloud nodes)
+                s3_local = boto3.client(
+                    's3',
+                    endpoint_url=f"http://{internal_host}:9000",
+                    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
+                    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+                    config=Config(signature_version='s3v4'),
+                    region_name='us-east-1',
+                    verify=False
+                )
+                
+                local_prefix = f"{workspace_id}/data/"
+                print(f"flare_adapter: Scanning local bucket 'swarmcloud' with prefix '{local_prefix}'")
+                
+                paginator = s3_local.get_paginator("list_objects_v2")
+                dynamic_manifest = {}
+                for page in paginator.paginate(Bucket="swarmcloud", Prefix=local_prefix):
+                    for obj in page.get("Contents", []):
+                        key = obj["Key"]
+                        if key.endswith("/"): continue
+                        rel_path = key[len(local_prefix):]
+                        
+                        # Generate a signed URL for this local file
+                        url = s3_local.generate_presigned_url(
+                            'get_object',
+                            Params={'Bucket': 'swarmcloud', 'Key': key},
+                            ExpiresIn=86400
+                        )
+                        dynamic_manifest[rel_path] = url
+                
+                if dynamic_manifest:
+                    print(f"flare_adapter: Successfully discovered {len(dynamic_manifest)} local files. Overriding base manifest.")
+                    manifest = dynamic_manifest
+                else:
+                    print("flare_adapter: No local files found via S3 scan. Falling back to base manifest logic.")
+            except Exception as e:
+                print(f"flare_adapter: Local discovery failed: {e}. Falling back to base manifest logic.")
+
+        # 4. Post-process the manifest to ensure all URLs are reachable.
+        updated_manifest = {}
+        self._manifest_candidates = {}
+        
+        local_ips = ["127.0.0.1", "localhost"]
+        try:
+            container_ip = socket.gethostbyname(socket.gethostname())
+            if container_ip not in local_ips: local_ips.insert(0, container_ip)
+        except Exception: pass
+
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             port = f":{parsed.port}" if parsed.port else ""
             
-            # Generate a list of host candidates to try.
-            # We prioritize local-to-the-node addresses if USE_LOCAL_DATA is set.
             host_candidates = []
             if self.use_local_data:
-                # 'minio' is best if on same docker network.
-                # '172.17.0.1' is best if MinIO is bound to host ports.
-                host_candidates.extend(["minio", "172.17.0.1", "host.docker.internal", "localhost", "127.0.0.1"])
+                host_candidates.extend(["minio", "172.17.0.1"])
+                host_candidates.extend(local_ips)
+                host_candidates.append("host.docker.internal")
             
-            # Always add the configured internal_host and the original host.
             if internal_host and internal_host not in host_candidates:
                 host_candidates.append(internal_host)
             if parsed.hostname and parsed.hostname not in host_candidates:
                 host_candidates.append(parsed.hostname)
 
-            # 3. Build the final candidate URL list.
             final_urls = []
-            
-            # If the user says it should be HTTPS, we prioritize HTTPS candidates.
             for proto in ["https", "http"]:
                 for host in host_candidates:
                     new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
-                    if new_url not in final_urls:
-                        final_urls.append(new_url)
+                    if new_url not in final_urls: final_urls.append(new_url)
             
-            # Ensure the original URL is in the list.
-            if url not in final_urls:
-                final_urls.append(url)
+            if url not in final_urls: final_urls.append(url)
             
             updated_manifest[rel_path] = final_urls[0]
             self._manifest_candidates[rel_path] = final_urls
@@ -191,9 +240,8 @@ class FlareDataFileSystem:
             print(f"flare_adapter: File NOT found in manifest: {path}")
             raise FileNotFoundError(f"File not found in manifest: {path}")
 
-        # Ensure SSL verification is disabled for self-signed certs.
-        if "ssl" not in kwargs:
-            kwargs["ssl"] = False
+        # Note: SSL is already set at the filesystem level in __init__.
+        # Passing it again here can cause TypeErrors in some fsspec versions.
         if "timeout" not in kwargs:
             kwargs["timeout"] = self.http_timeout_sec
 
@@ -277,6 +325,7 @@ class _FallbackHTTPStream:
             self._index += 1
             candidate = self._candidates[self._index]
             try:
+                # Attempt to open the specific candidate.
                 stream = self._fs.open(candidate, mode=self._mode, **self._kwargs)
                 if current_pos:
                     try:
@@ -288,10 +337,11 @@ class _FallbackHTTPStream:
                 if announce and self._index > 0:
                     print(
                         "FlareDataFileSystem: primary URL failed; "
-                        f"using fallback URL for {self._path_label}"
+                        f"successfully used fallback candidate: {candidate}"
                     )
                 return
             except Exception as e:
+                print(f"flare_adapter: Candidate failed: {candidate}. Error: {e}")
                 last_error = e
 
         if last_error:
