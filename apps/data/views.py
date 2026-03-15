@@ -64,6 +64,61 @@ def get_user_project(request):
         return None, False
 
 
+def get_project_manifest(request):
+    """
+    API endpoint that returns a signed manifest of all data files for a project.
+    Authenticates via either standard Django session or a MANIFEST_SECRET header.
+    """
+    project_id = request.GET.get("project_id")
+    secret = request.headers.get("X-Manifest-Secret")
+    
+    # 1. Authentication Check
+    is_authenticated = False
+    
+    # Mode A: Container authentication via shared secret
+    if secret and secret == os.getenv("MANIFEST_SECRET"):
+        is_authenticated = True
+    # Mode B: User session authentication
+    elif request.user.is_authenticated:
+        current_project_uuid, _ = get_user_project(request)
+        if project_id == current_project_uuid:
+            is_authenticated = True
+            
+    if not is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+        
+    if not project_id:
+        return JsonResponse({"error": "Missing project_id"}, status=400)
+
+    # 2. Build the manifest from S3
+    from common.utils import get_internal_s3_download_url, get_s3_client
+    
+    try:
+        s3 = get_s3_client()
+        bucket = settings.AWS_STORAGE_BUCKET_NAME
+        prefix = f"{project_id}/data/"
+        
+        paginator = s3.get_paginator("list_objects_v2")
+        manifest = {}
+        
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key")
+                if not key or key.endswith("/"):
+                    continue
+                
+                # Create a relative path for the manifest keys
+                rel_path = key[len(prefix):]
+                # Generate a signed URL that is valid for 24 hours
+                manifest[rel_path] = get_internal_s3_download_url(key, expires=86400)
+                
+        return JsonResponse(manifest)
+    except Exception as e:
+        log = logger.get_logger()
+        log.data.error(f"Manifest generation failed for project {project_id}: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
+
+
 @login_required
 @project_context_required
 def data(request):

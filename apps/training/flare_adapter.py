@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import numpy as np
 import nvflare.client as flare
 import fsspec
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables from a local .env file if it exists.
@@ -25,12 +26,8 @@ load_dotenv()
 class FlareDataFileSystem:
     """
     A streaming virtual filesystem for NVFlare jobs powered by fsspec.
-    Provides on-demand access to data stored in MinIO via presigned URLs.
-    
-    Training scripts can use this like a standard filesystem:
-    >>> with flare_adapter.get_data_filesystem(project_id) as fs:
-    >>>     with fs.open("data.csv") as f:
-    >>>         df = pd.read_csv(f)
+    Provides on-demand access to data stored in MinIO via signed URLs
+    fetched from the secure local app proxy.
     """
 
     def __init__(self, project_uuid: str):
@@ -40,11 +37,6 @@ class FlareDataFileSystem:
         self.use_local_data = (
             os.getenv("SWARMCLOUD_USE_LOCAL_DATA", "1").strip().lower()
             in {"1", "true", "yes", "on"}
-        )
-        self.local_s3_endpoint = (
-            os.getenv("SWARMCLOUD_LOCAL_S3_ENDPOINT", "").strip()
-            or os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
-            or "http://minio:9000"
         )
         self.http_timeout_sec = float(
             os.getenv("SWARMCLOUD_DATA_HTTP_TIMEOUT_SEC", "10").strip() or "10"
@@ -68,130 +60,94 @@ class FlareDataFileSystem:
         self.temp_dir = tempfile.mkdtemp(prefix=f"flare_{self.project_uuid}_")
 
     def _load_manifest(self) -> dict:
-        manifest_locations = [
-            os.path.join(os.getcwd(), "data_manifest.json"),
-            os.path.join(os.path.dirname(__file__), "data_manifest.json"),
-            os.path.join(os.getcwd(), "custom", "data_manifest.json"),
-        ]
-        manifest = {}
-        for loc in manifest_locations:
+        # 1. Resolve host candidate for reaching the local Django app
+        internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+        if not internal_host:
+            for candidate in ["172.17.0.1", "host.docker.internal", "localhost"]:
+                try:
+                    # Check if port 8000 is open on this host
+                    with socket.create_connection((candidate, 8000), timeout=0.5):
+                        internal_host = candidate
+                        break
+                except Exception: continue
+            if not internal_host: internal_host = "172.17.0.1"
+
+        # 2. Fetch manifest from the secure App Proxy API
+        manifest_secret = os.getenv("MANIFEST_SECRET")
+        if manifest_secret and self.project_uuid:
+            print(f"flare_adapter: Fetching secure manifest from app proxy at {internal_host}:8000...")
+            try:
+                # We try both https and http for the app proxy
+                for proto in ["http", "https"]:
+                    try:
+                        url = f"{proto}://{internal_host}:8000/data/manifest/?project_id={self.project_uuid}"
+                        resp = requests.get(
+                            url, 
+                            headers={"X-Manifest-Secret": manifest_secret},
+                            timeout=5,
+                            verify=False
+                        )
+                        if resp.status_code == 200:
+                            manifest = resp.json()
+                            print(f"flare_adapter: Securely loaded manifest with {len(manifest)} files.")
+                            return self._process_manifest_urls(manifest)
+                    except Exception: continue
+            except Exception as e:
+                print(f"flare_adapter: Error connecting to app proxy: {e}")
+
+        # 3. Fallback: Attempt legacy file-based manifest if present (e.g. for debugging)
+        for loc in [os.path.join(os.getcwd(), "data_manifest.json"), os.path.join(os.getcwd(), "custom", "data_manifest.json")]:
             if os.path.exists(loc):
                 try:
                     with open(loc) as f:
-                        manifest = json.load(f)
-                        print(f"flare_adapter: Loaded base manifest from {loc}")
-                        break
-                except Exception:
-                    continue
+                        print(f"flare_adapter: Loaded legacy manifest from {loc}")
+                        return self._process_manifest_urls(json.load(f))
+                except Exception: continue
         
-        # 1. Determine the node-specific Workspace ID and local networking.
-        workspace_id = os.getenv("SWARMCLOUD_PROJECT_ID", "").strip() or self.project_uuid
-        if not workspace_id and manifest:
-            # Try to extract from one of the URLs in the manifest
-            first_url = next(iter(manifest.values()), "")
-            if "/swarmcloud/" in first_url:
-                workspace_id = first_url.split("/swarmcloud/")[1].split("/")[0]
+        return {}
+
+    def _process_manifest_urls(self, manifest: dict) -> dict:
+        """Adds host/protocol fallbacks to manifest URLs for maximum resilience."""
+        processed = {}
+        self._manifest_candidates = {}
         
-        if workspace_id:
-            print(f"flare_adapter: Local Workspace ID: {workspace_id}")
-
-        internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
-        if not internal_host:
-            for candidate in ["minio", "172.17.0.1", "server", "coordinator"]:
-                try:
-                    socket.gethostbyname(candidate)
-                    internal_host = candidate
-                    break
-                except socket.gaierror: continue
-            if not internal_host: internal_host = "127.0.0.1"
-
-        # Prioritize the bridge gateway (172.17.0.1) as it is the most reliable path
+        # Determine local networking candidates
         local_ips = ["172.17.0.1", "minio", "127.0.0.1", "localhost"]
         try:
             container_ip = socket.gethostbyname(socket.gethostname())
             if container_ip not in local_ips: local_ips.append(container_ip)
         except Exception: pass
-        if internal_host not in local_ips: local_ips.append(internal_host)
 
-        # 2. Resilient Local Discovery Scan (Asymmetric Data Support)
-        if self.use_local_data and workspace_id:
-            print("flare_adapter: Attempting local data discovery...")
-            dynamic_manifest = {}
-            try:
-                import boto3
-                from botocore.config import Config
-                
-                # Try multiple protocols and local hosts for the scan
-                discovery_success = False
-                for proto in ["https", "http"]:
-                    if discovery_success: break
-                    for host in ["172.17.0.1", "minio", internal_host]:
-                        try:
-                            s3_local = boto3.client(
-                                's3', endpoint_url=f"{proto}://{host}:9000",
-                                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
-                                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
-                                config=Config(signature_version='s3v4', connect_timeout=2, retries={'max_attempts': 0}),
-                                region_name='us-east-1', verify=False
-                            )
-                            local_prefix = f"{workspace_id}/data/"
-                            paginator = s3_local.get_paginator("list_objects_v2")
-                            for page in paginator.paginate(Bucket="swarmcloud", Prefix=local_prefix):
-                                for obj in page.get("Contents", []):
-                                    key = obj["Key"]
-                                    if key.endswith("/"): continue
-                                    rel_path = key[len(local_prefix):]
-                                    url = s3_local.generate_presigned_url(
-                                        'get_object', Params={'Bucket': 'swarmcloud', 'Key': key}, ExpiresIn=86400
-                                    )
-                                    dynamic_manifest[rel_path] = url
-                            if dynamic_manifest:
-                                print(f"flare_adapter: Local discovery successful via {proto}://{host}:9000 ({len(dynamic_manifest)} files)")
-                                manifest = dynamic_manifest
-                                discovery_success = True
-                                break
-                        except Exception: continue
-                
-                if not discovery_success:
-                    print("flare_adapter: Local discovery scan failed. Falling back to base manifest.")
-            except ImportError:
-                print("flare_adapter: boto3 not installed. Dynamic discovery skipped.")
-
-        # 3. Post-Process the Manifest for Resilient Access
-        updated_manifest = {}
-        self._manifest_candidates = {}
-        
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             port = f":{parsed.port}" if parsed.port else ""
             
-            # Build candidate list: prioritize local hosts and HTTPS
             final_urls = []
+            # Prioritize HTTPS, then HTTP, across all local host candidates
             for proto in ["https", "http"]:
                 for host in local_ips:
                     new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
                     if new_url not in final_urls: final_urls.append(new_url)
             
+            # Ensure the original URL is in the list as a last resort
             if url not in final_urls: final_urls.append(url)
             
-            updated_manifest[rel_path] = final_urls[0]
+            processed[rel_path] = final_urls[0]
             self._manifest_candidates[rel_path] = final_urls
             
-        return updated_manifest
+        return processed
 
     def ls(self, path: str = "") -> List[str]:
         """Lists available files in the virtual filesystem."""
         path = path.strip("/")
         if not path:
             return list(self.manifest.keys())
-        # Return unique top-level entries under the path
         results = set()
         for p in self.manifest.keys():
             if p.startswith(path):
                 rel = p[len(path):].lstrip("/")
                 part = rel.split("/")[0]
-                if part:
-                    results.add(part)
+                if part: results.add(part)
         return sorted(list(results))
 
     def glob(self, pattern: str) -> List[str]:
@@ -202,9 +158,7 @@ class FlareDataFileSystem:
     def exists(self, path: str) -> bool:
         """Checks if a path exists in the manifest."""
         path = path.lstrip("/")
-        if path in self.manifest:
-            return True
-        # Check if it's a "directory" prefix
+        if path in self.manifest: return True
         prefix = path.rstrip("/") + "/"
         return any(k.startswith(prefix) for k in self.manifest.keys())
 
@@ -225,84 +179,54 @@ class FlareDataFileSystem:
         """
         clean_path = path.lstrip("/")
         if clean_path not in self.manifest:
-            print(f"flare_adapter: File NOT found in manifest: {path}")
             raise FileNotFoundError(f"File not found in manifest: {path}")
 
         if "timeout" not in kwargs:
             kwargs["timeout"] = self.http_timeout_sec
 
-        candidates = self._manifest_candidates.get(clean_path) or [
-            self.manifest[clean_path]
-        ]
-        
-        # Deduplicate candidates while preserving order
-        deduped_candidates = []
+        candidates = self._manifest_candidates.get(clean_path) or [self.manifest[clean_path]]
+        deduped = []
         for url in candidates:
-            if url and url not in deduped_candidates:
-                deduped_candidates.append(url)
-
-        if not deduped_candidates:
-            print(f"flare_adapter: No valid URL candidates for: {path}")
-            raise FileNotFoundError(f"No valid URL candidates for: {path}")
-
-        print(f"flare_adapter: Opening {clean_path} (trying up to {len(deduped_candidates)} candidates)")
+            if url and url not in deduped: deduped.append(url)
 
         last_error = None
-        for url in deduped_candidates:
+        for url in dededuped if 'dededuped' in locals() else deduped:
             try:
-                # fsspec.open() for HTTP typically performs a HEAD request (via .info()) 
-                # immediately. This allows us to detect 404/400/Connection errors here.
-                stream = self.fs.open(url, mode=mode, **kwargs)
-                
-                # If we got here, the primary handshake succeeded.
-                if last_error:
-                    print(f"flare_adapter: Successfully connected via fallback: {url}")
-                return stream
+                return self.fs.open(url, mode=mode, **kwargs)
             except Exception as e:
-                print(f"flare_adapter: Candidate failed: {url}. Error: {e}")
                 last_error = e
 
-        # If all candidates failed, raise the last encountered error
-        if last_error:
-            raise last_error
+        if last_error: raise last_error
         raise FileNotFoundError(f"All URL candidates failed for: {clean_path}")
 
     def read_bytes(self, path: str) -> bytes:
         """Reads all bytes from a file."""
-        with self.open(path, "rb") as f:
-            return f.read()
+        with self.open(path, "rb") as f: return f.read()
 
     def read_text(self, path: str, encoding: str = "utf-8") -> str:
         """Reads all text from a file."""
-        with self.open(path, "r", encoding=encoding) as f:
-            return f.read()
+        with self.open(path, "r", encoding=encoding) as f: return f.read()
 
     def __getitem__(self, path: str):
         """Allows fs['path'] access."""
         return self.read_bytes(path)
 
     def get_data_path(self) -> str:
-        """
-        Legacy Interface: Materializes all data to a local temp directory.
-        Prefer using fs.open() for efficient streaming.
-        """
+        """Legacy Interface: Materializes all data to a local temp directory."""
         print("flare_adapter: Materializing data to local temp directory (Legacy Mode)...")
-        for rel_path, url in self.manifest.items():
+        for rel_path in self.manifest.keys():
             local_path = os.path.join(self.temp_dir, rel_path)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             with self.open(rel_path, "rb") as remote_f, open(local_path, "wb") as local_f:
                 shutil.copyfileobj(remote_f, local_f)
         return self.temp_dir
 
-    def __enter__(self):
-        return self
+    def __enter__(self): return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.cleanup()
+    def __exit__(self, exc_type, exc_val, exc_tb): self.cleanup()
 
     def cleanup(self):
-        if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
+        if os.path.exists(self.temp_dir): shutil.rmtree(self.temp_dir)
 
 
 # =================================================================================
@@ -327,7 +251,6 @@ def receive_model():
     try:
         input_model = flare.receive()
         if input_model and input_model.params:
-            # Handle default dummy model from some NVFlare versions
             if "numpy_key" in input_model.params and len(input_model.params) == 1:
                 input_model.params = {}
         return input_model
@@ -338,26 +261,16 @@ def receive_model():
 
 def send_model(params, metrics: dict = None, meta: dict = None):
     """Sends model updates and metrics back to the server."""
-    if params is None:
-        raise ValueError("flare_adapter: send_model received params=None.")
-
-    # Convert lists/tuples (common in Keras) to dict
+    if params is None: raise ValueError("flare_adapter: send_model received params=None.")
     if isinstance(params, (list, tuple)):
         params = {str(i): v for i, v in enumerate(params)}
-    
     params = _ensure_transportable(params)
-    
     meta = meta or {}
     if "NUM_STEPS_CURRENT_ROUND" in meta:
         meta["aggregation_weight"] = meta["NUM_STEPS_CURRENT_ROUND"]
     elif "aggregation_weight" not in meta:
         meta["aggregation_weight"] = 1.0
-
-    output_model = flare.FLModel(
-        params=params,
-        metrics=metrics or {},
-        meta=meta,
-    )
+    output_model = flare.FLModel(params=params, metrics=metrics or {}, meta=meta)
     flare.send(output_model)
     print("flare_adapter: Model sent to server.")
 

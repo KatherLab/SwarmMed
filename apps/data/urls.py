@@ -28,6 +28,10 @@ urlpatterns = [
     path(
         "validation/status/", views.validation_status, name="validation_status"
     ),
+    # Manifest API for training containers
+    path(
+        "manifest/", views.get_project_manifest, name="get_project_manifest"
+    ),
     # Data Visualization control and status
     path(
         "visualization/start/",
