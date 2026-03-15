@@ -1442,26 +1442,45 @@ def training_status_api(request):
     else:
         logger.training.debug("StatusAPI: No results from docker scraping")
 
-    # 1. Mirror state from Server node if we are a client node (Keep as fallback)
-    # If server_node.ip is generic/missing, try to fallback to resolved admin target host
+    # 1. Mirror state from Peers (Server priority, then Clients)
+    # This ensures decentralized sync: if PC2 starts training, PC3 can sync from PC2.
+    
+    mirror_targets = []
+    
+    # Target A: The Server Node
     effective_server_ip = server_node.ip if server_node and server_node.ip and server_node.ip != "-" else ""
     if not effective_server_ip:
         admin_target = _resolve_admin_session_target(current_network)
         if admin_target:
             _, _, effective_server_ip = admin_target
+    
+    if effective_server_ip and effective_server_ip != "-" and effective_server_ip != local_ip:
+        mirror_targets.append(("SERVER", effective_server_ip))
+        
+    # Target B: Other Online Clients (Fallback)
+    # We poll recent peers to find the active job initiator
+    other_clients = current_network.participants.filter(role="CLIENT").exclude(ip__in=[local_ip, "-", ""]).order_by("-last_seen")[:3]
+    for oc in other_clients:
+        if oc.ip not in [t[1] for t in mirror_targets]:
+            mirror_targets.append(("CLIENT", oc.ip))
 
-    if not is_server_node and effective_server_ip and effective_server_ip != "-":
+    headers = {"X-Gossip-Token": current_network.gossip_token}
+    remote_state_found = False
+
+    for role, peer_ip in mirror_targets:
+        if remote_state_found: break
         try:
-            state_url = f"https://{effective_server_ip}:5085/training/api/state/{current_network.identifier}/"
-            logger.training.debug(f"StatusAPI: Attempting to mirror state from server: {state_url}")
-            # IMPORTANT: Authenticate mirroring requests using the network's Gossip Token
-            headers = {"X-Gossip-Token": current_network.gossip_token}
-            resp = requests.get(state_url, headers=headers, timeout=15, verify=False)
+            state_url = f"https://{peer_ip}:5085/training/api/state/{current_network.identifier}/"
+            logger.training.debug(f"StatusAPI: Attempting to mirror state from {role} at {peer_ip}")
+            
+            # Short timeout per peer to keep the API responsive
+            resp = requests.get(state_url, headers=headers, timeout=2, verify=False)
             if resp.status_code == 200:
                 remote_job = resp.json().get("job")
                 if remote_job:
                     flare_id = remote_job["flare_job_id"]
-                    logger.training.debug(f"StatusAPI: Received remote state for job {flare_id}")
+                    logger.training.debug(f"StatusAPI: Received remote state for job {flare_id} from {peer_ip}")
+                    
                     j = TrainingJob.objects.filter(network=current_network, flare_job_id=flare_id).first()
                     if not j:
                         j = TrainingJob.objects.create(
@@ -1471,21 +1490,25 @@ def training_status_api(request):
                             status=remote_job["status"]
                         )
                     
-                    # Only update from remote if remote has more progress or terminal status
+                    # Update if remote is further ahead or has terminal status
                     remote_rounds = remote_job.get("rounds_finished", 0)
-                    if j.rounds_finished is None or remote_rounds > j.rounds_finished or remote_job["status"] in ["COMPLETED", "FAILED", "STOPPED"]:
+                    is_terminal = remote_job["status"] in ["COMPLETED", "FAILED", "STOPPED"]
+                    
+                    if j.rounds_finished is None or remote_rounds > j.rounds_finished or is_terminal:
                         j.status = remote_job["status"]
                         j.total_rounds = remote_job.get("total_rounds", j.total_rounds)
                         j.rounds_finished = remote_rounds
                         j.progress_percent = remote_job.get("progress_percent", j.progress_percent)
+                        if is_terminal and not j.completed_at: j.completed_at = timezone.now()
                         j.save()
                     
                     if not job or j.created_at >= job.created_at:
                         job = j
-            else:
-                logger.training.debug(f"StatusAPI: Server state API returned status {resp.status_code}")
+                    
+                    if job.status == "RUNNING" or is_terminal:
+                        remote_state_found = True
         except Exception as e:
-            logger.training.debug(f"StatusAPI: Failed to mirror state from server: {e}")
+            logger.training.debug(f"StatusAPI: Failed to mirror state from {peer_ip}: {e}")
 
     nvflare_status = _nvflare_status_payload(current_network)
     if nvflare_status:

@@ -311,49 +311,47 @@ def broadcast_network_status(network_id):
         return
 
     local_ip = get_tailscale_ip()
-    local_participant = network.participants.filter(ip=local_ip).first()
+    # Find ALL roles this machine is playing (e.g. could be both SERVER and a CLIENT)
+    local_participants = network.participants.filter(ip=local_ip)
     
-    logger.network.info(f"[GOSSIP BROADCAST] Starting broadcast for network {network.name}. Local IP detected: {local_ip}")
-
-    if not local_participant:
+    if not local_participants.exists():
         logger.network.warning(f"[GOSSIP BROADCAST] Could not find myself in participant list for IP {local_ip}")
         return
 
+    logger.network.info(f"[GOSSIP BROADCAST] Starting broadcast for network {network.name}. Local IP: {local_ip} (Roles: {[p.participant_id for p in local_participants]})")
+
     # Source of Truth: Engine logs + Docker state
     status_map = _get_local_participant_status(network)
-    logger.network.debug(f"[GOSSIP BROADCAST] Local status map: {status_map}")
-    
     headers = {"X-Gossip-Token": network.gossip_token}
-    peers = network.participants.exclude(id=local_participant.id)
-
-    # 1. Shout about OURSELVES to everyone
-    my_payload = {
-        "participant_id": local_participant.participant_id,
-        "status": status_map.get(local_participant.participant_id, "Online")
-    }
     
-    # 2. If we are the SERVER, we also shout the JOINED status of all clients
-    extra_shouts = []
-    if local_participant.role == "SERVER":
-        for p_id, p_status in status_map.items():
-            if p_id != local_participant.participant_id:
-                extra_shouts.append({
-                    "participant_id": p_id,
-                    "status": p_status
-                })
+    for lp in local_participants:
+        my_payload = {
+            "participant_id": lp.participant_id,
+            "status": status_map.get(lp.participant_id, "Online")
+        }
+        
+        # If this role is the SERVER, it also shouts the JOINED status of all other clients it sees
+        extra_shouts = []
+        if lp.role == "SERVER":
+            for p_id, p_status in status_map.items():
+                if p_id != lp.participant_id:
+                    extra_shouts.append({
+                        "participant_id": p_id,
+                        "status": p_status
+                    })
 
-    for peer in peers:
-        if peer.ip and peer.ip != "-":
-            try:
-                gossip_url = f"https://{peer.ip}:5085/network/api/gossip/{network.identifier}/"
-                logger.network.debug(f"[GOSSIP SHOUT] Sending my status to {peer.participant_id} at {peer.ip}")
-                requests.post(gossip_url, json=my_payload, headers=headers, timeout=5, verify=False)
-                
-                for shout in extra_shouts:
-                    logger.network.debug(f"[GOSSIP SHOUT] Informing {peer.participant_id} that {shout['participant_id']} is {shout['status']}")
-                    requests.post(gossip_url, json=shout, headers=headers, timeout=5, verify=False)
-            except Exception as e:
-                logger.network.error(f"[GOSSIP SHOUT FAILED] Could not reach {peer.participant_id} at {peer.ip}: {e}")
+        peers = network.participants.exclude(id=lp.id)
+        for peer in peers:
+            if peer.ip and peer.ip != "-" and peer.ip != local_ip:
+                try:
+                    gossip_url = f"https://{peer.ip}:5085/network/api/gossip/{network.identifier}/"
+                    logger.network.debug(f"[GOSSIP SHOUT] {lp.participant_id} -> {peer.participant_id} at {peer.ip}")
+                    requests.post(gossip_url, json=my_payload, headers=headers, timeout=5, verify=False)
+                    
+                    for shout in extra_shouts:
+                        requests.post(gossip_url, json=shout, headers=headers, timeout=5, verify=False)
+                except Exception as e:
+                    logger.network.error(f"[GOSSIP SHOUT FAILED] {lp.participant_id} could not reach {peer.participant_id}: {e}")
 
 
 @login_required
@@ -834,10 +832,21 @@ def new_network(request):
                                 p_data = json.loads(zip_ref.read(".participants.json").decode("utf-8"))
                                 if isinstance(p_data, list):
                                     for p in p_data:
+                                        p_id = p.get("participant_id")
+                                        p_role = p.get("role")
+                                        p_ip = p.get("ip", "-")
+                                        
+                                        # If the recovered IP is generic, try to use the resolved host as fallback for the server
+                                        if p_ip.lower() in ["dynamic", "localhost", "127.0.0.1", "server"]:
+                                            if p_role == "SERVER" and resolved_server_host:
+                                                p_ip = resolved_server_host
+                                            else:
+                                                p_ip = "-"
+
                                         discovered_participants.append({
-                                            "name": p.get("participant_id"),
-                                            "role": p.get("role"),
-                                            "ip": p.get("ip", "-"),
+                                            "name": p_id,
+                                            "role": p_role,
+                                            "ip": p_ip,
                                             "org": p.get("org")
                                         })
                                     log.network.info(f"Recovered {len(discovered_participants)} participants from .participants.json")
