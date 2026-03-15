@@ -221,20 +221,21 @@ class FlareDataFileSystem:
         """
         Streams a file from the manifest.
         Returns a file-like object that can be passed to pandas, torch, etc.
+        Attempts all candidate URLs until one succeeds.
         """
         clean_path = path.lstrip("/")
         if clean_path not in self.manifest:
             print(f"flare_adapter: File NOT found in manifest: {path}")
             raise FileNotFoundError(f"File not found in manifest: {path}")
 
-        # Note: SSL is already set at the filesystem level in __init__.
-        # Passing it again here can cause TypeErrors in some fsspec versions.
         if "timeout" not in kwargs:
             kwargs["timeout"] = self.http_timeout_sec
 
         candidates = self._manifest_candidates.get(clean_path) or [
             self.manifest[clean_path]
         ]
+        
+        # Deduplicate candidates while preserving order
         deduped_candidates = []
         for url in candidates:
             if url and url not in deduped_candidates:
@@ -244,19 +245,30 @@ class FlareDataFileSystem:
             print(f"flare_adapter: No valid URL candidates for: {path}")
             raise FileNotFoundError(f"No valid URL candidates for: {path}")
 
-        print(f"flare_adapter: Opening {clean_path} with {len(deduped_candidates)} candidates.")
+        print(f"flare_adapter: Opening {clean_path} (trying up to {len(deduped_candidates)} candidates)")
 
-        return _FallbackHTTPStream(
-            fs=self.fs,
-            path_label=clean_path,
-            candidates=deduped_candidates,
-            mode=mode,
-            kwargs=kwargs,
-        )
+        last_error = None
+        for url in deduped_candidates:
+            try:
+                # fsspec.open() for HTTP typically performs a HEAD request (via .info()) 
+                # immediately. This allows us to detect 404/400/Connection errors here.
+                stream = self.fs.open(url, mode=mode, **kwargs)
+                
+                # If we got here, the primary handshake succeeded.
+                if last_error:
+                    print(f"flare_adapter: Successfully connected via fallback: {url}")
+                return stream
+            except Exception as e:
+                print(f"flare_adapter: Candidate failed: {url}. Error: {e}")
+                last_error = e
+
+        # If all candidates failed, raise the last encountered error
+        if last_error:
+            raise last_error
+        raise FileNotFoundError(f"All URL candidates failed for: {clean_path}")
 
     def read_bytes(self, path: str) -> bytes:
         """Reads all bytes from a file."""
-        print(f"flare_adapter: Reading bytes from {path}")
         with self.open(path, "rb") as f:
             return f.read()
 
@@ -278,7 +290,7 @@ class FlareDataFileSystem:
         for rel_path, url in self.manifest.items():
             local_path = os.path.join(self.temp_dir, rel_path)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            with self.fs.open(url) as remote_f, open(local_path, "wb") as local_f:
+            with self.open(rel_path, "rb") as remote_f, open(local_path, "wb") as local_f:
                 shutil.copyfileobj(remote_f, local_f)
         return self.temp_dir
 
@@ -291,106 +303,6 @@ class FlareDataFileSystem:
     def cleanup(self):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
-
-
-class _FallbackHTTPStream:
-    """Read-through stream with automatic fallback to alternate URLs."""
-
-    def __init__(self, fs, path_label: str, candidates: List[str], mode: str, kwargs: dict):
-        self._fs = fs
-        self._path_label = path_label
-        self._candidates = candidates
-        self._mode = mode
-        self._kwargs = dict(kwargs)
-        self._index = -1
-        self._stream = None
-        self._open_next(current_pos=0, announce=False)
-
-    def _open_next(self, current_pos: int, announce: bool):
-        last_error = None
-        while self._index + 1 < len(self._candidates):
-            self._index += 1
-            candidate = self._candidates[self._index]
-            try:
-                # Attempt to open the specific candidate.
-                stream = self._fs.open(candidate, mode=self._mode, **self._kwargs)
-                if current_pos:
-                    try:
-                        stream.seek(current_pos)
-                    except Exception:
-                        # Best effort: advance by reading when seek is unavailable.
-                        _ = stream.read(current_pos)
-                self._stream = stream
-                if announce and self._index > 0:
-                    print(
-                        "FlareDataFileSystem: primary URL failed; "
-                        f"successfully used fallback candidate: {candidate}"
-                    )
-                return
-            except Exception as e:
-                print(f"flare_adapter: Candidate failed: {candidate}. Error: {e}")
-                last_error = e
-
-        if last_error:
-            raise last_error
-        raise FileNotFoundError(
-            f"No remaining URL candidates for: {self._path_label}"
-        )
-
-    def _with_fallback(self, method_name: str, *args, **kwargs):
-        while True:
-            try:
-                method = getattr(self._stream, method_name)
-                return method(*args, **kwargs)
-            except Exception as e:
-                current_pos = 0
-                try:
-                    current_pos = int(self._stream.tell())
-                except Exception:
-                    current_pos = 0
-
-                if self._index + 1 >= len(self._candidates):
-                    raise e
-
-                self._open_next(current_pos=current_pos, announce=True)
-
-    def read(self, *args, **kwargs):
-        return self._with_fallback("read", *args, **kwargs)
-
-    def readline(self, *args, **kwargs):
-        return self._with_fallback("readline", *args, **kwargs)
-
-    def readinto(self, *args, **kwargs):
-        return self._with_fallback("readinto", *args, **kwargs)
-
-    def seek(self, *args, **kwargs):
-        return self._with_fallback("seek", *args, **kwargs)
-
-    def tell(self):
-        return self._with_fallback("tell")
-
-    def close(self):
-        if self._stream is not None:
-            self._stream.close()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        line = self.readline()
-        if line in (b"", ""):
-            raise StopIteration
-        return line
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-        return False
-
-    def __getattr__(self, item):
-        return getattr(self._stream, item)
 
 
 # =================================================================================
