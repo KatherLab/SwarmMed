@@ -105,10 +105,11 @@ class FlareDataFileSystem:
                 except socket.gaierror: continue
             if not internal_host: internal_host = "127.0.0.1"
 
-        local_ips = ["127.0.0.1", "localhost", "172.17.0.1", "minio"]
+        # Prioritize the bridge gateway (172.17.0.1) as it is the most reliable path
+        local_ips = ["172.17.0.1", "minio", "127.0.0.1", "localhost"]
         try:
             container_ip = socket.gethostbyname(socket.gethostname())
-            if container_ip not in local_ips: local_ips.insert(0, container_ip)
+            if container_ip not in local_ips: local_ips.append(container_ip)
         except Exception: pass
         if internal_host not in local_ips: local_ips.append(internal_host)
 
