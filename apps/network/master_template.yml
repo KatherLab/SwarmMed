@@ -175,7 +175,7 @@ local_server_resources: |
           {
               "admin_storage": "transfer",
               "max_num_clients": 100,
-              "heart_beat_timeout": 100,
+              "heart_beat_timeout": 30,
               "num_server_workers": 4,
               "download_job_url": "http://download.server.com/",
               "compression": "Gzip"
@@ -228,6 +228,7 @@ fed_server: |
             },
             "admin_host": "0.0.0.0",
       "admin_port": {~~admin_port~~},
+            "heart_beat_timeout": 30,
             "ssl_private_key": "server.key",
             "ssl_cert": "server.crt",
             "ssl_root_cert": "rootCA.pem"

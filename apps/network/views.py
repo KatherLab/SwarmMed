@@ -165,34 +165,28 @@ def _get_local_participant_status(swarm_network):
             else:
                 lname = name.lower()
                 
-                # A. Definitive Join Patterns
+                # A. Definitive Join Patterns (Directly from NVFlare ClientManager)
                 joined_patterns = [
-                    rf"client: new client {lname}@",
+                    rf"Client: New client {lname}@.* joined", # ClientManager login
+                    rf"Re-activate the client: {lname} at .* with token:", # ClientManager heartbeat recovery
                     rf"registered client {lname}",
-                    rf"client {lname} connected",
-                    rf"received register request from {lname}",
                     rf"starting communication with client {lname}",
-                    rf"new client {lname} connected",
                     rf"client: {lname} joined",
                     rf"client {lname} joined",
-                    rf"client name:{lname}\s+token:.*joined",
+                    rf"Receive heartbeat from Client:{lname}", # Note: NVFlare sometimes logs token here, but we check name too
                     rf"heartbeat from {lname}",
-                    rf"client {lname} is alive",
-                    rf"received heartbeat from {lname}",
                 ]
                 
-                # B. Definitive Leave Patterns
+                # B. Definitive Leave Patterns (Directly from NVFlare ClientManager)
                 leave_patterns = [
-                    rf"client {lname} disconnected",
+                    rf"Client Name:{lname} \tToken: .* left", # ClientManager remove_client
                     rf"client: {lname} left",
                     rf"client {lname} left",
                     rf"removed client {lname}",
                     rf"missing job on client '{lname}'",
                     rf"client manager: remove client {lname}",
-                    rf"client manager: removed client {lname}",
                     rf"disconnected client {lname}",
-                    rf"remove the dead client\. name: {lname}",
-                    rf"client name:{lname}\s+token:.*left",
+                    rf"notified SJ of dead-job: .* {lname}",
                 ]
 
                 last_join_idx = -1
