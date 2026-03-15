@@ -138,6 +138,7 @@ restart-celery: ## Restart the Celery worker service
 
 migrate: ## Run Django migrations inside the app container
 	@echo "🧱 Applying Django migrations"
+	@docker compose run --rm app python manage.py makemigrations
 	@docker compose run --rm app python manage.py migrate
 
 shell: ## Open a Django shell inside the app container

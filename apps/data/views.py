@@ -67,28 +67,29 @@ def get_user_project(request):
 def get_project_manifest(request):
     """
     API endpoint that returns a signed manifest of all data files for a project.
-    Authenticates via either standard Django session or a MANIFEST_SECRET header.
+    Authenticates via either standard Django session or a project-specific secret.
     """
     project_id = request.GET.get("project_id")
-    secret = request.headers.get("X-Manifest-Secret")
+    provided_secret = request.headers.get("X-Manifest-Secret")
     
-    # 1. Authentication Check
+    if not project_id:
+        return JsonResponse({"error": "Missing project_id"}, status=400)
+
+    # 1. Fetch Project and Check Authentication
+    project = get_object_or_404(Project, identifier=project_id)
     is_authenticated = False
     
-    # Mode A: Container authentication via shared secret
-    if secret and secret == os.getenv("MANIFEST_SECRET"):
+    # Mode A: Container authentication via project-specific secret
+    if provided_secret and provided_secret == project.secret:
         is_authenticated = True
     # Mode B: User session authentication
     elif request.user.is_authenticated:
         current_project_uuid, _ = get_user_project(request)
-        if project_id == current_project_uuid:
+        if str(project.identifier) == current_project_uuid:
             is_authenticated = True
             
     if not is_authenticated:
         return JsonResponse({"error": "Unauthorized"}, status=401)
-        
-    if not project_id:
-        return JsonResponse({"error": "Missing project_id"}, status=400)
 
     # 2. Build the manifest from S3
     from common.utils import get_internal_s3_download_url, get_s3_client

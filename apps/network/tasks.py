@@ -1301,7 +1301,7 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 f"SWARMCLOUD_PROJECT_ID={str(swarm_network.project.identifier)}",
                 "-e",
-                f"MANIFEST_SECRET={os.getenv('MANIFEST_SECRET')}",
+                f"MANIFEST_SECRET={swarm_network.project.secret}",
                 "-e",
                 f"AWS_S3_ENDPOINT_URL={container_s3_endpoint}",
                 "-e",
