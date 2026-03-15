@@ -1049,24 +1049,10 @@ def start_training(request, network_id):
     flare_adapter_src = os.path.join(settings.BASE_DIR, "apps", "training", "flare_adapter.py")
     shutil.copyfile(flare_adapter_src, os.path.join(app_client_custom_dir, "flare_adapter.py"))
 
-    from common.utils import get_internal_s3_download_url, get_s3_client
-    s3 = get_s3_client()
-    root_data_prefix = f"{project.identifier}/data/"
-    paginator = s3.get_paginator("list_objects_v2")
-    log.training.debug(f"Building data manifest for prefix: {root_data_prefix}")
-    data_manifest = {}
-    file_count = 0
-    for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=root_data_prefix):
-        for obj in page.get("Contents", []):
-            file_key = obj.get("Key")
-            if not file_key or file_key.endswith("/"): continue
-            rel_path = file_key[len(root_data_prefix) :]
-            if not rel_path or any(part.startswith(".") for part in rel_path.split("/")): continue
-            data_manifest[rel_path] = get_internal_s3_download_url(file_key, expires=86400)
-            file_count += 1
-    log.training.info(f"Data manifest built with {file_count} files.")
-    with open(os.path.join(app_client_custom_dir, "data_manifest.json"), "w") as f:
-        json.dump(data_manifest, f, indent=2)
+    # We NO LONGER build a data manifest on the coordinator.
+    # Each node now dynamically discovers its own local data at runtime using 
+    # the flare_adapter's local discovery logic. This prevents sensitive 
+    # data URLs from being leaked across the swarm.
 
     training_py_path = os.path.join(app_client_custom_dir, "training.py")
     if os.path.exists(training_py_path):
