@@ -5,8 +5,126 @@ and uploading results from the training workspace.
 """
 
 import os
+import re
+import shutil
+import subprocess
 
 from common.utils import get_s3_client
+
+
+def scrape_docker_progress(participant_ids=None):
+    """
+    Scrapes progress from local docker containers running NVFlare clients/servers.
+    Returns a list of dictionaries with extracted progress info.
+    """
+    from logs.logger import get_logger
+    log = get_logger()
+    
+    docker_path = shutil.which("docker") or "docker"
+    if not docker_path:
+        log.training.error("Scrape: Docker CLI not found in PATH")
+        return []
+
+    # Get all running container names
+    try:
+        # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
+        result = subprocess.run(  # nosec B603
+            [docker_path, "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, check=True
+        )
+        container_names = result.stdout.splitlines()
+        log.training.debug(f"Scrape: Found running containers: {container_names}")
+    except Exception as e:
+        log.training.error(f"Scrape: Failed to list docker containers: {e}")
+        return []
+
+    # Filter candidates
+    candidates = []
+    if participant_ids:
+        log.training.debug(f"Scrape: Looking for participants: {participant_ids}")
+        for p_id in participant_ids:
+            # Match exact name or name with prefix/suffix (docker-compose style)
+            # Fix: Allow dashes as separators by removing them from the exclusion set
+            pattern = re.compile(rf"(^|[^a-zA-Z0-9]){re.escape(p_id)}($|[^a-zA-Z0-9])")
+            for c_name in container_names:
+                if pattern.search(c_name):
+                    candidates.append(c_name)
+    else:
+        log.training.debug("Scrape: No participant_ids provided, falling back to generic search")
+        for c_name in container_names:
+            if "client" in c_name.lower() or "server" in c_name.lower() or "nvflare" in c_name.lower():
+                candidates.append(c_name)
+
+    log.training.debug(f"Scrape: Filtered candidate containers: {candidates}")
+
+    results = []
+    round_patterns = [
+        re.compile(r"Finished round\s+(\d+)", re.I),
+        re.compile(r"Round\s+(\d+)\s+\|", re.I),
+        re.compile(r"Round:\s+(\d+)", re.I),
+        re.compile(r"finished training round\s+(\d+)", re.I),
+        re.compile(r"number of rounds completed\s+(\d+)", re.I),
+        re.compile(r"Start aggregation for round\s+(\d+)", re.I),
+    ]
+    # Match UUIDs (36 chars) after common prefixes
+    # Added 'run' variants common in SwarmClientController logs
+    job_id_pattern = re.compile(r"(?:Got job|Local Job ID|Deploying job|job_id|job|run|run\s*\(|run[:=])\s*[:=]?\s*([0-9a-f-]{36})", re.I)
+    completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished", "Swarm Learning Done"]
+
+    for container in candidates:
+        try:
+            log.training.debug(f"Scrape: Fetching logs for container: {container}")
+            # Get last 2000 lines of logs for more context
+            # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
+            log_result = subprocess.run(  # nosec B603
+                [docker_path, "logs", "--tail", "2000", container],
+                capture_output=True, text=True, check=False
+            )
+            logs = (log_result.stdout or "") + (log_result.stderr or "")
+            if not logs:
+                log.training.debug(f"Scrape: No logs found for {container}")
+                continue
+            
+            job_id = None
+            rounds_finished = -1
+            ended = False
+            
+            # Find Job ID (search from the end)
+            job_matches = job_id_pattern.findall(logs)
+            if job_matches:
+                job_id = job_matches[-1]
+                log.training.debug(f"Scrape: Found job_id {job_id} in {container} logs")
+                
+            # Find Rounds (search from the end)
+            for pattern in round_patterns:
+                for m in pattern.finditer(logs):
+                    rnum = int(m.group(1))
+                    if rnum > rounds_finished:
+                        rounds_finished = rnum
+            
+            if rounds_finished >= 0:
+                log.training.debug(f"Scrape: Found rounds_finished {rounds_finished} in {container} logs")
+            
+            # Check completion
+            for marker in completion_markers:
+                if marker.lower() in logs.lower():
+                    ended = True
+                    log.training.debug(f"Scrape: Found completion marker '{marker}' in {container} logs")
+                    break
+                
+            if job_id or rounds_finished >= 0:
+                results.append({
+                    "container": container,
+                    "job_id": job_id,
+                    "rounds_finished": rounds_finished,
+                    "ended": ended
+                })
+        except Exception as e:
+            log.training.error(f"Scrape: Error processing container {container}: {e}")
+            continue
+            
+    log.training.debug(f"Scrape: Final results: {results}")
+    return results
 
 
 def download_s3_folder(bucket_name, s3_folder, local_dir):

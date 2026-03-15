@@ -2,5 +2,10 @@ pandas
 numpy
 scikit-learn
 torch
-#tensorflow
-#keras
+pytorch-lightning
+tensorflow
+keras
+monai
+transformers
+accelerate
+datasets

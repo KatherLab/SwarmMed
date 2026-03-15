@@ -7,6 +7,20 @@ SwarmCloud is a decentralized medical data storage and collaborative training pl
 
 ---
 
+## 🧠 Supported Frameworks
+
+SwarmCloud is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
+
+- **PyTorch** & **PyTorch Lightning**
+- **TensorFlow** & **Keras**
+- **Scikit-learn**
+- **HuggingFace Transformers**
+- **MONAI** (Medical Open Network for AI)
+
+The platform handles the streaming of data from S3-compatible storage (MinIO) and the secure loading of model weights across all common formats (`.pt`, `.pth`, `.ckpt`, `.h5`, `.keras`, `.npy`, `.pkl`, `.joblib`).
+
+---
+
 ## 🚀 Installation & Setup
 
 ### 1. Prerequisites
@@ -29,35 +43,51 @@ sudo tailscale up
 ```bash
 git clone https://github.com/pfeifferis/SwarmCloud.git
 cd SwarmCloud
-
-
-# Prepare secret directories for TLS, PgBouncer, and Docker client certs
-mkdir -p .secrets/certs .secrets/docker .secrets/pgbouncer
-# Setup environment variables
-cp .env.template .env
-# Edit .env with your secrets
-
-# (Optional) Pre-render PgBouncer config before containers start
-python scripts/setup_pgbouncer.py || true
-
-# Generate internal TLS material (stored in .secrets/ and not committed)
-./scripts/generate_internal_certs.sh
-
-# Build and start containers
-docker compose build
-docker compose up -d
 ```
+
+Then rely on the Makefile so you no longer run the manual prep scripts directly:
+
+```bash
+make install        # install uv and synchronize requirements into .venv
+make setup          # copy .env (if missing), run PgBouncer setup, and generate TLS certificates
+# edit .env as needed before starting
+make start          # build the Docker services and bring them up
+```
+
+Use `make stop` to tear the stack down, `make logs` to tail `swarmcloud`, and `make docs-serve`/`make docs-build` for MkDocs work.
+
+### 5. Cleanup targets
+
+Use `make deinstall` when you want to scrub everything and start from a clean slate; it stops the compose stack, prunes volumes/images/builder caches, and removes the uv-managed `.venv`, `.cache/uv`, generated `.secrets` folders, `staticfiles`, `_build`, `tmp`, and `workspaces` artifacts.
+
+Run `make deinstall-docker` if you only need to stop the containers, drop volumes, and prune Docker caches without touching the uv environment or generated files.
+
+### Tooling (uv)
+
+SwarmCloud relies on uv for Python dependency management. The root Makefile installs uv when needed and synchronizes `requirements.txt` into `.venv`, so running the install target is all you need to provision the local Python tooling:
+
+```bash
+make install
+```
+
+Use the Makefile to run documentation helpers (`make docs-serve`, `make docs-build`) or docker shortcuts (`make compose-up`, `make compose-down`).
 
 ### 4. Initialize Superuser
 ```bash
-docker exec -it swarmcloud python manage.py createsuperuser
+make superuser
 ```
 
 ---
 ### Documentation
 ```bash
-pip install mkdocs mkdocs-material
-mkdocs serve --dev-addr localhost:9999
+make docs-serve
+```
+
+If you prefer to manage the MkDocs dependencies manually, install them with uv and run the server directly:
+
+```bash
+uv pip install mkdocs mkdocs-material
+uv run mkdocs serve --dev-addr localhost:9999
 ```
 
 ---
@@ -112,5 +142,5 @@ sudo systemctl restart tailscaled
 
 ### Docker Logs
 ```bash
-docker compose logs -f swarmcloud
+make logs
 ```

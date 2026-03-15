@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark/Light mode theme toggle.
 
 ### Changed
+- Upgraded NVFlare from 2.6.1 to 2.7.1.
+- Updated NVFlare provisioning logic to API Version 4.
+- Added FlareAPIBuilder to NVFlare provisioning pipeline for enhanced admin session support.
+- Updated default NVFlare Docker images and Helm charts to 2.7.1.
 - Refactored entire codebase to be PEP 8 compliant.
 - Replaced hardcoded portrait images with dynamic initials-based avatars.
 - Renamed "Finish Project" action to "Archive Project" for clarity.

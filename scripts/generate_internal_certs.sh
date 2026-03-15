@@ -3,12 +3,27 @@ set -euo pipefail
 
 umask 077
 
+# Check if .secrets exists and is not writable (e.g. created by docker as root)
+if [ -d ".secrets" ] && [ ! -w ".secrets" ]; then
+    echo "Error: .secrets directory exists but is not writable."
+    echo "This usually happens if 'docker compose up' was run before this script."
+    echo "Please run: sudo rm -rf .secrets"
+    exit 1
+fi
+
 # Security: never commit private keys. This script generates all TLS material
 # into a git-ignored directory under .secrets/.
 CA_DIR=".secrets/certs/ca"
 CERT_DIR=".secrets/certs/internal"
 NGINX_CERT_DIR=".secrets/certs/nginx"
 SERIAL_FILE="$CA_DIR/ca.srl"
+
+cleanup_file_if_present() {
+    local target=$1
+    if [ -e "$target" ]; then
+        rm -f "$target"
+    fi
+}
 
 mkdir -p "$CA_DIR" "$CERT_DIR" "$NGINX_CERT_DIR"
 chmod 700 "$CA_DIR" "$CERT_DIR"
@@ -27,6 +42,9 @@ ensure_ca_passphrase() {
 # Root CA
 ensure_ca_passphrase
 trap 'unset CA_PASSPHRASE' EXIT
+cleanup_file_if_present "$CA_DIR/ca.key"
+cleanup_file_if_present "$CA_DIR/ca.crt"
+cleanup_file_if_present "$SERIAL_FILE"
 openssl genrsa -aes256 -passout pass:"$CA_PASSPHRASE" -out "$CA_DIR/ca.key" 4096
 openssl req -x509 -new -key "$CA_DIR/ca.key" -passin pass:"$CA_PASSPHRASE" \
     -sha256 -days 3650 -out "$CA_DIR/ca.crt" -subj "/CN=InternalCA"
@@ -38,6 +56,11 @@ generate_cert() {
     local name=$1
     local dns=$2
     echo "Generating cert for $name ($dns)"
+
+    cleanup_file_if_present "$CERT_DIR/$name.key"
+    cleanup_file_if_present "$CERT_DIR/$name.csr"
+    cleanup_file_if_present "$CERT_DIR/$name.crt"
+    cleanup_file_if_present "$CERT_DIR/$name.ext"
 
     openssl genrsa -out "$CERT_DIR/$name.key" 4096
     openssl req -new -key "$CERT_DIR/$name.key" -out "$CERT_DIR/$name.csr" -subj "/CN=$dns"
@@ -83,3 +106,42 @@ install -m 644 "$CA_DIR/ca.crt" "$CERT_DIR/minio_certs/CAs/ca.crt"
 echo "Internal certificates generated in $CERT_DIR"
 echo "Public CA certificate available at $CA_DIR/ca.crt (private key locked in $CA_DIR)"
 echo "Nginx certificates generated in $NGINX_CERT_DIR"
+
+fix_permissions() {
+    echo "Fixing permissions for Postgres and Redis keys..."
+    SECRETS_DIR="$(pwd)/.secrets"
+
+    # Try using Docker first (cleanest, doesn't require sudo on host if user is in docker group)
+    # We test if we can run a container first
+    if command -v docker &> /dev/null && docker run --rm -v "$SECRETS_DIR:/secrets" alpine true 2>/dev/null; then
+        echo "Using Docker to set permissions..."
+        docker run --rm -v "$SECRETS_DIR:/secrets" alpine sh -c '
+            if [ -f /secrets/certs/internal/postgres.key ]; then
+                chown 999:999 /secrets/certs/internal/postgres.key
+                chmod 600 /secrets/certs/internal/postgres.key
+                echo "Fixed postgres.key permissions"
+            fi
+            if [ -f /secrets/certs/internal/redis.key ]; then
+                chmod 644 /secrets/certs/internal/redis.key
+                echo "Fixed redis.key permissions"
+            fi
+        '
+    else
+        # Fallback to sudo if docker is not available or permission is denied
+        echo "Note: Docker command failed (permission denied or not installed)."
+        echo "Falling back to 'sudo' to set file permissions..."
+        
+        if [ -f ".secrets/certs/internal/postgres.key" ]; then
+            sudo chown 999:999 ".secrets/certs/internal/postgres.key"
+            sudo chmod 600 ".secrets/certs/internal/postgres.key"
+            echo "Fixed postgres.key permissions"
+        fi
+        
+        if [ -f ".secrets/certs/internal/redis.key" ]; then
+            chmod 644 ".secrets/certs/internal/redis.key"
+            echo "Fixed redis.key permissions"
+        fi
+    fi
+}
+
+fix_permissions

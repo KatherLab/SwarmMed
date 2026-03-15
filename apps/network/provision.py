@@ -4,6 +4,7 @@ Handles the generation of project.yml and execution of 'nvflare provision'
 to create secure startup kits for federated learning participants.
 """
 
+import json
 import os
 import re
 import shutil
@@ -11,7 +12,7 @@ import subprocess  # nosec B404
 from pathlib import Path
 
 import yaml
-from common.utils import get_s3_client
+from common.utils import get_safe_slug, get_s3_client
 from django.conf import settings
 from django.utils.text import slugify
 from logs.logger import get_logger
@@ -30,7 +31,13 @@ def is_valid_ip(ip):
     return bool(re.match(pattern, ip))
 
 
-def generate_flare_startup_kit(network_id, local_test=False, clients=None):
+def generate_flare_startup_kit(
+    network_id,
+    local_test=False,
+    clients=None,
+    server_ip=None,
+    ha_servers=None,
+):
     """
     Generates the startup kits for a given SwarmNetwork using NVFlare.
 
@@ -39,6 +46,7 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
     2. Builds a project.yml file describing the network topology.
     3. Fetches optional project requirements from S3 storage.
     4. Runs the NVFlare Lighter provisioning tool.
+    5. Updates configuration files with the provided server IP if applicable.
     """
     if clients is None:
         clients = []
@@ -85,45 +93,66 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
         return
 
     shutil.copyfile(str(repo_template), str(target_template))
+
+    # If a server IP is provided, inject it into the template before provisioning
+    # so that generated config files remain signed/secure.
+    if server_ip and is_valid_ip(server_ip):
+        try:
+            template_text = target_template.read_text()
+            updated = template_text.replace("${SERVER_IP}", server_ip)
+            if template_text != updated:
+                target_template.write_text(updated)
+                logger.network.info(
+                    f"Injected server IP {server_ip} into master template"
+                )
+        except Exception as e:
+            logger.network.warning(
+                f"Failed to inject server IP into template: {e}"
+            )
+
     abs_template_path = str(target_template.resolve())
 
     # 2. Define Network Participants
-    # Every network needs an overseer and an admin account
-    participants = [
-        {
-            "name": "overseer",
-            "type": "overseer",
-            "org": "nvidia",
-            "protocol": "https",
-            "api_root": "/api/v1",
-            "port": 8443,
-        }
-    ]
+    control_plane_org = "swarm_control_plane"
+    participants = []
 
-    # Add the central FL server
-    participants.append(
-        {
-            "name": "server",
-            "type": "server",
-            "org": "nvidia",
-            "fed_learn_port": 8002,
-            "admin_port": 8003,
-        }
-    )
+    client_admin_map = {}
+    client_server_map = {}
+    local_client_names = []
+    prepared_clients = []
 
     if local_test:
         # Local test mode: add generic clients for testing on a single machine
-        participants.extend(
-            [
-                {"name": "fl-client-1", "type": "client", "org": "nvidia"},
-                {"name": "fl-client-2", "type": "client", "org": "nvidia"},
-            ]
+        participants.append(
+            {
+                "name": "server",
+                "type": "server",
+                "org": control_plane_org,
+                "fed_learn_port": 8002,
+                "admin_port": 8003,
+                "listening_host": "server",
+            }
         )
+        test_clients = [
+            {"name": "fl-client-1", "type": "client", "org": "nvidia"},
+            {"name": "fl-client-2", "type": "client", "org": "nvidia"},
+        ]
+        participants.extend(test_clients)
+        # Initialize prepared_clients for metadata distribution
+        for c in test_clients:
+            prepared_clients.append({
+                "name": c["name"],
+                "ip": "127.0.0.1",
+                "org": c["org"]
+            })
     else:
-        # Real deployment: add specific clients provided by the user (with IPs)
+        # Real deployment:
+        # 1) sanitize client list
+        # 2) add one server in the control-plane org
+        # 3) add clients/admins and map each center to the server
+        prepared_clients = []
         for client in clients:
-            # Sanitize client name for safety
-            safe_client_name = slugify(client["name"]).replace("-", "_")
+            safe_client_name = slugify(client["name"])
             ip = client.get("ip", "")
             if not is_valid_ip(ip):
                 logger.network.warning(
@@ -131,24 +160,67 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
                 )
                 continue
 
+            center_org_name = f"org_{safe_client_name.replace('-', '_')}"
+            prepared_clients.append(
+                {
+                    "name": safe_client_name,
+                    "ip": ip,
+                    "org": center_org_name,
+                }
+            )
+
+        participants.append(
+            {
+                "name": "server",
+                "type": "server",
+                "org": control_plane_org,
+                "fed_learn_port": 8002,
+                "admin_port": 8003,
+                "listening_host": "server",
+            }
+        )
+
+        for client_info in prepared_clients:
+            safe_client_name = client_info["name"]
+            ip = client_info["ip"]
+            center_org_name = client_info["org"]
+
+            if server_ip and ip == server_ip:
+                local_client_names.append(safe_client_name)
+
+            mapped_server = "server"
+
             participants.append(
                 {
                     "name": safe_client_name,
                     "type": "client",
-                    "org": "nvidia",
+                    "org": center_org_name,
                     "listening_host": ip,
                 }
             )
+            client_server_map[safe_client_name] = mapped_server
 
-    # Add the project administrator account
-    participants.append(
-        {
-            "name": "admin@nvidia.com",
-            "type": "admin",
-            "org": "nvidia",
-            "role": "project_admin",
-        }
-    )
+            admin_name = f"admin-{safe_client_name}@nvidia.com"
+            participants.append(
+                {
+                    "name": admin_name,
+                    "type": "admin",
+                    "org": center_org_name,
+                    "role": "project_admin",
+                }
+            )
+            client_admin_map[safe_client_name] = admin_name
+
+    if local_test:
+        # Keep a single admin identity for local development mode.
+        participants.append(
+            {
+                "name": "admin@nvidia.com",
+                "type": "admin",
+                "org": "nvidia",
+                "role": "project_admin",
+            }
+        )
 
     # 3. Generate project.yml content using safe_dump to prevent injection
     project_name_safe = slugify(network.project.title).replace("-", "_")
@@ -166,17 +238,12 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
                 "path": "nvflare.lighter.impl.docker.DockerBuilder",
                 "args": {
                     "base_image": "python:3.12-slim",
-                    "requirements_file": "docker_compose_requirements.txt",
+                    "requirements_file": "runtime_requirements.txt",
                 },
             },
             {
                 "path": "nvflare.lighter.impl.static_file.StaticFileBuilder",
-                "args": {
-                    "overseer_agent": {
-                        "path": "nvflare.ha.overseer_agent.HttpOverseerAgent",
-                        "overseer_exists": True,
-                    }
-                },
+                "args": {},
             },
             {"path": "nvflare.lighter.impl.cert.CertBuilder"},
             {"path": "nvflare.lighter.impl.signature.SignatureBuilder"},
@@ -190,52 +257,71 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
     # 4. Handle Python Requirements
     # We create a requirements file that DockerBuilder will inject into images
     req_file_path = os.path.join(
-        provision_dir, "docker_compose_requirements.txt"
+        provision_dir, "runtime_requirements.txt"
     )
     with open(req_file_path, "w") as rf:
         # Basic requirements for all participants
-        rf.write("nvflare==2.6.1\n")
-        rf.write("gunicorn\n")
-        rf.write("boto3\n")
-        rf.write("python-dotenv\n")
+        rf.write("nvflare==2.7.1\n")
+        rf.write("gunicorn==23.0.0\n")
+        rf.write("boto3==1.34.100\n")
+        rf.write("python-dotenv==1.0.1\n")
+        rf.write("pandas==2.3.3\n")
+        rf.write("numpy<2.0.0\n")
+        rf.write("torch==2.9.0\n")
+        rf.write("scikit-learn==1.8.0\n")
+        rf.write("fsspec==2025.2.0\n")
+        rf.write("aiohttp==3.11.13\n")
 
-        # If the project has a custom requirements file in S3, download and append it
+        # Collect additional requirements from supported sources in S3.
+        # Source 1: project.requirements_file (explicit upload in Project settings)
+        # Source 2: <project_id>/code/training/requirements.txt (training code bundle)
+        s3_client = get_s3_client()
+        bucket = settings.AWS_STORAGE_BUCKET_NAME
+        requirement_sources = []
+
         if network.project.requirements_file:
-            try:
-                s3_client = get_s3_client()
-                bucket = settings.AWS_STORAGE_BUCKET_NAME
-                key = network.project.requirements_file.name
+            requirement_sources.append(network.project.requirements_file.name)
 
+        training_requirements_key = (
+            f"{network.project.identifier}/code/training/requirements.txt"
+        )
+        if training_requirements_key not in requirement_sources:
+            requirement_sources.append(training_requirements_key)
+
+        safe_lines = []
+        seen_requirements = set()
+        for key in requirement_sources:
+            try:
                 logger.network.info(
                     f"Downloading custom requirements from {key}"
                 )
                 response = s3_client.get_object(Bucket=bucket, Key=key)
                 custom_reqs = response["Body"].read().decode("utf-8")
 
-                # Basic Sanitization: Only allow alphanumeric, underscores, hyphens, and version specifiers
-                safe_lines = []
                 for line in custom_reqs.splitlines():
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
-                    # Match basic package name and version: e.g. pandas==1.2.3, torch>=2.0
                     if re.match(
                         r"^[a-zA-Z0-9_\-\[\]]+([=<>!~]+[a-zA-Z0-9\._\-\*\,]+)?$",
                         line,
                     ):
-                        safe_lines.append(line)
+                        normalized = line.lower()
+                        if normalized not in seen_requirements:
+                            safe_lines.append(line)
+                            seen_requirements.add(normalized)
                     else:
                         logger.network.warning(
                             f"Skipping potentially unsafe requirement line: {line}"
                         )
-
-                if safe_lines:
-                    rf.write("\n# Project specific requirements (sanitized)\n")
-                    rf.write("\n".join(safe_lines) + "\n")
             except Exception as e:
-                logger.network.warning(
-                    f"Could not fetch custom requirements: {e}"
+                logger.network.info(
+                    f"No readable requirements at {key}: {e}"
                 )
+
+        if safe_lines:
+            rf.write("\n# Project specific requirements (sanitized)\n")
+            rf.write("\n".join(safe_lines) + "\n")
 
     # 5. Run NVFlare Provisioning
     try:
@@ -251,21 +337,107 @@ def generate_flare_startup_kit(network_id, local_test=False, clients=None):
         ]
 
         # Execute the lighter tool to generate certificates and startup kits
-        subprocess.run(  # nosec B603
+        result = subprocess.run(  # nosec B603
             command,
             cwd=provision_dir,
             capture_output=True,
             text=True,
             check=True,
         )
+
+        # Verify the output directory was created
+        base_prod_path = (
+            Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
+        )
+
+        if not base_prod_path.exists():
+            logger.network.error(
+                f"Provisioning completed with exit code 0 but 'prod_00' is missing.\n"
+                f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+            )
+            network.status = "ERROR"
+            network.save()
+            return
+
         logger.network.info("Provisioning completed successfully")
+
+        # Prepare global participant metadata for distribution in startup kits
+        all_client_names = [c["name"] for c in prepared_clients]
+        all_participants_meta = {
+            "clients": all_client_names,
+            "server": "server",
+            "project": project_name_safe,
+        }
+
+        if not local_test:
+            try:
+                if client_admin_map:
+                    (base_prod_path / ".client_admin_map.json").write_text(
+                        json.dumps(client_admin_map)
+                    )
+
+                if client_server_map:
+                    (base_prod_path / ".client_server_map.json").write_text(
+                        json.dumps(client_server_map)
+                    )
+
+                if local_client_names:
+                    (base_prod_path / ".local_client_names.json").write_text(
+                        json.dumps(sorted(set(local_client_names)))
+                    )
+            except Exception as e:
+                logger.network.warning(
+                    f"Failed to persist HA startup distribution metadata: {e}"
+                )
+
+        # Distribute participant metadata into every startup kit
+        try:
+            for item in os.scandir(str(base_prod_path)):
+                if not item.is_dir(): continue
+                startup_dir = Path(item.path) / "startup"
+                if startup_dir.exists():
+                    (startup_dir / ".all_participants.json").write_text(
+                        json.dumps(all_participants_meta, indent=2)
+                    )
+        except Exception as e:
+            logger.network.warning(f"Failed to distribute participant metadata: {e}")
+
+        if server_ip and is_valid_ip(server_ip):
+            base_prod_path = (
+                Path(provision_dir) / "workspace" / project_name_safe / "prod_00"
+            )
+
+            # Write server host metadata into all kits (client, admin, server)
+            # for containerized runtime host mapping and Admin API routing.
+            try:
+                server_aliases = list(client_server_map.values())
+                for item in os.scandir(str(base_prod_path)):
+                    if not item.is_dir():
+                        continue
+                    
+                    startup_dir = Path(item.path) / "startup"
+                    if startup_dir.exists():
+                        (startup_dir / "server_host.txt").write_text(server_ip)
+                        
+                        # Client kits also get server aliases for docker-compose host mapping
+                        if item.name != "server" and not item.name.startswith("server") and "admin" not in item.name:
+                            if server_aliases:
+                                (startup_dir / "server_aliases.txt").write_text(
+                                    "\n".join(server_aliases) + "\n"
+                                )
+            except Exception as e:
+                logger.network.warning(
+                    f"Failed to write server_host.txt into kits: {e}"
+                )
 
         # Update network status in the database
         network.status = "PROVISIONED"
         network.save()
 
     except subprocess.CalledProcessError as e:
-        logger.network.error(f"NVFlare provision failed: {e.stderr}")
+        logger.network.error(
+            f"NVFlare provision failed (Exit {e.returncode}):\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}"
+        )
         network.status = "ERROR"
         network.save()
     except Exception as e:

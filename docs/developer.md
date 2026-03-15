@@ -241,55 +241,45 @@ Your custom training code is executed within the NVIDIA FLARE framework. To faci
 
 ### The `flare_adapter` Module
 
-This module provides a set of helper functions to handle the communication with the FLARE server. You should include this adapter in your project upload.
+This module provides a simplified, streaming interface to handle communication with the FLARE server and access project data.
 
-*   `init_flare()`: Initializes the FLARE client. This should be called at the beginning of your script.
-*   `get_data(dataset_path)`: A placeholder function for loading your data. You should customize this function to load your specific dataset.
-*   `receive_model(model)`: Receives the global model from the FLARE server and loads its weights into your local model.
-*   `send_model(model, metrics)`: Sends your updated local model and any relevant metrics back to the FLARE server.
-
-!!! danger "Important"
-    Please name your main training script `train.py` so that the platform can recognize it.
-
-    Also make sure to include the `requirements.txt` in your project upload.
+*   `init_flare()`: Initializes the FLARE client.
+*   `get_data_filesystem(project_id)`: Returns a virtual filesystem object (`fs`) for streaming data.
+    *   `fs.ls(path)`: Lists available files.
+    *   `fs.glob(pattern)`: Finds files using pattern matching (e.g., `*.csv`).
+    *   `fs.open(path)`: Returns a file-like object for streaming (compatible with Pandas, PyTorch, etc.).
+*   `receive_model()`: Receives the latest global model from the server.
+*   `send_model(params, metrics)`: Sends your updated local model and metrics back to the server.
 
 ??? example "Example Training Script"
-    ```python title="train.py" linenums="1"
+    ```python title="train.py"
     import torch
+    import pandas as pd
     import flare_adapter
 
-    # 1. Initialize the FLARE client
     flare_adapter.init_flare()
 
-    # 2. Define your model architecture
-    #    This should match the architecture used by all participants.
-    model = torch.nn.Linear(10, 1)
+    # 1. Access the streaming filesystem
+    with flare_adapter.get_data_filesystem(project_id) as fs:
+        
+        # 2. Stream data directly into your favorite library
+        with fs.open("data/train.csv") as f:
+            df = pd.read_csv(f)
 
-    # 3. Receive the initial global model from the server
-    input_model = flare_adapter.receive_model(model)
-
-    # 4. Load your training data
-    #    Customize the get_data() function in the adapter or implement your own loading logic.
-    train_loader = flare_adapter.get_data()
-
-    # 5. Your local training loop
-    #    Perform one or more epochs of training on your local data.
-    for epoch in range(5):
-        # ... your training logic here ...
-        # Example:
-        # for data, target in train_loader:
-        #     optimizer.zero_grad()
-        #     output = model(data)
-        #     loss = criterion(output, target)
-        #     loss.backward()
-        #     optimizer.step()
-        pass
-
-    # 6. Send the updated model back to the server
-    #    You can also include metrics like the loss value.
-    flare_adapter.send_model(model, metrics={"loss": 0.5})
-
-    print("Training round completed.")
+        # 3. Standard Training Loop
+        model = torch.nn.Linear(df.shape[1], 1)
+        
+        while True:
+            input_model = flare_adapter.receive_model()
+            if not input_model: break
+            
+            # Load weights
+            model.load_state_dict(flare_adapter.get_pytorch_state_dict(input_model.params))
+            
+            # ... Train ...
+            
+            # 4. Send updates back
+            flare_adapter.send_model(model.state_dict(), metrics={"loss": 0.1})
     ```
 
         ```bash title="requirements.txt"
@@ -324,16 +314,13 @@ This module provides a set of helper functions to handle the communication with 
 
     1.  Open `Dockerfile.sandbox` in the project root.
 
-    2.  Add the desired packages to the `RUN pip install` command.
+    2.  Add the desired packages to the `RUN uv pip install` command.
 
-    3.  Rebuild and restart the containers:
+    3.  Rebuild and restart the sandbox container:
 
         ```bash
-
-        docker compose build sandbox-dind
-
-        docker compose up -d sandbox-dind
-
+        make sandbox-build
+        make sandbox-up
         ```
 
     

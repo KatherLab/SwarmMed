@@ -9,7 +9,7 @@ readme_am: |
   client.key
   fl_admin.sh
   
-  Please install the nvflare package by 'python3 -m pip nvflare.'  This will install a set of Python codes
+  Please install the nvflare package by running 'uv pip install nvflare'. This will install a set of Python codes
   in your environment.  After installation, you can run the fl_admin.sh file to start communicating to the admin server.
 
   The rootCA.pem file is pointed by "ca_cert" in fl_admin.sh.  If you plan to move/copy it to a different place,
@@ -63,15 +63,6 @@ readme_fs: |
 
   Please always safeguard the server.key.
 
-gunicorn_conf_py: |
-  bind="0.0.0.0:{~~port~~}"
-  cert_reqs=2
-  do_handshake_on_connect=True
-  timeout=30
-  worker_class="nvflare.ha.overseer.worker.ClientAuthWorker"
-  workers=1
-  wsgi_app="nvflare.ha.overseer.overseer:app"
-
 local_client_resources: |
   {
     "format_version": 2,
@@ -112,12 +103,9 @@ fed_client: |
       "ssl_root_cert": "rootCA.pem"
     },
     "overseer_agent": {
-        "path": "nvflare.ha.overseer_agent.HttpOverseerAgent",
+      "path": "nvflare.ha.dummy_overseer_agent.DummyOverseerAgent",
         "args": {
-            "overseer_end_point": "https://overseer:8443",
-            "project": "{~~project_name~~}",
-            "name": "{~~client_name~~}",
-            "role": "client"
+        "sp_end_point": "server:8002"
         }
     }
   }
@@ -187,7 +175,7 @@ local_server_resources: |
           {
               "admin_storage": "transfer",
               "max_num_clients": 100,
-              "heart_beat_timeout": 600,
+              "heart_beat_timeout": 30,
               "num_server_workers": 4,
               "download_job_url": "http://download.server.com/",
               "compression": "Gzip"
@@ -234,24 +222,22 @@ fed_server: |
     "format_version": 2,
     "servers": [
         {
-            "name": "spleen_segmentation",
+      "name": "{~~server_name~~}",
             "service": {
-                "target": "server:8002"
+        "target": "{~~server_name~~}:{~~fed_learn_port~~}"
             },
             "admin_host": "0.0.0.0",
-            "admin_port": 8003,
+      "admin_port": {~~admin_port~~},
+            "heart_beat_timeout": 30,
             "ssl_private_key": "server.key",
             "ssl_cert": "server.crt",
             "ssl_root_cert": "rootCA.pem"
         }
     ],
     "overseer_agent": {
-        "path": "nvflare.ha.overseer_agent.HttpOverseerAgent",
+        "path": "nvflare.ha.dummy_overseer_agent.DummyOverseerAgent",
         "args": {
-            "overseer_end_point": "https://overseer:8443",
-            "project": "{~~project_name~~}",
-            "name": "server",
-            "role": "server"
+            "sp_end_point": "{~~server_name~~}:{~~fed_learn_port~~}"
         }
     }
   }
@@ -375,11 +361,6 @@ log_config: |
 
   [formatter_fullFormatter]
   format=%(asctime)s - %(name)s - %(levelname)s - %(message)s
-
-start_ovsr_sh: |
-  #!/usr/bin/env bash
-  DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-  NVFL_OVERSEER_HEARTBEAT_TIMEOUT=10 AUTHZ_FILE=$DIR/privilege.yml gunicorn -c $DIR/gunicorn.conf.py --keyfile $DIR/overseer.key --certfile $DIR/overseer.crt --ca-certs $DIR/rootCA.pem
 
 start_cln_sh: |
   #!/usr/bin/env bash
@@ -667,7 +648,7 @@ docker_cln_sh: |
   # before running docker.sh
 
   # for all gpus use line below 
-  #GPU2USE='--gpus=all'
+  GPU2USE='--gpus=all'
   # for 2 gpus use line below
   #GPU2USE='--gpus=2' 
   # for specific gpus as gpu#0 and gpu#2 use line below
@@ -681,12 +662,12 @@ docker_cln_sh: |
   mode="${1:--r}"
   if [ $mode = "-d" ]
   then
-    docker run -d --rm --name={~~client_name~~} $GPU2USE -u $(id -u):$(id -g) \
+    docker run -d --rm --name={~~client_name~~} --shm-size 10.24gb $GPU2USE -u $(id -u):$(id -g) \
     -v /etc/passwd:/etc/passwd -v /etc/group:/etc/group -v $DIR/..:/workspace/ \
     -v $MY_DATA_DIR:/data/:ro -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE \
     /bin/bash -c "python -u -m nvflare.private.fed.app.client.client_train -m /workspace -s fed_client.json --set uid={~~client_name~~} secure_train=true config_folder=config org={~~org_name~~}"
   else
-    docker run --rm -it --name={~~client_name~~} $GPU2USE -u $(id -u):$(id -g) \
+    docker run --rm -it --name={~~client_name~~} --shm-size 10.24gb $GPU2USE -u $(id -u):$(id -g) \
     -v /etc/passwd:/etc/passwd -v /etc/group:/etc/group -v $DIR/..:/workspace/ \
     -v $MY_DATA_DIR:/data/:ro -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE /bin/bash
   fi
@@ -705,11 +686,11 @@ docker_svr_sh: |
   mode="${1:-r}"
   if [ $mode = "-d" ]
   then
-    docker run -d --rm --name=$svr_name -v $DIR/..:/workspace/ -w /workspace \
+    docker run -d --rm --name=$svr_name --shm-size 10.24gb -v $DIR/..:/workspace/ -w /workspace \
     --ipc=host $NETARG $DOCKER_IMAGE /bin/bash -c \
     "python -u -m nvflare.private.fed.app.server.server_train -m /workspace -s fed_server.json --set secure_train=true config_folder=config org={~~org_name~~}"
   else
-    docker run --rm -it --name=$svr_name -v $DIR/..:/workspace/ -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE /bin/bash
+    docker run --rm -it --name=$svr_name --shm-size 10.24gb -v $DIR/..:/workspace/ -w /workspace/ --ipc=host $NETARG $DOCKER_IMAGE /bin/bash
   fi
 
 docker_adm_sh: |
@@ -728,20 +709,12 @@ docker_adm_sh: |
   # NOTE: This compose file uses named volumes to avoid issues with Docker for Mac file sharing.
   # This means that the workspace data is not directly accessible from the host.
   services:
-    __overseer__:
-      build: ./nvflare
-      image: ${IMAGE_NAME}
-      volumes:
-        - ./overseer:/workspace
-      command: ["/workspace/startup/start.sh"]
-      ports:
-        - "8443:8443"
-
     __flserver__:
       image: ${IMAGE_NAME}
+      shm_size: '10.24gb'
       ports:
-        - "8002:8002"
-        - "8003:8003"
+        - "{~~fed_learn_port~~}:{~~fed_learn_port~~}"
+        - "{~~admin_port~~}:{~~admin_port~~}"
       volumes:
         - ./server:/workspace
         - nvflare_svc_persist:/tmp/nvflare/
@@ -768,8 +741,11 @@ docker_adm_sh: |
 
     __flclient__:
       image: ${IMAGE_NAME}
+      shm_size: '10.24gb'
       volumes:
         - ./fl-client:/workspace
+      extra_hosts:
+        - "server:${SERVER_IP}"
       deploy:
         resources:
           reservations:
@@ -795,30 +771,19 @@ docker_adm_sh: |
   volumes:
     nvflare_svc_persist:
 dockerfile: |
-  RUN pip install -U pip
-  RUN pip install "nvflare==2.6.1"
+  ENV PATH="/root/.local/bin:${PATH}"
+  RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+  RUN uv pip install -U pip
+  RUN uv pip install "nvflare==2.7.1"
   COPY requirements.txt requirements.txt
-  RUN pip install -r requirements.txt
+  RUN uv pip sync requirements.txt
 helm_chart_chart: |
   apiVersion: v2
   name: nvflare
-  description: A Helm chart for NVFlare overseer and servers
+  description: A Helm chart for NVFlare servers
   type: application
   version: 0.1.0
-  appVersion: "2.6.1"
-
-helm_chart_service_overseer: |
-  apiVersion: v1
-  kind: Service
-  metadata:
-    name: overseer
-  spec:
-    selector:
-      system: overseer
-    ports:
-      - protocol: TCP
-        port: 8443
-        targetPort: overseer-port
+  appVersion: "2.7.1"
 
 helm_chart_service_server: |
   apiVersion: v1
@@ -840,40 +805,6 @@ helm_chart_service_server: |
         port: 8003
         targetPort: admin-port
 
-helm_chart_deployment_overseer: |
-  apiVersion: apps/v1
-  kind: Deployment
-  metadata:
-    name: overseer
-    labels:
-      system: overseer
-  spec:
-    replicas: 1
-    selector:
-      matchLabels:
-        system: overseer
-    template:
-      metadata:
-        labels:
-          system: overseer
-      spec:
-        volumes:
-          - name: workspace
-            hostPath:
-              path:
-              type: Directory
-        containers:
-          - name: overseer
-            image: nvflare-min:2.6.1
-            imagePullPolicy: IfNotPresent
-            volumeMounts:
-              - name: workspace
-                mountPath: /workspace
-            command: ["/workspace/overseer/startup/start.sh"]
-            ports:
-              - name: overseer-port
-                containerPort: 8443
-                protocol: TCP
 helm_chart_deployment_server: |
   apiVersion: apps/v1
   kind: Deployment
@@ -902,7 +833,7 @@ helm_chart_deployment_server: |
               type: Directory
         containers:
           - name: server1
-            image: nvflare-min:2.6.1
+            image: nvflare-min:2.7.1
             imagePullPolicy: IfNotPresent
             volumeMounts:
               - name: workspace
@@ -1221,7 +1152,7 @@ azure_start_svr_sh: |
       --command-id RunShellScript \
       --name $VM_NAME \
       --scripts \
-      "echo ${DEST_FOLDER} && wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && python3 -m pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
+      "echo ${DEST_FOLDER} && curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=/root/.local/bin:${PATH} && uv pip install --upgrade pip && uv pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
     report_status "$?" "installing packages"
   fi
   echo "System was provisioned"
@@ -1397,7 +1328,7 @@ azure_start_cln_sh: |
       --command-id RunShellScript \
       --name $VM_NAME \
       --scripts \
-      "echo ${DEST_FOLDER} && wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && python3 -m pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
+      "echo ${DEST_FOLDER} && curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=/root/.local/bin:${PATH} && uv pip install --upgrade pip && uv pip install --ignore-installed nvflare && touch ${DEST_FOLDER}/startup/requirements.txt && uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && ${DEST_FOLDER}/startup/start.sh && sleep 20 && cat ${DEST_FOLDER}/log.txt" > /tmp/vm_create.json
     report_status "$?" "installing packages"
   fi
   echo "System was provisioned"
@@ -1531,7 +1462,7 @@ azure_start_dsb_sh: |
     --command-id RunShellScript \
     --name $VM_NAME \
     --scripts \
-    "echo ${DEST_FOLDER} && wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && python3 -m pip install --ignore-installed {~~NVFLARE~~} && mkdir -p ${DEST_FOLDER}/cert && chown -R ${ADMIN_USERNAME} ${DEST_FOLDER}" > /tmp/nvflare.json
+    "echo ${DEST_FOLDER} && curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=/root/.local/bin:${PATH} && uv pip install --upgrade pip && uv pip install --ignore-installed {~~NVFLARE~~} && mkdir -p ${DEST_FOLDER}/cert && chown -R ${ADMIN_USERNAME} ${DEST_FOLDER}" > /tmp/nvflare.json
   report_status "$?" "installing nvflare"
 
   echo "Checking if certificate (web.crt) and private key (web.key) are available"
@@ -1610,9 +1541,9 @@ adm_notebook: |
     },
     "outputs": [],
     "source": [
-      "# Run this pip install if NVFlare is not installed in your Jupyter Notebook\n",
+      "# Run this uv pip install if NVFlare is not installed in your Jupyter Notebook\n",
       "\n",
-      "# !python3 -m pip install -U nvflare"
+      "# !uv pip install -U nvflare"
     ]
     },
     {
@@ -1808,10 +1739,12 @@ aws_start_svr_sh: |
     report_status "$?" "launching container"
   else
     ssh -f -i $KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${DEST_SITE} \
-    "pwd && wget -q https://bootstrap.pypa.io/get-pip.py && \
-    python3 get-pip.py && python3 -m pip install nvflare && \
+    "pwd && curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH=/root/.local/bin:${PATH} && \
+    uv pip install --upgrade pip && \
+    uv pip install nvflare && \
     touch ${DEST_FOLDER}/startup/requirements.txt && \
-    python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
+    uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
     nohup ${DEST_FOLDER}/startup/start.sh && sleep 20 && \
     exit" > /tmp/nvflare.log 2>&1 
     report_status "$?" "installing packages"
@@ -1944,10 +1877,12 @@ aws_start_cln_sh: |
   else
     echo "Installing packages in $VM_NAME, may take a few minutes."
     ssh -f -i $KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${DEST_SITE} \
-    "pwd && wget -q https://bootstrap.pypa.io/get-pip.py && \
-    python3 get-pip.py && python3 -m pip install nvflare && \
+    "pwd && curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH=/root/.local/bin:${PATH} && \
+    uv pip install --upgrade pip && \
+    uv pip install nvflare && \
     touch ${DEST_FOLDER}/startup/requirements.txt && \
-    python3 -m pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
+    uv pip install -r ${DEST_FOLDER}/startup/requirements.txt && \
     nohup ${DEST_FOLDER}/startup/start.sh && sleep 20 && \
     exit" > /tmp/nvflare.log 2>&1 
 
@@ -2048,8 +1983,10 @@ aws_start_dsb_sh: |
   echo "Installing nvflare in $VM_NAME, may take a few minutes."
   ssh -i $KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${DEST_SITE} \
     "export PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin && \
-    wget -q https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && \
-    python3 -m pip install {~~NVFLARE~~} && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH=/home/ubuntu/.local/bin:${PATH} && \
+    uv pip install --upgrade pip && \
+    uv pip install {~~NVFLARE~~} && \
     mkdir -p ./cert && \
     exit" > /tmp/nvflare.json
   report_status "$?" "installing nvflare"

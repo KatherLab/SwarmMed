@@ -1,15 +1,17 @@
 """
 Data FileSystem Utilities.
 Provides a virtual filesystem layer that bridges Django's S3 storage
-with local script execution, handling on-demand downloads and cleanup.
+with local script execution, handling streaming and manifest generation.
 """
 
-import concurrent.futures
+import json
 import os
 import shutil
 import tempfile
+from typing import List
 
-from django.core.files.storage import default_storage
+import fsspec
+from django.conf import settings
 from logs import logger
 
 from .utils import list_s3_folder
@@ -17,209 +19,80 @@ from .utils import list_s3_folder
 
 class DataFileSystem:
     """
-    A virtual filesystem that provides file-like access to data stored in S3.
-    It downloads files on-demand to a local temporary directory so that
-    libraries like Pandas can read them as standard local files.
+    A streaming virtual filesystem powered by fsspec.
+    Allows sandboxed scripts to stream data directly from MinIO via presigned URLs.
     """
 
     def __init__(self, project_uuid: str):
-        """
-        Initialize the filesystem for a specific project.
-        """
-        from django.conf import settings
-
         self.project_uuid = project_uuid
-        # The base path in S3 for this project's data
         self.root_path = f"{project_uuid}/data/"
-        # Use a project-local temporary directory so it can be mounted by Docker
-        self.temp_dir = tempfile.mkdtemp(
-            prefix=f"validation_{project_uuid}_", dir=settings.PROJECT_TEMP_DIR
-        )
-        # Cache of files already downloaded to avoid redundant network calls
-        self._downloaded_files: dict[str, str] = {}
         self.log = logger.get_logger()
+        
+        # Manifest for the sandbox to use fsspec
+        self.manifest = {}
+        
+        # Temp dir only for script files/plots, not for data storage
+        self.temp_dir = tempfile.mkdtemp(
+            prefix=f"data_{project_uuid}_", dir=settings.PROJECT_TEMP_DIR
+        )
 
     def __enter__(self):
-        """Allows usage as a context manager: 'with DataFileSystem(...) as fs:'"""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Automatically cleans up temporary files when the context finishes."""
-        if exc_type:
-            self.log.data.error(
-                f"DataFileSystem context exited with error: {str(exc_val)}"
-            )
         self.cleanup()
 
     def cleanup(self):
-        """
-        Removes the local temporary directory and all downloaded files.
-        """
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
-    def _ensure_file_downloaded(self, relative_path: str) -> str:
+    def build_manifest(self) -> dict:
         """
-        Checks if a file exists locally; if not, downloads it from S3.
-        Returns the absolute local path to the file.
+        Builds a manifest of file names to internal presigned URLs.
         """
-        # Security: Sanitize path to prevent traversal
-        # 1. Remove leading slashes and redundant dots
-        clean_rel_path = os.path.normpath(relative_path).lstrip(
-            os.path.sep + (os.path.altsep or "")
-        )
+        from common.utils import get_internal_s3_download_url, get_s3_client
+        
+        s3 = get_s3_client()
+        paginator = s3.get_paginator("list_objects_v2")
+        
+        manifest = {}
+        for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=self.root_path):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key")
+                if not key or key.endswith("/"):
+                    continue
+                
+                # Filter hidden files
+                if any(part.startswith(".") for part in key.split("/")):
+                    continue
+                
+                rel_path = key[len(self.root_path) :]
+                # Generate a long-lived internal URL for the duration of the sandbox run
+                manifest[rel_path] = get_internal_s3_download_url(key, expires=3600)
+        
+        self.manifest = manifest
+        return manifest
 
-        # 2. Prevent escaping the temp directory
-        if clean_rel_path.startswith("..") or os.path.isabs(clean_rel_path):
-            self.log.data.warning(
-                f"Blocked path traversal attempt in DataFileSystem: {relative_path}"
-            )
-            raise ValueError(f"Invalid relative path: {relative_path}")
-
-        if clean_rel_path in self._downloaded_files:
-            # HIPAA Compliance: Log access to specific PHI file even on cache hit
-            self.log.access.info(
-                f"Accessed PHI file (cached): {clean_rel_path}"
-            )
-            return self._downloaded_files[clean_rel_path]
-
-        # The full key in S3
-        s3_key = f"{self.root_path}{clean_rel_path}"
-
-        # The full path on the local machine
-        local_path = os.path.join(self.temp_dir, clean_rel_path)
-
-        # Ensure the local subdirectories exist
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-
-        # Download the file from S3 to the local path
-        try:
-            with default_storage.open(s3_key, "rb") as s3_file:
-                with open(local_path, "wb") as local_file:
-                    # Use a larger buffer to improve throughput for large datasets.
-                    shutil.copyfileobj(s3_file, local_file, length=1024 * 1024)
-
-            self._downloaded_files[clean_rel_path] = local_path
-
-            # HIPAA Compliance: Log access to specific PHI file
-            self.log.access.info(
-                f"Accessed PHI file (downloaded): {clean_rel_path}"
-            )
-
-            return local_path
-        except Exception as e:
-            self.log.data.error(
-                f"Failed to download file {clean_rel_path}: {str(e)}"
-            )
-            raise FileNotFoundError(
-                f"Could not download file {clean_rel_path}: {str(e)}"
-            ) from e
-
-    def open(self, relative_path: str, mode: str = "r", **kwargs):
-        """
-        Opens a file from S3 as if it were local.
-        Downloads the file first if necessary.
-        """
-        local_path = self._ensure_file_downloaded(relative_path)
-        return open(local_path, mode, **kwargs)
-
-    def exists(self, relative_path: str) -> bool:
-        """
-        Checks if a specific file exists in the project's S3 data directory.
-        """
-        s3_key = f"{self.root_path}{relative_path}"
-        return default_storage.exists(s3_key)
+    def save_manifest(self, path: str):
+        """Saves the manifest to a JSON file for the sandbox helper."""
+        with open(path, "w") as f:
+            json.dump(self.manifest, f, indent=2)
 
     def listdir(self, relative_path: str = "") -> list[str]:
-        """
-        Lists files and subdirectories in the given relative path.
-        Returns names ending in '/' for directories.
-        """
+        """Lists files and subdirectories from S3 (metadata only)."""
         prefix = f"{self.root_path}{relative_path}"
         if prefix and not prefix.endswith("/"):
             prefix += "/"
 
         folders, files = list_s3_folder(prefix)
-
         items = []
-
-        # Add subfolders, removing the long S3 prefix for the user
         for folder in folders:
-            folder_name = folder[len(prefix):].rstrip("/")
-            if folder_name:
-                items.append(folder_name + "/")
-
-        # Add filenames, removing the long S3 prefix
+            name = folder[len(prefix):].rstrip("/")
+            if name: items.append(name + "/")
         for file in files:
-            file_name = file[len(prefix):]
-            if file_name:
-                items.append(file_name)
-
+            name = file[len(prefix):]
+            if name: items.append(name)
         return items
-
-    def get_path(self, relative_path: str) -> str:
-        """
-        Returns the local filesystem path for a file.
-        Forces a download if the file isn't local yet.
-        """
-        return self._ensure_file_downloaded(relative_path)
-
-    def download_all(self):
-        """
-        Recursively downloads ALL files from the project's S3 data directory
-        to the local temporary directory using parallel threads.
-        """
-        from common.utils import get_s3_client
-        from django.conf import settings
-
-        s3 = get_s3_client()
-        paginator = s3.get_paginator("list_objects_v2")
-
-        self.log.data.info(
-            f"Starting full data download for project {self.project_uuid}..."
-        )
-
-        # 1. Collect all files to download first
-        files_to_download = []
-        for page in paginator.paginate(
-            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=self.root_path
-        ):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if key.endswith("/"):
-                    continue
-
-                # Check for hidden files or directories (e.g. .DS_Store, .ipynb_checkpoints)
-                # We check if any segment of the path starts with '.'
-                if any(part.startswith(".") for part in key.split("/")):
-                    continue
-
-                # Calculate relative path within the data directory
-                rel_path = key[len(self.root_path) :]
-                files_to_download.append(rel_path)
-
-        # 2. Download in parallel
-        count = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            # Map the download function to the files
-            future_to_file = {
-                executor.submit(
-                    self._ensure_file_downloaded, rel_path
-                ): rel_path
-                for rel_path in files_to_download
-            }
-
-            for future in concurrent.futures.as_completed(future_to_file):
-                rel_path = future_to_file[future]
-                try:
-                    future.result()
-                    count += 1
-                except Exception as e:
-                    self.log.data.warning(
-                        f"Failed to download {rel_path} during sync: {e}"
-                    )
-
-        self.log.data.info(f"Full download complete. Synced {count} files.")
 
 
 class ValidationContext:
@@ -260,10 +133,14 @@ class ValidationContext:
 
     def get_data_path(self, relative_path: str = "") -> str:
         """
-        Returns a local path that libraries like Pandas can use directly.
-        If no path is provided, returns the root temporary directory.
+        Returns a URL or path that can be used to access the data.
+        In streaming mode, this returns the presigned URL from the manifest.
         """
-        if relative_path:
-            return self.filesystem.get_path(relative_path)
-        else:
+        if not relative_path:
             return self.filesystem.temp_dir
+        
+        clean_path = relative_path.lstrip("/")
+        if not self.filesystem.manifest:
+            self.filesystem.build_manifest()
+            
+        return self.filesystem.manifest.get(clean_path, "")

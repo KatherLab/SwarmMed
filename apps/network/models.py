@@ -58,6 +58,79 @@ class SwarmNetwork(AbstractBaseModel):
         db_index=True,
     )
 
+    # Optional path to admin startup kit for decentralized NVFlare polling
+    admin_startup_dir = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+    )
+
+    # NEW: Secure gossip token for peer-to-peer status sync
+    gossip_token = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Shared secret for authenticating gossip status shouts."
+    )
+
+    # NEW: Track how the network was created
+    CREATION_METHOD_CHOICES = [
+        ("CREATED", "Created (locally provisioned)"),
+        ("UPLOADED", "Uploaded (imported)"),
+        ("LOCAL_TEST", "Local Test"),
+    ]
+    creation_method = models.CharField(
+        max_length=20,
+        choices=CREATION_METHOD_CHOICES,
+        default="CREATED",
+        help_text="How this network configuration was initialized."
+    )
+
+    @staticmethod
+    def resolve_current(user) -> 'SwarmNetwork':
+        """
+        Heuristic to find the most relevant network for the user's current project context.
+        Prioritizes:
+        1. User's manually selected network (UserCurrentNetwork).
+        2. Any network in the project that is currently 'RUNNING'.
+        3. The most recently created 'PROVISIONED' network in the project.
+        """
+        from project.models import UserCurrentProject
+        try:
+            current_project_rel = UserCurrentProject.objects.get(user=user)
+            current_project = current_project_rel.project
+            if not current_project:
+                return None
+        except UserCurrentProject.DoesNotExist:
+            return None
+
+        # 1. Check for a manual selection
+        current_network = None
+        try:
+            rel = UserCurrentNetwork.objects.get(user=user)
+            if rel.network and rel.network.project == current_project:
+                current_network = rel.network
+        except UserCurrentNetwork.DoesNotExist:
+            pass
+
+        # 2. If no selection or selection is not RUNNING, look for a RUNNING one
+        if not current_network or current_network.status != "RUNNING":
+            active = SwarmNetwork.objects.filter(
+                project=current_project, status="RUNNING"
+            ).order_by("-created_at").first()
+            if active:
+                return active
+
+        # 3. Fallback to selection or any provisioned network
+        if not current_network or (current_network and current_network.status != "PROVISIONED"):
+            provisioned = SwarmNetwork.objects.filter(
+                project=current_project, status="PROVISIONED"
+            ).order_by("-created_at").first()
+            if provisioned:
+                return provisioned
+
+        return current_network
+
     def __str__(self):
         """Returns a string representation of the network."""
         return f"{self.name} for Project {self.project.title}"
@@ -129,6 +202,16 @@ class SwarmParticipant(models.Model):
         max_length=100,
         help_text="Unique identifier used by FLARE (e.g., 'server', 'client-1')",
     )
+
+    # Organization name
+    org = models.CharField(max_length=255, blank=True, null=True)
+
+    # IP address or hostname
+    ip = models.CharField(max_length=255, blank=True, null=True)
+
+    # NEW: Gossip Status
+    status = models.CharField(max_length=50, default="OFFLINE")
+    last_seen = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # Ensure that participant IDs are unique within a specific network

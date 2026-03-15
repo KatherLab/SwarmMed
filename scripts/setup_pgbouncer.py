@@ -120,11 +120,38 @@ client_tls_ca_file = /etc/pgbouncer/certs/ca.crt
     )
     try:
         subprocess.run(
-            ["docker", "kill", "-s", "HUP", pgbouncer_container], check=True
+            ["docker", "kill", "-s", "HUP", pgbouncer_container],
+            check=True,
+            capture_output=True,
+            text=True,
         )
         print("PgBouncer reloaded.")
     except subprocess.CalledProcessError as e:
-        print(f"Failed to reload PgBouncer: {e}")
+        err_msg = e.stderr.lower() if e.stderr else ""
+        if "permission denied" in err_msg:
+            print("Docker permission denied. Trying with sudo...")
+            try:
+                subprocess.run(
+                    ["sudo", "docker", "kill", "-s", "HUP", pgbouncer_container],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                print("PgBouncer reloaded (via sudo).")
+            except subprocess.CalledProcessError as sudo_e:
+                sudo_err = sudo_e.stderr.lower() if sudo_e.stderr else ""
+                if "no such container" in sudo_err:
+                    print("PgBouncer container not running (skipping reload).")
+                else:
+                    print(
+                        f"Warning: Failed to reload PgBouncer (via sudo): {sudo_e.stderr.strip()}"
+                    )
+        elif "no such container" in err_msg:
+            print("PgBouncer container not running (skipping reload).")
+        else:
+            print(f"Warning: Failed to reload PgBouncer: {e.stderr.strip()}")
+    except FileNotFoundError:
+         print("Docker command not found. Skipping PgBouncer reload.")
 
 
 if __name__ == "__main__":

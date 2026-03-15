@@ -15,13 +15,13 @@ urlpatterns = [
     path("", views.network, name="network"),
     # Form to create a new network configuration
     path("new/", views.new_network, name="new_network"),
-    # Action: Start the docker-compose deployment for a network
+    # Action: Start the containerized deployment for a network
     path(
         "<uuid:network_id>/start/",
         views.start_swarm_network,
         name="start_swarm_network",
     ),
-    # Action: Stop and remove the docker-compose deployment
+    # Action: Stop and remove the containerized deployment
     path(
         "<uuid:network_id>/stop/",
         views.stop_swarm_network,
@@ -50,5 +50,17 @@ urlpatterns = [
         "<uuid:network_id>/status/",
         views.get_swarm_network_status,
         name="get_swarm_network_status",
+    ),
+    # API: Internal endpoint for live participant statuses from server logs
+    path(
+        "api/status/<uuid:network_id>/",
+        views.network_api_status,
+        name="network_api_status",
+    ),
+    # API: Internal endpoint for gossip status sync
+    path(
+        "api/gossip/<uuid:network_id>/",
+        views.network_api_gossip,
+        name="network_api_gossip",
     ),
 ]

@@ -140,12 +140,10 @@ def logs_dashboard(request):
         live_log_count = 0
         if category_key == "training":
             try:
-                from network.models import UserCurrentNetwork
+                from network.models import SwarmNetwork
 
-                # Check if the user has a currently active network
-                user_network = UserCurrentNetwork.objects.get(
-                    user=request.user
-                ).network
+                # Use resolve_current to find the running network for the project
+                user_network = SwarmNetwork.resolve_current(request.user)
 
                 if user_network:
                     # Construct path to the docker-compose file for this
@@ -193,6 +191,11 @@ def logs_dashboard(request):
                                         text=True,
                                         check=False,
                                     )
+                                    if result.returncode != 0:
+                                        stderr_text = (result.stderr or "").strip()
+                                        if "No such container" in stderr_text:
+                                            continue
+
                                     log_output = result.stdout or result.stderr
 
                                     # Convert raw output lines into mock

@@ -4,6 +4,7 @@ Defines the structure for projects, file storage paths, and current project trac
 """
 
 import os
+import secrets
 
 from common.models import AbstractBaseModel
 from django.contrib.auth.models import User
@@ -101,16 +102,28 @@ class Project(AbstractBaseModel):
     # UserCurrentProject).
     is_current = models.BooleanField(default=False)
 
+    # Secure secret for training containers to access project-specific APIs
+    secret = models.CharField(
+        max_length=128,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="Project-specific secret for container authentication.",
+    )
+
     def __str__(self):
         """Returns the project title as its string representation."""
         return self.title
 
     def save(self, *args, **kwargs):
         """
-        Custom save method to handle automatic cleanup of old files.
-        If a user replaces an old file with a new one, we delete the old file
-        from the storage asynchronously to prevent blocking the web request.
+        Custom save method to handle automatic cleanup of old files
+        and generation of project secrets.
         """
+        # Auto-generate secret if not set
+        if not self.secret:
+            self.secret = secrets.token_urlsafe(48)
+
         from .tasks import cleanup_project_files
 
         # If self.pk exists, it means we are updating an existing project.

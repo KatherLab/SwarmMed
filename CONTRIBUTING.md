@@ -15,15 +15,20 @@ This guide will help you get onboarded and explain how to contribute effectively
     cd SwarmCloud
     ```
 3.  **Set up your environment**:
-    - Create a virtual environment: `python -m venv venv`
-    - Activate it: `source venv/bin/activate` (Linux/macOS) or `venv\Scripts\activate` (Windows)
-    - Install dependencies: `pip install -r requirements.txt`
+    - Run `make install` to install uv (if needed) and synchronize the Python dependencies into `.venv`.
     - Install frontend tools: `npm install`
 4.  **Configure environment variables**:
     - Copy `.env.example` to `.env` (if provided) or create one with your DB, Redis, and S3 credentials.
-5.  **Run migrations and start the server**:
-    - `python manage.py migrate`
-    - `python manage.py runserver`
+    - Edit `.env` with your secrets before you bring the services up.
+5.  **Prepare the application stack**:
+    - `make setup` (creates `.env` if needed, runs the PgBouncer helper, and generates TLS material)
+    - `make start` (builds the Docker services and brings the stack online)
+    - Stop the stack when you are done: `make stop`
+6.  **Run migrations and start the server**:
+    - `make migrate` to apply migrations inside the app container
+    - `make shell` or `make test` for interactive work or tests
+
+If you want to work with Django directly (without Docker), continue using `python manage.py ...` as before.
 
 ---
 

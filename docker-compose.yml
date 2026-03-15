@@ -1,9 +1,9 @@
 services:
   app:
     container_name: swarmcloud
-    hostname: swarmcloud # adapt to your organiation name
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 8 --worker-class gthread --access-logfile - --error-logfile - --log-level info --max-requests 1000 --max-requests-jitter 50 core.wsgi:application
     restart: always
+    shm_size: '10.24gb'
     build:
       context: .
     networks:
@@ -35,6 +35,13 @@ services:
       - DOCKER_HOST=tcp://docker-proxy:2375
       - TAILSCALE_STATUS_BASE_URL=http://tailscale-status:9002
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   nginx:
     image: nginx:latest
@@ -66,8 +73,9 @@ services:
 
   celery_worker:
     container_name: celery_worker
-    command: celery -A core worker --loglevel=info --concurrency=8 --prefetch-multiplier=2
+    command: celery -A core worker -B --loglevel=info --concurrency=8 --prefetch-multiplier=2
     restart: always
+    shm_size: '10.24gb'
     build:
       context: .
     networks:
@@ -100,6 +108,13 @@ services:
       - DOCKER_HOST=tcp://docker-proxy:2375
       - TAILSCALE_STATUS_BASE_URL=http://tailscale-status:9002
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   docker-proxy:
     image: tecnativa/docker-socket-proxy:latest
@@ -125,8 +140,10 @@ services:
     container_name: sandbox-dind
     privileged: true
     restart: always
+    shm_size: '10.24gb'
     networks:
       - db_network
+      - sandbox_internal
     environment:
       - DOCKER_TLS_CERTDIR=/certs
       - DOCKER_TLS_SAN=DNS:sandbox-dind
@@ -138,6 +155,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   tailscale-status:
     build:
@@ -243,8 +267,8 @@ services:
       - minio_data:/data
       - ./.secrets/certs/internal/minio_certs:/root/.minio/certs:ro
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "172.17.0.1:9000:9000"
+      - "172.17.0.1:9001:9001"
     env_file:
       - .env
     environment:
@@ -252,6 +276,7 @@ services:
     command: server /data --console-address ":9001"
     networks:
       - db_network
+      - sandbox_internal
 
 
 networks:
@@ -259,6 +284,9 @@ networks:
     driver: bridge
   web_network:
     driver: bridge
+  sandbox_internal:
+    driver: bridge
+    internal: true
 
 volumes:
 
