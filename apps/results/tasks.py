@@ -139,7 +139,10 @@ def run_results_visualization_task(run_id, flare_id):
         run.started_at = timezone.now()
         run.save()
 
-        with ResultsVisualizationContext(str(project.identifier), str(job.identifier), str(run.id)) as context:
+        # Job might be None if visualizing S3-only results
+        job_id_str = str(job.identifier) if job else flare_id
+        
+        with ResultsVisualizationContext(str(project.identifier), job_id_str, str(run.id)) as context:
             # Build manifest for both project data and results data
             manifest = context.filesystem.build_manifest()
             
