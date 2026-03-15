@@ -864,7 +864,11 @@ def new_network(request):
                                 if not p_name: continue
                                 role = "CLIENT"
                                 if p_type == "server": role = "SERVER"
-                                if p_ip.lower() in ["dynamic", "localhost", "127.0.0.1", "server"]: p_ip = "-"
+                                if p_ip.lower() in ["dynamic", "localhost", "127.0.0.1", "server"]:
+                                    if role == "SERVER" and resolved_server_host:
+                                        p_ip = resolved_server_host
+                                    else:
+                                        p_ip = "-"
                                 discovered_participants.append({"name": p_name, "role": role, "ip": p_ip, "org": None})
 
                         # 2. Check for local fed_client name

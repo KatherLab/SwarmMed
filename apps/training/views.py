@@ -740,7 +740,7 @@ def _nvflare_status_payload(current_network):
             username=admin_name, 
             startup_kit_location=admin_dir,
             host=server_ip,
-            timeout=5.0,
+            timeout=15.0,
             network_id=current_network.identifier
         )
         response = sess.api.do_command("list_jobs")
@@ -1443,11 +1443,20 @@ def training_status_api(request):
         logger.training.debug("StatusAPI: No results from docker scraping")
 
     # 1. Mirror state from Server node if we are a client node (Keep as fallback)
-    if not is_server_node and server_node and server_node.ip and server_node.ip != "-":
+    # If server_node.ip is generic/missing, try to fallback to resolved admin target host
+    effective_server_ip = server_node.ip if server_node and server_node.ip and server_node.ip != "-" else ""
+    if not effective_server_ip:
+        admin_target = _resolve_admin_session_target(current_network)
+        if admin_target:
+            _, _, effective_server_ip = admin_target
+
+    if not is_server_node and effective_server_ip and effective_server_ip != "-":
         try:
-            state_url = f"https://{server_node.ip}:5085/training/api/state/{current_network.identifier}/"
+            state_url = f"https://{effective_server_ip}:5085/training/api/state/{current_network.identifier}/"
             logger.training.debug(f"StatusAPI: Attempting to mirror state from server: {state_url}")
-            resp = requests.get(state_url, timeout=2, verify=False)
+            # IMPORTANT: Authenticate mirroring requests using the network's Gossip Token
+            headers = {"X-Gossip-Token": current_network.gossip_token}
+            resp = requests.get(state_url, headers=headers, timeout=15, verify=False)
             if resp.status_code == 200:
                 remote_job = resp.json().get("job")
                 if remote_job:
@@ -1483,7 +1492,16 @@ def training_status_api(request):
         logger.training.debug(f"StatusAPI: NVFlare admin API status: {nvflare_status}")
     
     if nvflare_status and nvflare_status.get("job_id"):
-        status_map = {"RUNNING": "RUNNING", "COMPLETED": "COMPLETED", "STOPPED": "STOPPED", "FAILED": "FAILED"}
+        # Map NVFlare job states to our internal TrainingJob status choices
+        status_map = {
+            "RUNNING": "RUNNING", 
+            "COMPLETED": "COMPLETED", 
+            "STOPPED": "STOPPED", 
+            "FAILED": "FAILED",
+            "SUBMITTED": "STARTING",
+            "APPROVED": "STARTING",
+            "DISPATCHED": "STARTING"
+        }
         status_key = str(nvflare_status.get("status", "")).upper().strip()
         mapped_status = status_map.get(status_key)
         
