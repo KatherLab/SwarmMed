@@ -28,6 +28,7 @@ def get_docker_client(target="host"):
             # Explicitly target the DIND daemon with its TLS certs
             client = docker.DockerClient(
                 base_url="tcp://sandbox-dind:2376",
+                timeout=300,
                 tls=docker.tls.TLSConfig(
                     client_cert=(
                         "/certs/client/cert.pem",

@@ -151,6 +151,15 @@ def run_script_in_sandbox(
             host_run_path: {"bind": "/home/sandboxuser/run", "mode": "rw"},
         }
 
+        # Resolve 'minio' IP to pass to the sandbox container
+        import socket
+        try:
+            minio_ip = socket.gethostbyname("minio")
+            extra_hosts = {"minio": minio_ip}
+        except Exception as e:
+            log.data.warning(f"Could not resolve 'minio' IP for sandbox: {e}")
+            extra_hosts = {}
+
         container = None
         try:
             # Enable GPU if requested and available on the daemon
@@ -180,12 +189,14 @@ def run_script_in_sandbox(
             # We use the 'sandbox_internal' bridge network for isolation.
             # This allows the container to reach the host gateway (for MinIO)
             # without exposing the host network namespace to the user script.
+            # We inject the 'minio' IP via extra_hosts so the sandbox can resolve it.
             container = client.containers.run(
                 image="swarmcloud-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
                 network="sandbox_internal",
+                extra_hosts=extra_hosts,
                 mem_limit="1g",
                 nano_cpus=1000000000,  # 1 CPU
                 shm_size="10.24gb",
