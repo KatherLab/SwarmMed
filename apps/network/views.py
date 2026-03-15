@@ -141,6 +141,8 @@ def _get_local_participant_status(swarm_network):
         logger.network.debug(f"[_get_local_participant_status] Could not list docker containers: {e}")
 
     status_map = {}
+    participant_metrics = {}
+
     for p in participants:
         name = p.participant_id
         role = p.role.lower()
@@ -159,92 +161,138 @@ def _get_local_participant_status(swarm_network):
                         status = "Online"
                 except Exception:
                     if is_me: status = "Online"
+                status_map[name] = status
             else:
                 lname = name.lower()
-                # Joined markers for long-lived training clients
-                joined_markers = [
-                    f"client: new client {lname}@",
-                    f"registered client {lname}",
-                    f"client {lname} connected",
-                    f"received register request from {lname}",
-                    f"starting communication with client {lname}",
-                    f"new client {lname} connected",
-                    f"client: {lname} joined",
-                    f"client {lname} joined",
+                
+                # A. Definitive Join Patterns
+                joined_patterns = [
+                    rf"client: new client {lname}@",
+                    rf"registered client {lname}",
+                    rf"client {lname} connected",
+                    rf"received register request from {lname}",
+                    rf"starting communication with client {lname}",
+                    rf"new client {lname} connected",
+                    rf"client: {lname} joined",
+                    rf"client {lname} joined",
+                    rf"client name:{lname}\s+token:.*joined",
+                    rf"heartbeat from {lname}",
+                    rf"client {lname} is alive",
+                    rf"received heartbeat from {lname}",
                 ]
                 
-                # Check mapping for actual connection activity
-                last_cn_joined_idx = -1
+                # B. Definitive Leave Patterns
+                leave_patterns = [
+                    rf"client {lname} disconnected",
+                    rf"client: {lname} left",
+                    rf"client {lname} left",
+                    rf"removed client {lname}",
+                    rf"missing job on client '{lname}'",
+                    rf"client manager: remove client {lname}",
+                    rf"client manager: removed client {lname}",
+                    rf"disconnected client {lname}",
+                    rf"remove the dead client\. name: {lname}",
+                    rf"client name:{lname}\s+token:.*left",
+                ]
+
+                last_join_idx = -1
+                for pat in joined_patterns:
+                    for m in re.finditer(pat, server_logs):
+                        if m.start() > last_join_idx: last_join_idx = m.start()
+                
+                # Check mapping for actual connection activity (also counts as Join activity)
+                last_cn_created_idx = -1
                 last_cn_closed_idx = -1
                 for cn_id, p_id in conn_map.items():
                     if p_id == lname:
-                        # Find the position of the CREATION event for this CN ID.
-                        for m in re.finditer(
-                            rf"connection \[{re.escape(cn_id)}[^\]]*\] is created",
-                            server_logs,
-                        ):
-                            if m.start() > last_cn_joined_idx:
-                                last_cn_joined_idx = m.start()
-
+                        for m in re.finditer(rf"connection \[{re.escape(cn_id)}[^\]]*\] is created", server_logs):
+                            if m.start() > last_cn_created_idx: last_cn_created_idx = m.start()
+                        
                         cn_closed_at = conn_close_positions.get(cn_id, -1)
-                        if cn_closed_at > last_cn_closed_idx:
-                            last_cn_closed_idx = cn_closed_at
+                        if cn_closed_at > last_cn_closed_idx: last_cn_closed_idx = cn_closed_at
 
-                is_joined = any(marker in server_logs for marker in joined_markers) or (last_cn_joined_idx > -1)
+                last_activity_idx = max(last_join_idx, last_cn_created_idx)
                 
-                if is_joined:
-                    disconnected_markers = [
-                        f"client {lname} disconnected",
-                        f"client: {lname} left",
-                        f"client {lname} left",
-                        f"removed client {lname}",
-                        f"missing job on client '{lname}'",
-                        f"client manager: remove client {lname}",
-                        f"client manager: removed client {lname}",
-                        f"disconnected client {lname}",
-                    ]
-                    
-                    # Find highest indices
-                    idx_joined = last_cn_joined_idx
-                    for m in joined_markers:
-                        idx = server_logs.rfind(m)
-                        if idx > idx_joined: idx_joined = idx
-                    
-                    idx_dis = last_cn_closed_idx
-                    for m in disconnected_markers:
-                        idx = server_logs.rfind(m)
-                        if idx > idx_dis: idx_dis = idx
-                    
-                    # A client is only truly Disconnected if the latest event for them is a disconnect.
-                    if idx_dis > idx_joined and idx_dis > -1:
+                last_leave_idx = -1
+                for pat in leave_patterns:
+                    for m in re.finditer(pat, server_logs):
+                        if m.start() > last_leave_idx: last_leave_idx = m.start()
+
+                # Definitive state
+                if last_activity_idx > -1:
+                    if last_leave_idx > last_activity_idx:
                         status = "Disconnected"
                     else:
                         status = "Joined"
-                
-                # If we don't have server logs (e.g. on a client node) or it shows offline,
-                # check if OUR local container is running.
-                if status == "Offline" and is_me:
-                    try:
-                        from .tasks import _is_container_running, _container_name_for
-                        import shutil
-                        docker_path = shutil.which("docker") or "docker"
-                        env = os.environ.copy()
-                        my_container = _container_name_for(swarm_network.identifier, p.participant_id)
-                        if _is_container_running(docker_path, my_container, env):
-                            status = "Online"
-                        else:
-                            fallback_container = _container_name_for(swarm_network.identifier, "client")
-                            if _is_container_running(docker_path, fallback_container, env):
-                                status = "Online"
-                    except Exception as e:
-                        logger.network.debug(f"[_get_local_participant_status] Error checking local container for {p.participant_id}: {e}")
-        elif swarm_network.status == "STARTING":
-            status = "Starting..."
-        elif swarm_network.status == "ERROR":
-            status = "Error"
+                else:
+                    status = "Offline"
+
+                # Store metrics for global refinement
+                participant_metrics[name] = {
+                    "last_activity": last_activity_idx,
+                    "last_leave": last_leave_idx,
+                    "last_cn_close": last_cn_closed_idx,
+                    "is_me": is_me
+                }
+                status_map[name] = status
+
+    # C. Global Refinement using Total Count
+    # If the server reports N clients, but we have M != N Joined clients, resolve ties.
+    if latest_total_clients is not None and expected_client_count > 0:
+        joined_participants = [n for n, s in status_map.items() if s == "Joined"]
         
-        status_map[name] = status
-    
+        # Scenario 1: Too many marked as Joined (False Positives)
+        if len(joined_participants) > latest_total_clients:
+            # Sort Joined clients by their latest activity index (least recent activity first)
+            # and consider those with a socket close after their last join as primary candidates for demotion.
+            def demotion_score(name):
+                m = participant_metrics[name]
+                # If they had a socket close after their last activity, they are more likely to be the missing ones
+                closed_after_activity = 1 if m["last_cn_close"] > m["last_activity"] else 0
+                return (closed_after_activity, -m["last_activity"])
+
+            joined_participants.sort(key=demotion_score, reverse=True)
+            to_demote = len(joined_participants) - latest_total_clients
+            for i in range(to_demote):
+                p_name = joined_participants[i]
+                if not participant_metrics[p_name]["is_me"]: # Don't demote myself unless necessary
+                    status_map[p_name] = "Disconnected"
+
+        # Scenario 2: Too few marked as Joined (False Negatives)
+        elif len(joined_participants) < latest_total_clients:
+            # Look at Disconnected clients who don't have a definitive "Left" message,
+            # or whose "Left" message is very old.
+            potential_recoveries = [n for n, s in status_map.items() if s == "Disconnected"]
+            def recovery_score(name):
+                m = participant_metrics[name]
+                # If they have NO definitive leave message, but were marked Disconnected due to socket close
+                has_leave = 1 if m["last_leave"] > -1 else 0
+                return (has_leave, -m["last_activity"])
+            
+            potential_recoveries.sort(key=recovery_score)
+            to_recover = min(len(potential_recoveries), latest_total_clients - len(joined_participants))
+            for i in range(to_recover):
+                status_map[potential_recoveries[i]] = "Joined"
+
+    # D. Final Local Health Check (Fallback for Client Nodes)
+    for p in participants:
+        name = p.participant_id
+        if status_map.get(name) in ["Offline", "Disconnected"] and p.ip == local_ip:
+            try:
+                from .tasks import _is_container_running, _container_name_for
+                import shutil
+                docker_path = shutil.which("docker") or "docker"
+                env = os.environ.copy()
+                my_container = _container_name_for(swarm_network.identifier, name)
+                if _is_container_running(docker_path, my_container, env):
+                    status_map[name] = "Online"
+                else:
+                    fallback_container = _container_name_for(swarm_network.identifier, "client")
+                    if _is_container_running(docker_path, fallback_container, env):
+                        status_map[name] = "Online"
+            except Exception as e:
+                logger.network.debug(f"[_get_local_participant_status] Error checking local container for {name}: {e}")
+
     return status_map
 
 
