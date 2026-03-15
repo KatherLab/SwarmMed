@@ -96,6 +96,7 @@ def _get_local_participant_status(swarm_network):
     # Robust Connection Tracking: Map connection IDs (CNXXXX) to participant IDs
     import re
     conn_map = {}
+    conn_close_positions = {}
     if server_logs:
         # Scan for connection creation logs and map CN IDs to real training clients.
         # Ignore admin users and non-client channels (e.g. 8003 admin API churn).
@@ -111,6 +112,12 @@ def _get_local_participant_status(swarm_network):
                 continue
 
             conn_map[cn_id] = p_id
+
+        # Track close positions by CN ID so we can mark disconnected only when
+        # a client-channel connection truly closed after it was joined.
+        closure_pattern = r"connection \[(cn\d+) [^\]]*\] is closed"
+        for match in re.finditer(closure_pattern, server_logs):
+            conn_close_positions[match.group(1)] = match.start()
 
     # For debugging: list ALL running containers with our network label
     try:
@@ -159,6 +166,7 @@ def _get_local_participant_status(swarm_network):
                 
                 # Check mapping for actual connection activity
                 last_cn_joined_idx = -1
+                last_cn_closed_idx = -1
                 for cn_id, p_id in conn_map.items():
                     if p_id == lname:
                         # Find the position of the CREATION event for this CN ID.
@@ -168,6 +176,10 @@ def _get_local_participant_status(swarm_network):
                         ):
                             if m.start() > last_cn_joined_idx:
                                 last_cn_joined_idx = m.start()
+
+                        cn_closed_at = conn_close_positions.get(cn_id, -1)
+                        if cn_closed_at > last_cn_closed_idx:
+                            last_cn_closed_idx = cn_closed_at
 
                 is_joined = any(marker in server_logs for marker in joined_markers) or (last_cn_joined_idx > -1)
                 
@@ -189,7 +201,7 @@ def _get_local_participant_status(swarm_network):
                         idx = server_logs.rfind(m)
                         if idx > idx_joined: idx_joined = idx
                     
-                    idx_dis = -1
+                    idx_dis = last_cn_closed_idx
                     for m in disconnected_markers:
                         idx = server_logs.rfind(m)
                         if idx > idx_dis: idx_dis = idx
