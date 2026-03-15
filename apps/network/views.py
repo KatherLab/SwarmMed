@@ -97,7 +97,16 @@ def _get_local_participant_status(swarm_network):
     import re
     conn_map = {}
     conn_close_positions = {}
+    latest_total_clients = None
+    expected_client_count = participants.filter(role="CLIENT").count()
     if server_logs:
+        total_clients_pattern = r"total clients:\s*(\d+)"
+        for match in re.finditer(total_clients_pattern, server_logs):
+            try:
+                latest_total_clients = int(match.group(1))
+            except (TypeError, ValueError):
+                latest_total_clients = None
+
         # Scan for connection creation logs and map CN IDs to real training clients.
         # Ignore admin users and non-client channels (e.g. 8003 admin API churn).
         creation_pattern = r"connection \[(cn\d+) ([^\]]*?) ssl ([^\]\s]+)\] is created"
@@ -209,6 +218,16 @@ def _get_local_participant_status(swarm_network):
                     if idx_dis > idx_joined:
                         status = "Disconnected"
                     else:
+                        status = "Joined"
+
+                    # If server still reports full client membership, prefer Joined.
+                    # This avoids false negatives from transient/socket-level closes.
+                    if (
+                        status == "Disconnected"
+                        and latest_total_clients is not None
+                        and expected_client_count > 0
+                        and latest_total_clients >= expected_client_count
+                    ):
                         status = "Joined"
                 
                 # If we don't have server logs (e.g. on a client node) or it shows offline,

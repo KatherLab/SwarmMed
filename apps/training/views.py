@@ -1030,6 +1030,7 @@ def training(request):
                             else:
                                 msg = remaining.strip(" -")
                         training_logs.append({"timestamp": ts, "level": level, "message": msg.strip(), "logger": logger_name})
+                    training_logs.reverse()
             except Exception as e:
                 logger.training.debug(f"Failed to collect training logs: {e}")
 
@@ -1664,6 +1665,7 @@ def training_logs_api(request):
                         elif parts[0] in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
                             level, msg = parts[0], " - ".join(parts[1:])
                 logs.append({"timestamp": ts, "level": level, "message": msg})
+            logs.reverse()
     except Exception as e:
         logger.training.debug(f"Error in training_logs_api: {e}")
     return JsonResponse({"logs": logs})
