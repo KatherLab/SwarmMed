@@ -177,16 +177,15 @@ def run_script_in_sandbox(
                     log.data.warning(f"Could not check for GPU support: {e}. Falling back to CPU.")
 
             # Run the container with resource limits.
-            # We use network_mode="host" so the sandbox container shares the 
-            # network namespace of the 'sandbox-dind' container. This allows it
-            # to reach 'minio' and other services on the main Docker network
-            # using their container names, without needing complex port forwarding.
+            # We use the 'sandbox_internal' bridge network for isolation.
+            # This allows the container to reach the host gateway (for MinIO)
+            # without exposing the host network namespace to the user script.
             container = client.containers.run(
                 image="swarmcloud-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
-                network_mode="host",
+                network="sandbox_internal",
                 mem_limit="1g",
                 nano_cpus=1000000000,  # 1 CPU
                 shm_size="10.24gb",

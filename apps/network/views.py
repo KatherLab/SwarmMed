@@ -446,12 +446,27 @@ def network(request):
     return render(request, "apps/network/network.html", context)
 
 
-@login_required
+@csrf_exempt
 def network_api_status(request, network_id):
     """
     Internal API endpoint providing live participant status from local server logs.
+    Authenticates via either Session or Gossip Token.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    provided_token = request.headers.get("X-Gossip-Token")
+    
+    # 1. Authentication
+    is_authenticated = False
+    if provided_token and provided_token == swarm_network.gossip_token:
+        is_authenticated = True
+    elif request.user.is_authenticated:
+        # Simple project membership check
+        if swarm_network.project.members.filter(id=request.user.id).exists() or swarm_network.project.author == request.user:
+            is_authenticated = True
+            
+    if not is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
     statuses = _get_local_participant_status(swarm_network)
     return JsonResponse({"statuses": statuses})
 

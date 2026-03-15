@@ -195,7 +195,8 @@ class FlareDataFileSystem:
         candidates = self._manifest_candidates.get(clean_path) or [self.manifest[clean_path]]
         deduped = []
         for url in candidates:
-            if url and url not in deduped: deduped.append(url)
+            if url and url not in deduped:
+                deduped.append(url)
 
         last_error = None
         for url in deduped:
@@ -203,6 +204,7 @@ class FlareDataFileSystem:
                 return self.fs.open(url, mode=mode, **kwargs)
             except Exception as e:
                 last_error = e
+
 
         if last_error: raise last_error
         raise FileNotFoundError(f"All URL candidates failed for: {clean_path}")

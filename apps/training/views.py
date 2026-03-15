@@ -31,13 +31,27 @@ from .utils import download_s3_folder
 logger = get_logger()
 
 
-@login_required
 def training_api_state(request, network_id):
     """
     Internal API: Returns the latest training job state from this node.
     Used by client nodes to mirror the server node's training state.
+    Authenticates via either Session or Gossip Token.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    provided_token = request.headers.get("X-Gossip-Token")
+    
+    # 1. Authentication
+    is_authenticated = False
+    if provided_token and provided_token == network.gossip_token:
+        is_authenticated = True
+    elif request.user.is_authenticated:
+        # Simple project membership check
+        if network.project.members.filter(id=request.user.id).exists() or network.project.author == request.user:
+            is_authenticated = True
+            
+    if not is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
     job = TrainingJob.objects.filter(network=network).order_by("-created_at").first()
     
     if not job:
@@ -55,13 +69,26 @@ def training_api_state(request, network_id):
     })
 
 
-@login_required
 def training_api_results(request, network_id):
     """
     Internal API: Provides the training results (aggregated model) as a download.
     Server node serves this to client nodes for decentralized sync.
+    Authenticates via either Session or Gossip Token.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
+    provided_token = request.headers.get("X-Gossip-Token")
+    
+    # 1. Authentication
+    is_authenticated = False
+    if provided_token and provided_token == network.gossip_token:
+        is_authenticated = True
+    elif request.user.is_authenticated:
+        if network.project.members.filter(id=request.user.id).exists() or network.project.author == request.user:
+            is_authenticated = True
+            
+    if not is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
     job = TrainingJob.objects.filter(network=network, status="COMPLETED").order_by("-created_at").first()
     
     if not job:
