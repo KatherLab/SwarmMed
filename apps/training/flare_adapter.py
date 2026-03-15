@@ -60,42 +60,49 @@ class FlareDataFileSystem:
         self.temp_dir = tempfile.mkdtemp(prefix=f"flare_{self.project_uuid}_")
 
     def _load_manifest(self) -> dict:
-        # 1. Resolve host candidate for reaching the local Django app
-        internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
-        if not internal_host:
-            for candidate in ["172.17.0.1", "host.docker.internal", "localhost"]:
-                try:
-                    # Check if port 8000 is open on this host
-                    with socket.create_connection((candidate, 8000), timeout=0.5):
-                        internal_host = candidate
-                        break
-                except Exception: continue
-            if not internal_host: internal_host = "172.17.0.1"
-
-        # 2. Fetch manifest from the secure App Proxy API
+        # 1. Fetch manifest from the secure App Proxy API.
+        # We MUST prioritize the node's local app proxy (localhost/gateway).
         manifest_secret = os.getenv("MANIFEST_SECRET")
         if manifest_secret and self.project_uuid:
-            print(f"flare_adapter: Fetching secure manifest from app proxy at {internal_host}:8000...")
-            try:
-                # We try both https and http for the app proxy
-                for proto in ["http", "https"]:
-                    try:
-                        url = f"{proto}://{internal_host}:8000/data/manifest/?project_id={self.project_uuid}"
-                        resp = requests.get(
-                            url, 
-                            headers={"X-Manifest-Secret": manifest_secret},
-                            timeout=5,
-                            verify=False
-                        )
-                        if resp.status_code == 200:
-                            manifest = resp.json()
-                            print(f"flare_adapter: Securely loaded manifest with {len(manifest)} files.")
-                            return self._process_manifest_urls(manifest)
-                    except Exception: continue
-            except Exception as e:
-                print(f"flare_adapter: Error connecting to app proxy: {e}")
+            # Try multiple hosts to reach the local Django app. 
+            # We check port 5085 (Nginx proxy) and 8000 (direct app container).
+            discovery_targets = [
+                ("172.17.0.1", 5085),
+                ("localhost", 5085),
+                ("127.0.0.1", 5085),
+                ("swarmcloud", 8000),
+                ("host.docker.internal", 5085)
+            ]
+            
+            # Also add configured host as fallback
+            env_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+            if env_host:
+                discovery_targets.append((env_host, 5085))
 
-        # 3. Fallback: Attempt legacy file-based manifest if present (e.g. for debugging)
+            for host, port in discovery_targets:
+                print(f"flare_adapter: Fetching secure manifest from app proxy at {host}:{port}...")
+                try:
+                    for proto in ["https", "http"]:
+                        url = f"{proto}://{host}:{port}/data/manifest/?project_id={self.project_uuid}"
+                        try:
+                            resp = requests.get(
+                                url, 
+                                headers={"X-Manifest-Secret": manifest_secret},
+                                timeout=3,
+                                verify=False
+                            )
+                            if resp.status_code == 200:
+                                manifest = resp.json()
+                                if manifest:
+                                    print(f"flare_adapter: Securely loaded manifest with {len(manifest)} files from {host}:{port}.")
+                                    return self._process_manifest_urls(manifest)
+                                else:
+                                    print(f"flare_adapter: App proxy at {host}:{port} returned an empty manifest.")
+                        except Exception: continue
+                except Exception as e:
+                    print(f"flare_adapter: Error connecting to app proxy at {host}:{port}: {e}")
+
+        # 2. Fallback: Attempt legacy file-based manifest if present (e.g. for debugging)
         for loc in [os.path.join(os.getcwd(), "data_manifest.json"), os.path.join(os.getcwd(), "custom", "data_manifest.json")]:
             if os.path.exists(loc):
                 try:
@@ -104,6 +111,7 @@ class FlareDataFileSystem:
                         return self._process_manifest_urls(json.load(f))
                 except Exception: continue
         
+        print("flare_adapter: ERROR: Could not load data manifest from any source.")
         return {}
 
     def _process_manifest_urls(self, manifest: dict) -> dict:
@@ -190,7 +198,7 @@ class FlareDataFileSystem:
             if url and url not in deduped: deduped.append(url)
 
         last_error = None
-        for url in dededuped if 'dededuped' in locals() else deduped:
+        for url in deduped:
             try:
                 return self.fs.open(url, mode=mode, **kwargs)
             except Exception as e:
