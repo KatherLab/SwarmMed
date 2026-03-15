@@ -84,7 +84,7 @@ class FlareDataFileSystem:
                 except Exception:
                     continue
         
-        # 1. Determine the node-specific Workspace ID.
+        # 1. Determine the node-specific Workspace ID and local networking.
         workspace_id = os.getenv("SWARMCLOUD_PROJECT_ID", "").strip() or self.project_uuid
         if not workspace_id and manifest:
             # Try to extract from one of the URLs in the manifest
@@ -93,95 +93,81 @@ class FlareDataFileSystem:
                 workspace_id = first_url.split("/swarmcloud/")[1].split("/")[0]
         
         if workspace_id:
-            print(f"flare_adapter: Using Workspace ID: {workspace_id}")
+            print(f"flare_adapter: Local Workspace ID: {workspace_id}")
 
-        # 2. Determine the best internal host for reaching the local MinIO.
         internal_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
         if not internal_host:
             for candidate in ["minio", "172.17.0.1", "server", "coordinator"]:
                 try:
                     socket.gethostbyname(candidate)
                     internal_host = candidate
-                    print(f"flare_adapter: Discovered local host: {internal_host}")
                     break
-                except socket.gaierror:
-                    continue
-            if not internal_host:
-                internal_host = "127.0.0.1"
+                except socket.gaierror: continue
+            if not internal_host: internal_host = "127.0.0.1"
 
-        # 3. If USE_LOCAL_DATA is set, try to DYNAMICALLY build the manifest from the local MinIO.
-        if self.use_local_data and workspace_id:
-            print("flare_adapter: SWARMCLOUD_USE_LOCAL_DATA is enabled. Attempting local discovery...")
-            try:
-                import boto3
-                from botocore.config import Config
-                
-                # We use internal MinIO credentials (default for SwarmCloud nodes)
-                s3_local = boto3.client(
-                    's3',
-                    endpoint_url=f"http://{internal_host}:9000",
-                    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
-                    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
-                    config=Config(signature_version='s3v4'),
-                    region_name='us-east-1',
-                    verify=False
-                )
-                
-                local_prefix = f"{workspace_id}/data/"
-                print(f"flare_adapter: Scanning local bucket 'swarmcloud' with prefix '{local_prefix}'")
-                
-                paginator = s3_local.get_paginator("list_objects_v2")
-                dynamic_manifest = {}
-                for page in paginator.paginate(Bucket="swarmcloud", Prefix=local_prefix):
-                    for obj in page.get("Contents", []):
-                        key = obj["Key"]
-                        if key.endswith("/"): continue
-                        rel_path = key[len(local_prefix):]
-                        
-                        # Generate a signed URL for this local file
-                        url = s3_local.generate_presigned_url(
-                            'get_object',
-                            Params={'Bucket': 'swarmcloud', 'Key': key},
-                            ExpiresIn=86400
-                        )
-                        dynamic_manifest[rel_path] = url
-                
-                if dynamic_manifest:
-                    print(f"flare_adapter: Successfully discovered {len(dynamic_manifest)} local files. Overriding base manifest.")
-                    manifest = dynamic_manifest
-                else:
-                    print("flare_adapter: No local files found via S3 scan. Falling back to base manifest logic.")
-            except Exception as e:
-                print(f"flare_adapter: Local discovery failed: {e}. Falling back to base manifest logic.")
-
-        # 4. Post-process the manifest to ensure all URLs are reachable.
-        updated_manifest = {}
-        self._manifest_candidates = {}
-        
-        local_ips = ["127.0.0.1", "localhost"]
+        local_ips = ["127.0.0.1", "localhost", "172.17.0.1", "minio"]
         try:
             container_ip = socket.gethostbyname(socket.gethostname())
             if container_ip not in local_ips: local_ips.insert(0, container_ip)
         except Exception: pass
+        if internal_host not in local_ips: local_ips.append(internal_host)
 
+        # 2. Resilient Local Discovery Scan (Asymmetric Data Support)
+        if self.use_local_data and workspace_id:
+            print("flare_adapter: Attempting local data discovery...")
+            dynamic_manifest = {}
+            try:
+                import boto3
+                from botocore.config import Config
+                
+                # Try multiple protocols and local hosts for the scan
+                discovery_success = False
+                for proto in ["https", "http"]:
+                    if discovery_success: break
+                    for host in ["172.17.0.1", "minio", internal_host]:
+                        try:
+                            s3_local = boto3.client(
+                                's3', endpoint_url=f"{proto}://{host}:9000",
+                                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
+                                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+                                config=Config(signature_version='s3v4', connect_timeout=2, retries={'max_attempts': 0}),
+                                region_name='us-east-1', verify=False
+                            )
+                            local_prefix = f"{workspace_id}/data/"
+                            paginator = s3_local.get_paginator("list_objects_v2")
+                            for page in paginator.paginate(Bucket="swarmcloud", Prefix=local_prefix):
+                                for obj in page.get("Contents", []):
+                                    key = obj["Key"]
+                                    if key.endswith("/"): continue
+                                    rel_path = key[len(local_prefix):]
+                                    url = s3_local.generate_presigned_url(
+                                        'get_object', Params={'Bucket': 'swarmcloud', 'Key': key}, ExpiresIn=86400
+                                    )
+                                    dynamic_manifest[rel_path] = url
+                            if dynamic_manifest:
+                                print(f"flare_adapter: Local discovery successful via {proto}://{host}:9000 ({len(dynamic_manifest)} files)")
+                                manifest = dynamic_manifest
+                                discovery_success = True
+                                break
+                        except Exception: continue
+                
+                if not discovery_success:
+                    print("flare_adapter: Local discovery scan failed. Falling back to base manifest.")
+            except ImportError:
+                print("flare_adapter: boto3 not installed. Dynamic discovery skipped.")
+
+        # 3. Post-Process the Manifest for Resilient Access
+        updated_manifest = {}
+        self._manifest_candidates = {}
+        
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             port = f":{parsed.port}" if parsed.port else ""
             
-            host_candidates = []
-            if self.use_local_data:
-                host_candidates.extend(["minio", "172.17.0.1"])
-                host_candidates.extend(local_ips)
-                host_candidates.append("host.docker.internal")
-            
-            if internal_host and internal_host not in host_candidates:
-                host_candidates.append(internal_host)
-            if parsed.hostname and parsed.hostname not in host_candidates:
-                host_candidates.append(parsed.hostname)
-
+            # Build candidate list: prioritize local hosts and HTTPS
             final_urls = []
             for proto in ["https", "http"]:
-                for host in host_candidates:
+                for host in local_ips:
                     new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
                     if new_url not in final_urls: final_urls.append(new_url)
             
