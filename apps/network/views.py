@@ -85,7 +85,7 @@ def _get_local_participant_status(swarm_network):
             import subprocess
             server_container = _container_name_for(swarm_network.identifier, "server")
             result = subprocess.run(
-                ["docker", "logs", "--tail", "3000", server_container],
+                ["docker", "logs", "--tail", "12000", server_container],
                 capture_output=True, text=True, timeout=2
             )
             server_logs = (result.stdout + result.stderr).lower()
@@ -97,20 +97,20 @@ def _get_local_participant_status(swarm_network):
     import re
     conn_map = {}
     if server_logs:
-        # Scan for creation logs to map IDs. 
-        # IMPORTANT: Ignore 'admin-' prefixed users as they are short-lived health checks.
-        creation_pattern = r"connection \[(cn\d+) .* ssl ([a-z0-9_-]+)\] is created"
+        # Scan for connection creation logs and map CN IDs to real training clients.
+        # Ignore admin users and non-client channels (e.g. 8003 admin API churn).
+        creation_pattern = r"connection \[(cn\d+) ([^\]]*?) ssl ([^\]\s]+)\] is created"
         for match in re.finditer(creation_pattern, server_logs):
-            cn_id, p_id = match.groups()
-            if not p_id.startswith("admin"):
-                conn_map[cn_id] = p_id
-        
-        # Scan for closure logs to identify disconnections.
-        closure_pattern = r"connection \[(cn\d+) .*\] is closed"
-        closed_conns = set()
-        for match in re.finditer(closure_pattern, server_logs):
-            cn_id = match.group(1)
-            closed_conns.add(cn_id)
+            cn_id, conn_details, principal = match.groups()
+
+            if ":8002" not in conn_details:
+                continue
+
+            p_id = principal.split("@", 1)[0].strip().lower()
+            if p_id.startswith("admin-"):
+                continue
+
+            conn_map[cn_id] = p_id
 
     # For debugging: list ALL running containers with our network label
     try:
@@ -159,7 +159,6 @@ def _get_local_participant_status(swarm_network):
                 
                 # Check mapping for actual connection activity
                 last_cn_joined_idx = -1
-                last_cn_closed_idx = -1
                 for cn_id, p_id in conn_map.items():
                     if p_id == lname:
                         # Find the position of the CREATION event for this CN ID.
@@ -169,14 +168,6 @@ def _get_local_participant_status(swarm_network):
                         ):
                             if m.start() > last_cn_joined_idx:
                                 last_cn_joined_idx = m.start()
-
-                        if cn_id in closed_conns:
-                            for m in re.finditer(
-                                rf"connection \[{re.escape(cn_id)}[^\]]*\] is closed",
-                                server_logs,
-                            ):
-                                if m.start() > last_cn_closed_idx:
-                                    last_cn_closed_idx = m.start()
 
                 is_joined = any(marker in server_logs for marker in joined_markers) or (last_cn_joined_idx > -1)
                 
@@ -198,7 +189,7 @@ def _get_local_participant_status(swarm_network):
                         idx = server_logs.rfind(m)
                         if idx > idx_joined: idx_joined = idx
                     
-                    idx_dis = last_cn_closed_idx
+                    idx_dis = -1
                     for m in disconnected_markers:
                         idx = server_logs.rfind(m)
                         if idx > idx_dis: idx_dis = idx
