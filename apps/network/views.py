@@ -215,19 +215,10 @@ def _get_local_participant_status(swarm_network):
                         idx = server_logs.rfind(m)
                         if idx > idx_dis: idx_dis = idx
                     
-                    if idx_dis > idx_joined:
+                    # A client is only truly Disconnected if the latest event for them is a disconnect.
+                    if idx_dis > idx_joined and idx_dis > -1:
                         status = "Disconnected"
                     else:
-                        status = "Joined"
-
-                    # If server still reports full client membership, prefer Joined.
-                    # This avoids false negatives from transient/socket-level closes.
-                    if (
-                        status == "Disconnected"
-                        and latest_total_clients is not None
-                        and expected_client_count > 0
-                        and latest_total_clients >= expected_client_count
-                    ):
                         status = "Joined"
                 
                 # If we don't have server logs (e.g. on a client node) or it shows offline,

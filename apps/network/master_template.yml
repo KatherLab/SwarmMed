@@ -175,7 +175,7 @@ local_server_resources: |
           {
               "admin_storage": "transfer",
               "max_num_clients": 100,
-              "heart_beat_timeout": 600,
+              "heart_beat_timeout": 100,
               "num_server_workers": 4,
               "download_job_url": "http://download.server.com/",
               "compression": "Gzip"
