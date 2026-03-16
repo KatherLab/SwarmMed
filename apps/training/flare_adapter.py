@@ -52,9 +52,10 @@ class FlareDataFileSystem:
         # Initialize fsspec HTTP filesystem for streaming.
         # We disable SSL verification (ssl=False) to support internal MinIO 
         # instances using self-signed certificates.
+        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
         self.fs = fsspec.filesystem(
             "http",
-            ssl=False,
+            client_kwargs={"connector": aiohttp.TCPConnector(ssl=False)},
             timeout=self.http_timeout_sec,
         )
         

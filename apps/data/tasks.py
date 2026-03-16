@@ -64,6 +64,7 @@ def run_validation_task(self, validation_run_id):
 import json
 import os
 import fsspec
+import aiohttp
 from urllib.parse import urlparse
 
 class ValidationHelper:
@@ -73,7 +74,8 @@ class ValidationHelper:
         self.output_file = output_file
         self.checks = []
         # Internal streaming filesystem with SSL verification disabled.
-        self.fs = fsspec.filesystem("http", ssl=False)
+        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
+        self.fs = fsspec.filesystem("http", client_kwargs={{"connector": aiohttp.TCPConnector(ssl=False)}})
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):
@@ -224,7 +226,8 @@ class VisualizationHelper:
         self.plots_dir = plots_dir
         self.plot_count = 0
         # Internal streaming filesystem with SSL verification disabled.
-        self.fs = fsspec.filesystem("http", ssl=False)
+        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
+        self.fs = fsspec.filesystem("http", client_kwargs={{"connector": aiohttp.TCPConnector(ssl=False)}})
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):

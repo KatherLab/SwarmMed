@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import fsspec
+import aiohttp
 from data.filesystem import DataFileSystem
 from logs import logger
 from training.models import TrainingJob
@@ -40,7 +41,8 @@ class ResultsVisualizationContext:
         self.current_plot_number = 0
         self.log = logger.get_logger()
         # Internal streaming filesystem with SSL verification disabled.
-        self.fs = fsspec.filesystem("http", ssl=False)
+        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
+        self.fs = fsspec.filesystem("http", client_kwargs={"connector": aiohttp.TCPConnector(ssl=False)})
 
         try:
             self.job = TrainingJob.objects.get(identifier=job_identifier)

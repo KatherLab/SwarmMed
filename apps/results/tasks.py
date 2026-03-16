@@ -185,6 +185,7 @@ import io
 import base64
 import fsspec
 import torch
+import aiohttp
 import numpy as np
 import traceback
 import pickle
@@ -198,8 +199,9 @@ class ResultsVisualizationHelper:
             manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        # Internal streaming filesystem with SSL verification disabled
-        self.fs = fsspec.filesystem("http", ssl=False)
+        # Internal streaming filesystem with SSL verification disabled.
+        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
+        self.fs = fsspec.filesystem("http", client_kwargs={{"connector": aiohttp.TCPConnector(ssl=False)}})
         self.manifest = self._process_manifest(manifest)
         print(f"Manifest keys: {{list(self.manifest.keys())}}")
         print("--- ResultsVisualizationHelper Ready ---")
