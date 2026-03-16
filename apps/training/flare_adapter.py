@@ -10,6 +10,7 @@ import shutil
 import ssl
 import tempfile
 import socket
+import time
 from typing import Any, List, Optional
 from urllib.parse import urlparse
 
@@ -39,7 +40,7 @@ class FlareDataFileSystem:
             in {"1", "true", "yes", "on"}
         )
         self.http_timeout_sec = float(
-            os.getenv("MEDSWARMHUB_DATA_HTTP_TIMEOUT_SEC", "10").strip() or "10"
+            os.getenv("MEDSWARMHUB_DATA_HTTP_TIMEOUT_SEC", "30").strip() or "30"
         )
         # Keep per-file fallback URL candidates (first item is preferred).
         self._manifest_candidates = {}
@@ -50,9 +51,7 @@ class FlareDataFileSystem:
         self.manifest = self._load_manifest()
         
         # Initialize fsspec HTTP filesystem for streaming.
-        # We don't disable SSL verification at the session level here because newer 
-        # aiohttp versions removed the 'ssl' argument from ClientSession.
-        # Instead, we pass ssl=False to individual requests in self.open().
+        # Request-level SSL verification is handled in self.open().
         self.fs = fsspec.filesystem(
             "http",
             timeout=self.http_timeout_sec,
@@ -122,7 +121,7 @@ class FlareDataFileSystem:
         self._manifest_candidates = {}
         
         # Determine local networking candidates
-        local_ips = ["172.17.0.1", "minio", "127.0.0.1", "localhost"]
+        local_ips = ["minio", "host.docker.internal", "localhost", "127.0.0.1", "172.17.0.1"]
         try:
             container_ip = socket.gethostbyname(socket.gethostname())
             if container_ip not in local_ips: local_ips.append(container_ip)
@@ -135,8 +134,7 @@ class FlareDataFileSystem:
             
             final_urls = []
             
-            # 1. Prioritize the ORIGINAL URL if it's already using a local host
-            # or if we are not in a Docker environment.
+            # 1. Prioritize the ORIGINAL URL from manifest
             final_urls.append(url)
 
             # 2. Add local fallback candidates
@@ -214,7 +212,7 @@ class FlareDataFileSystem:
 
         last_error = None
         # Use a short timeout for probing to avoid hanging
-        probe_timeout = 1.0 if not self._working_host_prefix else self.http_timeout_sec
+        probe_timeout = 2.0 if not self._working_host_prefix else self.http_timeout_sec
         
         for url in ordered_candidates:
             try:
@@ -222,22 +220,26 @@ class FlareDataFileSystem:
                 current_timeout = probe_timeout if not self._working_host_prefix else self.http_timeout_sec
                 # We pass ssl=False to individual requests to support internal MinIO.
                 kwargs.setdefault("ssl", False)
-                f = self.fs.open(url, mode=mode, timeout=current_timeout, **kwargs)
                 
-                # If we haven't confirmed a working host yet, do a quick check
+                print(f"flare_adapter: Attempting to stream from: {url} (timeout={current_timeout}s)")
+                
+                # Check metadata first if we don't have a working prefix
                 if not self._working_host_prefix:
                     try:
                         self.fs.info(url, timeout=current_timeout, ssl=False)
                         # Success! Cache the prefix (protocol + host + port)
                         parsed = urlparse(url)
                         self._working_host_prefix = f"{parsed.scheme}://{parsed.netloc}"
-                        print(f"flare_adapter: Found working data host: {self._working_host_prefix}")
-                    except Exception:
-                        # This URL failed the info check, try next
+                        print(f"flare_adapter: FOUND working data host: {self._working_host_prefix}")
+                    except Exception as e:
+                        print(f"flare_adapter: Probing {url} failed: {e}")
                         continue
+
+                # Final open with full timeout
+                return self.fs.open(url, mode=mode, timeout=self.http_timeout_sec, **kwargs)
                 
-                return f
             except Exception as e:
+                print(f"flare_adapter: Failed to open {url}: {e}")
                 last_error = e
 
         if last_error: raise last_error
