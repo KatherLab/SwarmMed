@@ -43,6 +43,8 @@ class FlareDataFileSystem:
         )
         # Keep per-file fallback URL candidates (first item is preferred).
         self._manifest_candidates = {}
+        # Cache for the first successful host candidate to speed up subsequent opens
+        self._working_host_prefix = None
 
         # Load and process the data manifest.
         self.manifest = self._load_manifest()
@@ -129,11 +131,18 @@ class FlareDataFileSystem:
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
             port = f":{parsed.port}" if parsed.port else ""
+            original_proto = parsed.scheme or "https"
             
             final_urls = []
-            # Prioritize HTTPS, then HTTP, across all local host candidates
-            for proto in ["https", "http"]:
-                for host in local_ips:
+            
+            # Prioritize original protocol across all local host candidates
+            # then try the other protocol
+            protocols = [original_proto]
+            if original_proto == "https": protocols.append("http")
+            else: protocols.append("https")
+
+            for host in local_ips:
+                for proto in protocols:
                     new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
                     if new_url not in final_urls: final_urls.append(new_url)
             
@@ -189,22 +198,45 @@ class FlareDataFileSystem:
         if clean_path not in self.manifest:
             raise FileNotFoundError(f"File not found in manifest: {path}")
 
-        if "timeout" not in kwargs:
-            kwargs["timeout"] = self.http_timeout_sec
-
+        # If we already found a working host prefix, prioritize it
         candidates = self._manifest_candidates.get(clean_path) or [self.manifest[clean_path]]
         deduped = []
+        
+        if self._working_host_prefix:
+            for url in candidates:
+                if url.startswith(self._working_host_prefix):
+                    deduped.append(url)
+                    break
+        
         for url in candidates:
             if url and url not in deduped:
                 deduped.append(url)
 
         last_error = None
+        # Use a shorter timeout for probing if we haven't found a working host yet
+        probe_timeout = 2.0 if not self._working_host_prefix else self.http_timeout_sec
+        
         for url in deduped:
             try:
-                return self.fs.open(url, mode=mode, **kwargs)
+                # Set a very short timeout for the initial connection/metadata check
+                current_timeout = probe_timeout if not self._working_host_prefix else self.http_timeout_sec
+                f = self.fs.open(url, mode=mode, timeout=current_timeout, **kwargs)
+                
+                # If we haven't confirmed a working host yet, do a quick check
+                if not self._working_host_prefix:
+                    try:
+                        self.fs.info(url, timeout=current_timeout)
+                        # Success! Cache the prefix (protocol + host + port)
+                        parsed = urlparse(url)
+                        self._working_host_prefix = f"{parsed.scheme}://{parsed.netloc}"
+                        print(f"flare_adapter: Found working data host: {self._working_host_prefix}")
+                    except Exception:
+                        # This URL failed the info check, try next
+                        continue
+                
+                return f
             except Exception as e:
                 last_error = e
-
 
         if last_error: raise last_error
         raise FileNotFoundError(f"All URL candidates failed for: {clean_path}")

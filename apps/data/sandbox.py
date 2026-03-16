@@ -102,7 +102,7 @@ def ensure_sandbox_network():
             client.networks.create(
                 "sandbox_internal",
                 driver="bridge",
-                internal=True,
+                internal=False,
                 check_duplicate=True,
             )
         except Exception as e:
