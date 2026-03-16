@@ -6,6 +6,6 @@ pytorch-lightning==2.4.0
 tensorflow==2.16.1
 keras==3.13.0
 monai==1.5.2
-transformers==4.3.8
+transformers==5.3.0
 accelerate
 datasets
