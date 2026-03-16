@@ -1309,8 +1309,11 @@ def start_swarm_network_task(network_id, user_id):
             raw_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
 
             if use_host_network:
-                local_s3_endpoint = raw_local_s3.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
-                container_s3_endpoint = raw_s3_endpoint.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
+                # In host network mode, we MUST use 172.17.0.1 (Docker bridge gateway) 
+                # because MinIO is typically bound to that IP and 127.0.0.1 would 
+                # refer to the host's own loopback which is not where MinIO listens.
+                local_s3_endpoint = raw_local_s3.replace("://minio", "://172.17.0.1").replace("://localhost", "://172.17.0.1")
+                container_s3_endpoint = raw_s3_endpoint.replace("://minio", "://172.17.0.1").replace("://localhost", "://172.17.0.1")
             else:
                 local_s3_endpoint = raw_local_s3
                 container_s3_endpoint = raw_s3_endpoint
