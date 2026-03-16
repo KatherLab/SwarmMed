@@ -21,7 +21,7 @@ ENV_HELP = {
     },
     "DJANGO_CSRF_TRUSTED_ORIGINS": {
         "desc": "A list of trusted origins for Unsafe requests (e.g. POST).",
-        "example": "hhttp://localhost:8000,http://localhost:5085,https://localhost:5085,https://100.127.11.1:5085"
+        "example": "http://localhost:8000,http://localhost:5085,https://localhost:5085,https://100.127.11.1:5085"
     },
     "POSTGRES_PASSWORD": {
         "desc": "The password for the PostgreSQL database connection.",
@@ -31,10 +31,6 @@ ENV_HELP = {
         "desc": "The password for the Redis cache/task broker.",
         "example": "redis_secure_pass_789"
     },
-    "MINIO_ROOT_USER": {
-        "desc": "The root administrator username for MinIO storage.",
-        "example": "minio_admin"
-    },
     "MINIO_ROOT_PASSWORD": {
         "desc": "The root administrator password for MinIO storage.",
         "example": "minio_secret_pass_456"
@@ -42,10 +38,6 @@ ENV_HELP = {
     "MINIO_KMS_SECRET_KEY": {
         "desc": "Key Management Service secret key for MinIO encryption.",
         "example": "medswarmhub:base64_encoded_key"
-    },
-    "AWS_STORAGE_BUCKET_NAME": {
-        "desc": "The name of the S3/MinIO bucket for media and static files.",
-        "example": "swarmcloud-storage"
     },
     "AWS_S3_REGION_NAME": {
         "desc": "The region name for S3 storage (often us-east-1 for MinIO).",
@@ -70,6 +62,10 @@ ENV_HELP = {
     "PRIVACY_DPO_EMAIL": {
         "desc": "Email address for the Data Protection Officer.",
         "example": "dpo@medswarmhub.org"
+    },
+    "PRIVACY_DPO_ADDRESS": {
+        "desc": "Physical address for the Data Protection Officer.",
+        "example": "456 Compliance Ave, Berlin, Germany"
     },
     "PRIVACY_HOSTING_PROVIDER": {
         "desc": "Description of where the platform is hosted.",
@@ -185,7 +181,7 @@ def setup_env():
         elif key == "SECRET_KEY":
             val = generate_secret_key()
             print(f"✨ Generated {key}")
-        elif "PASSWORD" in key or key.endswith("_PASS"):
+        elif ("PASSWORD" in key or key.endswith("_PASS")) and key != "EMAIL_HOST_PASSWORD":
             val = generate_password()
             print(f"✨ Generated {key}")
         elif key == "MINIO_KMS_SECRET_KEY":

@@ -589,10 +589,10 @@ def _collect_project_runtime_requirements(project, logger):
         "python-dotenv",
         "pandas",
         "numpy<2.0.0",
-        "torch==2.9.0",
+        "torch==2.10.0",
         "scikit-learn==1.8.0",
         "fsspec==2025.2.0",
-        "aiohttp==3.11.13",
+        "aiohttp==3.13.3",
     ]
 
     merged = []
