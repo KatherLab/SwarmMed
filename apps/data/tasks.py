@@ -73,7 +73,7 @@ class ValidationHelper:
         self.output_file = output_file
         self.checks = []
         # Internal streaming filesystem with SSL verification disabled.
-        self.fs = fsspec.filesystem("http", client_kwargs={"ssl": False})
+        self.fs = fsspec.filesystem("http", client_kwargs={{"ssl": False}})
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):
@@ -224,7 +224,7 @@ class VisualizationHelper:
         self.plots_dir = plots_dir
         self.plot_count = 0
         # Internal streaming filesystem with SSL verification disabled.
-        self.fs = fsspec.filesystem("http", client_kwargs={"ssl": False})
+        self.fs = fsspec.filesystem("http", client_kwargs={{"ssl": False}})
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):

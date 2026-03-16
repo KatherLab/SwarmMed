@@ -199,7 +199,7 @@ class ResultsVisualizationHelper:
         self.plots_dir = plots_dir
         self.plot_count = 0
         # Internal streaming filesystem with SSL verification disabled
-        self.fs = fsspec.filesystem("http", client_kwargs={"ssl": False})
+        self.fs = fsspec.filesystem("http", client_kwargs={{"ssl": False}})
         self.manifest = self._process_manifest(manifest)
         print(f"Manifest keys: {{list(self.manifest.keys())}}")
         print("--- ResultsVisualizationHelper Ready ---")
