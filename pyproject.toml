@@ -73,6 +73,17 @@ manage = "manage:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["apps", "core"]
+
+[tool.hatch.build]
+include = [
+    "apps",
+    "core",
+    "manage.py",
+    "scripts",
+]
+
 [dependency-groups]
 dev = [
     "ruff>=0.3.0",
