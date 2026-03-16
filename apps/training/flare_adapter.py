@@ -135,8 +135,11 @@ class FlareDataFileSystem:
             
             final_urls = []
             
-            # Prioritize original protocol across all local host candidates
-            # then try the other protocol
+            # 1. Prioritize the ORIGINAL URL if it's already using a local host
+            # or if we are not in a Docker environment.
+            final_urls.append(url)
+
+            # 2. Add local fallback candidates
             protocols = [original_proto]
             if original_proto == "https": protocols.append("http")
             else: protocols.append("https")
@@ -145,9 +148,6 @@ class FlareDataFileSystem:
                 for proto in protocols:
                     new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
                     if new_url not in final_urls: final_urls.append(new_url)
-            
-            # Ensure the original URL is in the list as a last resort
-            if url not in final_urls: final_urls.append(url)
             
             processed[rel_path] = final_urls[0]
             self._manifest_candidates[rel_path] = final_urls
@@ -200,27 +200,27 @@ class FlareDataFileSystem:
 
         # If we already found a working host prefix, prioritize it
         candidates = self._manifest_candidates.get(clean_path) or [self.manifest[clean_path]]
-        deduped = []
+        ordered_candidates = []
         
         if self._working_host_prefix:
             for url in candidates:
                 if url.startswith(self._working_host_prefix):
-                    deduped.append(url)
+                    ordered_candidates.append(url)
                     break
         
         for url in candidates:
-            if url and url not in deduped:
-                deduped.append(url)
+            if url and url not in ordered_candidates:
+                ordered_candidates.append(url)
 
         last_error = None
-        # Use a shorter timeout for probing if we haven't found a working host yet
-        probe_timeout = 2.0 if not self._working_host_prefix else self.http_timeout_sec
+        # Use a short timeout for probing to avoid hanging
+        probe_timeout = 1.0 if not self._working_host_prefix else self.http_timeout_sec
         
-        for url in deduped:
+        for url in ordered_candidates:
             try:
-                # Set a very short timeout for the initial connection/metadata check
+                # Set timeout for the initial connection/metadata check
                 current_timeout = probe_timeout if not self._working_host_prefix else self.http_timeout_sec
-                # We pass ssl=False to individual requests to disable verification for internal MinIO.
+                # We pass ssl=False to individual requests to support internal MinIO.
                 kwargs.setdefault("ssl", False)
                 f = self.fs.open(url, mode=mode, timeout=current_timeout, **kwargs)
                 
