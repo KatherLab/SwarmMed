@@ -55,9 +55,49 @@ ENV_HELP = {
         "desc": "The name of the S3/MinIO bucket for media and static files.",
         "example": "swarmcloud-storage"
     },
+    "AWS_S3_REGION_NAME": {
+        "desc": "The region name for S3 storage (often us-east-1 for MinIO).",
+        "example": "us-east-1"
+    },
     "PUBLIC_URL": {
         "desc": "The public-facing URL for accessing stored files.",
         "example": "https://storage.example.com"
+    },
+    "PRIVACY_CONTROLLER_NAME": {
+        "desc": "Legal name of the organization controlling the data.",
+        "example": "SwarmCloud Foundation"
+    },
+    "PRIVACY_CONTROLLER_ADDRESS": {
+        "desc": "Physical address of the organization.",
+        "example": "123 Tech Lane, San Francisco, CA"
+    },
+    "PRIVACY_CONTACT_EMAIL": {
+        "desc": "Primary email for privacy-related inquiries.",
+        "example": "privacy@swarmcloud.org"
+    },
+    "PRIVACY_DPO_EMAIL": {
+        "desc": "Email address for the Data Protection Officer.",
+        "example": "dpo@swarmcloud.org"
+    },
+    "PRIVACY_HOSTING_PROVIDER": {
+        "desc": "Description of where the platform is hosted.",
+        "example": "AWS / Self-hosted"
+    },
+    "PRIVACY_DATA_REGION": {
+        "desc": "The geographic region where user data is stored.",
+        "example": "EU (Frankfurt)"
+    },
+    "ACCOUNT_ERASURE_GRACE_DAYS": {
+        "desc": "Number of days to wait before permanently deleting an account.",
+        "example": "30"
+    },
+    "EMAIL_HOST": {
+        "desc": "SMTP server hostname for sending emails.",
+        "example": "smtp.gmail.com"
+    },
+    "EMAIL_PORT": {
+        "desc": "SMTP server port (usually 587 for TLS).",
+        "example": "587"
     },
     "EMAIL_HOST_USER": {
         "desc": "The username for the SMTP email server.",
@@ -185,18 +225,18 @@ def setup_env():
         elif key == "BACKUP_ENCRYPTION_KEY":
             val = generate_fernet_key()
             print(f"✨ Generated {key}")
-        elif key == "HOST_PROJECT_PATH":
+        elif key in ENV_HELP or template_value.startswith("replace-with-") or not template_value:
+            # Prompt for values in ENV_HELP or marked as replace-with
             print_help(key)
-            default_path = os.getcwd()
-            val = input(f"❓ Enter {key} [{default_path}]: ").strip() or default_path
-        elif template_value.startswith("replace-with-") or not template_value:
-            # Prompt for other "replace-with" values
-            print_help(key)
-            val = input(f"❓ Enter value for {key} ({template_value}): ").strip()
+            default_val = template_value
+            # If it's a "replace-with" placeholder, don't use it as the default text in []
+            display_default = f" [{default_val}]" if not default_val.startswith("replace-with-") else ""
+            
+            val = input(f"❓ Enter {key}{display_default}: ").strip()
             if not val:
-                val = template_value
+                val = default_val
         else:
-            # Keep template default if it's not a placeholder
+            # Keep template default if it's not a placeholder and not in ENV_HELP
             val = template_value
 
         resolved_env[key] = val
