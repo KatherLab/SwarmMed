@@ -10,8 +10,8 @@ services:
       - db_network
       - web_network
     volumes:
-      - ./:/app:ro
-      - ./:/workspace:ro
+      - ./:/app
+      - ./:/workspace
       - ./tmp:/app/tmp
       - ./media:/app/media
       - static_data:/app/staticfiles
@@ -56,8 +56,8 @@ services:
       - ./.secrets/certs/nginx:/etc/nginx/certs:ro
       - ./infrastructure/certbot/conf:/etc/letsencrypt
       - ./infrastructure/certbot/www:/var/www/certbot
-      - static_data:/app/staticfiles
-      - ./media:/app/media
+      - static_data:/app/staticfiles:ro
+      - ./media:/app/media:ro
     depends_on:
       - app
     networks:
@@ -83,8 +83,8 @@ services:
     networks:
       - db_network
     volumes:
-      - ./:/app:ro
-      - ./:/workspace:ro
+      - ./:/app
+      - ./:/workspace
       - ./tmp:/app/tmp
       - ./media:/app/media
       - static_data:/app/staticfiles
