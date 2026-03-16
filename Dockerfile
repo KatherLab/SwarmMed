@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 # install python dependencies with uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && uv pip install --system .
