@@ -56,8 +56,8 @@ services:
       - ./.secrets/certs/nginx:/etc/nginx/certs:ro
       - ./infrastructure/certbot/conf:/etc/letsencrypt
       - ./infrastructure/certbot/www:/var/www/certbot
-      - static_data:/app/staticfiles:ro
-      - ./media:/app/media:ro
+      - static_data:/app/staticfiles
+      - ./media:/app/media
     depends_on:
       - app
     networks:
