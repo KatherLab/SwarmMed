@@ -68,6 +68,7 @@ class FlareDataFileSystem:
             # Try multiple hosts to reach the local Django app. 
             # We check port 5085 (Nginx proxy) and 8000 (direct app container).
             discovery_targets = [
+                ("100.127.11.1", 5085), # Host Machine IP
                 ("172.17.0.1", 5085),
                 ("localhost", 5085),
                 ("127.0.0.1", 5085),
@@ -121,7 +122,8 @@ class FlareDataFileSystem:
         self._manifest_candidates = {}
         
         # Determine local networking candidates
-        local_ips = ["minio", "host.docker.internal", "localhost", "127.0.0.1", "172.17.0.1"]
+        # We include the 100.127.11.1 IP as it's the confirmed reachable host.
+        local_ips = ["100.127.11.1", "minio", "host.docker.internal", "localhost", "127.0.0.1", "172.17.0.1"]
         try:
             container_ip = socket.gethostbyname(socket.gethostname())
             if container_ip not in local_ips: local_ips.append(container_ip)
@@ -212,34 +214,33 @@ class FlareDataFileSystem:
 
         last_error = None
         # Use a short timeout for probing to avoid hanging
-        probe_timeout = 2.0 if not self._working_host_prefix else self.http_timeout_sec
+        probe_timeout = 3.0 if not self._working_host_prefix else self.http_timeout_sec
         
         for url in ordered_candidates:
             try:
-                # Set timeout for the initial connection/metadata check
-                current_timeout = probe_timeout if not self._working_host_prefix else self.http_timeout_sec
                 # We pass ssl=False to individual requests to support internal MinIO.
                 kwargs.setdefault("ssl", False)
                 
-                print(f"flare_adapter: Attempting to stream from: {url} (timeout={current_timeout}s)")
-                
                 # Check metadata first if we don't have a working prefix
                 if not self._working_host_prefix:
+                    print(f"flare_adapter: Probing candidate: {url} (timeout={probe_timeout}s)")
                     try:
-                        self.fs.info(url, timeout=current_timeout, ssl=False)
+                        # info() is lighter than open() for checking reachability
+                        self.fs.info(url, timeout=probe_timeout, ssl=False)
                         # Success! Cache the prefix (protocol + host + port)
                         parsed = urlparse(url)
                         self._working_host_prefix = f"{parsed.scheme}://{parsed.netloc}"
                         print(f"flare_adapter: FOUND working data host: {self._working_host_prefix}")
                     except Exception as e:
-                        print(f"flare_adapter: Probing {url} failed: {e}")
+                        print(f"flare_adapter: Candidate {url} unreachable: {e}")
                         continue
 
                 # Final open with full timeout
+                print(f"flare_adapter: Streaming from: {url}")
                 return self.fs.open(url, mode=mode, timeout=self.http_timeout_sec, **kwargs)
                 
             except Exception as e:
-                print(f"flare_adapter: Failed to open {url}: {e}")
+                print(f"flare_adapter: Error opening {url}: {e}")
                 last_error = e
 
         if last_error: raise last_error
