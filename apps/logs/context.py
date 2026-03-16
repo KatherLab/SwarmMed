@@ -13,28 +13,30 @@ _thread_locals = threading.local()
 _internal_logger = logging.getLogger("app")
 
 
-def set_context(user=None, project=None):
+def set_context(user=None, project=None, network=None):
     """
     Manually set the logging context for the current thread.
     Useful for background tasks (like Celery) where request middleware isn't active.
     """
     _thread_locals.user = user
     _thread_locals.project = project
+    _thread_locals.network = network
 
 
 def get_context():
     """
-    Retrieves the current user and project from thread-local storage.
+    Retrieves the current user, project and network from thread-local storage.
     If not explicitly set, it attempts to auto-detect from the Django request.
 
     Returns:
-        tuple: (User object or None, Project object or None)
+        tuple: (User object or None, Project object or None, Network object or None)
     """
     user = getattr(_thread_locals, "user", None)
     project = getattr(_thread_locals, "project", None)
+    network = getattr(_thread_locals, "network", None)
 
     # If context isn't set, try to extract it from the active request
-    if not user or not project:
+    if not user or not project or not network:
         try:
             request = getattr(_thread_locals, "request", None)
 
@@ -57,6 +59,12 @@ def get_context():
                         project = user_current_project.project
                     except UserCurrentProject.DoesNotExist:
                         pass
+                
+                if not network:
+                    # Attempt to find the user's currently active network
+                    from network.models import SwarmNetwork
+                    network = SwarmNetwork.resolve_current(request.user)
+
         except Exception as e:
             # We fail gracefully here to ensure logging never crashes the
             # application, but we record the failure in the internal log.
@@ -64,7 +72,7 @@ def get_context():
                 f"Failed to auto-detect logging context: {e}"
             )
 
-    return user, project
+    return user, project, network
 
 
 class RequestContextMiddleware:

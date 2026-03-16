@@ -207,6 +207,7 @@ def logs_dashboard(request):
 
                                         live_log_count += 1
                                         mock_entry = {
+                                            "id": uuid.uuid4(),
                                             "message": line,
                                             "source": container_name,
                                             "timestamp": timezone.now(),

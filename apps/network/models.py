@@ -4,6 +4,8 @@ Defines the structure for Swarm Learning Networks, participants,
 and tracking active networks for users.
 """
 
+import secrets
+
 from common.fields import EncryptedCharField
 from common.models import AbstractBaseModel
 from django.contrib.auth.models import User

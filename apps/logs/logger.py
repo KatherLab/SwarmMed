@@ -55,7 +55,7 @@ def _setup_logger():
     _setup_done = True
 
 
-def log(level, message, category="project", user=None, project=None, **extra):
+def log(level, message, category="project", user=None, project=None, network=None, **extra):
     """
     Core logging function that prepares metadata and triggers the Python logger.
 
@@ -65,14 +65,18 @@ def log(level, message, category="project", user=None, project=None, **extra):
         category (str): The logical group for this log
         user: The user object to associate with this log
         project: The project object to associate with this log
+        network: The swarm network object to associate with this log
         **extra: Additional structured data to store in context_data
     """
     _setup_logger()
 
-    # Get the current context (user/project) if not explicitly provided
-    ctx_user, ctx_project = get_context()
+    # Get the current context (user/project/network) if not explicitly provided
+    from .context import get_context
+    ctx_user, ctx_project, ctx_network = get_context()
+    
     final_user = user or ctx_user
     final_project = project or ctx_project
+    final_network = network or ctx_network
 
     # Prepare the 'extra' dictionary for the internal Python logger
     log_extra = extra.copy()
@@ -98,11 +102,18 @@ def log(level, message, category="project", user=None, project=None, **extra):
         log_extra["user_id"] = final_user.id
 
     if final_project:
-        # Check if project is an object or a string identifier
-        if hasattr(final_project, "identifier"):
-            log_extra["project_id"] = str(final_project.identifier)
+        # We store the primary key (integer ID) in the log_extra record
+        # so it can be correctly linked to the Project model via ForeignKey.
+        if hasattr(final_project, "id"):
+            log_extra["project_id"] = final_project.id
         else:
-            log_extra["project_id"] = str(final_project)
+            log_extra["project_id"] = final_project
+
+    if final_network:
+        if hasattr(final_network, "id"):
+            log_extra["swarm_network_id"] = final_network.id
+        else:
+            log_extra["swarm_network_id"] = final_network
 
     if object_id:
         log_extra["object_id"] = str(object_id)
@@ -121,58 +132,64 @@ class CategoryLogger:
     Example usage: logger.data.info("Data processed")
     """
 
-    def __init__(self, category, user=None, project=None):
+    def __init__(self, category, user=None, project=None, network=None):
         self.category = category
         self.user = user
         self.project_obj = project
+        self.network_obj = network
 
-    def info(self, message, user=None, project=None, **kwargs):
+    def info(self, message, user=None, project=None, network=None, **kwargs):
         log(
             "INFO",
             message,
             category=self.category,
             user=user or self.user,
             project=project or self.project_obj,
+            network=network or self.network_obj,
             **kwargs,
         )
 
-    def error(self, message, user=None, project=None, **kwargs):
+    def error(self, message, user=None, project=None, network=None, **kwargs):
         log(
             "ERROR",
             message,
             category=self.category,
             user=user or self.user,
             project=project or self.project_obj,
+            network=network or self.network_obj,
             **kwargs,
         )
 
-    def warning(self, message, user=None, project=None, **kwargs):
+    def warning(self, message, user=None, project=None, network=None, **kwargs):
         log(
             "WARNING",
             message,
             category=self.category,
             user=user or self.user,
             project=project or self.project_obj,
+            network=network or self.network_obj,
             **kwargs,
         )
 
-    def debug(self, message, user=None, project=None, **kwargs):
+    def debug(self, message, user=None, project=None, network=None, **kwargs):
         log(
             "DEBUG",
             message,
             category=self.category,
             user=user or self.user,
             project=project or self.project_obj,
+            network=network or self.network_obj,
             **kwargs,
         )
 
-    def critical(self, message, user=None, project=None, **kwargs):
+    def critical(self, message, user=None, project=None, network=None, **kwargs):
         log(
             "CRITICAL",
             message,
             category=self.category,
             user=user or self.user,
             project=project or self.project_obj,
+            network=network or self.network_obj,
             **kwargs,
         )
 
@@ -183,9 +200,10 @@ class Logger:
     Exposes properties for each defined LogCategory.
     """
 
-    def __init__(self, user=None, project=None):
+    def __init__(self, user=None, project=None, network=None):
         self.user_obj = user
         self.project_obj = project
+        self.network_obj = network
 
     def log(
         self,
@@ -194,6 +212,7 @@ class Logger:
         category="project",
         user=None,
         project=None,
+        network=None,
         **kwargs,
     ):
         """
@@ -205,6 +224,7 @@ class Logger:
             category=category,
             user=user or self.user_obj,
             project=project or self.project_obj,
+            network=network or self.network_obj,
             **kwargs,
         )
 
@@ -212,66 +232,70 @@ class Logger:
     def project(self):
         """Logs related to general project actions."""
         return CategoryLogger(
-            LogCategory.PROJECT, self.user_obj, self.project_obj
+            LogCategory.PROJECT, self.user_obj, self.project_obj, self.network_obj
         )
 
     @property
     def data(self):
         """Logs related to data management and validation."""
         return CategoryLogger(
-            LogCategory.DATA, self.user_obj, self.project_obj
+            LogCategory.DATA, self.user_obj, self.project_obj, self.network_obj
         )
 
     @property
     def network(self):
         """Logs related to swarm network provisioning and status."""
         return CategoryLogger(
-            LogCategory.NETWORK, self.user_obj, self.project_obj
+            LogCategory.NETWORK, self.user_obj, self.project_obj, self.network_obj
         )
 
     @property
     def training(self):
         """Logs related to FL training execution and container logs."""
         return CategoryLogger(
-            LogCategory.TRAINING, self.user_obj, self.project_obj
+            LogCategory.TRAINING, self.user_obj, self.project_obj, self.network_obj
         )
 
     @property
     def results(self):
         """Logs related to result generation and analysis."""
         return CategoryLogger(
-            LogCategory.RESULTS, self.user_obj, self.project_obj
+            LogCategory.RESULTS, self.user_obj, self.project_obj, self.network_obj
         )
 
     @property
     def auth(self):
         """Logs related to authentication (login/logout). Re-mapped to project."""
         return CategoryLogger(
-            LogCategory.PROJECT, self.user_obj, self.project_obj
+            LogCategory.PROJECT, self.user_obj, self.project_obj, self.network_obj
         )
 
     @property
     def access(self):
         """Logs related to access control and permission checks. Re-mapped to project."""
         return CategoryLogger(
-            LogCategory.PROJECT, self.user_obj, self.project_obj
+            LogCategory.PROJECT, self.user_obj, self.project_obj, self.network_obj
         )
 
 
-def get_logger(user=None, project=None) -> Logger:
+def get_logger(user=None, project=None, network=None) -> Logger:
     """
     The primary entry point to get a logger instance.
 
     Args:
         user: Optional User object (auto-detected from context if None)
         project: Optional Project object (auto-detected from context if None)
+        network: Optional SwarmNetwork object (auto-detected from context if None)
 
     Returns:
         Logger: A configured logger instance.
     """
     # Detect context if not provided
-    ctx_user, ctx_project = get_context()
+    from .context import get_context
+    ctx_user, ctx_project, ctx_network = get_context()
+    
     final_user = user or ctx_user
     final_project = project or ctx_project
+    final_network = network or ctx_network
 
-    return Logger(user=final_user, project=final_project)
+    return Logger(user=final_user, project=final_project, network=final_network)

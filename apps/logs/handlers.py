@@ -27,6 +27,7 @@ class DatabaseLogHandler(logging.Handler):
             # 1. Extract context from record and thread-locals
             user_id = getattr(record, "user_id", None)
             project_id = getattr(record, "project_id", None)
+            swarm_network_id = getattr(record, "swarm_network_id", None)
             object_id = getattr(record, "object_id", None)
             category = getattr(record, "category", "project")
 
@@ -71,6 +72,7 @@ class DatabaseLogHandler(logging.Handler):
                 "source": source,
                 "user_id": user_id,
                 "project_id": project_id,
+                "swarm_network_id": swarm_network_id,
             }
 
             # 5. Trigger the Celery task
