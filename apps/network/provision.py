@@ -267,7 +267,7 @@ def generate_flare_startup_kit(
         rf.write("python-dotenv==1.0.1\n")
         rf.write("pandas==2.3.3\n")
         rf.write("numpy<2.0.0\n")
-        rf.write("torch==2.9.0\n")
+        rf.write("torch==2.10.0\n")
         rf.write("scikit-learn==1.8.0\n")
         rf.write("fsspec==2025.2.0\n")
         rf.write("aiohttp==3.11.13\n")
