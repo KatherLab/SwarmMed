@@ -1,4 +1,4 @@
-FROM python:3.14.3-slim-bookworm
+FROM python:3.12.13-slim-bookworm
 
 # Set environment variables for non-interactive execution
 ENV PYTHONDONTWRITEBYTECODE 1
