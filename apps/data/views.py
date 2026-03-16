@@ -7,6 +7,7 @@ and the triggering/monitoring of validation and visualization runs.
 import json
 import os
 import re
+import secrets
 
 from celery import current_app
 from common.utils import format_size, get_s3_client, get_safe_referer
@@ -80,7 +81,7 @@ def get_project_manifest(request):
     is_authenticated = False
     
     # Mode A: Container authentication via project-specific secret
-    if provided_secret and provided_secret == project.secret:
+    if provided_secret and project.secret and secrets.compare_digest(provided_secret, project.secret):
         is_authenticated = True
     # Mode B: User session authentication
     elif request.user.is_authenticated:
@@ -244,6 +245,10 @@ def upload_files(request):
 
             # Save the file to S3
             default_storage.save(save_path, file)
+            
+            # Invalidate caches for this path
+            from .utils import invalidate_s3_caches
+            invalidate_s3_caches(save_path)
 
         log.data.info(f"Files uploaded to {full_destination} successfully.")
         return HttpResponse("Files uploaded with folder structure preserved!")
@@ -350,8 +355,8 @@ def download_file(request):
     log = logger.get_logger()
     log.access.info(f"User accessed file: {key}", file_key=key)
 
-    # Direct proxying is more reliable for local/self-hosted setups
-    return _proxy_s3_download_file(key, os.path.basename(key))
+    # Use streaming download to avoid memory issues with large files
+    return _proxy_s3_download(request, key, os.path.basename(key))
 
 
 @login_required

@@ -4,6 +4,7 @@ Defines the structure for Swarm Learning Networks, participants,
 and tracking active networks for users.
 """
 
+from common.fields import EncryptedCharField
 from common.models import AbstractBaseModel
 from django.contrib.auth.models import User
 from django.db import models
@@ -66,7 +67,7 @@ class SwarmNetwork(AbstractBaseModel):
     )
 
     # NEW: Secure gossip token for peer-to-peer status sync
-    gossip_token = models.CharField(
+    gossip_token = EncryptedCharField(
         max_length=64,
         blank=True,
         null=True,
@@ -212,6 +213,12 @@ class SwarmParticipant(models.Model):
     # NEW: Gossip Status
     status = models.CharField(max_length=50, default="OFFLINE")
     last_seen = models.DateTimeField(null=True, blank=True)
+    gossip_token = EncryptedCharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Participant-scoped secret for authenticated gossip and internal APIs.",
+    )
 
     class Meta:
         # Ensure that participant IDs are unique within a specific network
@@ -225,6 +232,11 @@ class SwarmParticipant(models.Model):
     def __str__(self):
         """Returns a string representation of the participant."""
         return f"{self.user.username} as {self.get_role_display()} in {self.network.name}"
+
+    def save(self, *args, **kwargs):
+        if not self.gossip_token:
+            self.gossip_token = secrets.token_hex(32)
+        super().save(*args, **kwargs)
 
 
 class UserCurrentNetwork(AbstractBaseModel):

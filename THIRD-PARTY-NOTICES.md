@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-SwarmCloud incorporates various third-party software components. This file provides the required notices and license information for these dependencies.
+MedSwarmHub incorporates various third-party software components. This file provides the required notices and license information for these dependencies.
 
 ## Python Dependencies
 

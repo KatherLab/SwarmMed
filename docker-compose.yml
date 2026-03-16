@@ -1,6 +1,6 @@
 services:
   app:
-    container_name: swarmcloud
+    container_name: medswarmhub
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 8 --worker-class gthread --access-logfile - --error-logfile - --log-level info --max-requests 1000 --max-requests-jitter 50 core.wsgi:application
     restart: always
     shm_size: '10.24gb'
@@ -10,7 +10,7 @@ services:
       - db_network
       - web_network
     volumes:
-      - ./:/app # :ro for production
+      - ./:/app:ro
       - ./:/workspace:ro
       - ./tmp:/app/tmp
       - ./media:/app/media
@@ -56,6 +56,8 @@ services:
       - ./.secrets/certs/nginx:/etc/nginx/certs:ro
       - ./infrastructure/certbot/conf:/etc/letsencrypt
       - ./infrastructure/certbot/www:/var/www/certbot
+      - static_data:/app/staticfiles:ro
+      - ./media:/app/media:ro
     depends_on:
       - app
     networks:
@@ -81,7 +83,7 @@ services:
     networks:
       - db_network
     volumes:
-      - ./:/app # :ro for production
+      - ./:/app:ro
       - ./:/workspace:ro
       - ./tmp:/app/tmp
       - ./media:/app/media
@@ -124,12 +126,12 @@ services:
       - CONTAINERS=1
       - NETWORKS=1
       - IMAGES=1
-      - VOLUMES=1
-      - BUILD=1
+      - VOLUMES=0
+      - BUILD=0
       - POST=1
       - INFO=1
       - VERSION=1
-      - EXEC=1
+      - EXEC=0
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:

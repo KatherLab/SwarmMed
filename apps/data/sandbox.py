@@ -1,5 +1,5 @@
 """
-Sandbox execution utility for SwarmCloud.
+Sandbox execution utility for MedSwarmHub.
 Handles the secure execution of user-provided Python scripts using ephemeral
 Docker containers to provide isolation and resource control.
 """
@@ -31,17 +31,17 @@ def get_host_path(container_path):
 
 def ensure_sandbox_image():
     """
-    Checks if the 'swarmcloud-sandbox' image exists locally on the sandbox daemon.
+    Checks if the 'medswarmhub-sandbox' image exists locally on the sandbox daemon.
     If not, it builds it from the Dockerfile.sandbox in the project root.
     """
     log = logger.get_logger()
     client = get_docker_client(target="sandbox")
 
     try:
-        client.images.get("swarmcloud-sandbox")
+        client.images.get("medswarmhub-sandbox")
     except docker.errors.ImageNotFound:
         log.data.info(
-            "Sandbox image not found. Building 'swarmcloud-sandbox' "
+            "Sandbox image not found. Building 'medswarmhub-sandbox' "
             "automatically (this may take a few minutes)..."
         )
         dockerfile_path = os.path.join(settings.BASE_DIR, "Dockerfile.sandbox")
@@ -58,7 +58,7 @@ def ensure_sandbox_image():
             generator = client.api.build(
                 path=str(settings.BASE_DIR),
                 dockerfile="Dockerfile.sandbox",
-                tag="swarmcloud-sandbox",
+                tag="medswarmhub-sandbox",
                 rm=True,
                 decode=True,
             )
@@ -82,27 +82,27 @@ def ensure_sandbox_image():
 def ensure_sandbox_network():
     """
     Ensures that the 'sandbox_internal' network exists in the sandbox daemon.
-    We make it a standard bridge network (internal=False) so that containers
-    can reach the host gateway to talk to MinIO.
+    We make it an internal bridge network (internal=True) to prevent data exfiltration.
+    Containers can still reach the host gateway to talk to MinIO if the daemon
+    is configured to allow it, but outbound internet access is blocked.
     """
     log = logger.get_logger()
     client = get_docker_client(target="sandbox")
 
     try:
         net = client.networks.get("sandbox_internal")
-        # If the existing network is internal, it won't have a gateway.
-        # We recreate it to ensure connectivity to the host.
-        if net.attrs.get("Internal", False):
-            log.data.info("Recreating 'sandbox_internal' network to allow host gateway access...")
+        # If the existing network is NOT internal, we recreate it for security.
+        if not net.attrs.get("Internal", False):
+            log.data.info("Recreating 'sandbox_internal' network as internal for security...")
             net.remove()
             raise docker.errors.NotFound("Recreating")
     except docker.errors.NotFound:
-        log.data.info("Creating 'sandbox_internal' network in sandbox...")
+        log.data.info("Creating 'sandbox_internal' network (internal=True) in sandbox...")
         try:
             client.networks.create(
                 "sandbox_internal",
                 driver="bridge",
-                internal=False,
+                internal=True,
                 check_duplicate=True,
             )
         except Exception as e:
@@ -165,7 +165,7 @@ def run_script_in_sandbox(
             # Enable GPU if requested and available on the daemon
             device_requests = []
             gpu_enabled = (
-                os.getenv("SWARMCLOUD_ENABLE_GPU", "false").strip().lower()
+                os.getenv("MEDSWARMHUB_ENABLE_GPU", "false").strip().lower()
                 in {"1", "true", "yes", "on"}
             )
             if gpu_enabled:
@@ -191,7 +191,7 @@ def run_script_in_sandbox(
             # without exposing the host network namespace to the user script.
             # We inject the 'minio' IP via extra_hosts so the sandbox can resolve it.
             container = client.containers.run(
-                image="swarmcloud-sandbox",
+                image="medswarmhub-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",

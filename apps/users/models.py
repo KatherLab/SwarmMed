@@ -51,7 +51,7 @@ class Profile(AbstractBaseModel):
     # If the User is deleted, the Profile is also deleted (CASCADE).
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
-    # The user's role in the SwarmCloud system.
+    # The user's role in the MedSwarmHub system.
     role = models.CharField(
         max_length=20, choices=ROLE_CHOICES, default="user"
     )

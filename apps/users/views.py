@@ -128,7 +128,7 @@ def settings(request):
     # Get the email of the first superuser as the DPO/Admin contact.
     admin_user = User.objects.filter(is_superuser=True).order_by("id").first()
     admin_email = (
-        admin_user.email if admin_user else "admin@swarmcloud.example.com"
+        admin_user.email if admin_user else "admin@medswarmhub.example.com"
     )
 
     context = {
@@ -308,7 +308,15 @@ def toggle_emergency_access(request, id):
     """
     Enables or disables emergency access for a user.
     Logs the event as CRITICAL for audit purposes (HIPAA requirement).
+    Only superusers can perform this action to prevent recursive elevation.
     """
+    if not request.user.is_superuser:
+        log = logger.get_logger()
+        log.access.warning(
+            f"UNAUTHORIZED EMERGENCY ACCESS ATTEMPT by {request.user.username} for user ID {id}."
+        )
+        raise PermissionDenied
+
     user_to_elevate = get_object_or_404(User, id=id)
     profile = user_to_elevate.profile
     log = logger.get_logger()

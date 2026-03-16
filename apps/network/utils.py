@@ -131,17 +131,17 @@ def get_hostname():
     """
     Returns a unique, human-friendly hostname for the current machine.
     
-    1. Checks environment variable SWARMCLOUD_HOSTNAME.
+    1. Checks environment variable MEDSWARMHUB_HOSTNAME.
     2. Checks for a persisted hostname in a local file.
     3. Generates and persists a new random human-friendly name if none exists.
     """
     # 1. Environment variable override
-    env_hostname = os.environ.get("SWARMCLOUD_HOSTNAME")
+    env_hostname = os.environ.get("MEDSWARMHUB_HOSTNAME")
     if env_hostname:
         return env_hostname
 
     # Path to the persisted hostname file
-    hostname_file = Path(settings.BASE_DIR) / ".swarmcloud_hostname"
+    hostname_file = Path(settings.BASE_DIR) / ".medswarmhub_hostname"
 
     # 2. Check for persisted hostname
     if hostname_file.exists():
@@ -185,10 +185,6 @@ def create_startup_kits_zip(swarm_network):
     them into a single ZIP file for the user to download.
     """
     import secrets
-    # Ensure gossip token exists
-    if not swarm_network.gossip_token:
-        swarm_network.gossip_token = secrets.token_hex(32)
-        swarm_network.save(update_fields=["gossip_token"])
 
     project_name = slugify(swarm_network.project.title).replace("-", "_")
     workspaces_root = Path(settings.BASE_DIR) / "workspaces"
@@ -209,13 +205,28 @@ def create_startup_kits_zip(swarm_network):
     
     # Participant Metadata
     participants_data = []
+    participant_tokens = {}
     for p in swarm_network.participants.all():
+        if not p.gossip_token:
+            p.gossip_token = secrets.token_hex(32)
+            p.save(update_fields=["gossip_token"])
+        participant_tokens[p.participant_id] = p.gossip_token
         participants_data.append({
             "participant_id": p.participant_id,
             "role": p.role,
             "ip": p.ip or "-",
             "org": p.org or f"org_{p.participant_id.replace('-', '_')}"
         })
+
+    def resolve_participant_token(folder_name):
+        if folder_name in participant_tokens:
+            return participant_tokens[folder_name]
+
+        normalized = folder_name.replace("_", "-").lower()
+        for participant_id, token in participant_tokens.items():
+            if participant_id.lower() == normalized:
+                return token
+        return ""
     participants_json = json.dumps(participants_data, indent=2)
 
     client_admin_map = {}
@@ -233,7 +244,6 @@ def create_startup_kits_zip(swarm_network):
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # 1. Add Metadata to main bundle
         main_zip.writestr(".network_id", str(swarm_network.identifier))
-        main_zip.writestr(".gossip_token", swarm_network.gossip_token)
         main_zip.writestr(".participants.json", participants_json)
 
         # 2. Add individual kits
@@ -245,7 +255,9 @@ def create_startup_kits_zip(swarm_network):
                 client_zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(client_zip_buffer, "w", zipfile.ZIP_DEFLATED) as client_zip:
                     client_zip.writestr(".network_id", str(swarm_network.identifier))
-                    client_zip.writestr(".gossip_token", swarm_network.gossip_token)
+                    participant_token = resolve_participant_token(item.name)
+                    if participant_token:
+                        client_zip.writestr(".gossip_token", participant_token)
                     client_zip.writestr(".participants.json", participants_json)
                     
                     # Requirements

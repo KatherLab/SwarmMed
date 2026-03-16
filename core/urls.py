@@ -1,5 +1,5 @@
 """
-Main URL configuration for the SwarmCloud project.
+Main URL configuration for the MedSwarmHub project.
 This module maps top-level URL paths to their respective application-specific
 URL configurations. It also handles serving static and media files.
 """

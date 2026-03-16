@@ -1,5 +1,5 @@
 """
-ASGI configuration for the SwarmCloud project.
+ASGI configuration for the MedSwarmHub project.
 It exposes the ASGI callable as a module-level variable named ``application``.
 This is used by asynchronous servers like Daphne or Uvicorn to serve the app.
 """

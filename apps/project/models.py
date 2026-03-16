@@ -6,6 +6,7 @@ Defines the structure for projects, file storage paths, and current project trac
 import os
 import secrets
 
+from common.fields import EncryptedCharField
 from common.models import AbstractBaseModel
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -103,7 +104,7 @@ class Project(AbstractBaseModel):
     is_current = models.BooleanField(default=False)
 
     # Secure secret for training containers to access project-specific APIs
-    secret = models.CharField(
+    secret = EncryptedCharField(
         max_length=128,
         blank=True,
         null=True,

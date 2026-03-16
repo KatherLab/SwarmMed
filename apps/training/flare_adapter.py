@@ -1,5 +1,5 @@
 """
-NVIDIA FLARE Adapter for SwarmCloud.
+NVIDIA FLARE Adapter for MedSwarmHub.
 This module provides a simplified, streaming interface for training scripts to
 interact with the NVFlare system and the project's S3 data storage.
 """
@@ -32,14 +32,14 @@ class FlareDataFileSystem:
 
     def __init__(self, project_uuid: str):
         self.project_uuid = (
-            os.getenv("SWARMCLOUD_PROJECT_ID", "").strip() or project_uuid
+            os.getenv("MEDSWARMHUB_PROJECT_ID", "").strip() or project_uuid
         )
         self.use_local_data = (
-            os.getenv("SWARMCLOUD_USE_LOCAL_DATA", "1").strip().lower()
+            os.getenv("MEDSWARMHUB_USE_LOCAL_DATA", "1").strip().lower()
             in {"1", "true", "yes", "on"}
         )
         self.http_timeout_sec = float(
-            os.getenv("SWARMCLOUD_DATA_HTTP_TIMEOUT_SEC", "10").strip() or "10"
+            os.getenv("MEDSWARMHUB_DATA_HTTP_TIMEOUT_SEC", "10").strip() or "10"
         )
         # Keep per-file fallback URL candidates (first item is preferred).
         self._manifest_candidates = {}
@@ -70,35 +70,35 @@ class FlareDataFileSystem:
                 ("172.17.0.1", 5085),
                 ("localhost", 5085),
                 ("127.0.0.1", 5085),
-                ("swarmcloud", 8000),
+                ("medswarmhub", 8000),
                 ("host.docker.internal", 5085)
             ]
             
             # Also add configured host as fallback
-            env_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+            env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
             if env_host:
                 discovery_targets.append((env_host, 5085))
 
             for host, port in discovery_targets:
                 print(f"flare_adapter: Fetching secure manifest from app proxy at {host}:{port}...")
                 try:
-                    for proto in ["https", "http"]:
-                        url = f"{proto}://{host}:{port}/data/manifest/?project_id={self.project_uuid}"
-                        try:
-                            resp = requests.get(
-                                url, 
-                                headers={"X-Manifest-Secret": manifest_secret},
-                                timeout=3,
-                                verify=False
-                            )
-                            if resp.status_code == 200:
-                                manifest = resp.json()
-                                if manifest:
-                                    print(f"flare_adapter: Securely loaded manifest with {len(manifest)} files from {host}:{port}.")
-                                    return self._process_manifest_urls(manifest)
-                                else:
-                                    print(f"flare_adapter: App proxy at {host}:{port} returned an empty manifest.")
-                        except Exception: continue
+                    url = f"https://{host}:{port}/data/manifest/?project_id={self.project_uuid}"
+                    try:
+                        resp = requests.get(
+                            url,
+                            headers={"X-Manifest-Secret": manifest_secret},
+                            timeout=3,
+                            verify=os.getenv("MEDSWARMHUB_CA_CERT", "/usr/local/share/ca-certificates/internal-ca.crt"),
+                        )
+                        if resp.status_code == 200:
+                            manifest = resp.json()
+                            if manifest:
+                                print(f"flare_adapter: Securely loaded manifest with {len(manifest)} files from {host}:{port}.")
+                                return self._process_manifest_urls(manifest)
+                            else:
+                                print(f"flare_adapter: App proxy at {host}:{port} returned an empty manifest.")
+                    except Exception:
+                        continue
                 except Exception as e:
                     print(f"flare_adapter: Error connecting to app proxy at {host}:{port}: {e}")
 

@@ -1,11 +1,11 @@
 ---
 title: Usage
-description: How to use the SwarmCloud platform.
+description: How to use the MedSwarmHub platform.
 ---
 
 # Usage
 
-This page explains how to use the SwarmCloud platform in more detail.
+This page explains how to use the MedSwarmHub platform in more detail.
 
 ## For Admins
 
@@ -44,7 +44,7 @@ As an admin, you can manage existing users, including editing their details or d
 ## For Developers
 
 ??? info "Developer Rights"
-    As a developer, you can create and manage swarm learning experiments on the SwarmCloud platform and see logs.
+    As a developer, you can create and manage swarm learning experiments on the MedSwarmHub platform and see logs.
 
 !!! info "Developer Guide"
     A more detailed developer guide can be found [here](/developer).

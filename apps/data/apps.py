@@ -34,10 +34,10 @@ class DataConfig(AppConfig):
         # Ensure the default bucket exists in S3/Minio
         # This is where all project data and scripts will be stored.
         bucket_name = getattr(
-            settings, "AWS_STORAGE_BUCKET_NAME", "swarmcloud"
+            settings, "AWS_STORAGE_BUCKET_NAME", "medswarmhub"
         )
         if not bucket_name:
-            bucket_name = "swarmcloud"
+            bucket_name = "medswarmhub"
 
         try:
             create_minio_bucket(bucket_name)

@@ -193,12 +193,22 @@ class LogEntry(models.Model):
                 self.signing_key = LogSigningKey.get_active_key()
 
             # Find the most recent log entry to chain
-            last_entry = LogEntry.objects.order_by("-timestamp").first()
-            if last_entry:
-                self.previous_hash = last_entry.signature
-            else:
-                self.previous_hash = "0" * 64  # Genesis block
+            # Optimization: Use Redis to cache the latest signature to avoid DB lookup
+            from django.core.cache import cache
+            cache_key = "latest_log_signature"
+            previous_signature = cache.get(cache_key)
 
+            if not previous_signature:
+                last_entry = LogEntry.objects.order_by("-timestamp").first()
+                if last_entry:
+                    previous_signature = last_entry.signature
+                else:
+                    previous_signature = "0" * 64  # Genesis block
+            
+            self.previous_hash = previous_signature
             self.signature = self.calculate_signature()
+            
+            # Update cache with the new signature
+            cache.set(cache_key, self.signature, 3600 * 24) # Cache for 24h
 
         super().save(*args, **kwargs)

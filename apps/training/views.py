@@ -5,6 +5,7 @@ import re
 import shutil
 import socket
 import ssl
+import secrets
 import threading
 import time
 import requests
@@ -31,6 +32,25 @@ from .utils import download_s3_folder
 logger = get_logger()
 
 
+def _peer_tls_verify_path():
+    return getattr(settings, "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt")
+
+
+def _authenticate_participant_request(request, network):
+    participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
+    provided_token = request.headers.get("X-Gossip-Token")
+    if not participant_id or not provided_token:
+        return None
+
+    participant = network.participants.filter(participant_id=participant_id).first()
+    if not participant or not participant.gossip_token:
+        return None
+
+    if secrets.compare_digest(provided_token, participant.gossip_token):
+        return participant
+    return None
+
+
 def training_api_state(request, network_id):
     """
     Internal API: Returns the latest training job state from this node.
@@ -38,11 +58,11 @@ def training_api_state(request, network_id):
     Authenticates via either Session or Gossip Token.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    provided_token = request.headers.get("X-Gossip-Token")
+    source_participant = _authenticate_participant_request(request, network)
     
     # 1. Authentication
     is_authenticated = False
-    if provided_token and provided_token == network.gossip_token:
+    if source_participant is not None:
         is_authenticated = True
     elif request.user.is_authenticated:
         # Simple project membership check
@@ -76,11 +96,11 @@ def training_api_results(request, network_id):
     Authenticates via either Session or Gossip Token.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    provided_token = request.headers.get("X-Gossip-Token")
+    source_participant = _authenticate_participant_request(request, network)
     
     # 1. Authentication
     is_authenticated = False
-    if provided_token and provided_token == network.gossip_token:
+    if source_participant is not None:
         is_authenticated = True
     elif request.user.is_authenticated:
         if network.project.members.filter(id=request.user.id).exists() or network.project.author == request.user:
@@ -165,7 +185,7 @@ def _resolve_admin_startup_dir(current_network) -> str | None:
     ):
         return current_network.admin_startup_dir
 
-    override = os.environ.get("SWARMCLOUD_NVFLARE_ADMIN_DIR", "").strip()
+    override = os.environ.get("MEDSWARMHUB_NVFLARE_ADMIN_DIR", "").strip()
     if override and os.path.exists(override):
         return override
 
@@ -286,7 +306,7 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | Non
 
     server_ip = ""
     try:
-        env_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+        env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
         if env_host:
             server_ip = env_host
 
@@ -418,7 +438,7 @@ def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
 
 
 def _build_flare_port_candidates(default_port: int = 0):
-    env_admin_port = os.getenv("SWARMCLOUD_FLARE_ADMIN_PORT", "").strip()
+    env_admin_port = os.getenv("MEDSWARMHUB_FLARE_ADMIN_PORT", "").strip()
     candidates = []
     if env_admin_port:
         try:
@@ -1180,12 +1200,12 @@ def start_training(request, network_id):
 
     try:
         submit_connect_timeout = 20.0
-        env_timeout = os.getenv("SWARMCLOUD_FLARE_CONNECT_TIMEOUT", "").strip()
+        env_timeout = os.getenv("MEDSWARMHUB_FLARE_CONNECT_TIMEOUT", "").strip()
         if env_timeout:
             try: submit_connect_timeout = float(env_timeout)
             except ValueError: pass
 
-        log.training.info(f"FLARE submit timeout config: requested_timeout={submit_connect_timeout}, env_SWARMCLOUD_FLARE_CONNECT_TIMEOUT={env_timeout or 'unset'}")
+        log.training.info(f"FLARE submit timeout config: requested_timeout={submit_connect_timeout}, env_MEDSWARMHUB_FLARE_CONNECT_TIMEOUT={env_timeout or 'unset'}")
 
         from nvflare.job_config.api import FedJob
         from nvflare.app_common.ccwf import SwarmServerController, SwarmClientController
@@ -1222,7 +1242,7 @@ def start_training(request, network_id):
             except (ModuleNotFoundError, ImportError):
                 pass
         elif framework == "pt":
-            use_pt_executor = os.getenv("SWARMCLOUD_ENABLE_PT_EXECUTOR", "").strip().lower() in {"1", "true", "yes", "on"}
+            use_pt_executor = os.getenv("MEDSWARMHUB_ENABLE_PT_EXECUTOR", "").strip().lower() in {"1", "true", "yes", "on"}
             if use_pt_executor:
                 try:
                     from nvflare.app_opt.pt.in_process_client_api_executor import PTInProcessClientAPIExecutor
@@ -1260,7 +1280,7 @@ def start_training(request, network_id):
         if not client_names: client_names = ["fl-client-1", "fl-client-2"]
 
         job = FedJob(name=f"{project_name}_job")
-        private_p2p = os.getenv("SWARMCLOUD_PRIVATE_P2P", "").strip().lower() in {"1", "true", "yes", "on"}
+        private_p2p = os.getenv("MEDSWARMHUB_PRIVATE_P2P", "").strip().lower() in {"1", "true", "yes", "on"}
         starting_client = client_names[0] if client_names else ""
 
         # Try to extract the number of swarm rounds from the training script
@@ -1465,7 +1485,17 @@ def training_status_api(request):
         if oc.ip not in [t[1] for t in mirror_targets]:
             mirror_targets.append(("CLIENT", oc.ip))
 
-    headers = {"X-Gossip-Token": current_network.gossip_token}
+    local_participant = current_network.participants.filter(ip=local_ip).order_by("role").first()
+    if local_participant and not local_participant.gossip_token:
+        local_participant.gossip_token = secrets.token_hex(32)
+        local_participant.save(update_fields=["gossip_token"])
+    if local_participant and local_participant.gossip_token:
+        headers = {
+            "X-Gossip-Participant": local_participant.participant_id,
+            "X-Gossip-Token": local_participant.gossip_token,
+        }
+    else:
+        headers = {}
     remote_state_found = False
 
     for role, peer_ip in mirror_targets:
@@ -1475,7 +1505,14 @@ def training_status_api(request):
             logger.training.debug(f"StatusAPI: Attempting to mirror state from {role} at {peer_ip}")
             
             # Short timeout per peer to keep the API responsive
-            resp = requests.get(state_url, headers=headers, timeout=2, verify=False)
+            if not headers:
+                continue
+            resp = requests.get(
+                state_url,
+                headers=headers,
+                timeout=2,
+                verify=_peer_tls_verify_path(),
+            )
             if resp.status_code == 200:
                 remote_job = resp.json().get("job")
                 if remote_job:

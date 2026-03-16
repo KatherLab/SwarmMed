@@ -8,6 +8,7 @@ from common.utils import (
     get_s3_client,
 )
 from django.conf import settings
+from django.core.cache import cache
 
 
 def create_minio_bucket(bucket_name):
@@ -23,6 +24,7 @@ def create_minio_bucket(bucket_name):
 def list_s3_folder(prefix=""):
     """
     Lists immediate files and folders under the given prefix in S3.
+    Uses Redis caching to accelerate UI navigation.
 
     Args:
         prefix (str): The S3 prefix to list.
@@ -30,6 +32,11 @@ def list_s3_folder(prefix=""):
     Returns:
         tuple: (folders, files) where each is a list of S3 keys.
     """
+    cache_key = f"s3_listing:{prefix}"
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return cached_result
+
     s3 = get_s3_client()
     paginator = s3.get_paginator("list_objects_v2")
 
@@ -52,7 +59,10 @@ def list_s3_folder(prefix=""):
             if key != prefix:
                 files.append(key)
 
-    return folders, files
+    res = (folders, files)
+    # Cache for 2 minutes to keep UI snappy while reflecting changes reasonably fast
+    cache.set(cache_key, res, 120)
+    return res
 
 
 def delete_s3_object(key):
@@ -61,6 +71,7 @@ def delete_s3_object(key):
     """
     s3 = get_s3_client()
     s3.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key)
+    invalidate_s3_caches(key)
 
 
 def copy_s3_object(source_key, target_key):
@@ -84,6 +95,7 @@ def rename_s3_object(old_key, new_key):
     """
     copy_s3_object(old_key, new_key)
     delete_s3_object(old_key)
+    invalidate_s3_caches(new_key)
 
 
 def delete_s3_folder(prefix):
@@ -103,6 +115,7 @@ def delete_s3_folder(prefix):
                 Bucket=settings.AWS_STORAGE_BUCKET_NAME,
                 Delete={"Objects": objects},
             )
+    invalidate_s3_caches(prefix)
 
 
 def rename_s3_folder(old_prefix, new_prefix):
@@ -121,15 +134,23 @@ def rename_s3_folder(old_prefix, new_prefix):
             new_key = new_prefix + old_key[len(old_prefix):]
             copy_s3_object(old_key, new_key)
             delete_s3_object(old_key)
+    invalidate_s3_caches(old_prefix)
+    invalidate_s3_caches(new_prefix)
 
 
 def get_storage_stats(prefix=""):
     """
     Calculates total size, file count, and folder count for a given S3 prefix.
+    Uses Redis caching to avoid frequent recursive S3 listings.
 
     Returns:
         tuple: (total_size_bytes, folder_count, file_count)
     """
+    cache_key = f"storage_stats:{prefix}"
+    cached_stats = cache.get(cache_key)
+    if cached_stats:
+        return cached_stats
+
     s3 = get_s3_client()
     paginator = s3.get_paginator("list_objects_v2")
 
@@ -153,7 +174,10 @@ def get_storage_stats(prefix=""):
                 folder_path = "/".join(parts[:i]) + "/"
                 folders.add(folder_path)
 
-    return total_size, len(folders), file_count
+    stats = (total_size, len(folders), file_count)
+    # Cache for 10 minutes
+    cache.set(cache_key, stats, 600)
+    return stats
 
 
 def get_column_prefixes(path):
@@ -170,3 +194,33 @@ def get_column_prefixes(path):
     for i in range(len(parts)):
         prefixes.append("/".join(parts[: i + 1]) + "/")
     return prefixes
+
+
+def invalidate_s3_caches(path_key):
+    """
+    Clears s3_listing and storage_stats caches for the given key and its parents.
+    Used after upload, delete, or rename operations.
+    """
+    # Extract project ID (first segment of the path)
+    parts = path_key.rstrip("/").split("/")
+    if not parts:
+        return
+
+    project_id = parts[0]
+    root_data_prefix = f"{project_id}/data/"
+    
+    # Invalidate storage stats for the project root
+    cache.delete(f"storage_stats:{root_data_prefix}")
+    
+    # Invalidate s3_listing for all parent directories
+    # Get prefixes relative to the project root
+    if len(path_key) > len(project_id) + 1:
+        rel_path = path_key[len(project_id)+1:]
+        prefixes = get_column_prefixes(rel_path)
+        for p in prefixes:
+            full_p = project_id + "/" + p
+            cache.delete(f"s3_listing:{full_p}")
+    else:
+        # If it's just the project root
+        cache.delete(f"s3_listing:{project_id}/")
+        cache.delete(f"s3_listing:{project_id}")

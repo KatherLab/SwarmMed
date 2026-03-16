@@ -32,7 +32,7 @@ def send_message_notification(sender, instance, created, **kwargs):
             f"Hello {instance.recipient.username},\n\n"
             f"You have received a new message from {instance.sender.username}.\n\n"
             f"Subject: {instance.subject}\n\n"
-            "Please log in to your SwarmCloud account to view the full message."
+            "Please log in to your MedSwarmHub account to view the full message."
         )
 
         # Use EMAIL_HOST_USER from settings or fallback to None
@@ -96,7 +96,7 @@ def send_project_post_notification(sender, instance, created, **kwargs):
             f"{author.username} has posted a new update on the project board "
             f"for '{project.title}'.\n\n"
             f"Content snippet:\n{instance.content[:200]}...\n\n"
-            "Please log in to SwarmCloud to view the full post and reply."
+            "Please log in to MedSwarmHub to view the full post and reply."
         )
 
         from_email = getattr(settings, "EMAIL_HOST_USER", None)

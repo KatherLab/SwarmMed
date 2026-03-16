@@ -1,7 +1,7 @@
-site_name: SwarmCloud
+site_name: MedSwarmHub Documentation
 
-repo_name: SwarmCloud
-repo_url: https://github.com/pfeifferis/SwarmCloud
+repo_name: MedSwarmHub
+repo_url: https://github.com/pfeifferis/MedSwarmHub
 
 nav:
     - Home: index.md

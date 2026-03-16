@@ -13,15 +13,15 @@
             <p>Last updated: January 2, 2026</p>
 
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">1. Introduction</h2>
-            <p>Welcome to MediSwarmCloud. We are committed to protecting your personal data and your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our decentralized medical AI platform.</p>
+            <p>Welcome to MedSwarmHub. We are committed to protecting your personal data and your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our decentralized medical AI platform.</p>
 
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">2. Data Controller & Data Protection Officer</h2>
             <p>The data controller responsible for your personal data is:</p>
             <div class="p-4 mb-4 bg-gray-50 rounded-lg dark:bg-gray-700">
                 <p class="font-medium text-gray-900 dark:text-white">
-                    [INSERT ORGANIZATION NAME]<br>
-                    [INSERT ADDRESS]<br>
-                    Email: [INSERT CONTACT EMAIL]
+                    {{ privacy_controller_name }}<br>
+                    {{ privacy_controller_address }}<br>
+                    Email: {{ privacy_contact_email }}
                 </p>
             </div>
             
@@ -29,8 +29,8 @@
             <div class="p-4 bg-gray-50 rounded-lg dark:bg-gray-700">
                 <p class="font-medium text-gray-900 dark:text-white">
                     Data Protection Officer<br>
-                    Email: [INSERT DPO EMAIL]<br>
-                    Address: [INSERT DPO ADDRESS]
+                    Email: {{ privacy_dpo_email }}<br>
+                    Address: {{ privacy_dpo_address }}
                 </p>
             </div>
 
@@ -42,7 +42,7 @@
                 <li><strong>Usage Data:</strong> Logs of system interactions (login times, project creation).</li>
                 <li><strong>Technical Data:</strong> IP addresses and browser information are collected for security and auditing purposes.</li>
             </ul>
-            <p><strong>Crucially, MediSwarmCloud does not centrally collect or aggregate your raw medical datasets.</strong> While the platform provides secure, project-specific storage for your datasets to facilitate local validation and swarm training, this data remains within your isolated project environment and is never shared across institutions or used for purposes beyond your specified research goals.</p>
+            <p><strong>Crucially, MedSwarmHub does not centrally collect or aggregate your raw medical datasets.</strong> While the platform provides secure, project-specific storage for your datasets to facilitate local validation and swarm training, this data remains within your isolated project environment and is never shared across institutions or used for purposes beyond your specified research goals.</p>
 
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">4. Legal Basis and Purposes</h2>
             <p>We process your data based on the following legal grounds (GDPR Article 6):</p>
@@ -56,15 +56,15 @@
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">5. Data Retention & Anonymization</h2>
             <p>We retain your personal data only for as long as necessary to fulfill the purposes we collected it for, including for the purposes of satisfying any legal, accounting, or reporting requirements.</p>
             <ul class="list-disc ml-6 space-y-2">
-                <li><strong>Account Data:</strong> Retained for the duration of your active account. If you delete your account, personal data is removed or anonymized within 30 days.</li>
-                <li><strong>System Logs:</strong> Auditing logs and security records are retained for [INSERT PERIOD, e.g., 1 year].</li>
-                <li><strong>IP Addresses:</strong> IP addresses logged for security purposes are automatically anonymized or deleted after [INSERT PERIOD, e.g., 90 days], unless they are required for an ongoing security investigation.</li>
+                <li><strong>Account Data:</strong> Retained for the duration of your active account. If you delete your account, personal data is removed or anonymized within {{ account_erasure_grace_days }} days.</li>
+                <li><strong>System Logs:</strong> Auditing logs and security records are retained for {{ security_log_retention_days }} days.</li>
+                <li><strong>IP Addresses:</strong> IP addresses logged for security purposes are automatically anonymized or deleted after {{ ip_anonymization_days }} days, unless they are required for an ongoing security investigation.</li>
             </ul>
 
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">6. Third-Party Data Processors (Sub-processors)</h2>
             <p>Depending on how this instance is hosted, the following third-party service providers may be used:</p>
             <ul class="list-disc ml-6 space-y-2">
-                <li><strong>Infrastructure Providers:</strong> [INSERT HOSTING PROVIDER, e.g., AWS, Azure, On-Premise]. Data is stored in [INSERT REGION/LOCATION].</li>
+                <li><strong>Infrastructure Providers:</strong> {{ privacy_hosting_provider }}. Data is stored in {{ privacy_data_region }}.</li>
             </ul>
 
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">7. Your Rights (GDPR)</h2>
@@ -97,12 +97,12 @@
             <p>We implement industry-standard security measures, including encryption for data at rest and in transit. Our decentralized architecture is specifically designed to minimize the risk of large-scale data breaches.</p>
 
             <h2 class="text-xl font-bold text-gray-900 dark:text-white">10. Contact Us</h2>
-            <p>If you have any questions about this Privacy Policy, please contact us at [INSERT CONTACT EMAIL].</p>
+            <p>If you have any questions about this Privacy Policy, please contact us at {{ privacy_contact_email }}.</p>
 
             <hr class="h-px my-8 bg-gray-200 border-0 dark:bg-gray-700">
 
             <h2 id="dpia" class="text-xl font-bold text-gray-900 dark:text-white">11. Data Protection Impact Assessment (DPIA) Summary</h2>
-            <p>MediSwarmCloud conducts periodic Data Protection Impact Assessments to identify and minimize the data protection risks of our project.</p>
+            <p>MedSwarmHub conducts periodic Data Protection Impact Assessments to identify and minimize the data protection risks of our project.</p>
             
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">11.1 Nature and Necessity</h3>
             <p>The platform facilitates collaborative machine learning on medical datasets. Processing is necessary to enable privacy-preserving medical research where traditional centralization is prohibited or risky. Our "data stays local" approach is the most proportional way to achieve these goals.</p>
@@ -144,14 +144,14 @@
             <ul class="list-disc ml-6 space-y-2">
                 <li><strong>Purpose:</strong> To manage user accounts and provide access to the platform.</li>
                 <li><strong>Data Categories:</strong> Username, Full Name, Email, Hashed Passwords, UUID.</li>
-                <li><strong>Retention:</strong> Duration of the account plus [INSERT PERIOD, e.g., 30 days] after deletion.</li>
+                <li><strong>Retention:</strong> Duration of the account plus {{ account_erasure_grace_days }} days after deletion.</li>
             </ul>
 
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">12.2 Audit Logging and Security</h3>
             <ul class="list-disc ml-6 space-y-2">
                 <li><strong>Purpose:</strong> To ensure system security and maintain an audit trail for compliance (HIPAA/GDPR).</li>
                 <li><strong>Data Categories:</strong> Login times, IP addresses, action logs.</li>
-                <li><strong>Retention:</strong> [INSERT PERIOD, e.g., 1 year].</li>
+                <li><strong>Retention:</strong> {{ security_log_retention_days }} days.</li>
             </ul>
 
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">12.3 Swarm Learning Coordination</h3>
@@ -178,7 +178,7 @@
                     <strong>Notification to Authority:</strong> If the breach is likely to result in a risk to individuals, the DPO will notify the relevant Supervisory Authority within <strong>72 hours</strong>.
                 </li>
                 <li>
-                    <strong>Notification to Individuals:</strong> If the breach is likely to result in a <strong>high risk</strong> to individuals, MediSwarmCloud will notify the affected individuals without undue delay.
+                    <strong>Notification to Individuals:</strong> If the breach is likely to result in a <strong>high risk</strong> to individuals, MedSwarmHub will notify the affected individuals without undue delay.
                 </li>
                 <li>
                     <strong>Documentation:</strong> All breaches are documented in an Internal Data Breach Register, and a post-mortem analysis is conducted.

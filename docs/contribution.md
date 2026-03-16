@@ -1,15 +1,15 @@
 ---
 title: Contribution Guide
-description: Detailed guidelines for contributing SwarmCloud.
+description: Detailed guidelines for contributing MedSwarmHub.
 ---
 
 # Contribution Guide
 
-Welcome to the **SwarmCloud** developer community! This document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
+Welcome to the **MedSwarmHub** developer community! This document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
 
 ## 🏗 System Overview
 
-SwarmCloud is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
+MedSwarmHub is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
 ### Core Technology Stack
 - **Backend:** Django 6.0, Celery, Redis.
 - **AI/ML:** NVIDIA FLARE (NVFlare) for Swarm Learning.
@@ -49,7 +49,7 @@ make start
 
 The `setup` target creates the secret folders, copies the template .env (only if it is missing), runs the PgBouncer helper, and generates TLS certificates needed for the services. `make start` builds and launches the Docker services in the right order.
 
-Use `make stop` to tear the stack down, and `make logs` to follow the `swarmcloud` container logs.
+Use `make stop` to tear the stack down, and `make logs` to follow the `medswarmhub` container logs.
 
 ### 4. Django Initialization
 ```bash
@@ -131,4 +131,4 @@ bandit -r apps core home manage.py -f json -o bandit_report.json
 
 ---
 
-For a quick reference, see the [CONTRIBUTING.md](https://github.com/pfeifferis/SwarmCloud/blob/main/CONTRIBUTING.md) file in the root directory.
+For a quick reference, see the [CONTRIBUTING.md](https://github.com/pfeifferis/MedSwarmHub/blob/main/CONTRIBUTING.md) file in the root directory.

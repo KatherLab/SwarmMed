@@ -6,6 +6,7 @@ deployment (start/stop), status monitoring, and startup kit distribution.
 
 import json
 import os
+import secrets
 import shutil
 import zipfile
 import requests
@@ -67,12 +68,34 @@ def _dedupe_keep_order(values):
     return deduped
 
 
+def _authenticate_participant_request(request, network):
+    """Authenticate machine-to-machine requests with participant-scoped credentials."""
+    participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
+    provided_token = request.headers.get("X-Gossip-Token")
+    if not participant_id or not provided_token:
+        return None
+
+    participant = network.participants.filter(participant_id=participant_id).first()
+    if not participant or not participant.gossip_token:
+        return None
+
+    if secrets.compare_digest(provided_token, participant.gossip_token):
+        return participant
+    return None
+
+
 def _get_local_participant_status(swarm_network):
     """
     Heuristic to determine participant status from local server logs and container state.
     On a Server node, it reads server logs to find Joined/Disconnected clients.
     On a Client node, it verifies if the local participant's container is alive.
     """
+    from django.core.cache import cache
+    cache_key = f"network_status_{swarm_network.identifier}"
+    cached_status = cache.get(cache_key)
+    if cached_status:
+        return cached_status
+
     participants = swarm_network.participants.all()
     server_logs = ""
     local_ip = get_tailscale_ip()
@@ -84,8 +107,9 @@ def _get_local_participant_status(swarm_network):
             from .tasks import _container_name_for
             import subprocess
             server_container = _container_name_for(swarm_network.identifier, "server")
+            # Performance: Reduced tail from 12000 to 3000
             result = subprocess.run(
-                ["docker", "logs", "--tail", "12000", server_container],
+                ["docker", "logs", "--tail", "3000", server_container],
                 capture_output=True, text=True, timeout=2
             )
             server_logs = (result.stdout + result.stderr).lower()
@@ -131,7 +155,7 @@ def _get_local_participant_status(swarm_network):
     # For debugging: list ALL running containers with our network label
     try:
         import subprocess
-        label_filter = f"swarmcloud.network_id={swarm_network.identifier}"
+        label_filter = f"medswarmhub.network_id={swarm_network.identifier}"
         running_containers = subprocess.run(
             ["docker", "ps", "--filter", f"label={label_filter}", "--format", "{{.Names}}"],
             capture_output=True, text=True, timeout=2
@@ -292,7 +316,6 @@ def _get_local_participant_status(swarm_network):
 
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-import secrets
 
 @csrf_exempt
 def network_api_gossip(request, network_id):
@@ -301,54 +324,78 @@ def network_api_gossip(request, network_id):
     Verifies Gossip Token and Sender IP for security.
     """
     client_ip = request.META.get('REMOTE_ADDR')
-    logger.network.info(f"[GOSSIP RECEIVE] Incoming POST from {client_ip} for network {network_id}")
+    logger.network.info(
+        f"[GOSSIP RECEIVE] Incoming POST from {client_ip} for network {network_id}"
+    )
 
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
     
-    # 1. Verify Gossip Token
+    # 1. Verify participant-scoped gossip credentials
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    provided_token = request.headers.get("X-Gossip-Token")
-    
-    logger.network.debug(f"[GOSSIP RECEIVE] Token provided: {provided_token[:8] if provided_token else 'NONE'}... Expected: {network.gossip_token[:8] if network.gossip_token else 'NONE'}...")
-
-    if not network.gossip_token or provided_token != network.gossip_token:
-        logger.network.warning(f"[GOSSIP REJECT] Unauthorized token from {client_ip}. Expected {network.gossip_token[:8] if network.gossip_token else 'MISSING'}...")
+    source_participant = _authenticate_participant_request(request, network)
+    if source_participant is None:
+        logger.network.warning(
+            f"[GOSSIP REJECT] Unauthorized token from {client_ip}."
+        )
         return JsonResponse({"error": "Unauthorized Gossip"}, status=401)
 
     try:
         data = json.loads(request.body)
         participant_id = data.get("participant_id")
+        source_participant_id = data.get("source_participant_id") or participant_id
         status = data.get("status")
-        
-        logger.network.info(f"[GOSSIP RECEIVE] Peer {participant_id} reports status: {status}")
 
-        # 2. Verify Sender IP
-        forwarded_for = request.headers.get('X-Forwarded-For')
-        if forwarded_for:
-            client_ip = forwarded_for.split(',')[0].strip()
+        if source_participant_id != source_participant.participant_id:
+            logger.network.warning(
+                f"[GOSSIP REJECT] Header/source mismatch: {source_participant.participant_id} != {source_participant_id}"
+            )
+            return JsonResponse({"error": "Sender mismatch"}, status=403)
 
+        logger.network.info(f"[GOSSIP RECEIVE] Peer {source_participant_id} reports status: {status}")
+
+        # 2. Verify Sender IP from trusted remote address (not X-Forwarded-For)
         participant = SwarmParticipant.objects.filter(
             network=network, 
-            participant_id=participant_id
+            participant_id=source_participant_id
         ).first()
         
         if not participant:
-             logger.network.error(f"[GOSSIP REJECT] Unknown participant {participant_id} (Network: {network.name})")
+             logger.network.error(f"[GOSSIP REJECT] Unknown participant {source_participant_id} (Network: {network.name})")
              # Log existing participants for debugging
              all_p = [p.participant_id for p in network.participants.all()]
              logger.network.debug(f"[GOSSIP REJECT] Known participants in DB: {all_p}")
              return JsonResponse({"error": "Unknown Participant"}, status=404)
 
-        # IP Lockdown log
-        if participant.ip and participant.ip not in ["-", "127.0.0.1", "localhost"]:
-            if client_ip != participant.ip:
-                logger.network.warning(f"[GOSSIP IP MISMATCH] {participant_id}: DB says {participant.ip}, request came from {client_ip}")
+        # Non-server senders may only update their own participant state.
+        if participant.role != "SERVER" and participant_id != participant.participant_id:
+            return JsonResponse({"error": "Forbidden status update scope"}, status=403)
 
-        participant.status = status
-        participant.last_seen = timezone.now()
-        participant.save(update_fields=["status", "last_seen"])
-        logger.network.debug(f"[GOSSIP ACK] Updated {participant_id} to {status}")
+        target_participant = participant
+        if participant_id and participant_id != participant.participant_id:
+            target_participant = SwarmParticipant.objects.filter(
+                network=network,
+                participant_id=participant_id,
+            ).first()
+            if not target_participant:
+                return JsonResponse({"error": "Unknown target participant"}, status=404)
+
+        # IP Lockdown log
+        if participant.ip and participant.ip not in [
+            "-",
+            "127.0.0.1",
+            "localhost",
+        ]:
+            if client_ip != participant.ip:
+                logger.network.warning(
+                    f"[GOSSIP REJECT] IP mismatch for {source_participant_id}: expected {participant.ip}, got {client_ip}"
+                )
+                return JsonResponse({"error": "IP mismatch"}, status=403)
+
+        target_participant.status = status
+        target_participant.last_seen = timezone.now()
+        target_participant.save(update_fields=["status", "last_seen"])
+        logger.network.debug(f"[GOSSIP ACK] Updated {target_participant.participant_id} to {status}")
         return JsonResponse({"status": "acknowledged"})
             
     except Exception as e:
@@ -360,7 +407,9 @@ def broadcast_network_status(network_id):
     """
     Helper to 'shout' local status to all peers in the network.
     Includes engine-level enrollment info if we are the server.
+    Optimized: Dispatches status updates asynchronously via Celery.
     """
+    from .tasks import shout_to_peer_task
     network = SwarmNetwork.objects.filter(identifier=network_id).first()
     if not network or network.status not in ["RUNNING", "STARTING"]:
         return
@@ -373,14 +422,20 @@ def broadcast_network_status(network_id):
         logger.network.warning(f"[GOSSIP BROADCAST] Could not find myself in participant list for IP {local_ip}")
         return
 
-    logger.network.info(f"[GOSSIP BROADCAST] Starting broadcast for network {network.name}. Local IP: {local_ip} (Roles: {[p.participant_id for p in local_participants]})")
+    logger.network.info(f"[GOSSIP BROADCAST] Starting asynchronous broadcast for network {network.name}. Local IP: {local_ip}")
 
     # Source of Truth: Engine logs + Docker state
     status_map = _get_local_participant_status(network)
-    headers = {"X-Gossip-Token": network.gossip_token}
-    
     for lp in local_participants:
+        if not lp.gossip_token:
+            lp.gossip_token = secrets.token_hex(32)
+            lp.save(update_fields=["gossip_token"])
+        headers = {
+            "X-Gossip-Participant": lp.participant_id,
+            "X-Gossip-Token": lp.gossip_token,
+        }
         my_payload = {
+            "source_participant_id": lp.participant_id,
             "participant_id": lp.participant_id,
             "status": status_map.get(lp.participant_id, "Online")
         }
@@ -391,6 +446,7 @@ def broadcast_network_status(network_id):
             for p_id, p_status in status_map.items():
                 if p_id != lp.participant_id:
                     extra_shouts.append({
+                        "source_participant_id": lp.participant_id,
                         "participant_id": p_id,
                         "status": p_status
                     })
@@ -398,15 +454,13 @@ def broadcast_network_status(network_id):
         peers = network.participants.exclude(id=lp.id)
         for peer in peers:
             if peer.ip and peer.ip != "-" and peer.ip != local_ip:
-                try:
-                    gossip_url = f"https://{peer.ip}:5085/network/api/gossip/{network.identifier}/"
-                    logger.network.debug(f"[GOSSIP SHOUT] {lp.participant_id} -> {peer.participant_id} at {peer.ip}")
-                    requests.post(gossip_url, json=my_payload, headers=headers, timeout=5, verify=False)
-                    
-                    for shout in extra_shouts:
-                        requests.post(gossip_url, json=shout, headers=headers, timeout=5, verify=False)
-                except Exception as e:
-                    logger.network.error(f"[GOSSIP SHOUT FAILED] {lp.participant_id} could not reach {peer.participant_id}: {e}")
+                shout_to_peer_task.delay(
+                    peer_ip=peer.ip,
+                    network_id=str(network.identifier),
+                    payload=my_payload,
+                    headers=headers,
+                    extra_shouts=extra_shouts if lp.role == "SERVER" else None
+                )
 
 
 @login_required
@@ -506,11 +560,14 @@ def network_api_status(request, network_id):
     Authenticates via either Session or Gossip Token.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    provided_token = request.headers.get("X-Gossip-Token")
+    source_participant = _authenticate_participant_request(request, swarm_network)
+
+    if request.method != "GET":
+        return JsonResponse({"error": "Only GET allowed"}, status=405)
     
     # 1. Authentication
     is_authenticated = False
-    if provided_token and provided_token == swarm_network.gossip_token:
+    if source_participant is not None:
         is_authenticated = True
     elif request.user.is_authenticated:
         # Simple project membership check
@@ -788,7 +845,7 @@ def new_network(request):
                 # Ensure uploaded kits keep a resolvable remote server host for FLARE admin connections.
                 resolved_server_host = ""
                 try:
-                    env_host = os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+                    env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
                     if env_host:
                         resolved_server_host = env_host
 
@@ -876,12 +933,7 @@ def new_network(request):
                     with zipfile.ZipFile(startup_package, "r") as zip_ref:
                         file_list = zip_ref.namelist()
                         
-                        # A. Recover Gossip Token
-                        if ".gossip_token" in file_list:
-                            swarm_network.gossip_token = zip_ref.read(".gossip_token").decode("utf-8").strip()
-                            log.network.info(f"Recovered Gossip Token for network {swarm_network.name}")
-                        
-                        # B. Recover Participant Metadata (The Master List)
+                        # A. Recover Participant Metadata (The Master List)
                         if ".participants.json" in file_list:
                             try:
                                 p_data = json.loads(zip_ref.read(".participants.json").decode("utf-8"))

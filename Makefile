@@ -5,15 +5,14 @@ export PATH
 UV := $(HOME)/.local/bin/uv
 UV_INSTALL_SCRIPT := https://astral.sh/uv/install.sh
 PYTHON_VERSION ?= 
-REQUIREMENTS := requirements.txt
 MKDOCS_CONFIG := docs/mkdocs.yml
 SECRETS_DIRS := .secrets/certs .secrets/docker .secrets/pgbouncer
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-uv install-python install deinstall deinstall-docker env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-celery migrate shell test superuser tailscale
+.PHONY: help check-uv install-python install deinstall deinstall-docker env env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-celery migrate shell test superuser tailscale
 
-MAIN_TARGETS := start stop restart logs  migrate shell test superuser docs-serve docs-build venv deinstall
+MAIN_TARGETS := start stop restart logs  migrate shell test superuser docs-serve docs-build venv deinstall env
 
 help: ## Show available targets
 	@echo "✨ Main targets:"
@@ -39,7 +38,7 @@ install: install-python ## Install project dependencies with uv
 	@if [ ! -d ".venv" ]; then \
 		$(UV) venv; \
 	fi
-	@$(UV) pip sync $(REQUIREMENTS)
+	@$(UV) pip install -e .
 
 deinstall: deinstall-docker ## Remove uv-managed environment, caches, and generated artifacts
 	@echo "🧹 Tearing down uv environment, caches, and generated artifacts"
@@ -51,21 +50,18 @@ deinstall: deinstall-docker ## Remove uv-managed environment, caches, and genera
 		rm -rf .secrets/certs .secrets/docker .secrets/pgbouncer || true; \
 	fi
 
-deinstall-docker: ## Stop SwarmCloud compose stack, drops volumes, and prunes build caches
-	@echo "🧽 Stopping SwarmCloud containers and removing volumes/build caches"
+deinstall-docker: ## Stop MedSwarmHub compose stack, drops volumes, and prunes build caches
+	@echo "🧽 Stopping MedSwarmHub containers and removing volumes/build caches"
 	@docker compose down --remove-orphans --rmi local -v || true
 	@docker builder prune -af || true
 	@docker image prune -af || true
 
-env-setup: ## Create required secret folders and copy .env template if missing
-	@echo "🏗️ Ensuring secret directories and env template"
+env: ## Initialize .env from .env.template (interactive, generates secrets)
+	@$(UV) run python scripts/setup_env.py
+
+env-setup: env ## Create required secret folders and initialize .env
+	@echo "🏗️ Ensuring secret directories"
 	@mkdir -p $(SECRETS_DIRS)
-	@if [ -f .env ]; then \
-		echo ".env already exists"; \
-	else \
-		cp .env.template .env; \
-		echo "Created .env from template"; \
-	fi
 
 setup-pgbouncer: install ## Run the PgBouncer helper script
 	@echo "🧬 Launching PgBouncer helper for secrets"
@@ -81,13 +77,13 @@ setup: install env-setup setup-pgbouncer generate-certs ## Bootstrap secrets, sc
 	@echo "Environment setup complete"
 
 start: setup compose-build compose-up ## Prepare the env, build assets, and start the services
-	@echo "⚙️ Kicking off SwarmCloud services"
-	@echo "SwarmCloud services are running"
+	@echo "⚙️ Kicking off MedSwarmHub services"
+	@echo "MedSwarmHub services are running"
 
 stop: ## Stop the Docker services
-	@echo "🛑 Tearing down SwarmCloud services"
+	@echo "🛑 Tearing down MedSwarmHub services"
 	@$(MAKE) compose-down
-	@echo "SwarmCloud services stopped"
+	@echo "MedSwarmHub services stopped"
 
 restart: stop start ## Recreate the services
 	@echo "♻️ Restart sequence initiated"
@@ -124,9 +120,9 @@ compose-down: ## Stop the Docker services
 	@echo "🛑 Bringing down the Docker services"
 	@docker compose down --remove-orphans
 
-logs: ## Follow the SwarmCloud application logs
-	@echo "📜 Streaming swarmcloud logs"
-	@docker compose logs -f swarmcloud
+logs: ## Follow the MedSwarmHub application logs
+	@echo "📜 Streaming medswarmhub logs"
+	@docker compose logs -f medswarmhub
 
 compose-down-v: ## Stop services and remove the attached volumes
 	@echo "🧼 Removing services and attached volumes"

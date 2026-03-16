@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-The following versions SwarmCloud are currently being supported with security updates.
+The following versions MedSwarmHub are currently being supported with security updates.
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -11,7 +11,7 @@ The following versions SwarmCloud are currently being supported with security up
 
 ## Reporting a Vulnerability
 
-We take the security of SwarmCloud seriously. If you find a security vulnerability, please report it to us responsibly.
+We take the security of MedSwarmHub seriously. If you find a security vulnerability, please report it to us responsibly.
 
 **Please do not open a public issue for security vulnerabilities.**
 
@@ -25,7 +25,7 @@ Instead, please send an email to [mediswarmcloud@gmail.com](mailto:mediswarmclou
 
 ## Secure Configuration
 
-SwarmCloud handles sensitive bio data. Always ensure the following:
+MedSwarmHub handles sensitive bio data. Always ensure the following:
 - **Environment Variables:** Never commit secrets to the repository. Use the provided `.env.template` as a base for your local `.env` file and ensure it is ignored by git.
 - **Production Mode:** `DEBUG` must be set to `False` in production environments.
 - **Database & Services:** Use secure, unique passwords for MinIO, Postgres, and Redis.
@@ -35,18 +35,18 @@ SwarmCloud handles sensitive bio data. Always ensure the following:
 
 ## Compliance
 
-SwarmCloud is designed with data protection as a core principle and is **HIPAA Capable**.
+MedSwarmHub is designed with data protection as a core principle and is **HIPAA Capable**.
 
 - **GDPR (General Data Protection Regulation):** The platform's decentralized architecture supports data minimization by keeping raw data local. It also includes self-service tools for the "Right to Erasure" and mandatory consent for data processing.
 - **HIPAA (Health Insurance Portability and Accountability Act):** Technical safeguards (encryption at rest/transit, MFA, brute-force protection, audit logs) are implemented to support PHI handling.
 
 ### HIPAA Readiness & Remaining Gaps
 
-While SwarmCloud provides the technical foundation for HIPAA compliance, achieving full compliance requires operational and administrative measures by the hosting organization:
+While MedSwarmHub provides the technical foundation for HIPAA compliance, achieving full compliance requires operational and administrative measures by the hosting organization:
 
 1. **Administrative Safeguards:** HIPAA is a program, not just a set of features. You must implement risk analysis, policies/procedures, training, incident response, and access reviews.
 2. **Business Associate Agreements (BAA):** You must have BAAs in place with any third-party vendors (hosting, email, etc.) that may have access to ePHI.
-3. **Infrastructure Encryption:** SwarmCloud uses named Docker volumes for all persistent data (`postgres_data`, `minio_data`, `workspace_data`, etc.). To ensure encryption at rest, these volumes should be configured with an encrypted volume driver (e.g., LUKS-backed local driver or cloud-provider encrypted storage).
+3. **Infrastructure Encryption:** MedSwarmHub uses named Docker volumes for all persistent data (`postgres_data`, `minio_data`, `workspace_data`, etc.). To ensure encryption at rest, these volumes should be configured with an encrypted volume driver (e.g., LUKS-backed local driver or cloud-provider encrypted storage).
 4. **Postgres SSL Enforcement:** SSL is enforced at the database level via a mandatory initialization script (`scripts/init_postgres_ssl.sh`) that runs whenever the database is initialized, ensuring `pg_hba.conf` only allows `hostssl` connections.
 5. **Secrets Management:** Current environments use `.env` files based on `.env.template`. For higher security, it is recommended to use a dedicated secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager) and rotate secrets regularly.
 6. **Audit Log Governance:** Technical log signing is present, but you must implement operational log review, alerting, and retention policies (e.g., exporting to a SIEM).
@@ -71,4 +71,4 @@ bandit -r apps core home manage.py -f json -o bandit_report.json
 
 ## Security Testing & Audit
 
-We are committed to maintaining a secure codebase. SwarmCloud is regularly scanned and tested to identify and mitigate known vulnerabilities. We encourage contributors to run the security scans mentioned above before submitting Pull Requests.
+We are committed to maintaining a secure codebase. MedSwarmHub is regularly scanned and tested to identify and mitigate known vulnerabilities. We encourage contributors to run the security scans mentioned above before submitting Pull Requests.

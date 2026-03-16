@@ -1,15 +1,15 @@
-# SwarmCloud
+# MedSwarmHub
 
 > [!WARNING]
 > **Research Use Only:** This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-SwarmCloud is a decentralized medical data storage and collaborative training platform. It leverages **Swarm Learning** (via NVIDIA FLARE) to enable privacy-preserving machine learning across distributed medical institutions without the need to move raw data.
+MedSwarmHub is a decentralized medical data storage and collaborative training platform. It leverages **Swarm Learning** (via NVIDIA FLARE) to enable privacy-preserving machine learning across distributed medical institutions without the need to move raw data.
 
 ---
 
 ## 🧠 Supported Frameworks
 
-SwarmCloud is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
+MedSwarmHub is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
 
 - **PyTorch** & **PyTorch Lightning**
 - **TensorFlow** & **Keras**
@@ -27,7 +27,7 @@ The platform handles the streaming of data from S3-compatible storage (MinIO) an
 Ensure you have [Docker](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
 
 ### 2. VPN Network (Tailscale)
-SwarmCloud uses Tailscale for secure peer-to-peer networking.
+MedSwarmHub uses Tailscale for secure peer-to-peer networking.
 
 ```bash
 # Install Tailscale (example for Ubuntu)
@@ -41,8 +41,8 @@ sudo tailscale up
 
 ### 3. Deploy Application
 ```bash
-git clone https://github.com/pfeifferis/SwarmCloud.git
-cd SwarmCloud
+git clone https://github.com/pfeifferis/MedSwarmHub.git
+cd MedSwarmHub   
 ```
 
 Then rely on the Makefile so you no longer run the manual prep scripts directly:
@@ -54,7 +54,7 @@ make setup          # copy .env (if missing), run PgBouncer setup, and generate 
 make start          # build the Docker services and bring them up
 ```
 
-Use `make stop` to tear the stack down, `make logs` to tail `swarmcloud`, and `make docs-serve`/`make docs-build` for MkDocs work.
+Use `make stop` to tear the stack down, `make logs` to tail `medswarmhub`, and `make docs-serve`/`make docs-build` for MkDocs work.
 
 ### 5. Cleanup targets
 
@@ -64,7 +64,7 @@ Run `make deinstall-docker` if you only need to stop the containers, drop volume
 
 ### Tooling (uv)
 
-SwarmCloud relies on uv for Python dependency management. The root Makefile installs uv when needed and synchronizes `requirements.txt` into `.venv`, so running the install target is all you need to provision the local Python tooling:
+MedSwarmHub relies on uv for Python dependency management. The root Makefile installs uv when needed and synchronizes `requirements.txt` into `.venv`, so running the install target is all you need to provision the local Python tooling:
 
 ```bash
 make install

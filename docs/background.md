@@ -1,15 +1,15 @@
 ---
 title: Background
-description: Background information about SwarmCloud and Swarm Learning.
+description: Background information about MedSwarmHub and Swarm Learning.
 ---
 
 # Background
 
-SwarmCloud was developed to address the challenges of applying **secure machine learning** to **large scale sensitive medical data** with **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in the medical field due to privacy concerns and data governance regulations.
+MedSwarmHub was developed to address the challenges of applying **secure machine learning** to **large scale sensitive medical data** with **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in the medical field due to privacy concerns and data governance regulations.
 
 ## System Architecture
 
-SwarmCloud is composed of several integrated components that work together to provide a secure and scalable decentralized learning environment.
+MedSwarmHub is composed of several integrated components that work together to provide a secure and scalable decentralized learning environment.
 
 ``` mermaid
 graph TD
@@ -173,11 +173,11 @@ sequenceDiagram
 
 ### What is Minio?
 
-Minio is a high-performance, self-hosted object storage server that is fully compatible with the Amazon S3 API. In the context of SwarmCloud, it acts as a central repository for all digital assets associated with a decentralized learning project. This includes the training code, datasets, and the resulting models.
+Minio is a high-performance, self-hosted object storage server that is fully compatible with the Amazon S3 API. In the context of MedSwarmHub, it acts as a central repository for all digital assets associated with a decentralized learning project. This includes the training code, datasets, and the resulting models.
 
-### Why is Minio important for SwarmCloud?
+### Why is Minio important for MedSwarmHub?
 
-Being self-hosted provides complete control over the physical storage of data, which is a critical requirement when dealing with sensitive information. For a platform like Swarm Cloud, which is designed to handle sensitive medical data, using a self-hosted object storage solution like Minio is highly advantageous. It allows for complete data sovereignty, ensuring that the data is stored in a controlled and secure environment.
+Being self-hosted provides complete control over the physical storage of data, which is a critical requirement when dealing with sensitive information. For a platform like MedSwarmHub, which is designed to handle sensitive medical data, using a self-hosted object storage solution like Minio is highly advantageous. It allows for complete data sovereignty, ensuring that the data is stored in a controlled and secure environment.
 
 ### Key Features
 
@@ -192,9 +192,9 @@ Being self-hosted provides complete control over the physical storage of data, w
 
 Django is a high-level Python web framework that follows the "batteries-included" philosophy. It provides a comprehensive set of tools and libraries for building web applications, including an Object-Relational Mapper (ORM), an authentication system, and a powerful admin interface.
 
-### Why is Django important for SwarmCloud?
+### Why is Django important for MedSwarmHub?
 
-In SwarmCloud, Django is the backbone of the web-based user interface, which is the primary way users interact with the platform. The choice of Django for SwarmCloud is motivated by its robustness, scalability, and strong security features. For a platform that is exposed to the internet and manages sensitive operations, having a framework that is secure by default is crucial.
+In MedSwarmHub, Django is the backbone of the web-based user interface, which is the primary way users interact with the platform. The choice of Django for MedSwarmHub is motivated by its robustness, scalability, and strong security features. For a platform that is exposed to the internet and manages sensitive operations, having a framework that is secure by default is crucial.
 
 ### Key Features
 
@@ -210,13 +210,13 @@ In SwarmCloud, Django is the backbone of the web-based user interface, which is 
 
 Tailscale is a modern VPN service that makes it easy to create secure networks between computers, servers, and cloud instances. It is built on top of the WireGuard protocol and creates a flat, private network (a "tailnet") where every device can talk to every other device directly.
 
-### Why is Tailscale important for SwarmCloud?
+### Why is Tailscale important for MedSwarmHub?
 
 In a federated learning scenario, especially in swarm learning where clients communicate in a peer-to-peer fashion, establishing secure and reliable connections between participants is a major challenge. Participants are often located in different geographical locations and behind different firewalls. Tailscale solves this problem elegantly by creating a secure overlay network. This is particularly important for the NVIDIA FLARE's swarm learning feature, which relies on peer-to-peer communication between the clients.
 
 ### Key Features
 
-*   **Secure Connectivity:** By using Tailscale, SwarmCloud can ensure that the communication between the federated learning participants is always secure and reliable.
+*   **Secure Connectivity:** By using Tailscale, MedSwarmHub can ensure that the communication between the federated learning participants is always secure and reliable.
 *   **End-to-End Encryption:** All traffic on a Tailscale network is end-to-end encrypted.
 *   **WireGuard:** It uses WireGuard, which is a state-of-the-art VPN protocol known for its simplicity, speed, and security.
 *   **Simplified Firewall Rules:** Tailscale simplifies firewall management. Once a device is on the tailnet, it can communicate with other devices on the same tailnet without the need for complex firewall rules.

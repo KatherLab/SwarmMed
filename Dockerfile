@@ -7,7 +7,7 @@ COPY templates ./templates
 RUN npm ci && npm run build
 
 # Stage 2: Final image
-FROM python:3.12-slim-bookworm
+FROM python:3.14.3-slim-bookworm
 
 # set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -33,10 +33,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY pyproject.toml .
 # install python dependencies with uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && uv pip install --system -r requirements.txt
+    && uv pip install --system .
 
 COPY . .
 # Copy built assets from Stage 1

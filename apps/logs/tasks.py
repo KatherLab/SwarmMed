@@ -152,3 +152,56 @@ def anonymize_security_logs():
     Ensures GDPR compliance for security logging.
     """
     call_command("anonymize_ips")
+
+
+@shared_task(name="logs.tasks.async_save_log_task")
+def async_save_log_task(log_data):
+    """
+    Saves a single log entry asynchronously.
+    """
+    try:
+        # We pop fields that are ForeignKeys or need special handling
+        user_id = log_data.pop("user_id", None)
+        project_id = log_data.pop("project_id", None)
+        swarm_network_id = log_data.pop("swarm_network_id", None)
+
+        log_entry = LogEntry(**log_data)
+        if user_id:
+            log_entry.user_id = user_id
+        if project_id:
+            log_entry.project_id = project_id
+        if swarm_network_id:
+            log_entry.swarm_network_id = swarm_network_id
+
+        log_entry.save()
+    except Exception as e:
+        # Use simple print/console logging for task failures to avoid recursion
+        print(f"Async log save failed: {e}")
+
+
+@shared_task(name="logs.tasks.bulk_save_logs_task")
+def bulk_save_logs_task(logs_list):
+    """
+    Saves multiple log entries asynchronously using bulk_create_signed_logs.
+    """
+    try:
+        from .utils import bulk_create_signed_logs
+        
+        log_objects = []
+        for log_data in logs_list:
+            user_id = log_data.pop("user_id", None)
+            project_id = log_data.pop("project_id", None)
+            swarm_network_id = log_data.pop("swarm_network_id", None)
+
+            log_entry = LogEntry(**log_data)
+            if user_id:
+                log_entry.user_id = user_id
+            if project_id:
+                log_entry.project_id = project_id
+            if swarm_network_id:
+                log_entry.swarm_network_id = swarm_network_id
+            log_objects.append(log_entry)
+
+        bulk_create_signed_logs(log_objects)
+    except Exception as e:
+        print(f"Bulk log save failed: {e}")
