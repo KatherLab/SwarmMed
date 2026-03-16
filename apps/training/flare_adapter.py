@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import numpy as np
 import nvflare.client as flare
 import fsspec
+import aiohttp
 import requests
 from dotenv import load_dotenv
 
