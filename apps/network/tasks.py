@@ -1441,8 +1441,6 @@ def start_swarm_network_task(network_id, user_id):
 
                 if server_map_host:
                     run_cmd.extend(["--add-host", f"server:{server_map_host}"])
-                    # Ensure 'minio' also resolves to the server host for S3 streaming
-                    run_cmd.extend(["--add-host", f"minio:{server_map_host}"])
 
                     # Add aliases if present
                     aliases_file = os.path.join(startup_dir, "server_aliases.txt")
