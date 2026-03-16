@@ -39,7 +39,8 @@ class ResultsVisualizationContext:
         self.plots = []
         self.current_plot_number = 0
         self.log = logger.get_logger()
-        self.fs = fsspec.filesystem("http", ssl=False)
+        # Internal streaming filesystem with SSL verification disabled.
+        self.fs = fsspec.filesystem("http", client_kwargs={"ssl": False})
 
         try:
             self.job = TrainingJob.objects.get(identifier=job_identifier)

@@ -82,22 +82,22 @@ def ensure_sandbox_image():
 def ensure_sandbox_network():
     """
     Ensures that the 'sandbox_internal' network exists in the sandbox daemon.
-    We make it an internal bridge network (internal=True) to prevent data exfiltration.
-    Containers can still reach the host gateway to talk to MinIO if the daemon
-    is configured to allow it, but outbound internet access is blocked.
+    We make it a standard bridge network (internal=False) to allow reaching 
+    the host gateway for MinIO streaming. While this allows outbound traffic,
+    it is required for the streaming architecture.
     """
     log = logger.get_logger()
     client = get_docker_client(target="sandbox")
 
     try:
         net = client.networks.get("sandbox_internal")
-        # If the existing network is NOT internal, we recreate it for security.
-        if not net.attrs.get("Internal", False):
-            log.data.info("Recreating 'sandbox_internal' network as internal for security...")
+        # If the existing network is internal, we recreate it to allow MinIO access.
+        if net.attrs.get("Internal", False):
+            log.data.info("Recreating 'sandbox_internal' network as non-internal for MinIO access...")
             net.remove()
             raise docker.errors.NotFound("Recreating")
     except docker.errors.NotFound:
-        log.data.info("Creating 'sandbox_internal' network (internal=True) in sandbox...")
+        log.data.info("Creating 'sandbox_internal' network in sandbox...")
         try:
             client.networks.create(
                 "sandbox_internal",

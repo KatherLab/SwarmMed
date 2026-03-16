@@ -54,7 +54,7 @@ class FlareDataFileSystem:
         # instances using self-signed certificates.
         self.fs = fsspec.filesystem(
             "http",
-            ssl=False,
+            client_kwargs={"ssl": False},
             timeout=self.http_timeout_sec,
         )
         
