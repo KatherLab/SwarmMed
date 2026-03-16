@@ -12,24 +12,16 @@ ENV_HELP = {
         "example": "django-insecure-xyz123..."
     },
     "DEBUG": {
-        "desc": "Enable or disable Django's debug mode (False for production).",
-        "example": "True/False"
+        "desc": "Enable or disable Django's debug mode with True(False for production).",
+        "example": "False"
     },
     "DJANGO_ALLOWED_HOSTS": {
         "desc": "A comma-separated list of host/domain names this site can serve.",
-        "example": "localhost, 127.0.0.1, swarmcloud.example.com"
+        "example": "localhost,127.0.0.1,192.168.33.107,100.127.11.1"
     },
     "DJANGO_CSRF_TRUSTED_ORIGINS": {
         "desc": "A list of trusted origins for Unsafe requests (e.g. POST).",
-        "example": "http://localhost:8000, https://swarmcloud.example.com"
-    },
-    "POSTGRES_DB": {
-        "desc": "The name of the PostgreSQL database.",
-        "example": "medswarmhub_db"
-    },
-    "POSTGRES_USER": {
-        "desc": "The username for the PostgreSQL database connection.",
-        "example": "db_admin"
+        "example": "hhttp://localhost:8000,http://localhost:5085,https://localhost:5085,https://100.127.11.1:5085"
     },
     "POSTGRES_PASSWORD": {
         "desc": "The password for the PostgreSQL database connection.",
@@ -57,15 +49,15 @@ ENV_HELP = {
     },
     "AWS_S3_REGION_NAME": {
         "desc": "The region name for S3 storage (often us-east-1 for MinIO).",
-        "example": "us-east-1"
+        "example": "eu-central-1"
     },
     "PUBLIC_URL": {
         "desc": "The public-facing URL for accessing stored files.",
-        "example": "https://storage.example.com"
+        "example": "https://100.127.11.1:9000"
     },
     "PRIVACY_CONTROLLER_NAME": {
         "desc": "Legal name of the organization controlling the data.",
-        "example": "SwarmCloud Foundation"
+        "example": "KatherLab"
     },
     "PRIVACY_CONTROLLER_ADDRESS": {
         "desc": "Physical address of the organization.",
@@ -73,23 +65,19 @@ ENV_HELP = {
     },
     "PRIVACY_CONTACT_EMAIL": {
         "desc": "Primary email for privacy-related inquiries.",
-        "example": "privacy@swarmcloud.org"
+        "example": "privacy@medswarmhub.org"
     },
     "PRIVACY_DPO_EMAIL": {
         "desc": "Email address for the Data Protection Officer.",
-        "example": "dpo@swarmcloud.org"
+        "example": "dpo@medswarmhub.org"
     },
     "PRIVACY_HOSTING_PROVIDER": {
         "desc": "Description of where the platform is hosted.",
-        "example": "AWS / Self-hosted"
+        "example": "Self-hosted"
     },
     "PRIVACY_DATA_REGION": {
         "desc": "The geographic region where user data is stored.",
-        "example": "EU (Frankfurt)"
-    },
-    "ACCOUNT_ERASURE_GRACE_DAYS": {
-        "desc": "Number of days to wait before permanently deleting an account.",
-        "example": "30"
+        "example": "EU (Germany)"
     },
     "EMAIL_HOST": {
         "desc": "SMTP server hostname for sending emails.",
@@ -117,27 +105,11 @@ ENV_HELP = {
     },
     "HOST_PROJECT_PATH": {
         "desc": "Absolute path to the project on your HOST machine (for Docker mounts).",
-        "example": "/Users/kevin/Documents/SwarmCloud"
+        "example": "/opt/MedSwarmHub"
     },
     "MEDSWARMHUB_HOSTNAME": {
         "desc": "Custom hostname for the platform deployment.",
         "example": "swarmcloud.local"
-    },
-    "BACKUP_RETENTION_DAYS": {
-        "desc": "Number of days to keep database/media backups.",
-        "example": "30"
-    },
-    "DATA_RETENTION_DAYS": {
-        "desc": "Number of days to keep training/project data.",
-        "example": "2190"
-    },
-    "SECURITY_LOG_RETENTION_DAYS": {
-        "desc": "Number of days to keep security and access logs.",
-        "example": "365"
-    },
-    "IP_ANONYMIZATION_DAYS": {
-        "desc": "Number of days before anonymizing user IP addresses.",
-        "example": "90"
     }
 }
 
