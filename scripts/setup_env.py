@@ -5,6 +5,102 @@ import base64
 import sys
 from cryptography.fernet import Fernet
 
+# Help dictionary providing descriptions and examples for environment variables
+ENV_HELP = {
+    "SECRET_KEY": {
+        "desc": "Django's secret key used for cryptographic signing.",
+        "example": "django-insecure-xyz123..."
+    },
+    "DEBUG": {
+        "desc": "Enable or disable Django's debug mode (False for production).",
+        "example": "True/False"
+    },
+    "DJANGO_ALLOWED_HOSTS": {
+        "desc": "A comma-separated list of host/domain names this site can serve.",
+        "example": "localhost, 127.0.0.1, swarmcloud.example.com"
+    },
+    "DJANGO_CSRF_TRUSTED_ORIGINS": {
+        "desc": "A list of trusted origins for Unsafe requests (e.g. POST).",
+        "example": "http://localhost:8000, https://swarmcloud.example.com"
+    },
+    "POSTGRES_DB": {
+        "desc": "The name of the PostgreSQL database.",
+        "example": "medswarmhub_db"
+    },
+    "POSTGRES_USER": {
+        "desc": "The username for the PostgreSQL database connection.",
+        "example": "db_admin"
+    },
+    "POSTGRES_PASSWORD": {
+        "desc": "The password for the PostgreSQL database connection.",
+        "example": "secure_db_pass_123"
+    },
+    "REDIS_PASSWORD": {
+        "desc": "The password for the Redis cache/task broker.",
+        "example": "redis_secure_pass_789"
+    },
+    "MINIO_ROOT_USER": {
+        "desc": "The root administrator username for MinIO storage.",
+        "example": "minio_admin"
+    },
+    "MINIO_ROOT_PASSWORD": {
+        "desc": "The root administrator password for MinIO storage.",
+        "example": "minio_secret_pass_456"
+    },
+    "MINIO_KMS_SECRET_KEY": {
+        "desc": "Key Management Service secret key for MinIO encryption.",
+        "example": "medswarmhub:base64_encoded_key"
+    },
+    "AWS_STORAGE_BUCKET_NAME": {
+        "desc": "The name of the S3/MinIO bucket for media and static files.",
+        "example": "swarmcloud-storage"
+    },
+    "PUBLIC_URL": {
+        "desc": "The public-facing URL for accessing stored files.",
+        "example": "https://storage.example.com"
+    },
+    "EMAIL_HOST_USER": {
+        "desc": "The username for the SMTP email server.",
+        "example": "alerts@example.com"
+    },
+    "EMAIL_HOST_PASSWORD": {
+        "desc": "The password or App Password for the SMTP email server.",
+        "example": "abcd-efgh-ijkl-mnop"
+    },
+    "FERNET_KEYS": {
+        "desc": "Comma-separated Fernet keys for encrypting data at rest.",
+        "example": "base64_key1,base64_key2"
+    },
+    "BACKUP_ENCRYPTION_KEY": {
+        "desc": "The Fernet key specifically for database/media backups.",
+        "example": "base64_backup_key"
+    },
+    "HOST_PROJECT_PATH": {
+        "desc": "Absolute path to the project on your HOST machine (for Docker mounts).",
+        "example": "/Users/kevin/Documents/SwarmCloud"
+    },
+    "MEDSWARMHUB_HOSTNAME": {
+        "desc": "Custom hostname for the platform deployment.",
+        "example": "swarmcloud.local"
+    },
+    "BACKUP_RETENTION_DAYS": {
+        "desc": "Number of days to keep database/media backups.",
+        "example": "30"
+    },
+    "DATA_RETENTION_DAYS": {
+        "desc": "Number of days to keep training/project data.",
+        "example": "2190"
+    },
+    "SECURITY_LOG_RETENTION_DAYS": {
+        "desc": "Number of days to keep security and access logs.",
+        "example": "365"
+    },
+    "IP_ANONYMIZATION_DAYS": {
+        "desc": "Number of days before anonymizing user IP addresses.",
+        "example": "90"
+    }
+}
+
 def generate_password(length=32):
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
@@ -18,6 +114,12 @@ def generate_kms_key():
 def generate_fernet_key():
     return Fernet.generate_key().decode()
 
+def print_help(key):
+    help_info = ENV_HELP.get(key)
+    if help_info:
+        print(f"\n📝 {help_info['desc']}")
+        print(f"💡 Example: {help_info['example']}")
+
 def setup_env():
     template_path = ".env.template"
     env_path = ".env"
@@ -26,14 +128,16 @@ def setup_env():
         print(f"❌ Error: {template_path} not found.")
         sys.exit(1)
 
-    existing_env = {}
+    # resolved_env will store the final values for each key
+    resolved_env = {}
+    
     if os.path.exists(env_path):
         with open(env_path, "r") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
-                    existing_env[key.strip()] = value.strip()
+                    resolved_env[key.strip()] = value.strip()
 
     new_env_lines = []
     
@@ -52,15 +156,21 @@ def setup_env():
         key = key.strip()
         template_value = template_value.strip()
         
-        current_value = existing_env.get(key)
+        current_value = resolved_env.get(key)
         
-        # If value is already set and not a placeholder, keep it
-        if current_value and not current_value.startswith("replace-with-"):
-            new_env_lines.append(f"{key}={current_value}")
-            continue
-
+        # If value is already set and not a placeholder or 'same-as', keep it
+        if current_value and not current_value.startswith("replace-with-") and not current_value.startswith("same-as-"):
+            val = current_value
+        elif template_value.startswith("same-as-"):
+            target_key = template_value.replace("same-as-", "").strip()
+            val = resolved_env.get(target_key)
+            if not val:
+                print(f"⚠️ Warning: {key} depends on {target_key}, but {target_key} is not yet defined.")
+                val = template_value # Keep it to potentially resolve later or fail
+            else:
+                print(f"🔗 Linked {key} to {target_key}")
         # Auto-generation logic
-        if key == "SECRET_KEY":
+        elif key == "SECRET_KEY":
             val = generate_secret_key()
             print(f"✨ Generated {key}")
         elif "PASSWORD" in key or key.endswith("_PASS"):
@@ -76,10 +186,12 @@ def setup_env():
             val = generate_fernet_key()
             print(f"✨ Generated {key}")
         elif key == "HOST_PROJECT_PATH":
+            print_help(key)
             default_path = os.getcwd()
             val = input(f"❓ Enter {key} [{default_path}]: ").strip() or default_path
         elif template_value.startswith("replace-with-") or not template_value:
             # Prompt for other "replace-with" values
+            print_help(key)
             val = input(f"❓ Enter value for {key} ({template_value}): ").strip()
             if not val:
                 val = template_value
@@ -87,6 +199,7 @@ def setup_env():
             # Keep template default if it's not a placeholder
             val = template_value
 
+        resolved_env[key] = val
         new_env_lines.append(f"{key}={val}")
 
     with open(env_path, "w") as f:
