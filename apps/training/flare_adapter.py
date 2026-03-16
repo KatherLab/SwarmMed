@@ -50,12 +50,11 @@ class FlareDataFileSystem:
         self.manifest = self._load_manifest()
         
         # Initialize fsspec HTTP filesystem for streaming.
-        # We disable SSL verification via client_kwargs to support internal MinIO 
-        # instances using self-signed certificates. fsspec handles the session 
-        # creation correctly when we pass the setting this way.
+        # We don't disable SSL verification at the session level here because newer 
+        # aiohttp versions removed the 'ssl' argument from ClientSession.
+        # Instead, we pass ssl=False to individual requests in self.open().
         self.fs = fsspec.filesystem(
             "http",
-            client_kwargs={"ssl": False},
             timeout=self.http_timeout_sec,
         )
         
@@ -221,12 +220,14 @@ class FlareDataFileSystem:
             try:
                 # Set a very short timeout for the initial connection/metadata check
                 current_timeout = probe_timeout if not self._working_host_prefix else self.http_timeout_sec
+                # We pass ssl=False to individual requests to disable verification for internal MinIO.
+                kwargs.setdefault("ssl", False)
                 f = self.fs.open(url, mode=mode, timeout=current_timeout, **kwargs)
                 
                 # If we haven't confirmed a working host yet, do a quick check
                 if not self._working_host_prefix:
                     try:
-                        self.fs.info(url, timeout=current_timeout)
+                        self.fs.info(url, timeout=current_timeout, ssl=False)
                         # Success! Cache the prefix (protocol + host + port)
                         parsed = urlparse(url)
                         self._working_host_prefix = f"{parsed.scheme}://{parsed.netloc}"

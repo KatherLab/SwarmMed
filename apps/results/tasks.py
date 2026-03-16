@@ -185,7 +185,6 @@ import io
 import base64
 import fsspec
 import torch
-import aiohttp
 import numpy as np
 import traceback
 import pickle
@@ -199,9 +198,9 @@ class ResultsVisualizationHelper:
             manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        # Internal streaming filesystem with SSL verification disabled.
-        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
-        self.fs = fsspec.filesystem("http", client_kwargs={{"connector": aiohttp.TCPConnector(ssl=False)}})
+        # Initialize internal streaming filesystem.
+        # Request-level SSL verification is handled in self.open().
+        self.fs = fsspec.filesystem("http")
         self.manifest = self._process_manifest(manifest)
         print(f"Manifest keys: {{list(self.manifest.keys())}}")
         print("--- ResultsVisualizationHelper Ready ---")
@@ -248,13 +247,15 @@ class ResultsVisualizationHelper:
             if path.lower().endswith((".h5", ".keras")):
                 import keras
                 temp_path = os.path.join("/tmp", os.path.basename(path))
-                with self.fs.open(url, "rb") as remote_f, open(temp_path, "wb") as local_f:
+                # We pass ssl=False to support internal MinIO.
+                with self.fs.open(url, "rb", ssl=False) as remote_f, open(temp_path, "wb") as local_f:
                     local_f.write(remote_f.read())
                 model = keras.models.load_model(temp_path)
                 return model.get_weights()
 
             # Handle standard streaming formats
-            with self.fs.open(url, "rb") as f:
+            # We pass ssl=False to support internal MinIO.
+            with self.fs.open(url, "rb", ssl=False) as f:
                 if path.lower().endswith((".pt", ".pth", ".ckpt")):
                     data = torch.load(f, map_location='cpu', weights_only=True)
                     if isinstance(data, dict):
@@ -326,6 +327,8 @@ class ResultsVisualizationHelper:
         url = self.manifest[path]
         print(f"Opening streaming connection to: {{url}}")
         try:
+            # We pass ssl=False to individual requests to support internal MinIO.
+            kwargs.setdefault("ssl", False)
             return self.fs.open(url, mode=mode, **kwargs)
         except Exception as e:
             print(f"ERROR opening {{url}}: {{e}}")

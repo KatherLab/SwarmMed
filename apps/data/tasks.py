@@ -64,7 +64,6 @@ def run_validation_task(self, validation_run_id):
 import json
 import os
 import fsspec
-import aiohttp
 from urllib.parse import urlparse
 
 class ValidationHelper:
@@ -73,9 +72,9 @@ class ValidationHelper:
             manifest = json.load(f)
         self.output_file = output_file
         self.checks = []
-        # Internal streaming filesystem with SSL verification disabled.
-        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
-        self.fs = fsspec.filesystem("http", client_kwargs={{"connector": aiohttp.TCPConnector(ssl=False)}})
+        # Initialize internal streaming filesystem.
+        # Request-level SSL verification is handled in self.open().
+        self.fs = fsspec.filesystem("http")
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):
@@ -109,6 +108,8 @@ class ValidationHelper:
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
+        # We pass ssl=False to individual requests to support internal MinIO.
+        kwargs.setdefault("ssl", False)
         return self.fs.open(self.manifest[path], mode=mode, **kwargs)
 
     def exists(self, relative_path):
@@ -216,7 +217,6 @@ import os
 import io
 import base64
 import fsspec
-import aiohttp
 import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 
@@ -226,9 +226,9 @@ class VisualizationHelper:
             manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
-        # Internal streaming filesystem with SSL verification disabled.
-        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
-        self.fs = fsspec.filesystem("http", client_kwargs={{"connector": aiohttp.TCPConnector(ssl=False)}})
+        # Initialize internal streaming filesystem.
+        # Request-level SSL verification is handled in self.open().
+        self.fs = fsspec.filesystem("http")
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):
@@ -280,6 +280,8 @@ class VisualizationHelper:
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
+        # We pass ssl=False to individual requests to support internal MinIO.
+        kwargs.setdefault("ssl", False)
         return self.fs.open(self.manifest[path], mode=mode, **kwargs)
 
     def exists(self, relative_path):

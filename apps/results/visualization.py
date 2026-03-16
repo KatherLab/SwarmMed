@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import fsspec
-import aiohttp
 from data.filesystem import DataFileSystem
 from logs import logger
 from training.models import TrainingJob
@@ -40,9 +39,9 @@ class ResultsVisualizationContext:
         self.plots = []
         self.current_plot_number = 0
         self.log = logger.get_logger()
-        # Internal streaming filesystem with SSL verification disabled.
-        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
-        self.fs = fsspec.filesystem("http", client_kwargs={"connector": aiohttp.TCPConnector(ssl=False)})
+        # Initialize internal streaming filesystem.
+        # Request-level SSL verification is handled in self.open() and self.get_model().
+        self.fs = fsspec.filesystem("http")
 
         try:
             self.job = TrainingJob.objects.get(identifier=job_identifier)
@@ -113,7 +112,8 @@ class ResultsVisualizationContext:
         if not url:
             raise FileNotFoundError(f"Could not find model weights in manifest.")
 
-        with self.fs.open(url, "rb") as f:
+        # We pass ssl=False to individual requests to support internal MinIO.
+        with self.fs.open(url, "rb", ssl=False) as f:
             if url.endswith(".pt"):
                 data = torch.load(f, map_location="cpu", weights_only=True)
                 if isinstance(data, dict):
@@ -131,6 +131,8 @@ class ResultsVisualizationContext:
         clean_path = relative_path.lstrip("/")
         if clean_path not in self.filesystem.manifest:
             raise FileNotFoundError(f"File {clean_path} not found in manifest.")
+        # We pass ssl=False to individual requests to support internal MinIO.
+        kwargs.setdefault("ssl", False)
         return self.fs.open(self.filesystem.manifest[clean_path], mode=mode, **kwargs)
 
     def exists(self, relative_path: str) -> bool:
