@@ -105,7 +105,7 @@ ENV_HELP = {
     },
     "MEDSWARMHUB_HOSTNAME": {
         "desc": "Custom hostname for the platform deployment.",
-        "example": "swarmcloud.local"
+        "example": "pc1.tud"
     }
 }
 
