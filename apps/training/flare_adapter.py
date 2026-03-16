@@ -16,7 +16,6 @@ from urllib.parse import urlparse
 import numpy as np
 import nvflare.client as flare
 import fsspec
-import aiohttp
 import requests
 from dotenv import load_dotenv
 
@@ -51,12 +50,12 @@ class FlareDataFileSystem:
         self.manifest = self._load_manifest()
         
         # Initialize fsspec HTTP filesystem for streaming.
-        # We disable SSL verification (ssl=False) to support internal MinIO 
-        # instances using self-signed certificates.
-        # We use a custom connector because newer aiohttp versions removed the 'ssl' argument from ClientSession.
+        # We disable SSL verification via client_kwargs to support internal MinIO 
+        # instances using self-signed certificates. fsspec handles the session 
+        # creation correctly when we pass the setting this way.
         self.fs = fsspec.filesystem(
             "http",
-            client_kwargs={"connector": aiohttp.TCPConnector(ssl=False)},
+            client_kwargs={"ssl": False},
             timeout=self.http_timeout_sec,
         )
         

@@ -216,6 +216,7 @@ import os
 import io
 import base64
 import fsspec
+import aiohttp
 import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 
