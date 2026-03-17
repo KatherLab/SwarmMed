@@ -54,12 +54,17 @@ def _authenticate_participant_request(request, network):
     if not participant_id or not provided_token:
         return None
 
-    participant = network.participants.filter(participant_id=participant_id).first()
-    if not participant or not participant.gossip_token:
-        return None
+    # We allow authentication if the token matches the project secret.
+    # This allows decentralized nodes to trust each other if they belong
+    # to the same project, as the project secret is shared via startup kits.
+    if network.project.secret and secrets.compare_digest(provided_token, network.project.secret):
+        return network.participants.filter(participant_id=participant_id).first()
 
-    if secrets.compare_digest(provided_token, participant.gossip_token):
+    # Fallback to individual participant tokens (legacy/explicit)
+    participant = network.participants.filter(participant_id=participant_id).first()
+    if participant and participant.gossip_token and secrets.compare_digest(provided_token, participant.gossip_token):
         return participant
+        
     return None
 
 

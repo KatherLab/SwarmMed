@@ -69,17 +69,19 @@ def _dedupe_keep_order(values):
 
 
 def _authenticate_participant_request(request, network):
-    """Authenticate machine-to-machine requests with participant-scoped credentials."""
+    """Authenticate machine-to-machine requests with project or participant credentials."""
     participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
     provided_token = request.headers.get("X-Gossip-Token")
     if not participant_id or not provided_token:
         return None
 
-    participant = network.participants.filter(participant_id=participant_id).first()
-    if not participant or not participant.gossip_token:
-        return None
+    # Trust peers providing the project secret (Shared Trust Anchor)
+    if network.project.secret and secrets.compare_digest(provided_token, network.project.secret):
+        return network.participants.filter(participant_id=participant_id).first()
 
-    if secrets.compare_digest(provided_token, participant.gossip_token):
+    # Legacy/Manual fallback
+    participant = network.participants.filter(participant_id=participant_id).first()
+    if participant and participant.gossip_token and secrets.compare_digest(provided_token, participant.gossip_token):
         return participant
     return None
 
