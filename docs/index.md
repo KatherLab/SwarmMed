@@ -10,7 +10,7 @@ description: Installation and setup instructions for the MedSwarmHub platform.
 
 MedSwarmHub is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
 
-## 🧩 Key Features
+## :octicons-arrow-right-24: Key Features
 <div class="grid cards" markdown>
 
 -   :material-assistant:{ .lg .middle } __Swarm Learning__
