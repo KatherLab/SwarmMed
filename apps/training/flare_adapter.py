@@ -122,7 +122,21 @@ class FlareDataFileSystem:
         
         # Determine local networking candidates
         # We include the 100.127.11.1 IP as it's the confirmed reachable host.
-        local_ips = ["100.127.11.1", "minio", "host.docker.internal", "localhost", "127.0.0.1", "172.17.0.1"]
+        gateway_ip = "172.17.0.1"
+        local_ips = ["100.127.11.1", "minio", "host.docker.internal", "localhost", "127.0.0.1", gateway_ip]
+        
+        # If we are on the host network, 'minio' won't resolve. 
+        # We check if we can resolve 'minio', and if not, we use the gateway.
+        try:
+            socket.gethostbyname("minio")
+        except socket.gaierror:
+            # If 'minio' is in the candidates but doesn't resolve, 
+            # ensure the gateway is tried early.
+            if gateway_ip not in local_ips:
+                local_ips.insert(0, gateway_ip)
+            # We can also dynamically add it to /etc/hosts if we have permission,
+            # but usually just trying the IP is safer and more reliable.
+
         try:
             container_ip = socket.gethostbyname(socket.gethostname())
             if container_ip not in local_ips: local_ips.append(container_ip)
@@ -130,7 +144,8 @@ class FlareDataFileSystem:
 
         for rel_path, url in manifest.items():
             parsed = urlparse(url)
-            port = f":{parsed.port}" if parsed.port else ""
+            # Use netloc to preserve port if present, but we might need to swap the host part
+            original_port = parsed.port
             original_proto = parsed.scheme or "https"
             
             final_urls = []
@@ -145,7 +160,12 @@ class FlareDataFileSystem:
 
             for host in local_ips:
                 for proto in protocols:
-                    new_url = parsed._replace(scheme=proto, netloc=f"{host}{port}").geturl()
+                    # Construct netloc correctly with port
+                    netloc = host
+                    if original_port:
+                        netloc = f"{host}:{original_port}"
+                    
+                    new_url = parsed._replace(scheme=proto, netloc=netloc).geturl()
                     if new_url not in final_urls: final_urls.append(new_url)
             
             processed[rel_path] = final_urls[0]
