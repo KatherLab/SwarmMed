@@ -56,7 +56,7 @@ MedSwarmHub is a **secure** and **scalable** platform for **decentralized learni
 
 </div>
 
-## :material-sdk: Supported Frameworks
+## :material-home: Supported Frameworks
 
 MedSwarmHub is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
 
