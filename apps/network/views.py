@@ -943,7 +943,14 @@ def new_network(request):
                     with zipfile.ZipFile(startup_package, "r") as zip_ref:
                         file_list = zip_ref.namelist()
                         
-                        # A. Recover Participant Metadata (The Master List)
+                        # 1. Recover Shared Gossip Token
+                        if ".gossip_token" in file_list:
+                            recovered_token = zip_ref.read(".gossip_token").decode("utf-8").strip()
+                            if recovered_token:
+                                swarm_network.gossip_token = recovered_token
+                                log.network.info(f"Recovered shared gossip token from upload.")
+
+                        # 2. Recover Participant Metadata (The Master List)
                         if ".participants.json" in file_list:
                             try:
                                 p_data = json.loads(zip_ref.read(".participants.json").decode("utf-8"))
