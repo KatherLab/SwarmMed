@@ -428,13 +428,18 @@ def broadcast_network_status(network_id):
 
     # Source of Truth: Engine logs + Docker state
     status_map = _get_local_participant_status(network)
+    
+    # We use the PROJECT SECRET as the gossip token. 
+    # This is a secure shared secret available to all participants in the project.
+    gossip_token = network.project.secret
+    if not gossip_token:
+        logger.network.error("[GOSSIP BROADCAST] Network project has no secret! Peer sync impossible.")
+        return
+
     for lp in local_participants:
-        if not lp.gossip_token:
-            lp.gossip_token = secrets.token_hex(32)
-            lp.save(update_fields=["gossip_token"])
         headers = {
             "X-Gossip-Participant": lp.participant_id,
-            "X-Gossip-Token": lp.gossip_token,
+            "X-Gossip-Token": gossip_token,
         }
         my_payload = {
             "source_participant_id": lp.participant_id,
