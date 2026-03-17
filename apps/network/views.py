@@ -75,6 +75,9 @@ def _authenticate_participant_request(request, network):
     if not participant_id or not provided_token:
         return None
 
+    # DEBUG: Log the provided token vs the expected token
+    logger.network.debug(f"[AUTH DEBUG] Participant: {participant_id}, Provided: {provided_token[:8]}..., Expected: {network.gossip_token[:8] if network.gossip_token else 'NONE'}...")
+
     # Authenticate using the network's shared gossip token
     if network.gossip_token and secrets.compare_digest(provided_token, network.gossip_token):
         return network.participants.filter(participant_id=participant_id).first()

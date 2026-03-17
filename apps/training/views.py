@@ -58,10 +58,6 @@ def _authenticate_participant_request(request, network):
     if network.gossip_token and secrets.compare_digest(provided_token, network.gossip_token):
         return network.participants.filter(participant_id=participant_id).first()
 
-    # Fallback to project secret (Shared Trust Anchor)
-    if network.project.secret and secrets.compare_digest(provided_token, network.project.secret):
-        return network.participants.filter(participant_id=participant_id).first()
-
     # Legacy/Manual participant-scoped fallback
     participant = network.participants.filter(participant_id=participant_id).first()
     if participant and participant.gossip_token and secrets.compare_digest(provided_token, participant.gossip_token):
