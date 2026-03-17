@@ -1503,13 +1503,15 @@ def training_status_api(request):
             mirror_targets.append(("CLIENT", oc.ip))
 
     local_participant = current_network.participants.filter(ip=local_ip).order_by("role").first()
-    if local_participant and not local_participant.gossip_token:
-        local_participant.gossip_token = secrets.token_hex(32)
-        local_participant.save(update_fields=["gossip_token"])
-    if local_participant and local_participant.gossip_token:
+    
+    # We use the project secret as the shared token for all internal P2P communication.
+    # This allows nodes to trust each other without a central registry.
+    gossip_token = current_network.project.secret
+    
+    if local_participant and gossip_token:
         headers = {
             "X-Gossip-Participant": local_participant.participant_id,
-            "X-Gossip-Token": local_participant.gossip_token,
+            "X-Gossip-Token": gossip_token,
         }
     else:
         headers = {}
