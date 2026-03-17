@@ -33,6 +33,18 @@ logger = get_logger()
 
 
 def _peer_tls_verify_path():
+    """
+    Determines the CA certificate path for peer-to-peer TLS verification.
+    Can be overridden via MEDSWARMHUB_CA_CERT or disabled via MEDSWARMHUB_SKIP_PEER_SSL_VERIFY.
+    Defaults to skipping verification (False) if not explicitly set to 'false'.
+    """
+    if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
+        return False
+    
+    env_ca = os.getenv("MEDSWARMHUB_CA_CERT", "").strip()
+    if env_ca:
+        return env_ca
+        
     return getattr(settings, "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt")
 
 

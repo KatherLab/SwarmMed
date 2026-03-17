@@ -997,7 +997,14 @@ def shout_to_peer_task(peer_ip, network_id, payload, headers, extra_shouts=None)
     """
     try:
         gossip_url = f"https://{peer_ip}:5085/network/api/gossip/{network_id}/"
-        verify_path = getattr(settings, "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt")
+        
+        # Determine TLS verification strategy
+        if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "").lower() in ("true", "1", "yes"):
+            verify_path = False
+        else:
+            verify_path = os.getenv("MEDSWARMHUB_CA_CERT", "").strip() or \
+                          getattr(settings, "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt")
+        
         # We use a short timeout to avoid hanging the worker
         requests.post(gossip_url, json=payload, headers=headers, timeout=5, verify=verify_path)
         
