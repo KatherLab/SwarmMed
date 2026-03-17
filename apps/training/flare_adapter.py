@@ -68,7 +68,6 @@ class FlareDataFileSystem:
             # Try multiple hosts to reach the local Django app. 
             # We check port 5085 (Nginx proxy) and 8000 (direct app container).
             discovery_targets = [
-                ("100.127.11.1", 5085), # Host Machine IP
                 ("172.17.0.1", 5085),
                 ("localhost", 5085),
                 ("127.0.0.1", 5085),
@@ -225,12 +224,18 @@ class FlareDataFileSystem:
                 if not self._working_host_prefix:
                     print(f"flare_adapter: Probing candidate: {url} (timeout={probe_timeout}s)")
                     try:
-                        # info() is lighter than open() for checking reachability
-                        self.fs.info(url, timeout=probe_timeout, ssl=False)
-                        # Success! Cache the prefix (protocol + host + port)
-                        parsed = urlparse(url)
-                        self._working_host_prefix = f"{parsed.scheme}://{parsed.netloc}"
-                        print(f"flare_adapter: FOUND working data host: {self._working_host_prefix}")
+                        # We use a streaming GET request to probe instead of info()
+                        # because signed URLs for GET requests will fail a HEAD request (used by info).
+                        # We only check the status code to confirm reachability.
+                        with requests.get(url, stream=True, timeout=probe_timeout, verify=False) as r:
+                            if r.status_code < 400:
+                                # Success! Cache the prefix (protocol + host + port)
+                                parsed = urlparse(url)
+                                self._working_host_prefix = f"{parsed.scheme}://{parsed.netloc}"
+                                print(f"flare_adapter: FOUND working data host: {self._working_host_prefix}")
+                            else:
+                                print(f"flare_adapter: Candidate {url} returned status {r.status_code}")
+                                continue
                     except Exception as e:
                         print(f"flare_adapter: Candidate {url} unreachable: {e}")
                         continue
