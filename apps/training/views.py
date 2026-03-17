@@ -54,13 +54,15 @@ def _authenticate_participant_request(request, network):
     if not participant_id or not provided_token:
         return None
 
-    # We allow authentication if the token matches the project secret.
-    # This allows decentralized nodes to trust each other if they belong
-    # to the same project, as the project secret is shared via startup kits.
+    # Authenticate using the network's shared gossip token
+    if network.gossip_token and secrets.compare_digest(provided_token, network.gossip_token):
+        return network.participants.filter(participant_id=participant_id).first()
+
+    # Fallback to project secret (Shared Trust Anchor)
     if network.project.secret and secrets.compare_digest(provided_token, network.project.secret):
         return network.participants.filter(participant_id=participant_id).first()
 
-    # Fallback to individual participant tokens (legacy/explicit)
+    # Legacy/Manual participant-scoped fallback
     participant = network.participants.filter(participant_id=participant_id).first()
     if participant and participant.gossip_token and secrets.compare_digest(provided_token, participant.gossip_token):
         return participant
@@ -1504,9 +1506,9 @@ def training_status_api(request):
 
     local_participant = current_network.participants.filter(ip=local_ip).order_by("role").first()
     
-    # We use the project secret as the shared token for all internal P2P communication.
+    # We use the network gossip token as the shared token for all internal P2P communication.
     # This allows nodes to trust each other without a central registry.
-    gossip_token = current_network.project.secret
+    gossip_token = current_network.gossip_token
     
     if local_participant and gossip_token:
         headers = {

@@ -69,17 +69,17 @@ def _dedupe_keep_order(values):
 
 
 def _authenticate_participant_request(request, network):
-    """Authenticate machine-to-machine requests with project or participant credentials."""
+    """Authenticate machine-to-machine requests with shared gossip credentials."""
     participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
     provided_token = request.headers.get("X-Gossip-Token")
     if not participant_id or not provided_token:
         return None
 
-    # Trust peers providing the project secret (Shared Trust Anchor)
-    if network.project.secret and secrets.compare_digest(provided_token, network.project.secret):
+    # Authenticate using the network's shared gossip token
+    if network.gossip_token and secrets.compare_digest(provided_token, network.gossip_token):
         return network.participants.filter(participant_id=participant_id).first()
 
-    # Legacy/Manual fallback
+    # Legacy/Manual participant-scoped fallback
     participant = network.participants.filter(participant_id=participant_id).first()
     if participant and participant.gossip_token and secrets.compare_digest(provided_token, participant.gossip_token):
         return participant
@@ -430,11 +430,10 @@ def broadcast_network_status(network_id):
     # Source of Truth: Engine logs + Docker state
     status_map = _get_local_participant_status(network)
     
-    # We use the PROJECT SECRET as the gossip token. 
-    # This is a secure shared secret available to all participants in the project.
-    gossip_token = network.project.secret
+    # We use the SHARED GOSSIP TOKEN for peer-to-peer status sync.
+    gossip_token = network.gossip_token
     if not gossip_token:
-        logger.network.error("[GOSSIP BROADCAST] Network project has no secret! Peer sync impossible.")
+        logger.network.error(f"[GOSSIP BROADCAST] Network {network.name} has no gossip token! Peer sync impossible.")
         return
 
     for lp in local_participants:

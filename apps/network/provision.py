@@ -54,6 +54,13 @@ def generate_flare_startup_kit(
     try:
         # Retrieve the network object and setup logging context
         network = SwarmNetwork.objects.get(identifier=network_id)
+        
+        # Ensure a shared gossip token exists for this network before kit generation
+        import secrets
+        if not network.gossip_token:
+            network.gossip_token = secrets.token_hex(32)
+            network.save(update_fields=["gossip_token"])
+            
         logger = get_logger(project=network.project)
     except SwarmNetwork.DoesNotExist:
         # If the network doesn't exist, we can't proceed

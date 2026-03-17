@@ -245,6 +245,8 @@ def create_startup_kits_zip(swarm_network):
         # 1. Add Metadata to main bundle
         main_zip.writestr(".network_id", str(swarm_network.identifier))
         main_zip.writestr(".participants.json", participants_json)
+        if swarm_network.gossip_token:
+            main_zip.writestr(".gossip_token", swarm_network.gossip_token)
 
         # 2. Add individual kits
         for item in os.scandir(str(abs_base_prod_path)):
@@ -255,9 +257,8 @@ def create_startup_kits_zip(swarm_network):
                 client_zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(client_zip_buffer, "w", zipfile.ZIP_DEFLATED) as client_zip:
                     client_zip.writestr(".network_id", str(swarm_network.identifier))
-                    participant_token = resolve_participant_token(item.name)
-                    if participant_token:
-                        client_zip.writestr(".gossip_token", participant_token)
+                    if swarm_network.gossip_token:
+                        client_zip.writestr(".gossip_token", swarm_network.gossip_token)
                     client_zip.writestr(".participants.json", participants_json)
                     
                     # Requirements

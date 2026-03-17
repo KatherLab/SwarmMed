@@ -1354,6 +1354,8 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 f"MEDSWARMHUB_PROJECT_ID={str(swarm_network.project.identifier)}",
                 "-e",
+                f"GOSSIP_TOKEN={swarm_network.gossip_token}",
+                "-e",
                 f"MANIFEST_SECRET={swarm_network.project.secret}",
                 "-e",
                 f"AWS_S3_ENDPOINT_URL={container_s3_endpoint}",
