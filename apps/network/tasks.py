@@ -999,7 +999,8 @@ def shout_to_peer_task(peer_ip, network_id, payload, headers, extra_shouts=None)
         gossip_url = f"https://{peer_ip}:5085/network/api/gossip/{network_id}/"
         
         # Determine TLS verification strategy
-        if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "").lower() in ("true", "1", "yes"):
+        # Default to True (skipping verification) to support decentralized nodes with self-signed certs.
+        if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
             verify_path = False
         else:
             verify_path = os.getenv("MEDSWARMHUB_CA_CERT", "").strip() or \

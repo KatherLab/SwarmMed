@@ -382,7 +382,9 @@ def network_api_gossip(request, network_id):
             if not target_participant:
                 return JsonResponse({"error": "Unknown target participant"}, status=404)
 
-        # IP Lockdown log
+        # IP Lockdown check: Verify Sender IP
+        # Before the regression, this was a warning only. We revert to warning
+        # to support complex network topologies (Proxies, VPNs, Docker Bridge).
         if participant.ip and participant.ip not in [
             "-",
             "127.0.0.1",
@@ -390,9 +392,8 @@ def network_api_gossip(request, network_id):
         ]:
             if client_ip != participant.ip:
                 logger.network.warning(
-                    f"[GOSSIP REJECT] IP mismatch for {source_participant_id}: expected {participant.ip}, got {client_ip}"
+                    f"[GOSSIP IP MISMATCH] {source_participant_id}: DB says {participant.ip}, request came from {client_ip}. Proceeding anyway due to valid token."
                 )
-                return JsonResponse({"error": "IP mismatch"}, status=403)
 
         target_participant.status = status
         target_participant.last_seen = timezone.now()
