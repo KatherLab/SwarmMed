@@ -1454,6 +1454,11 @@ def start_swarm_network_task(network_id, user_id):
                         except Exception:
                             pass
 
+                # Also ensure 'minio' is resolvable in host network mode to keep S3 signatures valid.
+                if use_host_network:
+                    # Map 'minio' to the Docker bridge gateway where it is listening.
+                    run_cmd.extend(["--add-host", "minio:172.17.0.1"])
+
             run_cmd.extend([image_name] + command)
 
             logger.network.info(
