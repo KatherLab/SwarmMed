@@ -3,7 +3,7 @@ title: Usage
 description: How to use the MedSwarmHub platform.
 ---
 
-# 📖 Usage
+# Usage
 
 This page explains how to use the MedSwarmHub platform in more detail.
 
