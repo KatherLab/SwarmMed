@@ -37,11 +37,10 @@ services:
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
     deploy:
       resources:
+        limits:
+          memory: 4096M
         reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          memory: 1024M
 
   nginx:
     image: nginx:latest
@@ -112,11 +111,10 @@ services:
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
     deploy:
       resources:
+        limits:
+          memory: 4096M
         reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          memory: 1024M
 
   docker-proxy:
     image: tecnativa/docker-socket-proxy:latest
@@ -159,11 +157,10 @@ services:
       retries: 5
     deploy:
       resources:
+        limits:
+          memory: 4096M
         reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          memory: 1024M
 
   tailscale-status:
     build:
