@@ -3,22 +3,22 @@ title: Installation
 description: Installation instructions for MedSwarmHub.
 ---
 
-# Installation
+# 🛠️ Installation
 
 This page provides detailed instructions for installing the MedSwarmHub platform.
 
-## System Requirements
+## 📋 System Requirements
 
 Before you begin, ensure that your system meets the following requirements.
 
-### Operating System
+### 💻 Operating System
 
 *   **Recommended:** Linux (Ubuntu 22.04 LTS or newer)
     *   The installation guide uses `apt` commands typical for Debian/Ubuntu environments.
 *   **Supported:** macOS, Windows 10/11 (via Docker Desktop)
     *   *Note: Windows users are recommended to use WSL2 (Windows Subsystem for Linux) to ensure compatibility with helper scripts.*
 
-### Hardware Resources
+### 🏗️ Hardware Resources
 
 These specifications are for the **MedSwarmHub platform** services only.
 
@@ -38,17 +38,17 @@ These specifications are for the **MedSwarmHub platform** services only.
     *   **RAM:** 16 GB - 64 GB+ (dependent on model/batch size)
     *   **GPU:** NVIDIA GPU with CUDA support (strongly recommended)
 
-## 1. Docker
+## 🐳 1. Docker
 
 Install Docker and Docker Compose by following the official documentation for your platform:
 
 [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
 
-## 2. VPN Network (Tailscale)
+## 🌐 2. VPN Network (Tailscale)
 
 For secure communication between the participants in the decentralized learning network, we recommend using a VPN like Tailscale.
 
-### Installation
+### 🛠️ Installation
 
 ``` bash
 curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/oracular.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
@@ -60,7 +60,7 @@ sudo apt update
 sudo apt install tailscale
 ```
 
-### Login
+### 🔑 Login
 
 Login with your credentials:
 
@@ -68,7 +68,7 @@ Login with your credentials:
 sudo tailscale up
 ```
 
-### Test Connectivity
+### 📡 Test Connectivity
 
 Test your connectivity:
 
@@ -76,7 +76,7 @@ Test your connectivity:
 tailscale ip -4
 ```
 
-### Troubleshooting
+### 📂 Troubleshooting
 
 If you have issues with DNS, you can try the following:
 
@@ -85,81 +85,42 @@ tailscale set --accept-dns=false
 systemctl restart tailscaled
 ```
 
-## 3. MedSwarmHub
+## 🏥 3. MedSwarmHub
 
-### Clone the Repository
-
-``` bash
-git clone https://github.com/pfeifferis/MedSwarmHub.git
-cd MedSwarmHub
-```
-
-### Environment Variables
-
-MedSwarmHub uses environment variables for configuration and sensitive information. Copy the provided `.env.template` file to create your local `.env` file:
+### 📥 Clone the Repository
 
 ``` bash
-cp .env.template .env
+git clone https://github.com/pfeifferis/SwarmCloud.git
+cd SwarmCloud
 ```
 
-Open the `.env` file and fill in the required values. Key sections include:
+### ⚙️ Environment Variables
 
-*   **SECRET_KEY:** A unique random string for cryptographic signing.
-*   **Database Settings:** Credentials for PostgreSQL and Redis.
-*   **MinIO / S3 Settings:** Credentials and endpoint for object storage.
-*   **Encryption Keys:** `FERNET_KEYS` and `BACKUP_ENCRYPTION_KEY` used for data-at-rest protection.
+MedSwarmHub uses environment variables for configuration and sensitive information. The platform uses an automated setup script to manage these.
 
-!!! tip "Generate Secure Keys"
-    You can generate secure Fernet keys using Python:
-    ```bash
-    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    ```
-
-### Custom Hostname
-
-By default, MedSwarmHub will generate a random, human-friendly hostname (e.g., `brave-lion`) for your node when it first starts. You can customize this hostname in two ways:
-
-1.  **Environment Variable:** Add `MEDSWARMHUB_HOSTNAME=your-custom-name` to your `.env` file.
-2.  **Persistent File:** Create a file named `.medswarmhub_hostname` in the project root containing your desired name:
-    ```bash
-    echo "my-custom-node-name" > .medswarmhub_hostname
-    ```
-
-The hostname is displayed on the **Network** page and helps other participants identify your node in the decentralized network.
-
-Please ensure that you **never** commit your `.env` file to version control.
-
-### Prepare Secret Directories
-
-Run `make setup` after editing `.env` to get the secret folders, PgBouncer artifacts, and TLS certificates in place. The flow is:
+Run the following command to bootstrap your environment:
 
 ```bash
-make env-setup           # creates .secrets/* and copies .env if missing
-export CA_PASSPHRASE=... # optional; avoid the interactive prompt when running setup
-make setup-pgbouncer     # optional rerun (setup already calls the helper)
-make generate-certs      # optional rerun (setup already generates certs)
-make setup               # all of the above in one command
+make setup
 ```
 
-`make setup` will only copy `.env` from `.env.template` if there is not already a `.env` file, so you can safely edit the file before running the command. If you prefer to rerun a single helper, there are dedicated targets to do so as shown above.
+The `setup` target performs several key actions:
+1.  **Dependency Sync:** Installs `uv` and synchronizes Python dependencies into a local virtual environment.
+2.  **Interactive .env Generation:** Runs `scripts/setup_env.py` to create your `.env` file. It will prompt you for configuration values and generate secure random secrets for:
+    *   **SECRET_KEY:** Django's cryptographic signing key.
+    *   **Database & Redis:** Secure passwords for PostgreSQL and Redis.
+    *   **MinIO / S3:** Root credentials and KMS encryption keys.
+    *   **Encryption Keys:** `FERNET_KEYS` and `BACKUP_ENCRYPTION_KEY` for data-at-rest protection.
+3.  **Privacy Configuration:** Prompts for `PRIVACY_CONTROLLER_*` and `PRIVACY_CONTACT_*` variables used to populate the platform's Privacy Policy and Terms of Service.
+4.  **PgBouncer Helper:** Generates SCRAM credentials and configuration for the database proxy.
+5.  **TLS Certificate Generation:** Creates a local internal Certificate Authority (CA) and issues leaf certificates for all backend services (Postgres, Redis, MinIO, Nginx, Sandbox).
 
-### Generate Internal TLS Certificates
+!!! tip "Custom Hostname"
+    During setup, you can provide a `MEDSWARMHUB_HOSTNAME`. This name identifies your node on the **Network** page.
 
-The `make setup` target runs `./scripts/generate_internal_certs.sh`, which creates:
+### 🚀 Build and Run
 
-*  `.secrets/certs` for the internal CA and leaf certificates
-*  `.secrets/docker` for the sandbox daemon's TLS material
-*  `.secrets/pgbouncer` for the generated PgBouncer credentials
-
-If you want to skip the interactive passphrase prompt, export `CA_PASSPHRASE` before `make setup` (or `make generate-certs`).
-
-### Pre-render PgBouncer Configuration
-
-`make setup` also invokes `scripts/setup_pgbouncer.py`. Re-run it manually via `make setup-pgbouncer` if you tweak the PgBouncer-related environment variables and need to regenerate the configuration outside the regular setup flow.
-
-### Build and Run
-
-After the secrets and certificates are ready, start the platform with:
+After the setup is complete, start the platform with:
 
 ```bash
 make start
@@ -173,16 +134,10 @@ make start
     docker exec -it postgres psql -U medswarmhub -d postgres -c "CREATE DATABASE medswarmhub;"
     ```
 
-The first startup may take a little longer because:
-
-1. `sandbox-dind` generates a private CA and client certificates under `.secrets/docker/`.
-2. `tailscale-status` boots alongside your host Tailscale daemon to serve read-only status metrics.
-3. The main `app` container now waits for the sandbox daemon before applying migrations, ensuring all background jobs have a secure Docker endpoint.
-
-## 4. Create Superuser
+## 👤 4. Create Superuser
 
 ``` bash
-docker exec -it medswarmhub python manage.py createsuperuser
+make superuser
 ```
 
 Follow the prompts to create your superuser account.
@@ -190,95 +145,73 @@ Follow the prompts to create your superuser account.
 !!! info "Superuser"
     The `superuser` has full access to all features and settings in the MedSwarmHub platform like an `admin`.
 
-## 5. Trusting the Internal Root CA
+## 🔐 5. Trusting the Internal Root CA
 
-When accessing MedSwarmHub via `https://localhost:5085`, your browser will show a security warning ("Your connection is not private") because the SSL certificate is issued by an internal, untrusted Certificate Authority (CA).
+When accessing MedSwarmHub via `https://localhost:5085`, your browser will show a security warning because the SSL certificate is issued by your local, internal Root CA.
 
-To resolve this and see the "green lock," you must trust the Root CA on your system.
-
-### macOS
-Run the following command in your terminal:
+### 🍎 macOS
 ```bash
 sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain .secrets/certs/internal/ca.crt
 ```
-Alternatively, open `.secrets/certs/internal/ca.crt` in **Keychain Access**, double-click the **InternalCA** certificate, and set **Trust** to **Always Trust**.
 
-### Windows (PowerShell)
-Run as Administrator:
+### 🪟 Windows (PowerShell as Admin)
 ```powershell
-Import-Certificate -FilePath "infrastructure\certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath ".secrets\certs\internal\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
-### Linux (Ubuntu/Debian)
+### 🐧 Linux (Ubuntu/Debian)
 ```bash
 sudo cp .secrets/certs/internal/ca.crt /usr/local/share/ca-certificates/internal-ca.crt
 sudo update-ca-certificates
 ```
-*Note: You may also need to import the certificate manually into your browser settings (e.g., Firefox Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities -> Import).*
 
-### Chrome/Edge "Secret" Bypass
-If you want to skip the installation and just bypass the error screen:
-1. Click anywhere on the error page.
-2. Type `thisisunsafe` on your keyboard.
-3. The page will reload and grant access.
+## 📂 Troubleshooting
 
-## Troubleshooting
+### 📝 Postgres/Redis "Permission Denied" for SSL Key
 
-### Postgres "Permission Denied" for SSL Key
+If a database container fails due to key file permissions:
 
-If the `postgres` container fails to start with logs indicating `FATAL:  private key file ".../server.key" has group or world access` or `Permission denied`, it means the file permissions on the host are too open or owned by the wrong user.
+```bash
+# 🚀 For Postgres (UID 999)
+sudo chown 999:999 .secrets/certs/internal/postgres.key
+sudo chmod 600 .secrets/certs/internal/postgres.key
 
-1.  **Stop containers:**
-    ```bash
-    make stop
-    ```
-2.  **Fix permissions on the host:**
-    The private key must be owned by the user ID Postgres uses inside the container (UID 999) and have strict permissions (`0600`).
-    ```bash
-    # Set ownership to uid 999 (postgres user)
-    sudo chown 999:999 .secrets/certs/internal/postgres.key
+# 🚀 For Redis
+chmod 644 .secrets/certs/internal/redis.key
+```
 
-    # Set permissions to 0600 (read/write only for owner)
-    sudo chmod 600 .secrets/certs/internal/postgres.key
-    ```
-3.  **Restart containers:**
-    ```bash
-    make start
-    ```
+### 📝 Missing `.secrets` Directory
 
-### redis "Permission Denied" for SSL Key
+If you encounter errors about missing files in `.secrets/`:
 
-chmod 644 ./.secrets/certs/internal/redis.key
-
-
-### "Database does not exist" after fixing keys
-
-If the Postgres container repeatedly crashed due to SSL key issues during its first run, the initialization scripts (which create the `medswarmhub` database) might have been skipped because the data directory was partially initialized.
-
-To fix this, you must wipe the corrupt database volume and start fresh:
-
-1.  **Stop and remove volumes:**
-    ```bash
-    # WARNING: This deletes all database data!
-    make compose-down-v
-    ```
-2.  **Start fresh:**
-    ```bash
-    make start
-    ```
-
-### Missing `.secrets` Directory
-
-If you encounter errors about missing files in `.secrets/` (e.g., `mount: .../pgbouncer/userlist.txt: not a directory`):
-
-1.  **Clean up incorrect directories:**
-    If you ran `make start` before generating secrets, Docker may have created empty directories where files should be.
+1.  **Stop and Clean:**
     ```bash
     make stop
     sudo rm -rf .secrets
     ```
-2.  **Regenerate secrets:**
+2.  **Regenerate:**
     ```bash
     make setup
     ```
 
+## 🗑️ Deinstallation
+
+If you wish to remove MedSwarmHub and its associated data from your system:
+
+### 1. Stop and Cleanup Environment
+This will stop the containers, remove the virtual environment, caches, and generated secrets/certificates:
+```bash
+make deinstall
+```
+
+### 2. Remove Docker Images (Optional)
+To also remove the base Docker images to free up disk space:
+```bash
+docker rmi $(docker images -q 'medswarmhub*')
+```
+
+### 3. Remove Tailscale (Optional)
+If you no longer need Tailscale:
+```bash
+sudo apt remove tailscale
+```

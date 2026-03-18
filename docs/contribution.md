@@ -1,16 +1,17 @@
 ---
 title: Contribution Guide
-description: Detailed guidelines for contributing MedSwarmHub.
+description: Detailed guidelines for contributing to MedSwarmHub.
 ---
 
-# Contribution Guide
+# 🤝 Contribution Guide
 
 Welcome to the **MedSwarmHub** developer community! This document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
 
-## 🏗 System Overview
+## 🏗️ System Overview
 
 MedSwarmHub is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
-### Core Technology Stack
+
+### 💻 Core Technology Stack
 - **Backend:** Django 6.0, Celery, Redis.
 - **AI/ML:** NVIDIA FLARE (NVFlare) for Swarm Learning.
 - **Storage:** S3-compatible storage (MinIO for local dev).
@@ -19,79 +20,74 @@ MedSwarmHub is a modular Django-based platform designed for decentralized data m
 
 ---
 
-## 🛠 Local Development Setup
+## 🛠️ Local Development Setup
 
-### 1. Python Environment
+### 🐍 1. Python Environment
 Use the Makefile to provision uv and the locked dependencies into `.venv`:
 ```bash
 make install
 ```
 
-### 2. Frontend Assets
-Install Node.js dependencies:
+### 🎨 2. Frontend Assets
+Install Node.js dependencies and build assets:
 ```bash
 npm install
+npm run build
 ```
 
 To change CSS files locally and see changes in real-time, run these commands in a new terminal:
 ```bash
-npm run build
 npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
 npx webpack --watch
 ```
 
-### 3. Services (Docker)
-Use the Makefile to boot the full stack so you do not run the compose commands manually. After editing `.env`, run:
+### 🐳 3. Services (Docker)
+Use the Makefile to bootstrap the full stack. This handles environment variables, TLS certificates, and PgBouncer configuration automatically:
 ```bash
 make setup
 make start
 ```
 
-The `setup` target creates the secret folders, copies the template .env (only if it is missing), runs the PgBouncer helper, and generates TLS certificates needed for the services. `make start` builds and launches the Docker services in the right order.
-
 Use `make stop` to tear the stack down, and `make logs` to follow the `medswarmhub` container logs.
 
-### 4. Django Initialization
+### 🎸 4. Django Initialization
 ```bash
 make migrate        # runs migrations inside the app container
-make shell          # opens an interactive Django shell (optional)
+make superuser      # creates an administrative user
 ```
-
-If you prefer running Django directly without containers, continue to use `python manage.py <command>` from your local virtual environment.
 
 ---
 
-## 💻 Development Workflow
+## 📂 Project Structure
 
-### Docker Configuration
-When working locally with Docker, you often use volumes for live code updates. However, for production, these should be removed:
-```yaml
-# Remove these in production within docker-compose.yml:
-volumes:
-  - ./:/app
-ports:
-  - "8000:8000"
-command: python manage.py runserver 0.0.0.0:8000
-```
+The project follows a modular Django architecture. Each specific functionality is encapsulated in an app within the `apps/` directory:
 
-### When Changing Tasks
-If you modify any Celery tasks in `tasks.py`, you **must** restart the worker to apply the changes:
-```bash
-make restart-celery
-```
+| App | Description |
+| :--- | :--- |
+| **`core`** | Project configuration, settings, Celery initialization, and root URLs. |
+| **`home`** | Main dashboard, statistics aggregation, and overview cards. |
+| **`apps.users`** | User authentication, profiles, and role-based access control (Admin, Developer, User). |
+| **`apps.project`** | Collaborative project management and code/requirement script uploads. |
+| **`apps.data`** | Management of datasets, S3 storage integration, and data validation. |
+| **`apps.network`** | Infrastructure provisioning for Swarm networks using Docker. |
+| **`apps.training`** | Job submission to NVIDIA FLARE, status tracking, and real-time log streaming. |
+| **`apps.results`** | Synchronization of training results from S3 and automated visualization runs. |
+| **`apps.logs`** | Centralized, project-specific logging stored in the database. |
+| **`apps.communication`**| Internal messaging system for project participants. |
+| **`apps.backup`** | Encrypted database and media backup/restore utilities. |
 
 ---
 
 ## 📜 Coding Guidelines
 
-### PEP 8 & Python Style
+### 🐍 PEP 8 & Python Style
 We strictly adhere to **PEP 8**. Your code should be clean, readable, and well-commented.
-- Use meaningful variable and function names.
+- Use **Ruff** for linting and automatic fixes: `python -m ruff check . --fix`.
 - Provide type hints where possible.
 - **Crucial:** Every function and class must have a docstring.
 - Add detailed comments for logic involving background tasks (Celery) or infrastructure (NVFlare).
 
-### Security Scans
+### 🔍 Security Scans
 We prioritize security. Please run these scans before submitting a Pull Request:
 
 **Snyk (Dependency & Code Vulnerabilities):**
@@ -102,12 +98,11 @@ snyk code test --json-file-output=snyk_code_report.json
 
 **Bandit (Common Python Security Issues):**
 ```bash
-bandit -r apps core home manage.py -f json -o bandit_report.json    
+bandit -r apps core manage.py -f json -o bandit_report.json    
 ```
 
-### Frontend Standards
+### 🎨 Frontend Standards
 - Use **Tailwind CSS** utility classes for styling.
-- Follow the **Material Design** principles established in the templates.
 - Ensure components are responsive and accessible.
 
 ---
@@ -128,7 +123,3 @@ bandit -r apps core home manage.py -f json -o bandit_report.json
 2. **Fork and Branch:** Create a branch like `feature/your-feature-name`.
 3. **Develop & Test:** Ensure your code passes all linting and logic checks.
 4. **Pull Request:** Submit a PR with a clear description of the "why" and "what".
-
----
-
-For a quick reference, see the [CONTRIBUTING.md](https://github.com/pfeifferis/MedSwarmHub/blob/main/CONTRIBUTING.md) file in the root directory.

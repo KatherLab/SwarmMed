@@ -4,33 +4,23 @@ Welcome! We are thrilled that you are interested in contributing to MedSwarmHub.
 
 This guide will help you get onboarded and explain how to contribute effectively.
 
----
-
 ## 🚀 Getting Started
 
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/your-username/MedSwarmHub.git
+    git clone https://github.com/KatherLab/MedSwarmHub.git
     cd MedSwarmHub
     ```
 3.  **Set up your environment**:
     - Run `make install` to install uv (if needed) and synchronize the Python dependencies into `.venv`.
     - Install frontend tools: `npm install`
-4.  **Configure environment variables**:
-    - Copy `.env.example` to `.env` (if provided) or create one with your DB, Redis, and S3 credentials.
-    - Edit `.env` with your secrets before you bring the services up.
-5.  **Prepare the application stack**:
-    - `make setup` (creates `.env` if needed, runs the PgBouncer helper, and generates TLS material)
+4.  **Prepare the application stack**:
     - `make start` (builds the Docker services and brings the stack online)
     - Stop the stack when you are done: `make stop`
-6.  **Run migrations and start the server**:
+5.  **Run migrations and start the server**:
     - `make migrate` to apply migrations inside the app container
-    - `make shell` or `make test` for interactive work or tests
-
-If you want to work with Django directly (without Docker), continue using `python manage.py ...` as before.
-
----
+    - `make superuser` to create an admin account
 
 ## 🛠 Development Workflow
 
@@ -38,7 +28,7 @@ If you want to work with Django directly (without Docker), continue using `pytho
 
 When working locally, ensure your virtual environment is active:
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 # To exit:
 deactivate
 ```
@@ -47,7 +37,7 @@ deactivate
 
 To change CSS files locally and see changes in real-time, run these commands in a new terminal:
 ```bash
-npm i
+npm install
 npm run build
 npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --watch
 npx webpack --watch
@@ -57,10 +47,8 @@ npx webpack --watch
 
 If you modify any Celery tasks in `tasks.py`, you **must** restart the worker to apply the changes:
 ```bash
-docker compose restart celery_worker
+make restart-celery
 ```
-
----
 
 ## 🏗 App Structure
 
@@ -79,29 +67,16 @@ The project follows a modular Django architecture. Each specific functionality i
 | **`apps.logs`** | Centralized, project-specific logging stored in the database. |
 | **`apps.communication`**| Internal messaging system for project participants. |
 
----
-
 ## 📜 Coding Guidelines
 
 To maintain a clean and readable codebase, we strictly follow these rules:
 
 ### 1. PEP 8 Compliance
-All Python code must adhere to [PEP 8](https://peps.python.org/pep-0008/) standards. We use the following tools to maintain code quality:
+All Python code must adhere to [PEP 8](https://peps.python.org/pep-0008/) standards. We use **Ruff** for linting and automatic fixes:
 
-- **Ruff** (Fast linting and automatic fixes):
-  ```bash
-  python -m ruff check . --fix
-  ```
-- **autopep8** (Automatic code formatting):
-  ```bash
-  python -m autopep8 --in-place --recursive --aggressive --aggressive . --exclude=venv,node_modules,workspaces,migrations,postgres_data,staticfiles,staticfiles_build,nvflare_swarm_learning
-  ```
-- **flake8** (Final compliance verification):
-  ```bash
-  python -m flake8 . --exclude=.venv,node_modules,migrations,postgres_data,staticfiles,staticfiles_build,nvflare_swarm_learning,workspaces,example --max-line-length=120 --statistics --count
-  ```
-
-*Note: While standard PEP 8 suggests 79-88 characters, this project allows up to **120 characters** for better readability.*
+```bash
+python -m ruff check . --fix
+```
 
 ### 2. Security Scans
 We prioritize security. Please run these scans before submitting a Pull Request:
@@ -125,19 +100,12 @@ We prioritize a "soft onboarding" experience.
 ### 4. Testing
 Proactively add unit tests in the respective `tests.py` files of the app you are modifying. Ensure all existing tests pass before submitting a Pull Request.
 
----
-
 ## 📥 How to Contribute
 
 1.  **Branching**: Create a feature branch from `main`: `git checkout -b feature/amazing-feature`.
 2.  **Commits**: Use descriptive, atomic commit messages.
 3.  **Push**: Push your branch: `git push origin feature/amazing-feature`.
 4.  **Pull Request**: Open a PR against the `main` branch. 
-    - Describe your changes in detail.
-    - Reference any related issues.
-    - Attach screenshots if you modified the UI.
-
----
 
 ## 🆘 Need Help?
 

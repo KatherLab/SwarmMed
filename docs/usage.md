@@ -3,16 +3,16 @@ title: Usage
 description: How to use the MedSwarmHub platform.
 ---
 
-# Usage
+# 📖 Usage
 
 This page explains how to use the MedSwarmHub platform in more detail.
 
-## For Admins
+## 👮 For Admins
 
 ??? info "Admin Rights"
     As an admin, you have the ability to manage users and oversee the overall operation of the platform.
 
-### Create Users
+### 👤 Create Users
 As an admin, you can create new users who can participate in decentralized learning experiments.
 
 1.  Navigate to the **Users** page from the sidebar.
@@ -30,7 +30,7 @@ As an admin, you can create new users who can participate in decentralized learn
     ![Create User](assets/usage/users_new_dark.png#only-dark)
     ![Create User](assets/usage/users_new_light.png#only-light)
 
-### Manage Users
+### ⚙️ Manage Users
 As an admin, you can manage existing users, including editing their details or deleting them.
 
 1.  Navigate to the **Users** page from the sidebar.
@@ -43,7 +43,7 @@ As an admin, you can manage existing users, including editing their details or d
     ![User Page](assets/usage/users_dark.png#only-dark)
     ![User Page](assets/usage/users_light.png#only-light)
 
-## For Developers
+## 💻 For Developers
 
 ??? info "Developer Rights"
     As a developer, you can create and manage swarm learning experiments on the MedSwarmHub platform and see logs.
@@ -51,7 +51,7 @@ As an admin, you can manage existing users, including editing their details or d
 !!! info "Developer Guide"
     A more detailed developer guide can be found [here](/developer).
 
-### View Logs
+### 📜 View Logs
 
 As a developer, you can view the logs of the training jobs to monitor their progress and troubleshoot any issues.
 
@@ -63,12 +63,12 @@ As a developer, you can view the logs of the training jobs to monitor their prog
     ![Logs Page](assets/usage/logs_dark.png#only-dark)
     ![Logs Page](assets/usage/logs_light.png#only-light)
 
-## For All Users
+## 👥 For All Users
 
 ??? info "User Rights"
     As a user, you can create projects, upload data, set up networks, and start training jobs.
 
-### 1. Create a Project
+### 📁 1. Create a Project
 
 ??? info "Project creator rights"
     Only the project creator can **edit**, **finish**, or **delete** the project.
@@ -99,7 +99,7 @@ A project is a workspace for your decentralized learning experiment. It contains
     ![Create Project](assets/usage/project_new_dark.png#only-dark)
     ![Create Project](assets/usage/project_new_light.png#only-light)
 
-### 2. Select your current project
+### ✅ 2. Select your current project
 
 Before you can upload data or create a network, you need to select your current project.
 
@@ -107,7 +107,7 @@ Before you can upload data or create a network, you need to select your current 
 2.  Find the project you want to work on in the list.
 3.  Click on the **Set as Current** button next to the project's name.
 
-### 3. Upload Data
+### 📤 3. Upload Data
 
 After creating a project, you need to upload the data that will be used for training.
 
@@ -125,7 +125,7 @@ After creating a project, you need to upload the data that will be used for trai
     ![Data Upload](assets/usage/data_new_dark.png#only-dark)
     ![Data Upload](assets/usage/data_new_light.png#only-light)
 
-### 4. View Files
+### 📂 4. View Files
 
 You can view the files you have uploaded to your project.
 
@@ -140,7 +140,7 @@ You can view the files you have uploaded to your project.
     ![Files Page](assets/usage/files_dark.png#only-dark)
     ![Files Page](assets/usage/files_light.png#only-light)
 
-### 5. Start Data Validation (optional)
+### 🧪 5. Start Data Validation (optional)
 
 If you have uploaded a data validation script, you can run it to ensure that your data is suitable for training.
 
@@ -153,7 +153,7 @@ If you have uploaded a data validation script, you can run it to ensure that you
     ![Data Validation](assets/usage/data_val_dark.png#only-dark)
     ![Data Validation](assets/usage/data_val_light.png#only-light)
 
-### 6. View Data Visualization (optional)
+### 📊 6. View Data Visualization (optional)
 
 If you have uploaded a data visualization script, you can run it to visualize your data.
 
@@ -166,7 +166,7 @@ If you have uploaded a data visualization script, you can run it to visualize yo
     ![Data Visualization](assets/usage/data_viz_dark.png#only-dark)
     ![Data Visualization](assets/usage/data_viz_light.png#only-light)
 
-### 7. Create a Network
+### 🌐 7. Create a Network
 
 A network defines the participants in your decentralized learning experiment.
 
@@ -201,7 +201,7 @@ A network defines the participants in your decentralized learning experiment.
     ![Create Network](assets/usage/network_new_dark.png#only-dark)
     ![Create Network](assets/usage/network_new_light.png#only-light)
 
-### 8. Select your current network
+### ✅ 8. Select your current network
 
 Before you can start training, you need to select your current network.
 
@@ -209,7 +209,7 @@ Before you can start training, you need to select your current network.
 2.  Find the network you want to work on in the list.
 3.  Click on the **Set as Current** button next to the network's name.
 
-### 9. Start Network
+### 🚀 9. Start Network
 
 After creating a network, you need to start it to enable communication between participants.
 
@@ -217,7 +217,7 @@ After creating a network, you need to start it to enable communication between p
 2.  Click on the **Start Network** button.
 3.  Starting the network can take a few minutes. You can monitor the progress on the **Logs** page.
 
-### 10. Start Training
+### 🧠 10. Start Training
 
 Once you have set up your project, data, and network, you can start the training process.
 
@@ -230,7 +230,7 @@ Once you have set up your project, data, and network, you can start the training
     ![Training Page](assets/usage/training_dark.png#only-dark)
     ![Training Page](assets/usage/training_light.png#only-light)
 
-### 11. Download Results
+### 📥 11. Download Results
 
 After the training job is complete, you can view the results.
 
@@ -243,7 +243,7 @@ After the training job is complete, you can view the results.
     ![Results Page](assets/usage/results_dark.png#only-dark)
     ![Results Page](assets/usage/results_light.png#only-light)
 
-### 12. View Results Visualization (optional)
+### 📊 12. View Results Visualization (optional)
 
 If you have uploaded a results visualization script, you can run it to visualize your results.
 
