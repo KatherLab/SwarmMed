@@ -24,7 +24,7 @@ classifiers = [
     "Framework :: Django",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: PolyForm Noncommercial License 1.0.0",
+    "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
