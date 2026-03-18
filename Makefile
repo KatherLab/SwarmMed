@@ -94,7 +94,7 @@ docs-install: install ## Install MkDocs dependencies with uv
 
 docs-serve: docs-install ## Serve the MkDocs documentation
 	@echo "🚀 Spinning up the MkDocs dev server"
-	@$(UV) run mkdocs serve --dev-addr localhost:9999
+	@$(UV) run mkdocs serve --dev-addr 0.0.0.0:9999
 
 docs-build: docs-install ## Build the MkDocs documentation
 	@echo "📦 Building the MkDocs site"
