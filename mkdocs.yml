@@ -12,7 +12,6 @@ nav:
     - Installation: installation.md
     - Developer: developer.md
     - Contribution: contribution.md
-    - Elements: elements.md
 
 extra:
   generator: false
