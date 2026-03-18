@@ -3,7 +3,7 @@ title: Contribution Guide
 description: Detailed guidelines for contributing to MedSwarmHub.
 ---
 
-# 🤝 Contribution Guide
+# Contribution Guide
 
 Welcome to the **MedSwarmHub** developer community! This document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
 
@@ -18,17 +18,15 @@ MedSwarmHub is a modular Django-based platform designed for decentralized data m
 - **Frontend:** Tailwind CSS, Flowbite, Webpack.
 - **Infrastructure:** Docker & Docker Compose.
 
----
-
 ## 🛠️ Local Development Setup
 
-### 🐍 1. Python Environment
+### 1. Python Environment
 Use the Makefile to provision uv and the locked dependencies into `.venv`:
 ```bash
 make install
 ```
 
-### 🎨 2. Frontend Assets
+### 2. Frontend Assets
 Install Node.js dependencies and build assets:
 ```bash
 npm install
@@ -41,22 +39,20 @@ npx tailwindcss -i ./static/assets/style.css -o ./static/dist/css/output.css --w
 npx webpack --watch
 ```
 
-### 🐳 3. Services (Docker)
+### 3. Services (Docker)
 Use the Makefile to bootstrap the full stack. This handles environment variables, TLS certificates, and PgBouncer configuration automatically:
 ```bash
-make setup
+make env
 make start
 ```
 
 Use `make stop` to tear the stack down, and `make logs` to follow the `medswarmhub` container logs.
 
-### 🎸 4. Django Initialization
+### 4. Django Initialization
 ```bash
 make migrate        # runs migrations inside the app container
 make superuser      # creates an administrative user
 ```
-
----
 
 ## 📂 Project Structure
 
@@ -76,15 +72,14 @@ The project follows a modular Django architecture. Each specific functionality i
 | **`apps.communication`**| Internal messaging system for project participants. |
 | **`apps.backup`** | Encrypted database and media backup/restore utilities. |
 
----
-
 ## 📜 Coding Guidelines
 
 ### 🐍 PEP 8 & Python Style
 We strictly adhere to **PEP 8**. Your code should be clean, readable, and well-commented.
+
 - Use **Ruff** for linting and automatic fixes: `python -m ruff check . --fix`.
 - Provide type hints where possible.
-- **Crucial:** Every function and class must have a docstring.
+- Every function and class must have a docstring.
 - Add detailed comments for logic involving background tasks (Celery) or infrastructure (NVFlare).
 
 ### 🔍 Security Scans
@@ -105,17 +100,14 @@ bandit -r apps core manage.py -f json -o bandit_report.json
 - Use **Tailwind CSS** utility classes for styling.
 - Ensure components are responsive and accessible.
 
----
-
 ## 📂 Project Structure
 
 - `apps/`: Contains all functional modules (users, project, training, etc.).
 - `core/`: Project-wide settings and configuration.
 - `templates/`: HTML templates organized by app.
 - `static/`: Source assets (CSS, JS) before bundling.
-- `workspaces/`: Local directory for NVFlare job data and logs.
-
----
+- `scripts/`: Utility scripts for setup, maintenance, and deployment.
+- `infrastructure/`: Certbot, PGBouncer, nginx and postgres configurations.
 
 ## 🤝 Contribution Process
 
