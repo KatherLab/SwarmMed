@@ -1,5 +1,4 @@
-"""
-Views for the data app.
+"""Views for the data app.
 Handles data management, file uploads, folder navigation,
 and the triggering/monitoring of validation and visualization runs.
 """
@@ -7,9 +6,8 @@ and the triggering/monitoring of validation and visualization runs.
 import json
 import os
 import re
+import secrets
 
-from celery import current_app
-from common.utils import format_size, get_s3_client, get_safe_referer
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import default_storage
@@ -22,6 +20,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+
+from celery import current_app
+from common.utils import format_size, get_s3_client, get_safe_referer
 from logs import logger
 from project.decorators import (
     project_context_required,
@@ -48,9 +49,13 @@ from .utils import (
 
 
 def get_user_project(request):
-    """
-    Helper function to get the current user's active project identifier.
-    Returns: (project_uuid_string, is_valid_boolean)
+    """Gets the current user's active project identifier.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        tuple: (project_uuid_string, is_valid_boolean)
     """
     try:
         user_current_project = UserCurrentProject.objects.select_related(
@@ -65,9 +70,15 @@ def get_user_project(request):
 
 
 def get_project_manifest(request):
-    """
-    API endpoint that returns a signed manifest of all data files for a project.
+    """API endpoint that returns a signed manifest of all data files for a project.
+
     Authenticates via either standard Django session or a project-specific secret.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: A JSON response containing the manifest of files and signed URLs.
     """
     project_id = request.GET.get("project_id")
     provided_secret = request.headers.get("X-Manifest-Secret")
@@ -80,7 +91,7 @@ def get_project_manifest(request):
     is_authenticated = False
     
     # Mode A: Container authentication via project-specific secret
-    if provided_secret and provided_secret == project.secret:
+    if provided_secret and project.secret and secrets.compare_digest(provided_secret, project.secret):
         is_authenticated = True
     # Mode B: User session authentication
     elif request.user.is_authenticated:
@@ -104,7 +115,7 @@ def get_project_manifest(request):
         
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
-                key = obj.get("Key")
+                key = obj["Key"]
                 if not key or key.endswith("/"):
                     continue
                 
@@ -123,9 +134,16 @@ def get_project_manifest(request):
 @login_required
 @project_context_required
 def data(request):
-    """
-    Main overview page for project data.
-    Shows general statistics like total size and file counts.
+    """Displays the main overview page for project data.
+
+    Calculates and shows general statistics such as total storage size,
+    folder count, and file count for the current project.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: The rendered data overview page.
     """
     current_project_uuid, _ = get_user_project(request)
 
@@ -158,9 +176,16 @@ def data(request):
 @login_required
 @project_context_required
 def upload_files(request):
-    """
-    Handles multi-file and folder uploads.
-    Preserves the relative directory structure provided by the browser.
+    """Handles multi-file and folder uploads to project storage.
+
+    Preserves the relative directory structure provided by the browser and
+    validates file extensions and paths for security.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: A response indicating the outcome of the upload process.
     """
     current_project_uuid, _ = get_user_project(request)
 
@@ -244,6 +269,10 @@ def upload_files(request):
 
             # Save the file to S3
             default_storage.save(save_path, file)
+            
+            # Invalidate caches for this path
+            from .utils import invalidate_s3_caches
+            invalidate_s3_caches(save_path)
 
         log.data.info(f"Files uploaded to {full_destination} successfully.")
         return HttpResponse("Files uploaded with folder structure preserved!")
@@ -254,8 +283,13 @@ def upload_files(request):
 @login_required
 @project_context_required
 def list_files(request):
-    """
-    Displays a file browser interface with a multi-column layout.
+    """Displays a file browser interface with a multi-column layout.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: The rendered file browser page.
     """
     current_project_uuid, _ = get_user_project(request)
 
@@ -338,8 +372,13 @@ def list_files(request):
 @login_required
 @project_context_required
 def download_file(request):
-    """
-    Logs the access to a file and proxies the download through Django.
+    """Logs access to a file and proxies the download through Django.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: The file download stream or unauthorized error.
     """
     key = request.GET.get("key")
     current_project_uuid, _ = get_user_project(request)
@@ -350,16 +389,21 @@ def download_file(request):
     log = logger.get_logger()
     log.access.info(f"User accessed file: {key}", file_key=key)
 
-    # Direct proxying is more reliable for local/self-hosted setups
-    return _proxy_s3_download_file(key, os.path.basename(key))
+    # Use streaming download to avoid memory issues with large files
+    return _proxy_s3_download(request, key, os.path.basename(key))
 
 
 @login_required
 @project_context_required
 @require_POST
 def delete_file(request):
-    """
-    Deletes a file or an entire folder from the project data.
+    """Deletes a file or an entire folder from the project data.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: A redirect to the file list or error response.
     """
     current_project_uuid, _ = get_user_project(request)
 
@@ -390,8 +434,13 @@ def delete_file(request):
 @project_context_required
 @require_POST
 def rename_file(request):
-    """
-    Renames a file or folder in S3.
+    """Renames a file or folder in S3.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: A redirect to the file list or error response.
     """
     current_project_uuid, _ = get_user_project(request)
 
@@ -435,9 +484,15 @@ def rename_file(request):
 
 @login_required
 def list_all_folders(request):
-    """
-    Returns a recursive flat list of all folders in JSON format.
+    """Returns a recursive flat list of all folders in JSON format.
+
     Used for folder-selection dropdowns in the UI.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: A JSON list of folder objects.
     """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -480,8 +535,13 @@ def list_all_folders(request):
 @login_required
 @require_POST
 def start_validation(request):
-    """
-    Triggers the background Celery task for data validation.
+    """Triggers the background Celery task for data validation.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: Result status and task identifiers.
     """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -531,8 +591,13 @@ def start_validation(request):
 @login_required
 @require_POST
 def stop_validation(request):
-    """
-    Cancels the currently running validation task.
+    """Cancels the currently running validation task.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: Result status or error.
     """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -565,8 +630,13 @@ def stop_validation(request):
 
 @login_required
 def validation_status(request):
-    """
-    Returns the status and results of the latest validation run.
+    """Returns the status and results of the latest validation run.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: A JSON summary of the validation run.
     """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -610,8 +680,13 @@ def validation_status(request):
 @login_required
 @require_POST
 def start_visualization(request):
-    """
-    Triggers the background Celery task for data visualization.
+    """Triggers the background Celery task for data visualization.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: Result status and task identifiers.
     """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -659,8 +734,13 @@ def start_visualization(request):
 @login_required
 @require_POST
 def stop_visualization(request):
-    """
-    Cancels the currently running visualization task.
+    """Cancels the currently running visualization task.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: Result status or error.
     """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -695,8 +775,13 @@ def stop_visualization(request):
 
 @login_required
 def visualization_status(request):
-    """
-    Returns the status and generated plots of the latest visualization run.
+    """Returns the status and generated plots of the latest visualization run.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        JsonResponse: A JSON summary of the visualization run and plot URLs.
     """
     current_project_uuid, is_valid = get_user_project(request)
     if not is_valid:
@@ -751,8 +836,15 @@ def visualization_status(request):
 
 
 def _proxy_s3_download(request, key, filename):
-    """
-    Helper to proxy a file download from S3 through Django using StreamingHttpResponse.
+    """Helper to proxy a file download from S3 through Django.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        key (str): The S3 object key.
+        filename (str): The name to use for the download.
+
+    Returns:
+        StreamingHttpResponse: The proxied file stream.
     """
     s3 = get_s3_client()
     bucket = settings.AWS_STORAGE_BUCKET_NAME
@@ -874,9 +966,15 @@ def _proxy_s3_download(request, key, filename):
 
 
 def _proxy_s3_download_file(key, filename, inline=False):
-    """
-    Fully buffer the S3 object and return a plain HttpResponse to avoid streaming
-    or chunked responses that Chrome may reject with self-signed TLS.
+    """Fully buffer the S3 object and return a plain HttpResponse.
+
+    Args:
+        key (str): The S3 object key.
+        filename (str): The name to use for the download.
+        inline (bool): If True, use 'inline' disposition. Defaults to False.
+
+    Returns:
+        HttpResponse: The buffered file content.
     """
     s3 = get_s3_client()
     bucket = settings.AWS_STORAGE_BUCKET_NAME
@@ -907,8 +1005,15 @@ def _proxy_s3_download_file(key, filename, inline=False):
 @login_required
 @project_membership_required
 def get_visualization_plot(request, plot_id, plot_type):
-    """
-    Proxies a visualization plot image from S3 through Django.
+    """Proxies a visualization plot image from S3 through Django.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        plot_id (str): The ID of the visualization plot.
+        plot_type (str): The type of plot ('image' or 'svg').
+
+    Returns:
+        HttpResponse: The file content or error.
     """
     plot = get_object_or_404(VisualizationPlot, id=plot_id)
 

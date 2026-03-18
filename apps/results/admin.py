@@ -1,12 +1,12 @@
-"""
-Admin configuration for the results application.
+"""Admin configuration for the results application.
 Registers the models with the Django admin interface to allow
 administrators to manage training results and visualization runs.
 """
 
-from common.admin_filters import ProjectFilter_ByJob
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+
+from common.admin_filters import ProjectFilter_ByJob
 
 from .models import (
     ResultsVisualizationPlot,

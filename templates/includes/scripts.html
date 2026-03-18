@@ -1,5 +1,42 @@
 {% load static %}
 
-<script async defer src="https://buttons.github.io/buttons.js"></script>
+<script src="{% static 'dist/vendors.bundle.js' %}"></script>
 <script src="{% static 'dist/main.bundle.js' %}"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/1.6.2/datepicker.min.js"></script>
+<script>
+	(function () {
+		const CONSENT_KEY = 'cookieConsent';
+		const OPTIONAL_SCRIPTS = [
+			{ src: 'https://buttons.github.io/buttons.js', async: true, defer: true },
+			{ src: 'https://cdnjs.cloudflare.com/ajax/libs/flowbite/1.6.2/datepicker.min.js' }
+		];
+
+		function loadOptionalScripts() {
+			if (window.__optionalScriptsLoaded) {
+				return;
+			}
+			window.__optionalScriptsLoaded = true;
+
+			OPTIONAL_SCRIPTS.forEach((item) => {
+				const script = document.createElement('script');
+				script.src = item.src;
+				if (item.async) {
+					script.async = true;
+				}
+				if (item.defer) {
+					script.defer = true;
+				}
+				document.body.appendChild(script);
+			});
+		}
+
+		if (localStorage.getItem(CONSENT_KEY) === 'accepted') {
+			loadOptionalScripts();
+		}
+
+		window.addEventListener('cookieConsentChanged', function (event) {
+			if (event && event.detail === 'accepted') {
+				loadOptionalScripts();
+			}
+		});
+	})();
+</script>

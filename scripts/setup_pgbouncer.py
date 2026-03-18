@@ -64,7 +64,7 @@ def main():
         )
 
     if (
-        db_pass == "swarmcloud"
+        db_pass == "medswarmhub"
         and os.environ.get("ALLOW_INSECURE_PGBOUNCER") != "1"
     ):
         raise RuntimeError(

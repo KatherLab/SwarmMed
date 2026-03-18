@@ -1,18 +1,30 @@
-"""
-Database models for the training application.
+"""Database models for the training application.
+
 Defines the structure for tracking training jobs in the swarm learning network.
 """
 
-from common.models import AbstractBaseModel
 from django.db import models
+
+from common.models import AbstractBaseModel
 from network.models import SwarmNetwork
 from project.models import Project
 
 
 class TrainingJob(AbstractBaseModel):
-    """
-    Tracks the status, configuration, and progress of a swarm learning training job.
+    """Tracks the status, configuration, and progress of a swarm learning training job.
+
     A job is linked to a project (the task) and a network (the infrastructure).
+
+    Attributes:
+        project (ForeignKey): The project this job belongs to.
+        network (ForeignKey): The swarm network where the job is executed.
+        status (CharField): Current execution status.
+        flare_job_id (CharField): The unique job ID assigned by NVIDIA FLARE.
+        completed_at (DateTimeField): When the job was finished.
+        total_rounds (PositiveIntegerField): Total number of training rounds.
+        rounds_finished (PositiveIntegerField): Number of rounds completed.
+        progress_percent (PositiveSmallIntegerField): Percentage of progress.
+        progress_updated_at (DateTimeField): When progress was last updated.
     """
 
     # Possible states for a training job.
@@ -68,7 +80,11 @@ class TrainingJob(AbstractBaseModel):
     )
 
     def __str__(self):
-        """Returns a human-readable string representation of the job."""
+        """Returns a human-readable string representation of the job.
+
+        Returns:
+            str: Description of the training job.
+        """
         return (
             f"Training Job {self.identifier} for project: {self.project.title}"
         )

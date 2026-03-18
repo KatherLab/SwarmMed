@@ -1,5 +1,5 @@
-"""
-URL configuration for the data app.
+"""URL configuration for the data app.
+
 Maps web addresses to the view functions that handle data browsing,
 uploads, validation, and visualization.
 """
@@ -29,9 +29,7 @@ urlpatterns = [
         "validation/status/", views.validation_status, name="validation_status"
     ),
     # Manifest API for training containers
-    path(
-        "manifest/", views.get_project_manifest, name="get_project_manifest"
-    ),
+    path("manifest/", views.get_project_manifest, name="get_project_manifest"),
     # Data Visualization control and status
     path(
         "visualization/start/",

@@ -1,5 +1,4 @@
-"""
-View functions for the project application.
+"""View functions for the project application.
 Handles displaying projects, creating new ones, editing existing ones,
 and managing the 'active project' context for each user.
 """
@@ -8,7 +7,6 @@ import json
 import re
 import uuid
 
-from common.utils import get_s3_download_url
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -21,6 +19,8 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+
+from common.utils import get_s3_download_url
 from logs import logger
 from network.models import UserCurrentNetwork
 from users.models import Profile
@@ -32,10 +32,16 @@ from .utils import handle_training_code_upload, process_member_identifiers
 
 @login_required
 def project_list(request):
-    """
-    Displays a list of all projects where the current user is
-    either the author or a member. Separates active and archived projects.
-    Cached for 2 minutes to reduce database load.
+    """Displays a list of all projects for the current user.
+
+    Separates active and archived projects. Cached for 2 minutes to reduce 
+    database load.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: The rendered project list page.
     """
     user_id = request.user.id
     cache_key = f"project_list_{user_id}"
@@ -99,8 +105,13 @@ def project_list(request):
 
 @login_required
 def project_create(request):
-    """
-    Handles the creation of a new project through a form.
+    """Handles the creation of a new project through a form.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: A redirect to the project list or the rendered form.
     """
     # Initialize a logger to track project-related activities.
     log = logger.get_logger(user=request.user, project=None)
@@ -151,8 +162,14 @@ def project_create(request):
 
 @login_required
 def project_edit(request, pk):
-    """
-    Allows the project author to edit project details and files.
+    """Allows the project author to edit project details and files.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        pk (int): The primary key of the project to edit.
+
+    Returns:
+        HttpResponse: A redirect to the project list or the rendered form.
     """
     # Retrieve the project by its ID or return 404 if not found.
     project = get_object_or_404(Project, pk=pk)
@@ -204,8 +221,14 @@ def project_edit(request, pk):
 
 @login_required
 def project_delete(request, pk):
-    """
-    Deletes a project. Only the project author is permitted to do this.
+    """Deletes a project. Only the project author is permitted.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        pk (int): The primary key of the project to delete.
+
+    Returns:
+        HttpResponse: A redirect to the project list.
     """
     project = get_object_or_404(Project, pk=pk)
     log = logger.get_logger(user=request.user, project=project)
@@ -225,8 +248,14 @@ def project_delete(request, pk):
 
 @login_required
 def set_current_project(request, pk):
-    """
-    Sets a specific project as the 'active' project for the logged-in user.
+    """Sets a specific project as the 'active' project for the user.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        pk (int): The primary key of the project to set as current.
+
+    Returns:
+        HttpResponse: A redirect to the project list.
     """
     project = get_object_or_404(Project, pk=pk)
     log = logger.get_logger(user=request.user, project=project)
@@ -259,9 +288,14 @@ def set_current_project(request, pk):
 
 @login_required
 def project_archive(request, pk):
-    """
-    Toggles the project status between 'ARCHIVED' and 'IN_PROGRESS'.
-    Only the author can do this.
+    """Toggles the project status between 'ARCHIVED' and 'IN_PROGRESS'.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        pk (int): The primary key of the project to archive/unarchive.
+
+    Returns:
+        HttpResponse: A redirect to the project list.
     """
     project = get_object_or_404(Project, pk=pk)
     log = logger.get_logger(user=request.user, project=project)
@@ -291,9 +325,13 @@ def project_archive(request, pk):
 @login_required
 @require_POST
 def get_user_emails(request):
-    """
-    API endpoint used for real-time validation of user UUIDs in the frontend.
-    Expects a JSON payload with 'identifiers' (comma-separated UUID strings).
+    """API endpoint for real-time validation of user UUIDs.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request with JSON payload.
+
+    Returns:
+        JsonResponse: A list of email results for the provided UUIDs.
     """
     try:
         data = json.loads(request.body)
@@ -339,9 +377,15 @@ def get_user_emails(request):
 
 @login_required
 def download_project_file(request, pk, file_type):
-    """
-    Generates a presigned URL for a project file and redirects to it.
-    Ensures the user has access to the project.
+    """Generates a presigned URL for a project file and redirects to it.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        pk (int): The primary key of the project.
+        file_type (str): The name of the file field to download.
+
+    Returns:
+        HttpResponse: A redirect to the presigned URL or error response.
     """
     project = get_object_or_404(Project, pk=pk)
 

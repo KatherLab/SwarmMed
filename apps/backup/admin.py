@@ -1,3 +1,9 @@
+"""Admin configuration for the backup app.
+
+This module defines the Django admin interfaces for BackupConfiguration and BackupLog,
+allowing administrators to manage backup settings and monitor backup history.
+"""
+
 from django.contrib import admin, messages
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
@@ -9,6 +15,11 @@ from .tasks import run_backup, run_restore
 
 @admin.register(BackupConfiguration)
 class BackupConfigurationAdmin(ModelAdmin):
+    """Admin interface for managing backup configurations.
+
+    Provides options to trigger manual backups and view configuration details.
+    """
+
     list_display = (
         "name",
         "storage_backend",
@@ -23,6 +34,12 @@ class BackupConfigurationAdmin(ModelAdmin):
 
     @action(description=_("Trigger Manual Backup"), url_path="trigger-backup")
     def trigger_backup(self, request, queryset):
+        """Triggers a manual backup for the selected configurations.
+
+        Args:
+            request (HttpRequest): The current request instance.
+            queryset (QuerySet): The selected backup configurations.
+        """
         for config in queryset:
             log = BackupLog.objects.create(config=config)
             run_backup.delay(log.id)
@@ -36,6 +53,11 @@ class BackupConfigurationAdmin(ModelAdmin):
 
 @admin.register(BackupLog)
 class BackupLogAdmin(ModelAdmin):
+    """Admin interface for monitoring backup logs.
+
+    Allows administrators to view backup status, file sizes, and trigger restores.
+    """
+
     list_display = (
         "started_at",
         "status",
@@ -61,6 +83,14 @@ class BackupLogAdmin(ModelAdmin):
     actions = ["trigger_restore"]
 
     def file_size_display(self, obj):
+        """Formats the file size for display in the admin list.
+
+        Args:
+            obj (BackupLog): The backup log instance.
+
+        Returns:
+            str: The human-readable file size or '-'.
+        """
         from common.utils import format_size
 
         return format_size(obj.file_size) if obj.file_size else "-"
@@ -71,6 +101,12 @@ class BackupLogAdmin(ModelAdmin):
         description=_("Restore from this Backup"), url_path="trigger-restore"
     )
     def trigger_restore(self, request, queryset):
+        """Triggers a restore operation from a selected successful backup.
+
+        Args:
+            request (HttpRequest): The current request instance.
+            queryset (QuerySet): The selected backup log(s).
+        """
         if queryset.count() > 1:
             self.message_user(
                 request,
@@ -92,7 +128,8 @@ class BackupLogAdmin(ModelAdmin):
         self.message_user(
             request,
             _(
-                "Restore operation triggered in the background. System may be temporarily unavailable."
+                "Restore operation triggered in the background. "
+                "System may be temporarily unavailable."
             ),
             messages.WARNING,
         )

@@ -1,19 +1,30 @@
-"""
-Admin configuration for the training application.
+"""Admin configuration for the training application.
+
 Registers training jobs with the Django admin interface.
 """
 
-from common.admin_filters import ProjectFilter_Generic
 from django.contrib import admin, messages
 from django.utils.translation import ngettext
 from unfold.admin import ModelAdmin
+
+from common.admin_filters import ProjectFilter_Generic
 
 from .models import TrainingJob
 
 
 @admin.register(TrainingJob)
 class TrainingJobAdmin(ModelAdmin):
-    """Configuration for monitoring training jobs in the admin panel."""
+    """Configuration for monitoring training jobs in the admin panel.
+
+    Attributes:
+        list_display (tuple): Fields to display in the admin list view.
+        list_filter (tuple): Fields to filter by in the admin sidebar.
+        search_fields (tuple): Fields to search by.
+        readonly_fields (tuple): Fields that cannot be edited in the admin.
+        date_hierarchy (str): Field to use for date-based navigation.
+        fieldsets (tuple): Groups of fields for the edit form.
+        actions (list): Custom admin actions.
+    """
 
     list_display = (
         "identifier",
@@ -63,9 +74,13 @@ class TrainingJobAdmin(ModelAdmin):
     actions = ["stop_selected_jobs"]
 
     def stop_selected_jobs(self, request, queryset):
-        """
-        Action to manually stop selected training jobs.
+        """Action to manually stop selected training jobs.
+
         Updates status to STOPPED for jobs that are active.
+
+        Args:
+            request (HttpRequest): The current request.
+            queryset (QuerySet): The selected training jobs.
         """
         # Filter for jobs that can actually be stopped
         stoppable_jobs = queryset.filter(

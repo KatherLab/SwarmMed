@@ -1,18 +1,18 @@
 ---
 title: Security
-description: Security best practices implemented in SwarmCloud.
+description: Security best practices implemented in MedSwarmHub.
 ---
 
 # Security
 
-Security is a foundational aspect of the SwarmCloud platform, designed to protect the confidentiality, integrity, and availability of your data and machine learning models. This page outlines the security measures implemented at various layers of the platform.
+Security is a foundational aspect of the MedSwarmHub platform, designed to protect the confidentiality, integrity, and availability of your data and machine learning models. This page outlines the security measures implemented at various layers of the platform.
 
 !!! warning "Shared Responsibility"
-    While SwarmCloud provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
+    While MedSwarmHub provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
 
 ## Infrastructure Security
 
-SwarmCloud employs several layers of infrastructure security to isolate workloads and protect the host system.
+MedSwarmHub employs several layers of infrastructure security to isolate workloads and protect the host system.
 
 ### TLS-Isolated Sandboxing
 
@@ -43,7 +43,7 @@ The backup system is designed to prevent exploitation via malicious archives:
 
 ### Access Control
 
-SwarmCloud implements a robust role-based access control (RBAC) system to ensure that users only have access to the resources and operations that are necessary for their role.
+MedSwarmHub implements a robust role-based access control (RBAC) system to ensure that users only have access to the resources and operations that are necessary for their role.
 
 *   **Admin:** The admin user has full control over the platform. They can manage users, projects, and system settings.
 *   **Developer:** A developer can create and manage projects, upload data, run training jobs and view logs.
@@ -59,7 +59,7 @@ Comprehensive logging and auditing are in place to provide visibility into the a
 
 ### Vulnerability Management
 
-We are committed to ensuring the security of SwarmCloud and its dependencies.
+We are committed to ensuring the security of MedSwarmHub and its dependencies.
 
 *   **Open Source Components:** We use well-maintained and reputable open-source components. We continuously monitor these components for security vulnerabilities.
 *   **Security Scanning:** We utilize automated security scanning tools to maintain the integrity of our codebase.
@@ -69,7 +69,7 @@ We are committed to ensuring the security of SwarmCloud and its dependencies.
 
 ### HIPAA (Health Insurance Portability and Accountability Act)
 
-SwarmCloud is designed to be **HIPAA Capable**, providing the technical safeguards required for organizations handling Protected Health Information (PHI). However, full HIPAA compliance is a programmatic requirement that depends on both the platform's features and the hosting organization's operational practices.
+MedSwarmHub is designed to be **HIPAA Capable**, providing the technical safeguards required for organizations handling Protected Health Information (PHI). However, full HIPAA compliance is a programmatic requirement that depends on both the platform's features and the hosting organization's operational practices.
 
 #### Technical Safeguards (Implemented)
 
@@ -79,7 +79,7 @@ SwarmCloud is designed to be **HIPAA Capable**, providing the technical safeguar
     *   **Automatic Logoff:** Sessions are configured to expire after 30 minutes of inactivity.
     *   **Encryption and Decryption:** All data at rest in MinIO is encrypted using AES-256 (SSE-S3). All data in transit is encrypted using TLS 1.2/1.3.
 *   **Audit Controls:** 
-    *   SwarmCloud maintains a detailed, tamper-evident audit log of all access to the system. Logs are signed and chained using HMAC-SHA256 to ensure integrity.
+    *   MedSwarmHub maintains a detailed, tamper-evident audit log of all access to the system. Logs are signed and chained using HMAC-SHA256 to ensure integrity.
 *   **Brute-Force Protection:** Built-in protection against automated login attempts via `django-axes`.
 *   **Database Integrity:** Enforced SSL/TLS connections for PostgreSQL and Redis.
 
@@ -88,7 +88,7 @@ SwarmCloud is designed to be **HIPAA Capable**, providing the technical safeguar
 Achieving HIPAA compliance is a shared responsibility. The following items must be addressed at the deployment and operational levels:
 
 1.  **Administrative Safeguards (Operational):** The hosting organization must implement required administrative controls, including risk analysis, formal security policies, workforce training, incident response procedures, and regular access reviews.
-2.  **Infrastructure Encryption (Deployment):** SwarmCloud uses named Docker volumes for all persistent data. **To ensure encryption at rest, you must configure these volumes in `docker-compose.yml` to use an encrypted volume driver (e.g., LUKS, cloud-provider encrypted storage) or host-level encryption.**
+2.  **Infrastructure Encryption (Deployment):** MedSwarmHub uses named Docker volumes for all persistent data. **To ensure encryption at rest, you must configure these volumes in `docker-compose.yml` to use an encrypted volume driver (e.g., LUKS, cloud-provider encrypted storage) or host-level encryption.**
 3.  **Secrets Management:** Secrets are managed via `.env` files based on the `.env.template`. For production readiness, secrets should be moved to a secure secret management system (e.g., HashiCorp Vault, AWS Secrets Manager) with regular rotation.
 4.  **Audit Log Governance:** While the system generates signed logs, the organization is responsible for log review, alerting (e.g., SIEM integration), and maintaining a long-term retention policy.
 5.  **Business Associate Agreements (BAA):** You must ensure BAAs are signed with any third-party service providers (e.g., Cloud Providers, SMTP relays).
@@ -106,7 +106,7 @@ These safeguards must be implemented by the hosting organization:
 
 #### Emergency Access Procedures (Break-Glass)
 
-In accordance with HIPAA §164.312(a)(2)(ii), SwarmCloud supports emergency access procedures:
+In accordance with HIPAA §164.312(a)(2)(ii), MedSwarmHub supports emergency access procedures:
 
 1.  **Administrative Override:** Platform Administrators can grant temporary "Emergency Access" roles to qualified personnel.
 2.  **Audit Logging:** All emergency access events are logged with high severity (CRITICAL) in the tamper-evident audit trail, including the justification provided for the access.
@@ -114,7 +114,7 @@ In accordance with HIPAA §164.312(a)(2)(ii), SwarmCloud supports emergency acce
 
 #### Data Retention and Purging
 
-SwarmCloud implements automated data retention policies to comply with HIPAA and GDPR requirements:
+MedSwarmHub implements automated data retention policies to comply with HIPAA and GDPR requirements:
 
 *   **Data Retention:** Standard datasets and PHI metadata are retained for 6 years, as per HIPAA guidelines.
 *   **Configuration:** These periods can be adjusted in `core/settings.py` using `DATA_RETENTION_DAYS`.
@@ -122,7 +122,7 @@ SwarmCloud implements automated data retention policies to comply with HIPAA and
 
 #### Encryption Key Rotation
 
-To maintain high security standards, SwarmCloud supports cryptographic key rotation:
+To maintain high security standards, MedSwarmHub supports cryptographic key rotation:
 
 *   **Audit Log Signing:** The keys used to sign audit logs should be rotated periodically. This can be performed using the management command:
     ```bash
@@ -132,11 +132,11 @@ To maintain high security standards, SwarmCloud supports cryptographic key rotat
 
 #### Data De-identification
 
-While SwarmCloud supports HIPAA-compliant workflows for PHI, we strongly recommend following the **HIPAA Safe Harbor** method for de-identification (removing 18 specific identifiers) before uploading datasets to the platform whenever possible to minimize risk.
+While MedSwarmHub supports HIPAA-compliant workflows for PHI, we strongly recommend following the **HIPAA Safe Harbor** method for de-identification (removing 18 specific identifiers) before uploading datasets to the platform whenever possible to minimize risk.
 
 ### GDPR (General Data Protection Regulation)
 
-SwarmCloud implements technical and organizational measures to support GDPR compliance for users within the European Union.
+MedSwarmHub implements technical and organizational measures to support GDPR compliance for users within the European Union.
 
 #### Key GDPR Features
 
@@ -171,7 +171,7 @@ bandit -r apps core home manage.py -f json -o bandit_report.json
 
 ### _DJANGO_[^1]
 
-The web interface of SwarmCloud is built on the Django framework, which has a strong focus on security and provides built-in protection against many common web vulnerabilities.
+The web interface of MedSwarmHub is built on the Django framework, which has a strong focus on security and provides built-in protection against many common web vulnerabilities.
 
 *   **Cross-Site Scripting (XSS):** Django's template engine automatically escapes variables, which prevents most XSS attacks.
 *   **Cross-Site Request Forgery (CSRF):** Django has built-in CSRF protection that is enabled by default.
@@ -206,7 +206,7 @@ For maximum security, it is strongly recommended to host the following directori
 
 ### Internal Service Mesh
 
-SwarmCloud employs an internal PKI (Public Key Infrastructure) to secure communication between all backend services.
+MedSwarmHub employs an internal PKI (Public Key Infrastructure) to secure communication between all backend services.
 *   Each service (MinIO, Postgres, Redis) has its own TLS certificate issued by a private internal Root CA.
 *   The application and worker containers trust this internal Root CA, ensuring secure and verified connections across the internal Docker network.
 
@@ -216,7 +216,7 @@ SwarmCloud employs an internal PKI (Public Key Infrastructure) to secure communi
 
 ### _TAILSCALE_[^3]
 
-SwarmCloud leverages Tailscale to create a secure and private network for the participants in a decentralized learning experiment. This is especially important for swarm learning, which relies on peer-to-peer communication.
+MedSwarmHub leverages Tailscale to create a secure and private network for the participants in a decentralized learning experiment. This is especially important for swarm learning, which relies on peer-to-peer communication.
 
 *   **End-to-End Encryption:** All traffic on a Tailscale network is end-to-end encrypted using WireGuard.
 *   **Zero-Config VPN:** Tailscale is a zero-config VPN, which means that it is easy to set up and does not require complex firewall rules.
@@ -226,13 +226,13 @@ SwarmCloud leverages Tailscale to create a secure and private network for the pa
 
 ### HTTPS
 
-All communication with the SwarmCloud web interface is encrypted using HTTPS. This ensures that your data is protected from eavesdropping and man-in-the-middle attacks.
+All communication with the MedSwarmHub web interface is encrypted using HTTPS. This ensures that your data is protected from eavesdropping and man-in-the-middle attacks.
 
 ## Decentralized Learning Security
 
 ### _NVIDIA FLARE_[^4]
 
-The federated learning capabilities of SwarmCloud are powered by NVIDIA FLARE. The swarm learning paradigm implemented in FLARE has a unique security model.
+The federated learning capabilities of MedSwarmHub are powered by NVIDIA FLARE. The swarm learning paradigm implemented in FLARE has a unique security model.
 
 *   **No Raw Data Exchange:** In a swarm learning setup, the raw data never leaves the participant's infrastructure. Only model updates are exchanged between the participants.
 *   **Identity Security:** FLARE ensures the authentication and authorization of all communicating parties.

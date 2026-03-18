@@ -1,5 +1,4 @@
-"""
-Django settings for the SwarmCloud project.
+"""Django settings for the MedSwarmHub project.
 This file contains the configuration for the entire web application, including
 database connections, security keys, installed apps, and middleware.
 """
@@ -43,11 +42,35 @@ if not SECRET_KEY:
 
 # Fernet Encryption Keys (for django-fernet-fields)
 # In production, this MUST be set in the environment as a comma-separated list of keys.
-FERNET_KEYS = os.environ.get("FERNET_KEYS", SECRET_KEY).split(",")
+# We ensure it's distinct from SECRET_KEY to prevent multi-layer compromise.
+_fernet_keys_raw = os.environ.get("FERNET_KEYS")
+if not _fernet_keys_raw:
+    if DEBUG:
+        # Fallback to SECRET_KEY only in development for convenience.
+        FERNET_KEYS = [SECRET_KEY]
+    else:
+        # Critical Security: Force dedicated encryption keys in production.
+        raise ValueError(
+            "FERNET_KEYS environment variable is not set and DEBUG is False. "
+            "PHI/PII protection requires a dedicated encryption key distinct from SECRET_KEY."
+        )
+else:
+    FERNET_KEYS = _fernet_keys_raw.split(",")
 FERNET_USE_HKDF = True
 
 # Backup Encryption Key
-BACKUP_ENCRYPTION_KEY = os.environ.get("BACKUP_ENCRYPTION_KEY", SECRET_KEY)
+BACKUP_ENCRYPTION_KEY = os.environ.get("BACKUP_ENCRYPTION_KEY")
+if not BACKUP_ENCRYPTION_KEY:
+    if DEBUG:
+        BACKUP_ENCRYPTION_KEY = SECRET_KEY
+    else:
+        raise ValueError(
+            "BACKUP_ENCRYPTION_KEY MUST be set in environment when DEBUG is False."
+        )
+elif not DEBUG and BACKUP_ENCRYPTION_KEY == SECRET_KEY:
+    raise ValueError(
+        "BACKUP_ENCRYPTION_KEY MUST be different from SECRET_KEY when DEBUG is False."
+    )
 
 # ALLOWED_HOSTS defines which domain names can access this server.
 # It should be restricted to your production domains.
@@ -346,7 +369,7 @@ if DEBUG:
     AWS_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID or "minioadmin"
     AWS_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY or "minioadmin"
 AWS_STORAGE_BUCKET_NAME = os.environ.get(
-    "AWS_STORAGE_BUCKET_NAME", "swarmcloud"
+    "AWS_STORAGE_BUCKET_NAME", "medswarmhub"
 )
 AWS_S3_ENDPOINT_URL = os.environ.get(
     "AWS_S3_ENDPOINT_URL", "https://minio:9000"
@@ -404,6 +427,32 @@ SECURITY_LOG_RETENTION_DAYS = int(
 # Period after which IP addresses are anonymized (in days). Default: 90 days
 IP_ANONYMIZATION_DAYS = int(os.environ.get("IP_ANONYMIZATION_DAYS", 90))
 
+# --- Privacy Policy Runtime Values ---
+# These values populate the in-app privacy policy so deployments do not ship
+# unresolved placeholders for controller, DPO, or retention metadata.
+PRIVACY_CONTROLLER_NAME = os.environ.get(
+    "PRIVACY_CONTROLLER_NAME", "MedSwarmHub Self-Hosted Operator"
+)
+PRIVACY_CONTROLLER_ADDRESS = os.environ.get(
+    "PRIVACY_CONTROLLER_ADDRESS", "Not specified by operator"
+)
+PRIVACY_CONTACT_EMAIL = os.environ.get(
+    "PRIVACY_CONTACT_EMAIL", "privacy@localhost"
+)
+PRIVACY_DPO_EMAIL = os.environ.get("PRIVACY_DPO_EMAIL", PRIVACY_CONTACT_EMAIL)
+PRIVACY_DPO_ADDRESS = os.environ.get(
+    "PRIVACY_DPO_ADDRESS", PRIVACY_CONTROLLER_ADDRESS
+)
+PRIVACY_HOSTING_PROVIDER = os.environ.get(
+    "PRIVACY_HOSTING_PROVIDER", "Self-hosted"
+)
+PRIVACY_DATA_REGION = os.environ.get(
+    "PRIVACY_DATA_REGION", "Operator-defined"
+)
+ACCOUNT_ERASURE_GRACE_DAYS = int(
+    os.environ.get("ACCOUNT_ERASURE_GRACE_DAYS", 30)
+)
+
 # --- Celery Configuration ---
 
 # Configures Celery to use Redis as the message broker and result backend.
@@ -438,7 +487,7 @@ CELERY_BROKER_POOL_LIMIT = 10  # Limit Redis connection pool size
 
 CELERY_BEAT_SCHEDULE = {
     "daily-secure-backup": {
-        "task": "logs.tasks.scheduled_backup",
+        "task": "backup.tasks.scheduled_backup",
         "schedule": crontab(hour=2, minute=0),  # Daily at 2:00 AM UTC
     },
     "daily-data-retention-purge": {
@@ -455,11 +504,11 @@ CELERY_BEAT_SCHEDULE = {
     },
     "monitor-training-jobs": {
         "task": "training.tasks.monitor_training_jobs",
-        "schedule": 30.0,  # Every 30 seconds
+        "schedule": 60.0,  # Every 60 seconds (reduced from 30s)
     },
     "broadcast-network-statuses": {
         "task": "network.tasks.broadcast_all_network_statuses",
-        "schedule": 10.0,  # Every 10 seconds
+        "schedule": 30.0,  # Every 30 seconds (reduced from 10s)
     },
 }
 
@@ -518,8 +567,8 @@ LOGGING = {
 # --- Unfold Admin Configuration ---
 
 UNFOLD = {
-    "SITE_TITLE": "SwarmCloud Admin",
-    "SITE_HEADER": "SwarmCloud Admin",
+    "SITE_TITLE": "MedSwarmHub Admin",
+    "SITE_HEADER": "MedSwarmHub Admin",
     "SITE_SYMBOL": "cloud",  # icon from Material Symbols
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": True,

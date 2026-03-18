@@ -1,5 +1,5 @@
-"""
-Signal handlers for the communication app.
+"""Signal handlers for the communication app.
+
 These functions are automatically triggered by specific database events,
 such as sending an email notification when a new message is saved.
 """
@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.core.mail import send_mail
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
 from logs.logger import get_logger
 
 from .models import Message, ProjectBoardAccess, ProjectPost
@@ -18,8 +19,13 @@ logger = get_logger()
 
 @receiver(post_save, sender=Message)
 def send_message_notification(sender, instance, created, **kwargs):
-    """
-    Sends an email notification to the recipient when a new direct message is created.
+    """Sends an email notification to the recipient when a new message is created.
+
+    Args:
+        sender (Type[Message]): The model class.
+        instance (Message): The actual instance being saved.
+        created (bool): True if a new record was created.
+        **kwargs: Additional keyword arguments.
     """
     # Invalidate unread count cache for the recipient
     cache.delete(f"unread_messages_count_{instance.recipient.id}")
@@ -32,7 +38,7 @@ def send_message_notification(sender, instance, created, **kwargs):
             f"Hello {instance.recipient.username},\n\n"
             f"You have received a new message from {instance.sender.username}.\n\n"
             f"Subject: {instance.subject}\n\n"
-            "Please log in to your SwarmCloud account to view the full message."
+            "Please log in to your MedSwarmHub account to view the full message."
         )
 
         # Use EMAIL_HOST_USER from settings or fallback to None
@@ -58,8 +64,13 @@ def send_message_notification(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=ProjectPost)
 def send_project_post_notification(sender, instance, created, **kwargs):
-    """
-    Sends email notifications to project members when a new post is added to the board.
+    """Sends email notifications to project members when a new post is added.
+
+    Args:
+        sender (Type[ProjectPost]): The model class.
+        instance (ProjectPost): The actual instance being saved.
+        created (bool): True if a new record was created.
+        **kwargs: Additional keyword arguments.
     """
     if created:
         project = instance.project
@@ -96,7 +107,7 @@ def send_project_post_notification(sender, instance, created, **kwargs):
             f"{author.username} has posted a new update on the project board "
             f"for '{project.title}'.\n\n"
             f"Content snippet:\n{instance.content[:200]}...\n\n"
-            "Please log in to SwarmCloud to view the full post and reply."
+            "Please log in to MedSwarmHub to view the full post and reply."
         )
 
         from_email = getattr(settings, "EMAIL_HOST_USER", None)
@@ -121,7 +132,11 @@ def send_project_post_notification(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=ProjectBoardAccess)
 def invalidate_unread_count_on_access(sender, instance, **kwargs):
-    """
-    Invalidates unread message count cache when a user accesses a project board.
+    """Invalidates unread message count cache when a user accesses a board.
+
+    Args:
+        sender (Type[ProjectBoardAccess]): The model class.
+        instance (ProjectBoardAccess): The actual instance being saved.
+        **kwargs: Additional keyword arguments.
     """
     cache.delete(f"unread_messages_count_{instance.user.id}")

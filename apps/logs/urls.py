@@ -1,5 +1,4 @@
-"""
-URL configuration for the logs app.
+"""URL configuration for the logs app.
 Maps web addresses to the view functions that display logs and handle downloads.
 """
 

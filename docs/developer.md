@@ -1,11 +1,11 @@
 ---
 title: Developer Guide
-description: A guide for developers to write scripts for the SwarmCloud platform.
+description: A guide for developers to write scripts for the MedSwarmHub platform.
 ---
 
 # Developer Guide
 
-This guide provides information for developers who write scripts to be run on the SwarmCloud platform. The platform supports three types of scripts:
+This guide provides information for developers who write scripts to be run on the MedSwarmHub platform. The platform supports three types of scripts:
 
 *   Data Validation Scripts
 *   Data Visualization Scripts
@@ -14,7 +14,7 @@ This guide provides information for developers who write scripts to be run on th
 
 
 !!! tip "Example Code"
-    You can find example scripts [here](https://github.com/pfeifferis/SwarmCloud/tree/main/examples).
+    You can find example scripts [here](https://github.com/pfeifferis/MedSwarmHub/tree/main/examples).
 
 !!! tip "Testing Locally"
     You can test your validation and visualization scripts locally by selecting `Test in local environment` in the network settings and reviewing the logs on the logs page.
@@ -296,7 +296,7 @@ This module provides a simplified, streaming interface to handle communication w
 
     
 
-    The execution environment for validation and visualization scripts is defined by a Docker image (`swarmcloud-sandbox`).
+    The execution environment for validation and visualization scripts is defined by a Docker image (`medswarmhub-sandbox`).
 
     
 
@@ -325,6 +325,6 @@ This module provides a simplified, streaming interface to handle communication w
 
     
 
-    The platform will automatically detect the changes and rebuild the internal `swarmcloud-sandbox` image during the next script execution.
+    The platform will automatically detect the changes and rebuild the internal `medswarmhub-sandbox` image during the next script execution.
 
     

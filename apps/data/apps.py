@@ -1,5 +1,5 @@
-"""
-Configuration for the Data app.
+"""Configuration for the Data app.
+
 This file defines the application configuration class used by Django.
 """
 
@@ -7,8 +7,8 @@ from django.apps import AppConfig
 
 
 class DataConfig(AppConfig):
-    """
-    Configuration class for the data application.
+    """Configuration class for the data application.
+
     Handles app initialization, such as setting up storage buckets.
     """
 
@@ -19,12 +19,14 @@ class DataConfig(AppConfig):
     name = "data"
 
     def ready(self):
-        """
-        This method is called when the application is loaded.
-        We use it to ensure the necessary storage infrastructure is ready.
+        """Called when the application is loaded.
+
+        Uses the method to ensure the necessary storage infrastructure is ready.
+        Imports are done locally to avoid circular dependencies during startup.
         """
         # We import here to avoid circular dependencies during startup
         from django.conf import settings
+
         from logs.logger import get_logger
 
         from .utils import create_minio_bucket
@@ -34,10 +36,10 @@ class DataConfig(AppConfig):
         # Ensure the default bucket exists in S3/Minio
         # This is where all project data and scripts will be stored.
         bucket_name = getattr(
-            settings, "AWS_STORAGE_BUCKET_NAME", "swarmcloud"
+            settings, "AWS_STORAGE_BUCKET_NAME", "medswarmhub"
         )
         if not bucket_name:
-            bucket_name = "swarmcloud"
+            bucket_name = "medswarmhub"
 
         try:
             create_minio_bucket(bucket_name)

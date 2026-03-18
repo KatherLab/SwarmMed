@@ -1,8 +1,12 @@
-"""
-Main URL configuration for the SwarmCloud project.
+"""Main URL configuration for the MedSwarmHub project.
 This module maps top-level URL paths to their respective application-specific
 URL configurations. It also handles serving static and media files.
 """
+
+from django.conf import settings
+from django.conf.urls.static import static
+from django.contrib import admin
+from django.urls import include, path
 
 from common.views import (
     contact,
@@ -11,10 +15,6 @@ from common.views import (
     privacy_policy,
     terms_and_conditions,
 )
-from django.conf import settings
-from django.conf.urls.static import static
-from django.contrib import admin
-from django.urls import include, path
 
 # List of root URL patterns for the entire project.
 urlpatterns = [

@@ -1,5 +1,5 @@
-"""
-URL configuration for the training application.
+"""URL configuration for the training application.
+
 Maps web addresses to view functions for training management,
 API status polling, and log streaming.
 """

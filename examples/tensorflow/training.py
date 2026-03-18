@@ -1,4 +1,5 @@
 import math
+
 import flare_adapter
 import numpy as np
 import pandas as pd
@@ -15,9 +16,7 @@ SWARM_ROUNDS = 10
 
 
 def load_data(fs):
-    """
-    Reads all CSV files from the virtual filesystem and prepares them for TensorFlow.
-    """
+    """Reads all CSV files from the virtual filesystem and prepares them for TensorFlow."""
     file_list = fs.glob("*.csv")
 
     if not file_list:

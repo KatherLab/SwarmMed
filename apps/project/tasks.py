@@ -1,5 +1,4 @@
-"""
-Celery tasks for the project application.
+"""Celery tasks for the project application.
 Handles background tasks like asynchronous file deletion to improve web response times.
 """
 
@@ -7,17 +6,17 @@ import logging
 import os
 import shutil
 
-from celery import shared_task
 from django.conf import settings
 from django.core.files.storage import default_storage
+
+from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task
 def cleanup_project_files(folder_path):
-    """
-    Deletes a folder and its contents from the storage backend (S3 or local).
+    """Deletes a folder and its contents from the storage backend (S3 or local).
     This is intended to be run in the background.
     """
     try:
@@ -41,8 +40,7 @@ def cleanup_project_files(folder_path):
 
 @shared_task
 def delete_all_project_files(project_identifier):
-    """
-    Deletes all files associated with a project identifier when the project is deleted.
+    """Deletes all files associated with a project identifier when the project is deleted.
     Includes both the uploaded media files and the local workspace directory.
     """
     try:

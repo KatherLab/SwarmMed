@@ -1,12 +1,11 @@
-import os
-import pandas as pd
-import torch
+import flare_adapter
 import numpy as np
+import pandas as pd
+import pytorch_lightning as pl
+import torch
+from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
-from sklearn.preprocessing import StandardScaler
-import pytorch_lightning as pl
-import flare_adapter
 
 SWARM_ROUNDS = 10
 

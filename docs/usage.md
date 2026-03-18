@@ -1,11 +1,11 @@
 ---
 title: Usage
-description: How to use the SwarmCloud platform.
+description: How to use the MedSwarmHub platform.
 ---
 
 # Usage
 
-This page explains how to use the SwarmCloud platform in more detail.
+This page explains how to use the MedSwarmHub platform in more detail.
 
 ## For Admins
 
@@ -26,11 +26,9 @@ As an admin, you can create new users who can participate in decentralized learn
 4.  Click on the **Add User** button to save the new user.
 5.  Please share the login credentials with the new user securely.
 
-??? example "Image of user page"
-    ![User Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
-
 ??? example "Image of create user form"
-    ![Create User](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Create User](assets/usage/users_new_dark.png#only-dark)
+    ![Create User](assets/usage/users_new_light.png#only-light)
 
 ### Manage Users
 As an admin, you can manage existing users, including editing their details or deleting them.
@@ -40,11 +38,15 @@ As an admin, you can manage existing users, including editing their details or d
 3.  Click on the **Update** button next to the user's name to modify their details.
 4.  Make the necessary changes and click on the **Update** button.
 5.  To delete a user, click on the **Delete** button next to the user's name and confirm the action.
+   
+??? example "Image of user page"
+    ![User Page](assets/usage/users_dark.png#only-dark)
+    ![User Page](assets/usage/users_light.png#only-light)
 
 ## For Developers
 
 ??? info "Developer Rights"
-    As a developer, you can create and manage swarm learning experiments on the SwarmCloud platform and see logs.
+    As a developer, you can create and manage swarm learning experiments on the MedSwarmHub platform and see logs.
 
 !!! info "Developer Guide"
     A more detailed developer guide can be found [here](/developer).
@@ -58,7 +60,8 @@ As a developer, you can view the logs of the training jobs to monitor their prog
 3.  Click on the **Refresh** button to update the logs.
    
 ??? example "Image of logs page"
-    ![Logs Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Logs Page](assets/usage/logs_dark.png#only-dark)
+    ![Logs Page](assets/usage/logs_light.png#only-light)
 
 ## For All Users
 
@@ -89,10 +92,12 @@ A project is a workspace for your decentralized learning experiment. It contains
     All network participants need to have the same project code. Make sure to share the project code with all participants.
 
 ??? example "Image of project page"
-    ![Project Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Project Page](assets/usage/project_dark.png#only-dark)
+    ![Project Page](assets/usage/project_light.png#only-light)
 
 ??? example "Image of create project page"
-    ![Create Project](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Create Project](assets/usage/project_new_dark.png#only-dark)
+    ![Create Project](assets/usage/project_new_light.png#only-light)
 
 ### 2. Select your current project
 
@@ -113,10 +118,12 @@ After creating a project, you need to upload the data that will be used for trai
 5.  Click on the **Upload** button to start the upload process.
 
 ??? example "Image of data page"
-    ![Data Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Data Page](assets/usage/data_dark.png#only-dark)
+    ![Data Page](assets/usage/data_light.png#only-light)
 
 ??? example "Image of data upload page"
-    ![Data Upload](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Data Upload](assets/usage/data_new_dark.png#only-dark)
+    ![Data Upload](assets/usage/data_new_light.png#only-light)
 
 ### 4. View Files
 
@@ -130,7 +137,8 @@ You can view the files you have uploaded to your project.
     In the current version only single file download is supported.
 
 ??? example "Image of Files page"
-    ![Files Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Files Page](assets/usage/files_dark.png#only-dark)
+    ![Files Page](assets/usage/files_light.png#only-light)
 
 ### 5. Start Data Validation (optional)
 
@@ -141,8 +149,9 @@ If you have uploaded a data validation script, you can run it to ensure that you
 3.  Wait for the validation process to complete. You can monitor the progress on the **Logs** page.
 4.  Once the validation is complete, you can view the results on the same **Data** page.
 
-??? example "Image of data validation"
-    ![Data Validation](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+??? example "Image of data validation results"
+    ![Data Validation](assets/usage/data_val_dark.png#only-dark)
+    ![Data Validation](assets/usage/data_val_light.png#only-light)
 
 ### 6. View Data Visualization (optional)
 
@@ -153,8 +162,9 @@ If you have uploaded a data visualization script, you can run it to visualize yo
 3.  Wait for the visualization process to complete. You can monitor the progress on the **Logs** page.
 4.  Once the visualization is complete, you can view the plots on the same **Data** page.
 
-??? example "Image of data visualization"
-    ![Data Visualization](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+??? example "Image of data visualization results"
+    ![Data Visualization](assets/usage/data_viz_dark.png#only-dark)
+    ![Data Visualization](assets/usage/data_viz_light.png#only-light)
 
 ### 7. Create a Network
 
@@ -184,10 +194,12 @@ A network defines the participants in your decentralized learning experiment.
     Networks can't be edited in order to the provision of startup kits.
 
 ??? example "Image of network page"
-    ![Network Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Network Page](assets/usage/network_dark.png#only-dark)
+    ![Network Page](assets/usage/network_light.png#only-light)
 
 ??? example "Image of create network page"
-    ![Create Network](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Create Network](assets/usage/network_new_dark.png#only-dark)
+    ![Create Network](assets/usage/network_new_light.png#only-light)
 
 ### 8. Select your current network
 
@@ -215,7 +227,8 @@ Once you have set up your project, data, and network, you can start the training
 4.  Once the training job is complete, you can view the results on the **Results** page.
 
 ??? example "Image of training page"
-    ![Training Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Training Page](assets/usage/training_dark.png#only-dark)
+    ![Training Page](assets/usage/training_light.png#only-light)
 
 ### 11. Download Results
 
@@ -227,7 +240,8 @@ After the training job is complete, you can view the results.
 4.  Click on the **Download Logs** button, to download the training logs.
 
 ??? example "Image of results page"
-    ![Results Page](https://amadine.com/assets/img/articles/ui-design/contemporary-ui-design@2x.jpg)
+    ![Results Page](assets/usage/results_dark.png#only-dark)
+    ![Results Page](assets/usage/results_light.png#only-light)
 
 ### 12. View Results Visualization (optional)
 
@@ -237,3 +251,7 @@ If you have uploaded a results visualization script, you can run it to visualize
 2.  Click on the **Generate Plots** button.
 3.  Wait for the visualization process to complete. You can monitor the progress on the **Logs** page.
 4.  Once the visualization is complete, you can view the plots on the same **Results** page.
+
+??? example "Image of results visualization"
+    ![Results Visualization](assets/usage/results_viz_dark.png#only-dark)
+    ![Results Visualization](assets/usage/results_viz_light.png#only-light)

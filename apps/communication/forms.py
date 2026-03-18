@@ -1,5 +1,5 @@
-"""
-Forms for the communication app.
+"""Forms for the communication app.
+
 Defines how users input data for direct messages and project board posts.
 """
 
@@ -10,9 +10,12 @@ from .models import Message, ProjectPost
 
 
 class MessageForm(forms.ModelForm):
-    """
-    Form for sending a new direct message.
+    """Form for sending a new direct message.
+
     Includes custom styling and recipient filtering.
+
+    Attributes:
+        recipient (ModelChoiceField): Field to select the recipient of the message.
     """
 
     # Define the recipient field with custom Tailwind CSS styling
@@ -32,6 +35,8 @@ class MessageForm(forms.ModelForm):
     )
 
     class Meta:
+        """Meta options for the MessageForm."""
+
         model = Message
         fields = ["recipient", "subject", "body"]
         widgets = {
@@ -63,8 +68,11 @@ class MessageForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
-        """
-        Custom initialization to filter recipients based on the project context.
+        """Custom initialization to filter recipients based on the project context.
+
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments. Expected keys include 'user' and 'project'.
         """
         # Pop user and project from kwargs before calling super()
         user = kwargs.pop("user", None)
@@ -89,11 +97,15 @@ class MessageForm(forms.ModelForm):
 
 
 class ProjectPostForm(forms.ModelForm):
-    """
-    Form for creating a new post on a project's board.
+    """Form for creating a new post on a project's board.
+
+    Attributes:
+        content (Textarea): Field for entering the post content.
     """
 
     class Meta:
+        """Meta options for the ProjectPostForm."""
+
         model = ProjectPost
         fields = ["content"]
         widgets = {

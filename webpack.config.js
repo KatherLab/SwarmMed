@@ -8,6 +8,7 @@ module.exports = {
     output: {
         filename: '[name].bundle.js',  // output bundle file name
         path: path.resolve(__dirname, './static/dist'),  // path to our Django static directory
+        clean: true, // Clean the output directory before emit.
     },
 
     module: {
@@ -17,32 +18,47 @@ module.exports = {
                 use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader'],
             },
             {
-                test: /\.(png|jpg|gif|svg)$/,
-                loader: 'file-loader',
-                options: {
-                    outputPath: 'static/images/'
+                test: /\.(png|jpg|jpeg|gif|svg)$/i,
+                type: 'asset/resource',
+                generator: {
+                    filename: 'images/[hash][ext][query]'
                 }
             },
             {
-                test: /\.(ttf|eot|svg|gif|woff|woff2)(\?v=[0-9]\.[0-9]\.[0-9])?$/,
-                use: [{
-                    loader: 'file-loader',
-                }]
+                test: /\.(woff|woff2|eot|ttf|otf)$/i,
+                type: 'asset/resource',
+                generator: {
+                    filename: 'fonts/[hash][ext][query]'
+                }
             },
         ],
     },
     resolve: {
-        extensions: ['', '.js', '.jsx', '.css']
+        extensions: ['.js', '.jsx', '.css']
     },
     plugins: [
-        new MiniCssExtractPlugin(),
+        new MiniCssExtractPlugin({
+            filename: "[name].css",
+        }),
         new SourceMapDevToolPlugin({
             filename: "[file].map"
         })
     ],
     optimization: {
+        minimize: true,
         minimizer: [
-            new CssMinimizerPlugin()
+            '...', // Extend existing minimizers (like Terser)
+            new CssMinimizerPlugin(),
         ],
+        splitChunks: {
+            chunks: 'all',
+            cacheGroups: {
+                vendor: {
+                    test: /[\\/]node_modules[\\/]/,
+                    name: 'vendors',
+                    chunks: 'all',
+                },
+            },
+        },
     },
 };

@@ -1,25 +1,19 @@
-# SwarmCloud
+# MedSwarmHub
 
 > [!WARNING]
 > **Research Use Only:** This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-SwarmCloud is a decentralized medical data storage and collaborative training platform. It leverages **Swarm Learning** (via NVIDIA FLARE) to enable privacy-preserving machine learning across distributed medical institutions without the need to move raw data.
-
----
+MedSwarmHub is a decentralized medical data storage and collaborative training platform. It leverages **Swarm Learning** (via NVIDIA FLARE) to enable privacy-preserving machine learning across distributed medical institutions without the need to move raw data.
 
 ## 🧠 Supported Frameworks
 
-SwarmCloud is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
+MedSwarmHub is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
 
 - **PyTorch** & **PyTorch Lightning**
 - **TensorFlow** & **Keras**
 - **Scikit-learn**
 - **HuggingFace Transformers**
-- **MONAI** (Medical Open Network for AI)
-
-The platform handles the streaming of data from S3-compatible storage (MinIO) and the secure loading of model weights across all common formats (`.pt`, `.pth`, `.ckpt`, `.h5`, `.keras`, `.npy`, `.pkl`, `.joblib`).
-
----
+- **MONAI** 
 
 ## 🚀 Installation & Setup
 
@@ -27,7 +21,7 @@ The platform handles the streaming of data from S3-compatible storage (MinIO) an
 Ensure you have [Docker](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
 
 ### 2. VPN Network (Tailscale)
-SwarmCloud uses Tailscale for secure peer-to-peer networking.
+MedSwarmHub uses Tailscale for secure peer-to-peer networking.
 
 ```bash
 # Install Tailscale (example for Ubuntu)
@@ -41,44 +35,24 @@ sudo tailscale up
 
 ### 3. Deploy Application
 ```bash
-git clone https://github.com/pfeifferis/SwarmCloud.git
-cd SwarmCloud
+git clone https://github.com/pfeifferis/MedSwarmHub.git
+cd MedSwarmHub   
 ```
 
 Then rely on the Makefile so you no longer run the manual prep scripts directly:
 
 ```bash
-make install        # install uv and synchronize requirements into .venv
-make setup          # copy .env (if missing), run PgBouncer setup, and generate TLS certificates
-# edit .env as needed before starting
+make install        # install uv and sync Python dependencies
+make env            # generate .env file with secure random secrets
 make start          # build the Docker services and bring them up
 ```
-
-Use `make stop` to tear the stack down, `make logs` to tail `swarmcloud`, and `make docs-serve`/`make docs-build` for MkDocs work.
-
-### 5. Cleanup targets
-
-Use `make deinstall` when you want to scrub everything and start from a clean slate; it stops the compose stack, prunes volumes/images/builder caches, and removes the uv-managed `.venv`, `.cache/uv`, generated `.secrets` folders, `staticfiles`, `_build`, `tmp`, and `workspaces` artifacts.
-
-Run `make deinstall-docker` if you only need to stop the containers, drop volumes, and prune Docker caches without touching the uv environment or generated files.
-
-### Tooling (uv)
-
-SwarmCloud relies on uv for Python dependency management. The root Makefile installs uv when needed and synchronizes `requirements.txt` into `.venv`, so running the install target is all you need to provision the local Python tooling:
-
-```bash
-make install
-```
-
-Use the Makefile to run documentation helpers (`make docs-serve`, `make docs-build`) or docker shortcuts (`make compose-up`, `make compose-down`).
 
 ### 4. Initialize Superuser
 ```bash
 make superuser
 ```
 
----
-### Documentation
+## Documentation
 ```bash
 make docs-serve
 ```
@@ -140,7 +114,22 @@ tailscale set --accept-dns=false
 sudo systemctl restart tailscaled
 ```
 
+### Mac error
+`Error response from daemon: ports are not available: exposing port TCP 172.17.0.1:9001 -> 127.0.0.1:0: listen tcp4 172.17.0.1:9001: bind: can't assign requested address make: *** [compose-up] Error 1`
+
+```bash
+sudo ifconfig lo0 alias 172.17.0.1
+```
+make 
+remove the alias after stopping the application:
+
+```bash
+sudo ifconfig lo0 172.17.0.1 -alias
+```
+
+
 ### Docker Logs
 ```bash
 make logs
 ```
+

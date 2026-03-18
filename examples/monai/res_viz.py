@@ -1,12 +1,10 @@
-import os
-import torch
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
+import torch
 from monai.networks.nets import DenseNet121
-from monai.transforms import Compose, EnsureChannelFirst, ScaleIntensity, ToTensor
-from sklearn.metrics import confusion_matrix, roc_curve, auc
+from sklearn.metrics import auc, confusion_matrix, roc_curve
+
 
 def main():
     print("--- Starting MONAI Model Performance Visualization ---")

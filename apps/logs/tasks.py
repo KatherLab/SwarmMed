@@ -1,30 +1,27 @@
-"""
-Celery tasks for system maintenance, including automated backups and data retention purging.
-"""
+"""Celery tasks for system maintenance, including automated backups and data retention purging."""
 
 from datetime import timedelta
+
+from django.conf import settings
+from django.core.files.storage import default_storage
+from django.core.management import call_command
+from django.utils import timezone
 
 from celery import shared_task
 
 # Import models to purge
 from data.models import ValidationRun, VisualizationRun
-from django.conf import settings
-from django.core.files.storage import default_storage
-from django.core.management import call_command
-from django.utils import timezone
+from logs import logger
+from logs.models import LogCategory, LogEntry
 from network.models import SwarmNetwork
 from results.models import ResultsVisualizationRun, TrainingResult
 from training.models import TrainingJob
 from users.models import Profile
 
-from logs import logger
-from logs.models import LogCategory, LogEntry
-
 
 @shared_task(name="logs.tasks.purge_expired_data")
 def purge_expired_data():
-    """
-    Deletes records and associated files that are older than the retention period.
+    """Deletes records and associated files that are older than the retention period.
     - PHI metadata and related records: 6 years (HIPAA requirement).
     - Standard security and audit logs: 1 year (GDPR/Compliance policy).
     """
@@ -121,9 +118,7 @@ def purge_expired_data():
 
 @shared_task(name="logs.tasks.revoke_emergency_access")
 def revoke_emergency_access():
-    """
-    Periodic task to automatically revoke expired emergency access.
-    """
+    """Periodic task to automatically revoke expired emergency access."""
     expired_profiles = Profile.objects.filter(
         is_emergency_access=True, emergency_access_expiry__lt=timezone.now()
     )
@@ -147,8 +142,56 @@ def revoke_emergency_access():
 
 @shared_task(name="logs.tasks.anonymize_security_logs")
 def anonymize_security_logs():
-    """
-    Periodic task to anonymize IP addresses in logs older than 90 days.
+    """Periodic task to anonymize IP addresses in logs older than 90 days.
     Ensures GDPR compliance for security logging.
     """
     call_command("anonymize_ips")
+
+
+@shared_task(name="logs.tasks.async_save_log_task")
+def async_save_log_task(log_data):
+    """Saves a single log entry asynchronously."""
+    try:
+        # We pop fields that are ForeignKeys or need special handling
+        user_id = log_data.pop("user_id", None)
+        project_id = log_data.pop("project_id", None)
+        swarm_network_id = log_data.pop("swarm_network_id", None)
+
+        log_entry = LogEntry(**log_data)
+        if user_id:
+            log_entry.user_id = user_id
+        if project_id:
+            log_entry.project_id = project_id
+        if swarm_network_id:
+            log_entry.swarm_network_id = swarm_network_id
+
+        log_entry.save()
+    except Exception as e:
+        # Use simple print/console logging for task failures to avoid recursion
+        print(f"Async log save failed: {e}")
+
+
+@shared_task(name="logs.tasks.bulk_save_logs_task")
+def bulk_save_logs_task(logs_list):
+    """Saves multiple log entries asynchronously using bulk_create_signed_logs."""
+    try:
+        from .utils import bulk_create_signed_logs
+        
+        log_objects = []
+        for log_data in logs_list:
+            user_id = log_data.pop("user_id", None)
+            project_id = log_data.pop("project_id", None)
+            swarm_network_id = log_data.pop("swarm_network_id", None)
+
+            log_entry = LogEntry(**log_data)
+            if user_id:
+                log_entry.user_id = user_id
+            if project_id:
+                log_entry.project_id = project_id
+            if swarm_network_id:
+                log_entry.swarm_network_id = swarm_network_id
+            log_objects.append(log_entry)
+
+        bulk_create_signed_logs(log_objects)
+    except Exception as e:
+        print(f"Bulk log save failed: {e}")

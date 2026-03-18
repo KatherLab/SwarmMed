@@ -1,20 +1,16 @@
-"""
-Visualization context and utilities for the results application.
+"""Visualization context and utilities for the results application.
 Provides the bridge between user-written Python scripts and the project's
 stored data and model weights.
 """
 
-import base64
-import io
-import os
 import socket
 from urllib.parse import urlparse
 
+import fsspec
 import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import fsspec
+
 from data.filesystem import DataFileSystem
 from logs import logger
 from training.models import TrainingJob
@@ -26,8 +22,7 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 
 
 class ResultsVisualizationContext:
-    """
-    Context manager that provides a safe and easy-to-use API for
+    """Context manager that provides a safe and easy-to-use API for
     user-submitted visualization scripts.
     """
 
@@ -39,7 +34,9 @@ class ResultsVisualizationContext:
         self.plots = []
         self.current_plot_number = 0
         self.log = logger.get_logger()
-        self.fs = fsspec.filesystem("http", ssl=False)
+        # Initialize internal streaming filesystem.
+        # Request-level SSL verification is handled in self.open() and self.get_model().
+        self.fs = fsspec.filesystem("http")
 
         try:
             self.job = TrainingJob.objects.get(identifier=job_identifier)
@@ -108,9 +105,10 @@ class ResultsVisualizationContext:
                     break
         
         if not url:
-            raise FileNotFoundError(f"Could not find model weights in manifest.")
+            raise FileNotFoundError("Could not find model weights in manifest.")
 
-        with self.fs.open(url, "rb") as f:
+        # We pass ssl=False to individual requests to support internal MinIO.
+        with self.fs.open(url, "rb", ssl=False) as f:
             if url.endswith(".pt"):
                 data = torch.load(f, map_location="cpu", weights_only=True)
                 if isinstance(data, dict):
@@ -128,6 +126,8 @@ class ResultsVisualizationContext:
         clean_path = relative_path.lstrip("/")
         if clean_path not in self.filesystem.manifest:
             raise FileNotFoundError(f"File {clean_path} not found in manifest.")
+        # We pass ssl=False to individual requests to support internal MinIO.
+        kwargs.setdefault("ssl", False)
         return self.fs.open(self.filesystem.manifest[clean_path], mode=mode, **kwargs)
 
     def exists(self, relative_path: str) -> bool:

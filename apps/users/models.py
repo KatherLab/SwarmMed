@@ -1,15 +1,15 @@
-"""
-Database models for the users application.
+"""Database models for the users application.
 Defines the Profile model which extends the standard Django User model
 with additional fields like role and contact information.
 """
 
 import secrets
 
-from common.fields import EncryptedCharField, EncryptedTextField
-from common.models import AbstractBaseModel
 from django.contrib.auth.models import User
 from django.db import models
+
+from common.fields import EncryptedCharField, EncryptedTextField
+from common.models import AbstractBaseModel
 
 # Define available roles for users in the system.
 # 'admin' has full control, 'developer' can manage projects,
@@ -42,16 +42,36 @@ AVATAR_COLORS = [
 
 
 class Profile(AbstractBaseModel):
-    """
-    Extends the built-in Django User model with extra application-specific
-    information using a One-to-One relationship.
+    """Extends the built-in Django User model with extra application-specific information.
+
+    Attributes:
+        user (OneToOneField): Link to the standard Django User.
+        role (CharField): The user's role in the system (admin, developer, user).
+        color (CharField): HEX color code for the user's avatar background.
+        full_name (EncryptedCharField): The user's full name (Encrypted).
+        country (EncryptedCharField): The user's country (Encrypted).
+        city (EncryptedCharField): The user's city (Encrypted).
+        zip_code (EncryptedCharField): The user's ZIP code (Encrypted).
+        address (EncryptedCharField): The user's address (Encrypted).
+        phone (EncryptedCharField): The user's phone number (Encrypted).
+        accepted_policy (BooleanField): Whether the user accepted the privacy policy.
+        accepted_policy_date (DateTimeField): When the privacy policy was accepted.
+        accepted_terms (BooleanField): Whether the user accepted the terms of service.
+        accepted_terms_date (DateTimeField): When the terms of service were accepted.
+        cookie_consent (CharField): The user's cookie consent status.
+        cookie_consent_date (DateTimeField): When the cookie consent was given.
+        is_restricted (BooleanField): Whether processing of user data is restricted (GDPR).
+        restriction_date (DateTimeField): When the restriction was applied.
+        is_emergency_access (BooleanField): Whether the user has emergency access (HIPAA).
+        emergency_access_expiry (DateTimeField): When the emergency access expires.
+        emergency_access_justification (EncryptedTextField): Justification for emergency access.
     """
 
     # Link to the standard Django User.
     # If the User is deleted, the Profile is also deleted (CASCADE).
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
-    # The user's role in the SwarmCloud system.
+    # The user's role in the MedSwarmHub system.
     role = models.CharField(
         max_length=20, choices=ROLE_CHOICES, default="user"
     )
@@ -90,13 +110,20 @@ class Profile(AbstractBaseModel):
     emergency_access_justification = EncryptedTextField(null=True, blank=True)
 
     def __str__(self):
-        """Returns the username of the associated user."""
+        """Returns the username of the associated user.
+
+        Returns:
+            str: The username of the user.
+        """
         return self.user.username
 
     def get_avatar_color(self):
-        """
-        Retrieves the assigned avatar color or picks a random one if none exists.
-        Saves the choice to ensure persistence.
+        """Retrieves or picks a random avatar color.
+
+        Saves the choice to ensure persistence if none exists.
+
+        Returns:
+            str: The HEX color code for the avatar.
         """
         if not self.color:
             self.color = secrets.choice(AVATAR_COLORS)

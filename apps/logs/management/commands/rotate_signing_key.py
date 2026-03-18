@@ -1,6 +1,5 @@
-"""
-Management command to rotate the log signing key.
-Usage: python manage.py rotate_signing_key
+"""Management command to rotate the log signing key.
+Usage: python manage.py rotate_signing_key.
 """
 
 import secrets

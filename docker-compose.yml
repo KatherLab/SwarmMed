@@ -1,6 +1,6 @@
 services:
   app:
-    container_name: swarmcloud
+    container_name: medswarmhub
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 8 --worker-class gthread --access-logfile - --error-logfile - --log-level info --max-requests 1000 --max-requests-jitter 50 core.wsgi:application
     restart: always
     shm_size: '10.24gb'
@@ -10,8 +10,8 @@ services:
       - db_network
       - web_network
     volumes:
-      - ./:/app # :ro for production
-      - ./:/workspace:ro
+      - ./:/app
+      - ./:/workspace
       - ./tmp:/app/tmp
       - ./media:/app/media
       - static_data:/app/staticfiles
@@ -37,11 +37,10 @@ services:
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
     deploy:
       resources:
+        limits:
+          memory: 4096M
         reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          memory: 1024M
 
   nginx:
     image: nginx:latest
@@ -56,6 +55,8 @@ services:
       - ./.secrets/certs/nginx:/etc/nginx/certs:ro
       - ./infrastructure/certbot/conf:/etc/letsencrypt
       - ./infrastructure/certbot/www:/var/www/certbot
+      - static_data:/app/staticfiles:ro
+      - ./media:/app/media:ro
     depends_on:
       - app
     networks:
@@ -81,8 +82,8 @@ services:
     networks:
       - db_network
     volumes:
-      - ./:/app # :ro for production
-      - ./:/workspace:ro
+      - ./:/app
+      - ./:/workspace
       - ./tmp:/app/tmp
       - ./media:/app/media
       - static_data:/app/staticfiles
@@ -110,11 +111,10 @@ services:
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
     deploy:
       resources:
+        limits:
+          memory: 4096M
         reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          memory: 1024M
 
   docker-proxy:
     image: tecnativa/docker-socket-proxy:latest
@@ -157,11 +157,10 @@ services:
       retries: 5
     deploy:
       resources:
+        limits:
+          memory: 4096M
         reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          memory: 1024M
 
   tailscale-status:
     build:

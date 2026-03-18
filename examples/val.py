@@ -1,12 +1,11 @@
 import pandas as pd
 
-
 # Initialize counters for the summary
 validation_results = {"critical_errors": 0, "warnings": 0, "info_checks": 0}
 
 
 def add_check_with_count(name, status, message, details=None):
-    """Add a check and update counters"""
+    """Add a check and update counters."""
     validation.add_check(name, status, message, details or {})
     if status == "error":
         validation_results["critical_errors"] += 1

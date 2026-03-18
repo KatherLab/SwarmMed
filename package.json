@@ -1,5 +1,5 @@
 {
-  "name": "swarmcloud",
+  "name": "medswarmhub",
   "version": "0.1.0",
   "description": "decentralized medical data storage and training platform",
   "main": "index.js",
@@ -22,11 +22,11 @@
     "apexcharts": "^3.48.0",
     "autoprefixer": "^10.4.19",
     "css-loader": "^7.1.1",
-    "css-minimizer-webpack-plugin": "^6.0.0",
+    "css-minimizer-webpack-plugin": "^8.0.0",
     "flowbite": "^2.3.0",
     "mini-css-extract-plugin": "^2.8.1",
-    "postcss-loader": "^8.2.0",
     "postcss": "^8.4.38",
+    "postcss-loader": "^8.2.0",
     "tailwindcss": "^3.4.1"
   }
 }

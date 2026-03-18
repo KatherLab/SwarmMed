@@ -1,5 +1,4 @@
-"""
-URL configuration for the communication app.
+"""URL configuration for the communication app.
 Maps web addresses to the view functions that handle them.
 """
 

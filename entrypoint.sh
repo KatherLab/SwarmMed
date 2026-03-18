@@ -37,6 +37,12 @@ fi
 echo "Fixing permissions..."
 chown -R appuser:appuser /app/tmp /app/media /app/workspaces /app/staticfiles || echo "Warning: Failed to fix some permissions"
 
+# Update CA certificates if the internal CA is mounted
+if [ -f "/usr/local/share/ca-certificates/internal-ca.crt" ]; then
+  echo "Updating system CA certificates with internal CA..."
+  update-ca-certificates
+fi
+
 echo "Waiting for postgres..."
 while ! nc -z $DB_HOST $DB_PORT; do
   sleep 0.1

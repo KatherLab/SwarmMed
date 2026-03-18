@@ -8,6 +8,7 @@ nvflare_swarm_learning
 node_modules
 tmp
 .vscode
+.python-version
 
 # Certificate/private key material (must not be committed)
 infrastructure/certs/
@@ -16,3 +17,5 @@ infrastructure/certs/
 **/*.p12
 **/*.pfx
 **/*.csr
+celerybeat-schedule
+uv.lock

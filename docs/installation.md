@@ -1,11 +1,11 @@
 ---
 title: Installation
-description: Installation instructions for SwarmCloud.
+description: Installation instructions for MedSwarmHub.
 ---
 
 # Installation
 
-This page provides detailed instructions for installing the SwarmCloud platform.
+This page provides detailed instructions for installing the MedSwarmHub platform.
 
 ## System Requirements
 
@@ -20,7 +20,7 @@ Before you begin, ensure that your system meets the following requirements.
 
 ### Hardware Resources
 
-These specifications are for the **SwarmCloud platform** services only.
+These specifications are for the **MedSwarmHub platform** services only.
 
 *   **Minimum:**
     *   **CPU:** 2 Cores
@@ -85,18 +85,18 @@ tailscale set --accept-dns=false
 systemctl restart tailscaled
 ```
 
-## 3. SwarmCloud
+## 3. MedSwarmHub
 
 ### Clone the Repository
 
 ``` bash
-git clone https://github.com/pfeifferis/SwarmCloud.git
-cd SwarmCloud
+git clone https://github.com/pfeifferis/MedSwarmHub.git
+cd MedSwarmHub
 ```
 
 ### Environment Variables
 
-SwarmCloud uses environment variables for configuration and sensitive information. Copy the provided `.env.template` file to create your local `.env` file:
+MedSwarmHub uses environment variables for configuration and sensitive information. Copy the provided `.env.template` file to create your local `.env` file:
 
 ``` bash
 cp .env.template .env
@@ -117,12 +117,12 @@ Open the `.env` file and fill in the required values. Key sections include:
 
 ### Custom Hostname
 
-By default, SwarmCloud will generate a random, human-friendly hostname (e.g., `brave-lion`) for your node when it first starts. You can customize this hostname in two ways:
+By default, MedSwarmHub will generate a random, human-friendly hostname (e.g., `brave-lion`) for your node when it first starts. You can customize this hostname in two ways:
 
-1.  **Environment Variable:** Add `SWARMCLOUD_HOSTNAME=your-custom-name` to your `.env` file.
-2.  **Persistent File:** Create a file named `.swarmcloud_hostname` in the project root containing your desired name:
+1.  **Environment Variable:** Add `MEDSWARMHUB_HOSTNAME=your-custom-name` to your `.env` file.
+2.  **Persistent File:** Create a file named `.medswarmhub_hostname` in the project root containing your desired name:
     ```bash
-    echo "my-custom-node-name" > .swarmcloud_hostname
+    echo "my-custom-node-name" > .medswarmhub_hostname
     ```
 
 The hostname is displayed on the **Network** page and helps other participants identify your node in the decentralized network.
@@ -165,12 +165,12 @@ After the secrets and certificates are ready, start the platform with:
 make start
 ```
 
-`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `swarmcloud` logs with `make logs`.
+`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `medswarmhub` logs with `make logs`.
 
 !!! tip "Manual Database Creation"
-    If you see errors indicating that the `swarmcloud` database does not exist, you can create it manually while the containers are running:
+    If you see errors indicating that the `medswarmhub` database does not exist, you can create it manually while the containers are running:
     ```bash
-    docker exec -it postgres psql -U swarmcloud -d postgres -c "CREATE DATABASE swarmcloud;"
+    docker exec -it postgres psql -U medswarmhub -d postgres -c "CREATE DATABASE medswarmhub;"
     ```
 
 The first startup may take a little longer because:
@@ -182,17 +182,17 @@ The first startup may take a little longer because:
 ## 4. Create Superuser
 
 ``` bash
-docker exec -it swarmcloud python manage.py createsuperuser
+docker exec -it medswarmhub python manage.py createsuperuser
 ```
 
 Follow the prompts to create your superuser account.
 
 !!! info "Superuser"
-    The `superuser` has full access to all features and settings in the SwarmCloud platform like an `admin`.
+    The `superuser` has full access to all features and settings in the MedSwarmHub platform like an `admin`.
 
 ## 5. Trusting the Internal Root CA
 
-When accessing SwarmCloud via `https://localhost:5085`, your browser will show a security warning ("Your connection is not private") because the SSL certificate is issued by an internal, untrusted Certificate Authority (CA).
+When accessing MedSwarmHub via `https://localhost:5085`, your browser will show a security warning ("Your connection is not private") because the SSL certificate is issued by an internal, untrusted Certificate Authority (CA).
 
 To resolve this and see the "green lock," you must trust the Root CA on your system.
 
@@ -253,7 +253,7 @@ chmod 644 ./.secrets/certs/internal/redis.key
 
 ### "Database does not exist" after fixing keys
 
-If the Postgres container repeatedly crashed due to SSL key issues during its first run, the initialization scripts (which create the `swarmcloud` database) might have been skipped because the data directory was partially initialized.
+If the Postgres container repeatedly crashed due to SSL key issues during its first run, the initialization scripts (which create the `medswarmhub` database) might have been skipped because the data directory was partially initialized.
 
 To fix this, you must wipe the corrupt database volume and start fresh:
 

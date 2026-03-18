@@ -1,5 +1,4 @@
-"""
-Views for the logs app.
+"""Views for the logs app.
 Provides the main logs dashboard and functionality to download
 historical logs and real-time container logs.
 """
@@ -12,16 +11,16 @@ import subprocess  # nosec B404
 from datetime import timedelta
 
 import yaml
-from common.utils import get_safe_slug
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+
+from common.utils import get_safe_slug
+from logs.logger import get_logger
 from project.decorators import project_context_required
 from users.decorators import developer_required
-
-from logs.logger import get_logger
 
 from .models import LogCategory, LogEntry
 
@@ -35,9 +34,7 @@ except ImportError:
 
 
 def get_user_project(request):
-    """
-    Helper function to retrieve the currently active project for the user.
-    """
+    """Helper function to retrieve the currently active project for the user."""
     if not UserCurrentProject:
         return None, False
 
@@ -56,8 +53,7 @@ def get_user_project(request):
 @login_required
 @project_context_required
 def download_log_category(request, category_key):
-    """
-    Generates and returns a plain-text file containing all historical
+    """Generates and returns a plain-text file containing all historical
     logs for a specific category within the active project.
     """
     project, _ = get_user_project(request)
@@ -106,8 +102,7 @@ def download_log_category(request, category_key):
 @login_required
 @project_context_required
 def logs_dashboard(request):
-    """
-    The main logs dashboard view.
+    """The main logs dashboard view.
     It aggregates logs from the database and, for training logs,
     attempts to fetch real-time logs directly from Docker containers.
     """
@@ -207,6 +202,7 @@ def logs_dashboard(request):
 
                                         live_log_count += 1
                                         mock_entry = {
+                                            "id": uuid.uuid4(),
                                             "message": line,
                                             "source": container_name,
                                             "timestamp": timezone.now(),
@@ -271,9 +267,7 @@ def logs_dashboard(request):
 @login_required
 @project_context_required
 def load_more_logs(request, category_key):
-    """
-    AJAX view to fetch older logs for infinite scrolling.
-    """
+    """AJAX view to fetch older logs for infinite scrolling."""
     project, _ = get_user_project(request)
     last_timestamp_str = request.GET.get("last_timestamp")
 

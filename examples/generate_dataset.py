@@ -7,8 +7,7 @@ import pandas as pd
 def create_dummy_biomed_data(
     num_samples=1000, num_files=5, output_dir="biomed_data"
 ):
-    """
-    Creates a dummy biomedical dataset split across multiple files.
+    """Creates a dummy biomedical dataset split across multiple files.
 
     Features:
     - age (numerical)
@@ -18,7 +17,6 @@ def create_dummy_biomed_data(
     - biomarker_B (numerical, noise)
     - diagnosis (binary target)
     """
-
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 

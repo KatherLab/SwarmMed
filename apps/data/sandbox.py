@@ -1,25 +1,34 @@
-"""
-Sandbox execution utility for SwarmCloud.
-Handles the secure execution of user-provided Python scripts using ephemeral
-Docker containers to provide isolation and resource control.
+"""Sandbox execution utility for MedSwarmHub.
+
+This module handles the secure execution of user-provided Python scripts using
+ephemeral Docker containers. It provides isolation, resource control, and
+automated building of the sandbox environment.
 """
 
 import json
 import os
 import shutil
+import socket
 import tempfile
 
 import docker
-from common.utils import get_docker_client
 from django.conf import settings
+
+from common.utils import get_docker_client
 from logs import logger
 
 
 def get_host_path(container_path):
-    """
-    Translates a path inside the container to its absolute path on the 'host'
-    (which is the sandbox-dind container itself).
-    The project is mounted at /workspace inside sandbox-dind.
+    """Translates a path inside the container to its absolute path on the host.
+
+    The 'host' in this context is the sandbox-dind container itself.
+    The project is mounted at `/workspace` inside sandbox-dind.
+
+    Args:
+        container_path (str): The absolute path inside the current container.
+
+    Returns:
+        str: The corresponding absolute path on the host (sandbox-dind).
     """
     # BASE_DIR is /app inside the django/worker container
     rel_path = os.path.relpath(container_path, settings.BASE_DIR)
@@ -30,25 +39,29 @@ def get_host_path(container_path):
 
 
 def ensure_sandbox_image():
-    """
-    Checks if the 'swarmcloud-sandbox' image exists locally on the sandbox daemon.
-    If not, it builds it from the Dockerfile.sandbox in the project root.
+    """Ensures the 'medswarmhub-sandbox' image exists on the sandbox daemon.
+
+    If the image is not found, it is built automatically from the
+    `Dockerfile.sandbox` in the project root.
+
+    Raises:
+        FileNotFoundError: If `Dockerfile.sandbox` is missing.
+        docker.errors.BuildError: If the Docker build fails.
+        RuntimeError: If any other error occurs during the build process.
     """
     log = logger.get_logger()
     client = get_docker_client(target="sandbox")
 
     try:
-        client.images.get("swarmcloud-sandbox")
+        client.images.get("medswarmhub-sandbox")
     except docker.errors.ImageNotFound:
         log.data.info(
-            "Sandbox image not found. Building 'swarmcloud-sandbox' "
+            "Sandbox image not found. Building 'medswarmhub-sandbox' "
             "automatically (this may take a few minutes)..."
         )
         dockerfile_path = os.path.join(settings.BASE_DIR, "Dockerfile.sandbox")
         if not os.path.exists(dockerfile_path):
-            log.data.error(
-                f"Dockerfile.sandbox not found at {dockerfile_path}"
-            )
+            log.data.error(f"Dockerfile.sandbox not found at {dockerfile_path}")
             raise FileNotFoundError(
                 "Dockerfile.sandbox is missing. Cannot build sandbox."
             )
@@ -58,7 +71,7 @@ def ensure_sandbox_image():
             generator = client.api.build(
                 path=str(settings.BASE_DIR),
                 dockerfile="Dockerfile.sandbox",
-                tag="swarmcloud-sandbox",
+                tag="medswarmhub-sandbox",
                 rm=True,
                 decode=True,
             )
@@ -80,20 +93,25 @@ def ensure_sandbox_image():
 
 
 def ensure_sandbox_network():
-    """
-    Ensures that the 'sandbox_internal' network exists in the sandbox daemon.
-    We make it a standard bridge network (internal=False) so that containers
-    can reach the host gateway to talk to MinIO.
+    """Ensures the 'sandbox_internal' network exists in the sandbox daemon.
+
+    Creates a standard bridge network to allow containers to reach the host gateway
+    (required for MinIO streaming) while maintaining isolation from the main host
+    network namespace.
+
+    Raises:
+        Exception: If network creation fails.
     """
     log = logger.get_logger()
     client = get_docker_client(target="sandbox")
 
     try:
         net = client.networks.get("sandbox_internal")
-        # If the existing network is internal, it won't have a gateway.
-        # We recreate it to ensure connectivity to the host.
+        # If the existing network is internal, we recreate it to allow MinIO access.
         if net.attrs.get("Internal", False):
-            log.data.info("Recreating 'sandbox_internal' network to allow host gateway access...")
+            log.data.info(
+                "Recreating 'sandbox_internal' network as non-internal for MinIO access..."
+            )
             net.remove()
             raise docker.errors.NotFound("Recreating")
     except docker.errors.NotFound:
@@ -113,8 +131,21 @@ def ensure_sandbox_network():
 def run_script_in_sandbox(
     script_content, data_dir, project_uuid, run_type="validation"
 ):
-    """
-    Runs a Python script inside an ephemeral Docker container on the isolated daemon.
+    """Runs a Python script inside an ephemeral Docker container.
+
+    Executes the script on an isolated Docker daemon with resource limits,
+    volume mounts for data, and capturing of stdout/stderr and result files.
+
+    Args:
+        script_content (str): The Python code to execute.
+        data_dir (str): Path to the directory containing project data files.
+        project_uuid (str): Unique identifier of the project.
+        run_type (str): Type of execution ('validation', 'visualization').
+            Defaults to "validation".
+
+    Returns:
+        dict: A dictionary containing 'success', 'output', 'exit_code',
+            'results', and 'plots'.
     """
     log = logger.get_logger()
     ensure_sandbox_image()
@@ -123,7 +154,6 @@ def run_script_in_sandbox(
     client = get_docker_client(target="sandbox")
 
     # Create a unique temporary directory within the project root for this execution
-    # This ensures the directory is visible to the host Docker daemon via existing mounts.
     sandbox_dir = tempfile.mkdtemp(
         prefix=f"sandbox_{run_type}_{project_uuid}_",
         dir=settings.PROJECT_TEMP_DIR,
@@ -141,9 +171,7 @@ def run_script_in_sandbox(
             f.write(script_content)
 
         # Define volume mounts using HOST-SIDE paths
-        # 1. Translate data_dir (downloads) to host path
         host_data_path = get_host_path(data_dir)
-        # 2. Translate sandbox_dir (run workspace) to host path
         host_run_path = get_host_path(sandbox_dir)
 
         volumes = {
@@ -152,7 +180,6 @@ def run_script_in_sandbox(
         }
 
         # Resolve 'minio' IP to pass to the sandbox container
-        import socket
         try:
             minio_ip = socket.gethostbyname("minio")
             extra_hosts = {"minio": minio_ip}
@@ -165,17 +192,18 @@ def run_script_in_sandbox(
             # Enable GPU if requested and available on the daemon
             device_requests = []
             gpu_enabled = (
-                os.getenv("SWARMCLOUD_ENABLE_GPU", "false").strip().lower()
+                os.getenv("MEDSWARMHUB_ENABLE_GPU", "false").strip().lower()
                 in {"1", "true", "yes", "on"}
             )
             if gpu_enabled:
                 try:
                     info = client.info()
                     runtimes = info.get("Runtimes", {})
-                    # Check if 'nvidia' runtime is available
                     if "nvidia" in runtimes:
                         device_requests.append(
-                            docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
+                            docker.types.DeviceRequest(
+                                count=-1, capabilities=[["gpu"]]
+                            )
                         )
                     else:
                         log.data.warning(
@@ -183,15 +211,13 @@ def run_script_in_sandbox(
                             "Falling back to CPU."
                         )
                 except Exception as e:
-                    log.data.warning(f"Could not check for GPU support: {e}. Falling back to CPU.")
+                    log.data.warning(
+                        f"Could not check for GPU support: {e}. Falling back to CPU."
+                    )
 
             # Run the container with resource limits.
-            # We use the 'sandbox_internal' bridge network for isolation.
-            # This allows the container to reach the host gateway (for MinIO)
-            # without exposing the host network namespace to the user script.
-            # We inject the 'minio' IP via extra_hosts so the sandbox can resolve it.
             container = client.containers.run(
-                image="swarmcloud-sandbox",
+                image="medswarmhub-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
@@ -228,9 +254,7 @@ def run_script_in_sandbox(
                 for plot_file in sorted(os.listdir(plots_dir)):
                     if plot_file.endswith(".json"):
                         try:
-                            with open(
-                                os.path.join(plots_dir, plot_file)
-                            ) as f:
+                            with open(os.path.join(plots_dir, plot_file)) as f:
                                 captured_plots.append(json.load(f))
                         except Exception as e:
                             log.data.warning(
@@ -257,7 +281,6 @@ def run_script_in_sandbox(
                 try:
                     container.remove(force=True)
                 except Exception as e:
-                    # Best effort removal
                     log.data.warning(
                         f"Failed to remove sandbox container: {e}"
                     )

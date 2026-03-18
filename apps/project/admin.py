@@ -1,15 +1,15 @@
-"""
-Admin configuration for the project app.
+"""Admin configuration for the project app.
 This module registers the project-related models with the Django admin interface,
 allowing administrators to manage projects and user-project relations.
 """
 
-from data.models import ValidationRun, VisualizationRun
 from django.contrib import admin
+from unfold.admin import ModelAdmin, TabularInline
+
+from data.models import ValidationRun, VisualizationRun
 from logs.models import LogEntry
 from network.models import SwarmNetwork
 from training.models import TrainingJob
-from unfold.admin import ModelAdmin, TabularInline
 
 from .models import Project, UserCurrentProject
 
@@ -57,8 +57,7 @@ class LogEntryInline(TabularInline):
 
 @admin.register(Project)
 class ProjectAdmin(ModelAdmin):
-    """
-    Configuration for the Project model in the admin panel.
+    """Configuration for the Project model in the admin panel.
     Provides filtering and search capabilities for easier management.
     """
 
@@ -165,8 +164,7 @@ class ProjectAdmin(ModelAdmin):
 
 @admin.register(UserCurrentProject)
 class UserCurrentProjectAdmin(ModelAdmin):
-    """
-    Configuration for the UserCurrentProject model in the admin panel.
+    """Configuration for the UserCurrentProject model in the admin panel.
     Helps track which project each user is currently working on.
     """
 

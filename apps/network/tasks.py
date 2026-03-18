@@ -1,16 +1,16 @@
-"""
-Celery tasks for the network app.
+"""Celery tasks for the network app.
+
 Handles long-running operations like Docker deployment,
 preflight checks, and real-time log streaming.
 """
 
-import os
+import ipaddress
 import json
+import os
 import re
+import shutil
 import socket
 import stat
-import shutil
-import ipaddress
 import subprocess  # nosec B404
 import time
 from pathlib import Path
@@ -18,11 +18,12 @@ from urllib.parse import urlparse
 
 import docker
 import yaml
-from celery import shared_task
-from common.utils import get_s3_client
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.utils.text import slugify
+
+from celery import shared_task
+from common.utils import get_s3_client
 from logs.logger import get_logger
 from logs.models import LogCategory, LogEntry
 from project.models import Project
@@ -32,8 +33,16 @@ from .utils import get_hostname, get_tailscale_ip
 
 
 def run_and_log_subprocess(command, cwd, env, logger):
-    """
-    Executes a subprocess and streams its output to the provided logger.
+    """Executes a subprocess and streams its output to the provided logger.
+
+    Args:
+        command (list): The command to execute as a list of strings.
+        cwd (str): The working directory for the subprocess.
+        env (dict): Environment variables for the subprocess.
+        logger (Logger): The logger instance to stream output to.
+
+    Returns:
+        int: The return code of the process.
     """
     process = subprocess.Popen(  # nosec B603
         command,
@@ -56,10 +65,27 @@ def run_and_log_subprocess(command, cwd, env, logger):
 
 
 def _docker_network_name(network_identifier):
+    """Generates a Docker network name from a network identifier.
+
+    Args:
+        network_identifier (str): The unique identifier for the network.
+
+    Returns:
+        str: The generated Docker network name.
+    """
     return f"swarm_{str(network_identifier)[:12]}_net"
 
 
 def _container_name_for(network_identifier, participant_name):
+    """Generates a Docker container name for a network participant.
+
+    Args:
+        network_identifier (str): The unique identifier for the network.
+        participant_name (str): The name of the participant.
+
+    Returns:
+        str: The generated Docker container name.
+    """
     safe_participant = "".join(
         c if c.isalnum() or c in {"-", "_"} else "-"
         for c in str(participant_name)
@@ -68,6 +94,14 @@ def _container_name_for(network_identifier, participant_name):
 
 
 def _load_json_file(path):
+    """Loads a JSON file from the given path.
+
+    Args:
+        path (str): The path to the JSON file.
+
+    Returns:
+        dict: The loaded JSON data, or an empty dictionary if loading fails.
+    """
     try:
         with open(path) as f:
             return json.load(f)
@@ -76,6 +110,11 @@ def _load_json_file(path):
 
 
 def _ensure_executable(path):
+    """Ensures that the file at the given path is executable.
+
+    Args:
+        path (str): The path to the file.
+    """
     if not os.path.exists(path):
         return
     current_mode = os.stat(path).st_mode
@@ -83,6 +122,14 @@ def _ensure_executable(path):
 
 
 def _extract_host_from_server_endpoint(startup_dir):
+    """Extracts the host address from the server endpoint in fed_client.json.
+
+    Args:
+        startup_dir (str): The directory containing fed_client.json.
+
+    Returns:
+        str: The extracted host address, or an empty string if not found.
+    """
     fed_client_json = os.path.join(startup_dir, "fed_client.json")
     config = _load_json_file(fed_client_json)
 
@@ -107,6 +154,14 @@ def _extract_host_from_server_endpoint(startup_dir):
 
 
 def _endpoint_with_localhost(endpoint: str) -> str:
+    """Modifies an endpoint URL to use 127.0.0.1 as the host.
+
+    Args:
+        endpoint (str): The original endpoint URL.
+
+    Returns:
+        str: The modified URL with host set to 127.0.0.1, or an empty string if invalid.
+    """
     endpoint = (endpoint or "").strip()
     if not endpoint:
         return ""
@@ -133,6 +188,14 @@ def _endpoint_with_localhost(endpoint: str) -> str:
 
 
 def _discover_runtime_targets(base_prod_path):
+    """Discovers FL participants in the generated production directory.
+
+    Args:
+        base_prod_path (str): The path to the 'prod_00' directory.
+
+    Returns:
+        list: A list of discovered targets, each containing name, role, path, and startup_dir.
+    """
     targets = []
     if not os.path.isdir(base_prod_path):
         return targets
@@ -202,9 +265,14 @@ def _discover_runtime_targets(base_prod_path):
 
 
 def _read_local_hostname_candidates():
+    """Identifies possible hostname candidates for the local machine.
+
+    Returns:
+        set: A set of normalized hostname strings.
+    """
     names = set()
 
-    env_hostname = os.getenv("SWARMCLOUD_HOSTNAME", "").strip()
+    env_hostname = os.getenv("MEDSWARMHUB_HOSTNAME", "").strip()
     if env_hostname:
         names.add(env_hostname)
 
@@ -215,11 +283,11 @@ def _read_local_hostname_candidates():
     except Exception:
         pass
 
-    explicit_participant = os.getenv("SWARMCLOUD_LOCAL_PARTICIPANT", "").strip()
+    explicit_participant = os.getenv("MEDSWARMHUB_LOCAL_PARTICIPANT", "").strip()
     if explicit_participant:
         names.add(explicit_participant)
 
-    hostname_file = Path(settings.BASE_DIR) / ".swarmcloud_hostname"
+    hostname_file = Path(settings.BASE_DIR) / ".medswarmhub_hostname"
     if hostname_file.exists():
         try:
             file_hostname = hostname_file.read_text().strip()
@@ -239,6 +307,14 @@ def _read_local_hostname_candidates():
 
 
 def _read_local_client_names_metadata(base_prod_path):
+    """Reads local client names from the metadata file in the production directory.
+
+    Args:
+        base_prod_path (str): The path to the 'prod_00' directory.
+
+    Returns:
+        set: A set of local client names.
+    """
     metadata_path = Path(base_prod_path) / ".local_client_names.json"
     if not metadata_path.exists():
         return set()
@@ -259,6 +335,14 @@ def _read_local_client_names_metadata(base_prod_path):
 
 
 def _read_project_client_ip_map(project_yml_path):
+    """Parses the project.yml to map client names to their listening IPs.
+
+    Args:
+        project_yml_path (str): The path to the project.yml file.
+
+    Returns:
+        dict: A dictionary mapping client names to IP addresses.
+    """
     if not os.path.exists(project_yml_path):
         return {}
 
@@ -287,6 +371,15 @@ def _read_project_client_ip_map(project_yml_path):
 
 
 def _resolve_local_client_names(project_yml_path, base_prod_path):
+    """Determines which FL clients should be considered 'local' to this machine.
+
+    Args:
+        project_yml_path (str): The path to the project.yml file.
+        base_prod_path (str): The path to the 'prod_00' directory.
+
+    Returns:
+        set: A set of local client names.
+    """
     candidates = _read_local_client_names_metadata(base_prod_path)
     candidates.update(_read_local_hostname_candidates())
 
@@ -307,6 +400,15 @@ def _resolve_local_client_names(project_yml_path, base_prod_path):
 
 
 def _list_existing_docker_subnets(docker_path, env):
+    """Lists all IPv4 subnets currently used by Docker networks.
+
+    Args:
+        docker_path (str): The path to the docker binary.
+        env (dict): Environment variables for the subprocess.
+
+    Returns:
+        set: A set of ipaddress.IPv4Network objects.
+    """
     ls_result = subprocess.run(  # nosec B603
         [docker_path, "network", "ls", "-q"],
         capture_output=True,
@@ -350,6 +452,15 @@ def _list_existing_docker_subnets(docker_path, env):
 
 
 def _candidate_subnets_for_network(network_identifier, existing_subnets):
+    """Generates non-overlapping candidate subnets for a new Docker network.
+
+    Args:
+        network_identifier (str): A seed for the subnet selection (e.g. network name).
+        existing_subnets (set): A set of already occupied IPv4Network objects.
+
+    Returns:
+        list: A list of available IPv4Network candidates.
+    """
     hash_seed = abs(hash(str(network_identifier)))
     candidates = []
 
@@ -371,6 +482,17 @@ def _candidate_subnets_for_network(network_identifier, existing_subnets):
 
 
 def _ensure_docker_network(docker_path, network_name, env, logger):
+    """Ensures that a Docker network exists, creating it with fallback subnets if necessary.
+
+    Args:
+        docker_path (str): The path to the docker binary.
+        network_name (str): The name of the Docker network.
+        env (dict): Environment variables for the subprocess.
+        logger (Logger): The logger instance for status updates.
+
+    Raises:
+        RuntimeError: If the network cannot be created.
+    """
     inspect = subprocess.run(  # nosec B603
         [docker_path, "network", "inspect", network_name],
         capture_output=True,
@@ -399,6 +521,7 @@ def _ensure_docker_network(docker_path, network_name, env, logger):
                 "address pools have been fully subnetted",
             ]
         )
+
 
         if not allocation_issue:
             raise RuntimeError(
@@ -443,7 +566,18 @@ def _ensure_docker_network(docker_path, network_name, env, logger):
 
 
 def _stop_labeled_runtime(network_id, docker_path, env, logger):
-    label = f"swarmcloud.network_id={network_id}"
+    """Stops and removes all Docker containers and networks with a specific network label.
+
+    Args:
+        network_id (str): The unique identifier for the network.
+        docker_path (str): The path to the docker binary.
+        env (dict): Environment variables for the subprocess.
+        logger (Logger): The logger instance for status updates.
+
+    Returns:
+        int: The number of containers successfully stopped and removed.
+    """
+    label = f"medswarmhub.network_id={network_id}"
     result = subprocess.run(  # nosec B603
         [
             docker_path,
@@ -506,7 +640,17 @@ def _build_local_fallback_image(
     provision_dir,
     base_prod_path,
 ):
-    build_dir = os.path.join(base_prod_path, ".swarmcloud_runtime_build")
+    """Builds a project-specific Docker runtime image if no pre-built image is provided.
+
+    Args:
+        docker_path (str): The path to the docker binary.
+        env (dict): Environment variables for the subprocess.
+        logger (Logger): The logger instance for status updates.
+        image_name (str): The name to assign to the built image.
+        provision_dir (str): The directory where the network is provisioned.
+        base_prod_path (str): The path to the 'prod_00' directory.
+    """
+    build_dir = os.path.join(base_prod_path, ".medswarmhub_runtime_build")
     os.makedirs(build_dir, exist_ok=True)
 
     requirements_src = _resolve_runtime_requirements_path(
@@ -553,6 +697,15 @@ def _build_local_fallback_image(
 
 
 def _resolve_runtime_requirements_path(provision_dir, base_prod_path):
+    """Finds the path to the runtime requirements file.
+
+    Args:
+        provision_dir (str): The directory where the network is provisioned.
+        base_prod_path (str): The path to the 'prod_00' directory.
+
+    Returns:
+        str: The path to the requirements file, or an empty string if not found.
+    """
     candidates = [
         os.path.join(provision_dir, "runtime_requirements.txt"),
         os.path.join(base_prod_path, "runtime_requirements.txt"),
@@ -564,6 +717,14 @@ def _resolve_runtime_requirements_path(provision_dir, base_prod_path):
 
 
 def _parse_safe_requirement_lines(requirements_text):
+    """Parses and sanitizes a requirements file content.
+
+    Args:
+        requirements_text (str): The raw text of the requirements file.
+
+    Returns:
+        list: A list of sanitized and unique requirement strings.
+    """
     safe_lines = []
     seen = set()
     for raw_line in (requirements_text or "").splitlines():
@@ -582,6 +743,15 @@ def _parse_safe_requirement_lines(requirements_text):
 
 
 def _collect_project_runtime_requirements(project, logger):
+    """Collects all runtime requirements for a project from local and remote sources.
+
+    Args:
+        project (Project): The project instance.
+        logger (Logger): The logger instance for status updates.
+
+    Returns:
+        list: A consolidated list of requirement strings.
+    """
     baseline = [
         "nvflare==2.7.1",
         "gunicorn",
@@ -589,10 +759,10 @@ def _collect_project_runtime_requirements(project, logger):
         "python-dotenv",
         "pandas",
         "numpy<2.0.0",
-        "torch==2.9.0",
+        "torch==2.10.0",
         "scikit-learn==1.8.0",
         "fsspec==2025.2.0",
-        "aiohttp==3.11.13",
+        "aiohttp==3.13.3",
     ]
 
     merged = []
@@ -690,6 +860,17 @@ def _ensure_runtime_requirements_file(
     base_prod_path,
     logger,
 ):
+    """Ensures a consolidated runtime requirements file is available in the provision directory.
+
+    Args:
+        swarm_network (SwarmNetwork): The swarm network instance.
+        provision_dir (str): The directory where the network is provisioned.
+        base_prod_path (str): The path to the 'prod_00' directory.
+        logger (Logger): The logger instance for status updates.
+
+    Returns:
+        str: The path to the created or existing requirements file.
+    """
     existing_path = _resolve_runtime_requirements_path(
         provision_dir=provision_dir,
         base_prod_path=base_prod_path,
@@ -748,6 +929,15 @@ def _ensure_runtime_requirements_file(
 
 
 def _has_custom_runtime_requirements(provision_dir, base_prod_path):
+    """Checks if the project has custom runtime requirements beyond the baseline.
+
+    Args:
+        provision_dir (str): The directory where the network is provisioned.
+        base_prod_path (str): The path to the 'prod_00' directory.
+
+    Returns:
+        bool: True if custom requirements are detected, False otherwise.
+    """
     req_path = _resolve_runtime_requirements_path(
         provision_dir=provision_dir,
         base_prod_path=base_prod_path,
@@ -788,15 +978,28 @@ def _build_image_with_compat(
     logger,
     error_command,
 ):
+    """Builds a Docker image with BuildKit support and automatic fallback to legacy builder.
+
+    Args:
+        docker_path (str): The path to the docker binary.
+        image_name (str): The name to assign to the built image.
+        cwd (str): The working directory for the build.
+        env (dict): Environment variables for the subprocess.
+        logger (Logger): The logger instance for status updates.
+        error_command (str): The command name to use in error messages.
+
+    Raises:
+        subprocess.CalledProcessError: If the build fails in both primary and compatibility modes.
+    """
     build_cmd = [docker_path, "build", "-t", image_name, "."]
     require_buildkit = (
-        os.getenv("SWARMCLOUD_REQUIRE_BUILDKIT", "")
+        os.getenv("MEDSWARMHUB_REQUIRE_BUILDKIT", "")
         .strip()
         .lower()
         in {"1", "true", "yes", "on"}
     )
     allow_legacy_builder = (
-        os.getenv("SWARMCLOUD_ALLOW_LEGACY_DOCKER_BUILDER", "")
+        os.getenv("MEDSWARMHUB_ALLOW_LEGACY_DOCKER_BUILDER", "")
         .strip()
         .lower()
         in {"1", "true", "yes", "on"}
@@ -827,7 +1030,7 @@ def _build_image_with_compat(
         if require_buildkit and not allow_legacy_builder:
             logger.network.error(
                 "Docker image build failed with BuildKit enabled and strict BuildKit mode is active. "
-                "Set SWARMCLOUD_ALLOW_LEGACY_DOCKER_BUILDER=true to permit DOCKER_BUILDKIT=0 fallback."
+                "Set MEDSWARMHUB_ALLOW_LEGACY_DOCKER_BUILDER=true to permit DOCKER_BUILDKIT=0 fallback."
             )
             raise subprocess.CalledProcessError(ret, error_command)
 
@@ -841,7 +1044,7 @@ def _build_image_with_compat(
         )
         if require_buildkit and not allow_legacy_builder:
             logger.network.error(
-                "BuildKit/buildx is required by SWARMCLOUD_REQUIRE_BUILDKIT, but buildx is unavailable."
+                "BuildKit/buildx is required by MEDSWARMHUB_REQUIRE_BUILDKIT, but buildx is unavailable."
             )
             raise subprocess.CalledProcessError(1, error_command)
 
@@ -864,6 +1067,14 @@ def _build_image_with_compat(
 
 
 def _is_host_port_available(port):
+    """Checks if a specific port is available on the host machine.
+
+    Args:
+        port (int): The port number to check.
+
+    Returns:
+        bool: True if the port is available, False otherwise.
+    """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -879,6 +1090,14 @@ def _add_port_mapping_with_fallback(
     logger,
     participant_name,
 ):
+    """Adds a port mapping to a Docker run command, using a dynamic host port if necessary.
+
+    Args:
+        run_cmd (list): The list of arguments for the 'docker run' command.
+        container_port (int): The port inside the container.
+        logger (Logger): The logger instance for status updates.
+        participant_name (str): The name of the participant.
+    """
     container_port = int(container_port)
     if _is_host_port_available(container_port):
         run_cmd.extend(["-p", f"{container_port}:{container_port}"])
@@ -896,6 +1115,17 @@ def _add_required_port_mapping(
     logger,
     participant_name,
 ):
+    """Adds a fixed port mapping to a Docker run command, failing if the host port is unavailable.
+
+    Args:
+        run_cmd (list): The list of arguments for the 'docker run' command.
+        container_port (int): The port inside the container.
+        logger (Logger): The logger instance for status updates.
+        participant_name (str): The name of the participant.
+
+    Raises:
+        RuntimeError: If the required host port is already in use.
+    """
     container_port = int(container_port)
     if not _is_host_port_available(container_port):
         raise RuntimeError(
@@ -910,6 +1140,17 @@ def _add_required_port_mapping(
 
 
 def _get_container_last_logs(docker_path, container_name, env, lines=40):
+    """Retrieves the last N lines of logs from a specific Docker container.
+
+    Args:
+        docker_path (str): The path to the docker binary.
+        container_name (str): The name of the container.
+        env (dict): Environment variables for the subprocess.
+        lines (int, optional): The number of lines to retrieve. Defaults to 40.
+
+    Returns:
+        str: The retrieved logs.
+    """
     result = subprocess.run(  # nosec B603
         [docker_path, "logs", "--tail", str(lines), container_name],
         capture_output=True,
@@ -922,6 +1163,16 @@ def _get_container_last_logs(docker_path, container_name, env, lines=40):
 
 
 def _is_container_running(docker_path, container_name, env):
+    """Checks if a specific Docker container is currently running.
+
+    Args:
+        docker_path (str): The path to the docker binary.
+        container_name (str): The name of the container.
+        env (dict): Environment variables for the subprocess.
+
+    Returns:
+        bool: True if the container is running, False otherwise.
+    """
     result = subprocess.run(  # nosec B603
         [docker_path, "inspect", "-f", "{{.State.Running}}", container_name],
         capture_output=True,
@@ -935,12 +1186,22 @@ def _is_container_running(docker_path, container_name, env):
 
 
 def _count_running_labeled_containers(network_id, docker_path, env):
+    """Counts how many running containers have a specific network label.
+
+    Args:
+        network_id (str): The unique identifier for the network.
+        docker_path (str): The path to the docker binary.
+        env (dict): Environment variables for the subprocess.
+
+    Returns:
+        int: The number of running containers with the label.
+    """
     result = subprocess.run(  # nosec B603
         [
             docker_path,
             "ps",
             "--filter",
-            f"label=swarmcloud.network_id={network_id}",
+            f"label=medswarmhub.network_id={network_id}",
             "--filter",
             "status=running",
             "-q",
@@ -956,10 +1217,16 @@ def _count_running_labeled_containers(network_id, docker_path, env):
 
 
 def _resolve_bind_source_path(source_path):
-    """
-    Resolve a bind-mount source path so it is valid for the Docker daemon host.
+    """Resolves a bind-mount source path for validity on the Docker daemon host.
+
     In containerized deployments, app code paths (e.g. /app/...) may differ from
     host paths, so we remap via HOST_PROJECT_PATH when available.
+
+    Args:
+        source_path (str): The absolute source path on the current filesystem.
+
+    Returns:
+        str: The resolved path suitable for use as a Docker bind-mount source.
     """
     abs_source = os.path.abspath(source_path)
     host_project_path = os.getenv("HOST_PROJECT_PATH", "").strip()
@@ -978,6 +1245,16 @@ def _resolve_bind_source_path(source_path):
 
 
 def _docker_container_exists(docker_path, container_name, env):
+    """Checks if a specific Docker container exists (running or stopped).
+
+    Args:
+        docker_path (str): The path to the docker binary.
+        container_name (str): The name of the container.
+        env (dict): Environment variables for the subprocess.
+
+    Returns:
+        bool: True if the container exists, False otherwise.
+    """
     result = subprocess.run(  # nosec B603
         [docker_path, "inspect", container_name],
         capture_output=True,
@@ -988,15 +1265,61 @@ def _docker_container_exists(docker_path, container_name, env):
     return result.returncode == 0
 
 
+import requests
+
+
+@shared_task
+def shout_to_peer_task(peer_ip, network_id, payload, headers, extra_shouts=None):
+    """Asynchronously sends a gossip status update to a single peer.
+
+    Args:
+        peer_ip (str): The IP address of the peer.
+        network_id (str): The unique identifier for the network.
+        payload (dict): The status payload to send.
+        headers (dict): HTTP headers for the request (including authentication).
+        extra_shouts (list, optional): A list of additional status payloads to send. Defaults to None.
+    """
+    try:
+        gossip_url = f"https://{peer_ip}:5085/network/api/gossip/{network_id}/"
+        
+        # Determine TLS verification strategy
+        # Default to True (skipping verification) to support decentralized nodes with self-signed certs.
+        if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
+            verify_path = False
+        else:
+            verify_path = os.getenv("MEDSWARMHUB_CA_CERT", "").strip() or \
+                          getattr(settings, "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt")
+        
+        # We use a short timeout to avoid hanging the worker
+        requests.post(gossip_url, json=payload, headers=headers, timeout=5, verify=verify_path)
+        
+        if extra_shouts:
+            for shout in extra_shouts:
+                requests.post(gossip_url, json=shout, headers=headers, timeout=5, verify=verify_path)
+    except Exception:
+        # We don't want to spam the main logs with connection errors for offline peers,
+        # but we can log it at a debug level if needed.
+        pass
+
+
 @shared_task(bind=True)
 def execute_and_log_in_container(
     self, container_name, command, network_id, project_id, user_id
 ):
-    """
-    Executes a shell command inside a running Docker container and
-    streams its output (STDOUT/STDERR) directly to the database log entries.
+    """Executes a shell command inside a running Docker container and streams its output to logs.
+
+    Uses buffered bulk insertion for performance.
+
+    Args:
+        self (Task): The Celery task instance.
+        container_name (str): The name of the Docker container.
+        command (str): The shell command to execute.
+        network_id (str): The unique identifier for the network.
+        project_id (str): The unique identifier for the project.
+        user_id (int): The ID of the user who initiated the execution.
     """
     try:
+        from logs.utils import bulk_create_signed_logs
         network = SwarmNetwork.objects.get(identifier=network_id)
         project = Project.objects.get(identifier=project_id)
         logger = get_logger(project=project)
@@ -1010,18 +1333,36 @@ def execute_and_log_in_container(
         # Execute the command and stream the results line-by-line
         exec_result = container.exec_run(command, stream=True)
 
+        buffer = []
+        batch_size = 50
+        last_flush = time.time()
+
         for line in exec_result.output:
-            # Create a database log entry for each line produced by the
-            # container
-            LogEntry.objects.create(
-                user_id=user_id,
-                project=project,
-                swarm_network=network,
-                category=LogCategory.NETWORK,
-                source=container_name,
-                level="INFO",
-                message=line.decode("utf-8").strip(),
+            message = line.decode("utf-8").strip()
+            if not message:
+                continue
+
+            buffer.append(
+                LogEntry(
+                    user_id=user_id,
+                    project=project,
+                    swarm_network=network,
+                    category=LogCategory.NETWORK,
+                    source=container_name,
+                    level="INFO",
+                    message=message,
+                )
             )
+
+            # Flush buffer if batch size reached or 5 seconds passed
+            if len(buffer) >= batch_size or (time.time() - last_flush > 5):
+                bulk_create_signed_logs(buffer)
+                buffer = []
+                last_flush = time.time()
+
+        # Final flush
+        if buffer:
+            bulk_create_signed_logs(buffer)
 
     except Exception as e:
         # Log failure if container or command execution fails
@@ -1031,8 +1372,11 @@ def execute_and_log_in_container(
 
 @shared_task
 def start_swarm_network_task(network_id, user_id):
-    """
-    Deploys a swarm network using NVFlare containerized deployment.
+    """Deploys a swarm network using NVFlare containerized deployment.
+
+    Args:
+        network_id (str): The unique identifier for the network.
+        user_id (int): The ID of the user who initiated the task.
     """
     try:
         swarm_network = SwarmNetwork.objects.get(identifier=network_id)
@@ -1070,9 +1414,9 @@ def start_swarm_network_task(network_id, user_id):
         docker_path = shutil.which("docker") or "docker"
         env = os.environ.copy()
 
-        configured_image = os.getenv("SWARMCLOUD_FLARE_IMAGE", "").strip()
+        configured_image = os.getenv("MEDSWARMHUB_FLARE_IMAGE", "").strip()
         force_configured_image = (
-            os.getenv("SWARMCLOUD_FORCE_CONFIGURED_IMAGE", "")
+            os.getenv("MEDSWARMHUB_FORCE_CONFIGURED_IMAGE", "")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -1085,9 +1429,9 @@ def start_swarm_network_task(network_id, user_id):
         use_configured_image = bool(configured_image)
         if configured_image and has_custom_requirements and not force_configured_image:
             logger.network.warning(
-                "Custom runtime requirements detected; ignoring SWARMCLOUD_FLARE_IMAGE "
+                "Custom runtime requirements detected; ignoring MEDSWARMHUB_FLARE_IMAGE "
                 "and building a project-specific runtime image. "
-                "Set SWARMCLOUD_FORCE_CONFIGURED_IMAGE=true to override."
+                "Set MEDSWARMHUB_FORCE_CONFIGURED_IMAGE=true to override."
             )
             use_configured_image = False
 
@@ -1095,7 +1439,7 @@ def start_swarm_network_task(network_id, user_id):
             image_name = configured_image
         else:
             image_name = (
-                f"swarmcloud_nvflare_{str(swarm_network.identifier)[:12]}:2.7.1"
+                f"medswarmhub_nvflare_{str(swarm_network.identifier)[:12]}:2.7.1"
             )
             docker_build_dir = os.path.join(base_prod_path, "nvflare")
             if os.path.exists(os.path.join(docker_build_dir, "Dockerfile")):
@@ -1124,7 +1468,7 @@ def start_swarm_network_task(network_id, user_id):
         _ensure_docker_network(docker_path, network_name, env, logger)
 
         server_only_mode = (
-            os.getenv("SWARMCLOUD_SERVER_ONLY_MODE", "")
+            os.getenv("MEDSWARMHUB_SERVER_ONLY_MODE", "")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -1179,8 +1523,8 @@ def start_swarm_network_task(network_id, user_id):
             runtime_startup_dir = "/workspace/startup"
             mount_mode = "bind"
             shared_container_name = (
-                os.getenv("SWARMCLOUD_APP_CONTAINER", "swarmcloud").strip()
-                or "swarmcloud"
+                os.getenv("MEDSWARMHUB_APP_CONTAINER", "medswarmhub").strip()
+                or "medswarmhub"
             )
 
             if not os.path.isdir(host_startup_dir):
@@ -1202,7 +1546,7 @@ def start_swarm_network_task(network_id, user_id):
                         "Resolved Docker bind mount path does not contain startup directory: "
                         f"{host_startup_dir}. "
                         "Set HOST_PROJECT_PATH to the host path of this repository, "
-                        "or set SWARMCLOUD_APP_CONTAINER to a running container "
+                        "or set MEDSWARMHUB_APP_CONTAINER to a running container "
                         "with /app/workspaces mounted."
                     )
 
@@ -1252,7 +1596,7 @@ def start_swarm_network_task(network_id, user_id):
             )
 
             client_host_network_enabled = (
-                os.getenv("SWARMCLOUD_CLIENT_HOST_NETWORK", "true")
+                os.getenv("MEDSWARMHUB_CLIENT_HOST_NETWORK", "true")
                 .strip()
                 .lower()
                 in {"1", "true", "yes", "on"}
@@ -1263,18 +1607,21 @@ def start_swarm_network_task(network_id, user_id):
             # In host network mode, we MUST use 127.0.0.1 because --add-host is ignored by Docker
             # and the host's /etc/hosts typically doesn't contain 'minio'.
             # Containers in bridge mode (like the server) should still use 'minio'.
-            raw_local_s3 = getattr(settings, "SWARMCLOUD_LOCAL_S3_ENDPOINT", settings.AWS_S3_ENDPOINT_URL)
+            raw_local_s3 = getattr(settings, "MEDSWARMHUB_LOCAL_S3_ENDPOINT", settings.AWS_S3_ENDPOINT_URL)
             raw_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
 
             if use_host_network:
-                local_s3_endpoint = raw_local_s3.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
-                container_s3_endpoint = raw_s3_endpoint.replace("://minio", "://127.0.0.1").replace("://localhost", "://127.0.0.1")
+                # In host network mode, we MUST use 172.17.0.1 (Docker bridge gateway) 
+                # because MinIO is typically bound to that IP and 127.0.0.1 would 
+                # refer to the host's own loopback which is not where MinIO listens.
+                local_s3_endpoint = raw_local_s3.replace("://minio", "://172.17.0.1").replace("://localhost", "://172.17.0.1")
+                container_s3_endpoint = raw_s3_endpoint.replace("://minio", "://172.17.0.1").replace("://localhost", "://172.17.0.1")
             else:
                 local_s3_endpoint = raw_local_s3
                 container_s3_endpoint = raw_s3_endpoint
 
             remote_host = (
-                os.getenv("SWARMCLOUD_SERVER_HOST", "").strip()
+                os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
                 or (Path(startup_dir) / "server_host.txt").read_text().strip()
                 if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
                 else ""
@@ -1291,32 +1638,34 @@ def start_swarm_network_task(network_id, user_id):
                 "--shm-size",
                 "10.24gb",
                 "--label",
-                f"swarmcloud.network_id={swarm_network.identifier}",
+                f"medswarmhub.network_id={swarm_network.identifier}",
                 "--label",
-                f"swarmcloud.role={role}",
+                f"medswarmhub.role={role}",
                 "-e",
                 "GRPC_ENABLE_FORK_SUPPORT=0",
                 "-e",
                 "NVFLARE_START_METHOD=spawn",
                 "-e",
-                f"SWARMCLOUD_PROJECT_ID={str(swarm_network.project.identifier)}",
+                f"MEDSWARMHUB_PROJECT_ID={str(swarm_network.project.identifier)}",
+                "-e",
+                f"GOSSIP_TOKEN={swarm_network.gossip_token}",
                 "-e",
                 f"MANIFEST_SECRET={swarm_network.project.secret}",
                 "-e",
                 f"AWS_S3_ENDPOINT_URL={container_s3_endpoint}",
                 "-e",
-                f"SWARMCLOUD_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
+                f"MEDSWARMHUB_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
                 "-e",
                 f"PUBLIC_URL={settings.PUBLIC_URL}",
                 "-e",
-                "SWARMCLOUD_USE_LOCAL_DATA=1",
+                "MEDSWARMHUB_USE_LOCAL_DATA=1",
             ]
             if remote_host:
-                run_cmd.extend(["-e", f"SWARMCLOUD_SERVER_HOST={remote_host}"])
+                run_cmd.extend(["-e", f"MEDSWARMHUB_SERVER_HOST={remote_host}"])
 
             # Enable GPU access if available
             gpu_enabled = (
-                os.getenv("SWARMCLOUD_ENABLE_GPU", "true")
+                os.getenv("MEDSWARMHUB_ENABLE_GPU", "true")
                 .strip()
                 .lower()
                 in {"1", "true", "yes", "on"}
@@ -1409,6 +1758,11 @@ def start_swarm_network_task(network_id, user_id):
                         except Exception:
                             pass
 
+                # Also ensure 'minio' is resolvable in host network mode to keep S3 signatures valid.
+                if use_host_network:
+                    # Map 'minio' to the Docker bridge gateway where it is listening.
+                    run_cmd.extend(["--add-host", "minio:172.17.0.1"])
+
             run_cmd.extend([image_name] + command)
 
             logger.network.info(
@@ -1444,7 +1798,7 @@ def start_swarm_network_task(network_id, user_id):
                 f"Connecting app and storage to network: {network_name}"
             )
             subprocess.run(  # nosec B603
-                [docker_path, "network", "connect", network_name, "swarmcloud"],
+                [docker_path, "network", "connect", network_name, "medswarmhub"],
                 capture_output=True,
                 env=env,
                 check=False,
@@ -1492,8 +1846,11 @@ def start_swarm_network_task(network_id, user_id):
 
 @shared_task
 def run_nvflare_preflight_check(network_id, user_id):
-    """
-    Executes the NVFlare preflight check utility using the admin startup kit.
+    """Executes the NVFlare preflight check utility using the admin startup kit.
+
+    Args:
+        network_id (str): The unique identifier for the network.
+        user_id (int): The ID of the user who initiated the task.
     """
     try:
         network = SwarmNetwork.objects.get(identifier=network_id)
@@ -1581,8 +1938,11 @@ def run_nvflare_preflight_check(network_id, user_id):
 
 @shared_task
 def stop_swarm_network_task(network_id, user_id):
-    """
-    Stops and removes the containers for a swarm network.
+    """Stops and removes the containers for a swarm network.
+
+    Args:
+        network_id (str): The unique identifier for the network.
+        user_id (int): The ID of the user who initiated the task.
     """
     try:
         network = SwarmNetwork.objects.get(identifier=network_id)
@@ -1605,9 +1965,12 @@ def stop_swarm_network_task(network_id, user_id):
 
 @shared_task
 def stop_and_delete_network_task(network_id):
-    """
-    Stops a running network and then deletes its database record.
-    This ensures that resources are cleaned up before the record is gone.
+    """Stops a running network and then deletes its database record.
+
+    Ensures that resources are cleaned up before the record is gone.
+
+    Args:
+        network_id (str): The unique identifier for the network.
     """
     try:
         network = SwarmNetwork.objects.get(identifier=network_id)
@@ -1639,8 +2002,8 @@ def stop_and_delete_network_task(network_id):
 
 @shared_task
 def broadcast_all_network_statuses():
-    """
-    Recurring task to trigger Gossip broadcasts for all active networks.
+    """Recurring task to trigger Gossip broadcasts for all active networks.
+
     Ensures peer-to-peer status visibility.
     """
     from .views import broadcast_network_status
@@ -1662,8 +2025,7 @@ def broadcast_all_network_statuses():
 def cleanup_network_resources(
     project_title, project_identifier, network_identifier, network_name
 ):
-    """
-    Asynchronously cleans up Docker containers and filesystem resources
+    """Asynchronously cleans up Docker containers and filesystem resources
     associated with a deleted SwarmNetwork.
 
     Arguments are passed as strings since the DB record might already be deleted.
@@ -1679,7 +2041,7 @@ def cleanup_network_resources(
             str(network_identifier),
         )
 
-        # 1. Stop Docker containers started by SwarmCloud runtime
+        # 1. Stop Docker containers started by MedSwarmHub runtime
         docker_bin = shutil.which("docker") or "docker"
         env = os.environ.copy()
         try:

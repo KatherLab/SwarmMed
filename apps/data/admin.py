@@ -1,12 +1,13 @@
-"""
-Admin configuration for the data app.
-This file registers the models with the Django admin interface,
-allowing administrators to manage Validation and Visualization runs.
+"""Admin configuration for the data app.
+
+Registers the models with the Django admin interface, allowing administrators
+to manage Validation and Visualization runs.
 """
 
-from common.admin_filters import ProjectFilter_Generic
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
+
+from common.admin_filters import ProjectFilter_Generic
 
 from .models import (
     ValidationCheck,
@@ -17,6 +18,8 @@ from .models import (
 
 
 class ValidationCheckInline(TabularInline):
+    """Inline for ValidationCheck model."""
+
     model = ValidationCheck
     extra = 0
     fields = ("name", "status", "message")
@@ -26,8 +29,8 @@ class ValidationCheckInline(TabularInline):
 
 @admin.register(ValidationRun)
 class ValidationRunAdmin(ModelAdmin):
-    """
-    Admin interface for ValidationRun model.
+    """Admin interface for ValidationRun model.
+
     Displays key fields in the list view for easier monitoring.
     """
 
@@ -68,8 +71,8 @@ class ValidationRunAdmin(ModelAdmin):
 
 @admin.register(ValidationCheck)
 class ValidationCheckAdmin(ModelAdmin):
-    """
-    Admin interface for ValidationCheck model.
+    """Admin interface for ValidationCheck model.
+
     Helps admins inspect individual checks within a validation run.
     """
 
@@ -79,6 +82,8 @@ class ValidationCheckAdmin(ModelAdmin):
 
 
 class VisualizationPlotInline(TabularInline):
+    """Inline for VisualizationPlot model."""
+
     model = VisualizationPlot
     extra = 0
     fields = ("title", "plot_number", "image_data")
@@ -88,9 +93,7 @@ class VisualizationPlotInline(TabularInline):
 
 @admin.register(VisualizationRun)
 class VisualizationRunAdmin(ModelAdmin):
-    """
-    Admin interface for VisualizationRun model.
-    """
+    """Admin interface for VisualizationRun model."""
 
     list_display = ("id", "project", "user", "status", "success", "created_at")
     # Allow quick filtering by the project this visualization run belongs to
@@ -129,9 +132,7 @@ class VisualizationRunAdmin(ModelAdmin):
 
 @admin.register(VisualizationPlot)
 class VisualizationPlotAdmin(ModelAdmin):
-    """
-    Admin interface for VisualizationPlot model.
-    """
+    """Admin interface for VisualizationPlot model."""
 
     list_display = ("title", "visualization_run", "plot_number", "created_at")
     list_filter = ("created_at",)

@@ -1,11 +1,13 @@
 import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.linear_model import SGDClassifier
-from sklearn.metrics import confusion_matrix, roc_curve, auc
+from sklearn.metrics import auc, confusion_matrix, roc_curve
 from sklearn.preprocessing import StandardScaler
+
 
 def main():
     print("--- Starting Scikit-learn Model Performance Visualization ---")

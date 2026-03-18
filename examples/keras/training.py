@@ -1,5 +1,5 @@
-import os
 import math
+
 import flare_adapter
 import keras
 import numpy as np
@@ -16,9 +16,7 @@ SWARM_ROUNDS = 10
 
 
 def load_data(fs):
-    """
-    Reads all CSV files from the virtual filesystem and prepares them for Keras.
-    """
+    """Reads all CSV files from the virtual filesystem and prepares them for Keras."""
     file_list = fs.glob("*.csv")
 
     if not file_list:

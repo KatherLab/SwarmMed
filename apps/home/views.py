@@ -1,5 +1,5 @@
-"""
-View functions for the home application.
+"""View functions for the home app.
+
 Handles the main dashboard display, aggregating statistics for projects,
 storage, networking, and training progress.
 """
@@ -8,11 +8,12 @@ import json
 import os
 import re
 
-from common.utils import format_size
-from data.utils import get_storage_stats
 from django.contrib.auth.decorators import login_required
 from django.db import models
 from django.shortcuts import render
+
+from common.utils import format_size
+from data.utils import get_storage_stats
 from logs.logger import get_logger
 from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project, UserCurrentProject
@@ -22,19 +23,18 @@ logger = get_logger()
 
 
 def get_user_project_uuid(request):
-    """
-    Retrieves the unique identifier of the user's currently active project.
+    """Retrieves the unique identifier of the user's currently active project.
 
     Args:
-        request: Django request object.
+        request (django.http.HttpRequest): The incoming Django request object.
 
     Returns:
-        tuple: (project_uuid as string, success_flag as boolean)
+        tuple[str | None, bool]: A tuple containing the project UUID as a string
+            (or None if not found) and a success flag indicating if the project
+            was successfully retrieved.
     """
     try:
-        user_current_project = UserCurrentProject.objects.get(
-            user=request.user
-        )
+        user_current_project = UserCurrentProject.objects.get(user=request.user)
         if not user_current_project.project:
             return None, False
 
@@ -45,10 +45,16 @@ def get_user_project_uuid(request):
 
 @login_required
 def index(request):
-    """
-    The main dashboard view.
+    """The main dashboard view.
+
     Aggregates data from various apps (Project, Data, Network, Training)
     to provide an overview of the user's activities.
+
+    Args:
+        request (django.http.HttpRequest): The incoming Django request object.
+
+    Returns:
+        django.http.HttpResponse: The rendered dashboard index page.
     """
     user = request.user
 
@@ -89,9 +95,7 @@ def index(request):
 
         try:
             # Query S3 (via our utility) for usage stats.
-            total_size_bytes, folder_count, file_count = get_storage_stats(
-                data_prefix
-            )
+            total_size_bytes, folder_count, file_count = get_storage_stats(data_prefix)
             total_files = file_count
             total_storage = format_size(total_size_bytes)
             total_folders = folder_count
@@ -108,9 +112,7 @@ def index(request):
     for project in user_projects:
         data_prefix = f"{str(project.identifier)}/data/"
         try:
-            size_bytes, folder_count, file_count = get_storage_stats(
-                data_prefix
-            )
+            size_bytes, folder_count, file_count = get_storage_stats(data_prefix)
             total_files_all_projects += file_count
             total_storage_all_projects += size_bytes
             total_folders_all_projects += folder_count
@@ -124,9 +126,7 @@ def index(request):
 
     # 4. Networking Statistics
     # Total networks available across all the user's projects.
-    total_networks = SwarmNetwork.objects.filter(
-        project__in=user_projects
-    ).count()
+    total_networks = SwarmNetwork.objects.filter(project__in=user_projects).count()
 
     # Use resolve_current to find the most relevant active network
     current_network_obj = SwarmNetwork.resolve_current(request.user)
@@ -176,9 +176,7 @@ def index(request):
                         for workflow in cfg.get("workflows", []):
                             if workflow.get("id") == "swarm_controller":
                                 total_rounds = int(
-                                    workflow.get("args", {}).get(
-                                        "num_rounds", 0
-                                    )
+                                    workflow.get("args", {}).get("num_rounds", 0)
                                 )
                                 break
 
@@ -213,9 +211,7 @@ def index(request):
                         continue
 
                     runs.sort(
-                        key=lambda d: os.path.getmtime(
-                            os.path.join(base_client, d)
-                        ),
+                        key=lambda d: os.path.getmtime(os.path.join(base_client, d)),
                         reverse=True,
                     )
                     client_dir = os.path.join(base_client, runs[0])
@@ -237,8 +233,7 @@ def index(request):
 
                                     # Check for completion markers.
                                     if (
-                                        "ending workflow swarm_controller"
-                                        in data
+                                        "ending workflow swarm_controller" in data
                                         or "finished with RC 0" in data
                                     ):
                                         ended = True
@@ -258,9 +253,7 @@ def index(request):
     except Exception as e:
         # Training tracking is secondary; if it fails, we just show "Not
         # started" and log the error for debugging.
-        logger.project.debug(
-            f"Error tracking training progress on dashboard: {e}"
-        )
+        logger.project.debug(f"Error tracking training progress on dashboard: {e}")
 
     # 6. Assemble the Context for the template.
     context = {
@@ -282,9 +275,7 @@ def index(request):
         "total_networks": total_networks,
         "current_network": current_network_name,
         "current_network_status": (
-            current_network_obj.get_status_display()
-            if current_network_obj
-            else None
+            current_network_obj.get_status_display() if current_network_obj else None
         ),
         "network_partners": network_partners,
         # Real-time training metrics.
@@ -296,5 +287,12 @@ def index(request):
 
 
 def starter(request):
-    """Simple starter page view."""
+    """Simple starter page view.
+
+    Args:
+        request (django.http.HttpRequest): The incoming Django request object.
+
+    Returns:
+        django.http.HttpResponse: The rendered starter page.
+    """
     return render(request, "apps/home/starter.html", {})

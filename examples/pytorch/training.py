@@ -1,6 +1,4 @@
-import os
 
-import numpy as np
 import flare_adapter
 import pandas as pd
 import torch
@@ -20,9 +18,7 @@ SWARM_ROUNDS = 5
 
 class BiomedTabularDataset(Dataset):
     def __init__(self, fs):
-        """
-        Initializes the dataset by streaming CSV files directly from the virtual filesystem.
-        """
+        """Initializes the dataset by streaming CSV files directly from the virtual filesystem."""
         file_list = fs.glob("*.csv")
 
         if not file_list:
@@ -147,7 +143,7 @@ def main(project_id: str):
             model.train()
             total_loss = 0.0
             steps = 0
-            for epoch in range(epochs_per_round):
+            for _epoch in range(epochs_per_round):
                 for inputs, targets in train_loader:
                     inputs, targets = inputs.to(device), targets.to(device)
                     optimizer.zero_grad()

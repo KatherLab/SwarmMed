@@ -58,10 +58,7 @@ class StatusHandler(BaseHTTPRequestHandler):
                 return True
 
         header_token = self.headers.get("X-Auth-Token")
-        if header_token and secrets.compare_digest(header_token.strip(), STATUS_TOKEN):
-            return True
-
-        return False
+        return bool(header_token and secrets.compare_digest(header_token.strip(), STATUS_TOKEN))
 
     def _require_auth(self):
         self._send_json(

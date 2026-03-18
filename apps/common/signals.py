@@ -11,9 +11,13 @@ _logger = logging.getLogger(__name__)
 
 @receiver(post_save)
 def audit_log_save(sender, instance, created, **kwargs):
-    """
-    Automatically creates an audit log entry when any model inheriting
-    from AbstractBaseModel is saved.
+    """Automatically creates an audit log entry when any model inheriting from AbstractBaseModel is saved.
+
+    Args:
+        sender (Type[Model]): The model class that sent the signal.
+        instance (Model): The actual instance being saved.
+        created (bool): A boolean; True if a new record was created.
+        **kwargs: Additional keyword arguments.
     """
     # 1. Skip models that don't inherit from AbstractBaseModel
     if not isinstance(instance, AbstractBaseModel):

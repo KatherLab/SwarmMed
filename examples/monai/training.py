@@ -1,14 +1,21 @@
-import os
 import glob
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
-import numpy as np
-from monai.networks.nets import DenseNet121
-from monai.transforms import Compose, EnsureChannelFirst, ScaleIntensity, ToTensor, RandRotate, RandFlip
-from monai.metrics import DiceMetric
-from monai.data import partition_dataset
+import os
+
 import flare_adapter
+import numpy as np
+import torch
+from monai.data import partition_dataset
+from monai.metrics import DiceMetric
+from monai.networks.nets import DenseNet121
+from monai.transforms import (
+    Compose,
+    EnsureChannelFirst,
+    RandFlip,
+    RandRotate,
+    ScaleIntensity,
+    ToTensor,
+)
+from torch.utils.data import DataLoader, Dataset
 
 # Configuration
 SWARM_ROUNDS = 10
@@ -109,7 +116,7 @@ def main(project_id: str):
         
         optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
         criterion = torch.nn.BCEWithLogitsLoss()
-        dice_metric = DiceMetric(include_background=True, reduction="mean")
+        DiceMetric(include_background=True, reduction="mean")
 
         # Swarm Loop
         while True:
@@ -126,7 +133,7 @@ def main(project_id: str):
             model.train()
             total_loss = 0
             steps = 0
-            for epoch in range(EPOCHS_PER_ROUND):
+            for _epoch in range(EPOCHS_PER_ROUND):
                 for batch_data in train_loader:
                     inputs, labels = batch_data[0].to(device), batch_data[1].to(device)
                     optimizer.zero_grad()

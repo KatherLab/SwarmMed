@@ -720,11 +720,10 @@ docker_adm_sh: |
         - nvflare_svc_persist:/tmp/nvflare/
       deploy:
         resources:
+          limits:
+            memory: 4096M
           reservations:
-            devices:
-              - driver: nvidia
-                count: all
-                capabilities: [gpu]
+            memory: 1024M
       command: ["python",
             "-u",
             "-m",
@@ -748,11 +747,10 @@ docker_adm_sh: |
         - "server:${SERVER_IP}"
       deploy:
         resources:
+          limits:
+            memory: 4096M
           reservations:
-            devices:
-              - driver: nvidia
-                count: all
-                capabilities: [gpu]
+            memory: 1024M
       command: ["python",
             "-u",
             "-m",
