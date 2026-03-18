@@ -3,45 +3,49 @@ title: Security
 description: Security best practices implemented in MedSwarmHub.
 ---
 
-# Security
+# 🔐 Security
+
+!!! warning "Pre-release Software"
+    This platform has **not yet** undergone external security audits or professional penetration testing. These rigorous evaluations are scheduled for the next major version. Use this software with appropriate caution in sensitive environments.
 
 Security is a foundational aspect of the MedSwarmHub platform, designed to protect the confidentiality, integrity, and availability of your data and machine learning models. This page outlines the security measures implemented at various layers of the platform.
 
 !!! warning "Shared Responsibility"
     While MedSwarmHub provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
 
-## Infrastructure Security
+## 🏗️ Infrastructure Security
 
 MedSwarmHub employs several layers of infrastructure security to isolate workloads and protect the host system.
 
-### TLS-Isolated Sandboxing
+### 🛡️ TLS-Isolated Sandboxing
 
 User-provided Python scripts (validation and visualization) are executed in ephemeral Docker containers. 
 - **Isolation:** Workloads run against a dedicated `sandbox-dind` (Docker-in-Docker) service rather than the host Docker socket.
 - **Mutual TLS:** Communication between the application and the sandbox daemon is secured via mutual TLS. Client certificates generated in `.secrets/docker/client` are mounted read-only and validated automatically before any workloads run.
-- **Resource Limits:** Containers are strictly limited in terms of memory (1GB) and CPU (1 core), and have no network access.
+- **Resource Limits:** Containers are strictly limited in terms of memory (1GB) and CPU (1 core).
+- **Network Isolation:** Workloads run on a dedicated `sandbox_internal` bridge network. They have no access to the host network or the internet, but can reach the internal MinIO gateway to stream data.
 
-### Secure Network Telemetry
+### 📡 Secure Network Telemetry
 
 To monitor the VPN status without exposing the host system:
 - **Sidecar Architecture:** The application queries a dedicated `tailscale-status` sidecar over HTTP.
 - **Reduced Privilege:** This eliminates the need to mount the host's `/var/run/tailscale` socket into the application container, preventing any write access to the host VPN daemon.
 
-### Database Proxy (PgBouncer)
+### 🔄 Database Proxy (PgBouncer)
 
 Access to the PostgreSQL database is mediated by PgBouncer for connection pooling and security.
 - **Locked-down Config:** The `scripts/setup_pgbouncer.py` utility generates SCRAM credentials and configuration files with restricted (`0600`) permissions.
 - **Credential Validation:** The system refuses to start with default or weak passwords, ensuring a baseline of credential security.
 
-### Safe Backup and Restore
+### 💾 Safe Backup and Restore
 
 The backup system is designed to prevent exploitation via malicious archives:
 - **Archive Inspection:** Encrypted backup archives are inspected for symbolic links and potential path traversal attacks before extraction.
 - **Path Validation:** The restoration process ensures that files cannot be overwritten outside of the designated restore directory.
 
-## Application Security
+## 💻 Application Security
 
-### Access Control
+### 🔑 Access Control
 
 MedSwarmHub implements a robust role-based access control (RBAC) system to ensure that users only have access to the resources and operations that are necessary for their role.
 
@@ -50,14 +54,14 @@ MedSwarmHub implements a robust role-based access control (RBAC) system to ensur
 *   **Project Creator:** A project creator can create and manage their own projects.
 *   **User:** A user can view and interact with the projects they are a member of.
 
-### Auditing and Logging
+### 📜 Auditing and Logging
 
 Comprehensive logging and auditing are in place to provide visibility into the activities on the platform.
 
 *   **Audit Trail:** All user actions, such as logins, project creation, data edits, and training job submissions, are logged. This creates a detailed audit trail that can be used for security analysis and compliance purposes.
 *   **Log Access:** Audit logs are accessible to administrators and can be exported for analysis in external security information and event management (SIEM) systems.
 
-### Vulnerability Management
+### 🔍 Vulnerability Management
 
 We are committed to ensuring the security of MedSwarmHub and its dependencies.
 
@@ -65,13 +69,13 @@ We are committed to ensuring the security of MedSwarmHub and its dependencies.
 *   **Security Scanning:** We utilize automated security scanning tools to maintain the integrity of our codebase.
 *   **Patch Management:** We have a process in place for promptly applying security patches to our platform and its dependencies.
 
-## Compliance
+## 📋 Compliance
 
-### HIPAA (Health Insurance Portability and Accountability Act)
+### 🏥 HIPAA (Health Insurance Portability and Accountability Act)
 
 MedSwarmHub is designed to be **HIPAA Capable**, providing the technical safeguards required for organizations handling Protected Health Information (PHI). However, full HIPAA compliance is a programmatic requirement that depends on both the platform's features and the hosting organization's operational practices.
 
-#### Technical Safeguards (Implemented)
+#### ⚙️ Technical Safeguards (Implemented)
 
 *   **Access Control:** 
     *   **Unique User Identification:** Every user is assigned a unique account and UUID.
@@ -83,7 +87,7 @@ MedSwarmHub is designed to be **HIPAA Capable**, providing the technical safegua
 *   **Brute-Force Protection:** Built-in protection against automated login attempts via `django-axes`.
 *   **Database Integrity:** Enforced SSL/TLS connections for PostgreSQL and Redis.
 
-#### Remaining Gaps and Shared Responsibility
+#### 🤝 Remaining Gaps and Shared Responsibility
 
 Achieving HIPAA compliance is a shared responsibility. The following items must be addressed at the deployment and operational levels:
 
@@ -94,7 +98,7 @@ Achieving HIPAA compliance is a shared responsibility. The following items must 
 5.  **Business Associate Agreements (BAA):** You must ensure BAAs are signed with any third-party service providers (e.g., Cloud Providers, SMTP relays).
 6.  **High-Privilege Components:** Components like `docker-socket-proxy` provide significant control over the environment. They must be locked down using network isolation and monitored closely.
 
-#### Administrative and Physical Safeguards (HIPAA §164.308 & §164.310)
+#### 👮 Administrative and Physical Safeguards (HIPAA §164.308 & §164.310)
 
 These safeguards must be implemented by the hosting organization:
 
@@ -104,7 +108,7 @@ These safeguards must be implemented by the hosting organization:
 *   **Facility Access Controls:** Limit physical access to servers and workstations.
 *   **Device and Media Controls:** Manage the receipt and removal of hardware containing PHI.
 
-#### Emergency Access Procedures (Break-Glass)
+#### 🚨 Emergency Access Procedures (Break-Glass)
 
 In accordance with HIPAA §164.312(a)(2)(ii), MedSwarmHub supports emergency access procedures:
 
@@ -112,7 +116,7 @@ In accordance with HIPAA §164.312(a)(2)(ii), MedSwarmHub supports emergency acc
 2.  **Audit Logging:** All emergency access events are logged with high severity (CRITICAL) in the tamper-evident audit trail, including the justification provided for the access.
 3.  **Verification:** Personnel requesting emergency access must be verified via their registered `phone` number or other out-of-band methods before administrative override is performed.
 
-#### Data Retention and Purging
+#### 🗑️ Data Retention and Purging
 
 MedSwarmHub implements automated data retention policies to comply with HIPAA and GDPR requirements:
 
@@ -120,7 +124,7 @@ MedSwarmHub implements automated data retention policies to comply with HIPAA an
 *   **Configuration:** These periods can be adjusted in `core/settings.py` using `DATA_RETENTION_DAYS`.
 ---
 
-#### Encryption Key Rotation
+#### 🔄 Encryption Key Rotation
 
 To maintain high security standards, MedSwarmHub supports cryptographic key rotation:
 
@@ -130,15 +134,15 @@ To maintain high security standards, MedSwarmHub supports cryptographic key rota
     ```
 *   **Storage Encryption:** It is recommended to rotate S3/MinIO SSE-S3 keys at the infrastructure level annually.
 
-#### Data De-identification
+#### 🕵️ Data De-identification
 
 While MedSwarmHub supports HIPAA-compliant workflows for PHI, we strongly recommend following the **HIPAA Safe Harbor** method for de-identification (removing 18 specific identifiers) before uploading datasets to the platform whenever possible to minimize risk.
 
-### GDPR (General Data Protection Regulation)
+### 🇪🇺 GDPR (General Data Protection Regulation)
 
 MedSwarmHub implements technical and organizational measures to support GDPR compliance for users within the European Union.
 
-#### Key GDPR Features
+#### 🇪🇺 Key GDPR Features
 
 *   **Data Minimization (Article 5):** The decentralized Swarm Learning architecture ensures that raw personal/medical data never leaves the local infrastructure of the participant.
 *   **Right to Erasure (Article 17):** Users have a self-service "Delete Account" option in their profile settings, which permanently removes their account, profile, and associated projects from the system.
@@ -146,30 +150,30 @@ MedSwarmHub implements technical and organizational measures to support GDPR com
 *   **Consent (Article 7):** Mandatory acceptance of the Terms and Conditions and Privacy Policy is required during the registration process.
 *   **Data Protection by Design (Article 25):** Privacy-preserving technologies (Differential Privacy, Secure Aggregation) are integrated into the core training workflows via NVIDIA FLARE.
 
-#### Documentation
+#### 📚 Documentation
 
 The full Privacy Policy is available within the application and outlines how we handle personal data in accordance with GDPR principles.
 
 ---
 
-## Security Scans
+## 🔍 Security Scans
 
 You can run these security scans locally to identify potential vulnerabilities in the codebase or dependencies:
 
-### Dependency & Vulnerability Scanning (Snyk)
+### 🔍 Dependency & Vulnerability Scanning (Snyk)
 Snyk identifies known vulnerabilities in dependencies and provides security analysis for the source code.
 ```bash
 snyk test --json-file-output=snyk_report.json
 snyk code test --json-file-output=snyk_code_report.json
 ```
 
-### Python Static Analysis (Bandit)
+### 🐍 Python Static Analysis (Bandit)
 Bandit is used to find common security issues in Python code.
 ```bash
-bandit -r apps core home manage.py -f json -o bandit_report.json    
+bandit -r apps core manage.py -f json -o bandit_report.json    
 ```
 
-### _DJANGO_[^1]
+### 🎸 _DJANGO_[^1]
 
 The web interface of MedSwarmHub is built on the Django framework, which has a strong focus on security and provides built-in protection against many common web vulnerabilities.
 
@@ -179,9 +183,9 @@ The web interface of MedSwarmHub is built on the Django framework, which has a s
 
 [^1]: [https://docs.djangoproject.com/en/stable/topics/security/](https://docs.djangoproject.com/en/stable/topics/security/)
 
-## Data Security
+## 💾 Data Security
 
-### _MINIO_[^2]
+### 📦 _MINIO_[^2]
 
 All project-related data, including datasets and models, is stored in a self-hosted Minio object storage server.
 
@@ -190,21 +194,21 @@ All project-related data, including datasets and models, is stored in a self-hos
 *   **Access Control:** Minio has a fine-grained access control system that allows you to control who can access your data.
 *   **Auditing:** All operations on the Minio server are logged, providing a detailed audit trail.
 
-### Database and Cache
+### 🗄️ Database and Cache
 
 *   **PostgreSQL SSL:** Communication between the application and the PostgreSQL database is enforced to use SSL with certificate verification.
 *   **Redis TLS:** Communication with Redis is encrypted using TLS, and access is protected by a strong password.
 
-### Storage Encryption (At Rest)
+### 🔒 Storage Encryption (At Rest)
 
 For maximum security, it is strongly recommended to host the following directories on encrypted volumes (e.g., LUKS, FileVault, or cloud-provider encrypted EBS):
 *   `postgres_data/`: Contains all metadata and project information.
 *   `minio_data/`: Contains all datasets and models.
 *   `workspaces/`: Contains NVFlare job data, logs, and temporary training artifacts.
 
-## Network Security
+## 🌐 Network Security
 
-### Internal Service Mesh
+### 🕸️ Internal Service Mesh
 
 MedSwarmHub employs an internal PKI (Public Key Infrastructure) to secure communication between all backend services.
 *   Each service (MinIO, Postgres, Redis) has its own TLS certificate issued by a private internal Root CA.
@@ -212,9 +216,9 @@ MedSwarmHub employs an internal PKI (Public Key Infrastructure) to secure commun
 
 [^2]: [https://blog.min.io/s3-security-access-control/](https://blog.min.io/s3-security-access-control/)
 
-## Network Security
+## 🌐 Network Security
 
-### _TAILSCALE_[^3]
+### 🌐 _TAILSCALE_[^3]
 
 MedSwarmHub leverages Tailscale to create a secure and private network for the participants in a decentralized learning experiment. This is especially important for swarm learning, which relies on peer-to-peer communication.
 
@@ -224,13 +228,13 @@ MedSwarmHub leverages Tailscale to create a secure and private network for the p
 
 [^3]: [https://tailscale.com/security/](https://tailscale.com/security/)
 
-### HTTPS
+### 🔒 HTTPS
 
 All communication with the MedSwarmHub web interface is encrypted using HTTPS. This ensures that your data is protected from eavesdropping and man-in-the-middle attacks.
 
-## Decentralized Learning Security
+## 🤝 Decentralized Learning Security
 
-### _NVIDIA FLARE_[^4]
+### 🚀 _NVIDIA FLARE_[^4]
 
 The federated learning capabilities of MedSwarmHub are powered by NVIDIA FLARE. The swarm learning paradigm implemented in FLARE has a unique security model.
 

@@ -4,9 +4,9 @@ description: This are all the available elements you can use in your documentati
 icon: material/emoticon-happy
 ---
 
-# Elements
+# 🧱 Elements
 
-## Admonitions
+## 📣 Admonitions
 
 ???+ note "Outer Note"
 
@@ -33,7 +33,7 @@ icon: material/emoticon-happy
 !!! example
 !!! quote
 
-## Annotation
+## 📝 Annotation
 
 Lorem ipsum dolor sit amet, (1) consectetur adipiscing elit.
 { .annotate }
@@ -52,13 +52,13 @@ Lorem ipsum dolor sit amet, (1) consectetur adipiscing elit.
 1.  :man_raising_hand: I'm an annotation!
 2.  :woman_raising_hand: I'm an annotation as well!
 
-## Button
+## 🔘 Button
 
 [Subscribe to our newsletter](#){ .md-button }
 [Subscribe to our newsletter](#){ .md-button .md-button--primary }
 [Send :fontawesome-solid-paper-plane:](#){ .md-button }
 
-## Code
+## 💻 Code
 
 ``` py title="bubble_sort.py" linenums="1"
 import tensorflow as tf
@@ -81,7 +81,7 @@ def bubble_sort(items):
                 items[j], items[j + 1] = items[j + 1], items[j]
 ```
 
-## Tables
+## 📊 Tables
 
 | Method      | Description                          |
 | ----------- | ------------------------------------ |
@@ -97,7 +97,7 @@ def bubble_sort(items):
 | `DELETE`    | :material-close:     Delete resource |
 
 
-## Footnotes
+## 🦶 Footnotes
 
 Lorem ipsum[^1] dolor sit amet, consectetur adipiscing elit.[^2]
 [^1]: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
@@ -106,7 +106,7 @@ Lorem ipsum[^1] dolor sit amet, consectetur adipiscing elit.[^2]
     nulla. Curabitur feugiat, tortor non consequat finibus, justo purus auctor
     massa, nec semper lorem quam in massa.
 
-## Text Formatting
+## ✍️ Text Formatting
 
 Text can be {--deleted--} and replacement text {++added++}. This can also be
 combined into {~~one~>a single~~} operation. {==Highlighting==} is also
@@ -126,13 +126,13 @@ tags on separate lines and adding new lines between the tags and the content.
 - H~2~O
 - A^T^A
 
-## Emojis
+## 😀 Emojis
 
 :smile:
 :material-thumb-up:
 :fontawesome-solid-thumbs-up:
 
-## Task List
+## ✅ Task List
 
 - [x] Lorem ipsum dolor sit amet, consectetur adipiscing elit
 - [ ] Vestibulum convallis sit amet nisi a tincidunt
@@ -141,7 +141,7 @@ tags on separate lines and adding new lines between the tags and the content.
     * [ ] Praesent sed risus massa
 - [ ] Aenean pretium efficitur erat, donec pharetra, ligula non scelerisque
   
-## Diagrams
+## 📉 Diagrams
 
 ``` mermaid
 graph LR

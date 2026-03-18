@@ -5,29 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-03-18
 
 ### Added
-- Functional namespaced URL routing system across all core applications.
-- Project Archiving system allowing authors to hide finished projects from the main dashboard.
-- Dynamic colorful letter avatars for users in the header navigation.
-- S3 integration for NVFlare jobs with secure credential injection via minimal `.env` files.
-- Collaborative Project Board for internal team communication.
-- Automated data validation and visualization background tasks via Celery.
-- Dark/Light mode theme toggle.
+- **Streamlined Workflow:** Introduced a comprehensive `Makefile` for automated setup (`make setup`) and execution (`make start`).
+- **TLS-Isolated Sandboxing:** Implemented a dedicated `sandbox-dind` service with mutual TLS and resource limits (1GB RAM, 1 CPU) for secure script execution.
+- **Secure Telemetry:** Added a `tailscale-status` sidecar to monitor VPN connectivity without host socket exposure.
+- **Automated Configuration:** Created `scripts/setup_env.py` for interactive `.env` generation and secure secret rotation.
+- **Enhanced Documentation Suite:** Completely overhauled `@docs/` and root Markdown files with updated installation, security, and developer guides.
+- **Extended Sandbox Environment:** Pre-installed a wide range of ML/Data Science libraries (PyTorch, TensorFlow, Transformers, MONAI, etc.) in the sandbox image.
+- **PgBouncer Integration:** Added PgBouncer for secure database connection pooling with SCRAM credential support.
 
 ### Changed
-- Upgraded NVFlare from 2.6.1 to 2.7.1.
-- Updated NVFlare provisioning logic to API Version 4.
-- Added FlareAPIBuilder to NVFlare provisioning pipeline for enhanced admin session support.
-- Updated default NVFlare Docker images and Helm charts to 2.7.1.
-- Refactored entire codebase to be PEP 8 compliant.
-- Replaced hardcoded portrait images with dynamic initials-based avatars.
-- Renamed "Finish Project" action to "Archive Project" for clarity.
-- Unified dashboard card links to point directly to respective application modules.
+- Migrated all repository links to point to the `SwarmCloud` GitHub project.
+- Standardized platform branding to "MedSwarmHub" across all documentation and templates.
+- Updated internal service mesh to use a private Root CA issued via `make setup`.
+- Refactored `flare_adapter` to support streaming data filesystem with host-side IP auto-discovery.
 
 ### Fixed
-- Resolved multiple `NoReverseMatch` errors in dashboard and network pages.
-- Fixed `ValueError` in NVFlare workers caused by missing S3 environment variables.
-- Corrected SVG coordinate typos in theme toggle icon.
-- Fixed directory structure preservation in S3 file uploads.
+- Resolved Postgres and Redis SSL key permission issues via host-side configuration guidelines.
+- Fixed sandbox connectivity to the internal MinIO gateway.
+- Corrected various `NoReverseMatch` errors in the network and dashboard templates.
+
+## [Unreleased]

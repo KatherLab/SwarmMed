@@ -3,7 +3,7 @@ title: Developer Guide
 description: A guide for developers to write scripts for the MedSwarmHub platform.
 ---
 
-# Developer Guide
+# 💻 Developer Guide
 
 This guide provides information for developers who write scripts to be run on the MedSwarmHub platform. The platform supports three types of scripts:
 
@@ -19,11 +19,11 @@ This guide provides information for developers who write scripts to be run on th
 !!! tip "Testing Locally"
     You can test your validation and visualization scripts locally by selecting `Test in local environment` in the network settings and reviewing the logs on the logs page.
 
-## Validation Scripts
+## 🧪 Validation Scripts
 
 Validation scripts are used to verify the quality, format, and integrity of your data.
 
-### `validation` Object
+### 📝 `validation` Object
 
 Your validation script has access to a global `validation` object with the following methods:
 
@@ -37,11 +37,14 @@ Your validation script has access to a global `validation` object with the follo
 *   `exists(relative_path)`: Checks if a file or directory exists.
 *   `listdir(relative_path="")`: Lists the contents of a directory.
 
-!!! warning "Available packages for validation"
-    Only standard Python packages and the following additional packages are available in validation scripts:
+!!! warning "Available packages for validation and visualization"
+    The execution environment (sandbox) comes pre-installed with a wide range of data science and machine learning libraries:
 
-    *   `numpy`
-    *   `pandas`
+    *   **Numerical & Data:** `numpy`, `pandas`, `scikit-learn`
+    *   **Plotting:** `matplotlib`, `seaborn`
+    *   **Deep Learning:** `torch`, `tensorflow`, `keras`, `pytorch-lightning`
+    *   **NLP & Vision:** `transformers`, `datasets`, `monai`
+    *   **Utilities:** `fsspec`, `aiohttp`, `requests`
 
 ??? example "Example Validation Script"
     ```python title="validation.py" linenums="1"
@@ -147,11 +150,11 @@ Your validation script has access to a global `validation` object with the follo
                     f"{validation_results['info_checks']} info checks")
     ```
 
-## Visualization Scripts
+## 📊 Visualization Scripts
 
 Visualization scripts allow you to generate plots and charts to explore your data.
 
-### `visualization` Object
+### 📝 `visualization` Object
 
 Your visualization script has access to a global `visualization` object with the following methods:
 
@@ -235,11 +238,11 @@ Your visualization script has access to a global `visualization` object with the
     ```
 
 
-## Training Scripts 
+## 🧠 Training Scripts
 
 Your custom training code is executed within the NVIDIA FLARE framework. To facilitate the interaction with the FLARE environment, a special `flare_adapter.py` module is provided.
 
-### The `flare_adapter` Module
+### 🔌 The `flare_adapter` Module
 
 This module provides a simplified, streaming interface to handle communication with the FLARE server and access project data.
 
