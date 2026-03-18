@@ -1,5 +1,5 @@
-"""
-Admin configuration for the users application.
+"""Admin configuration for the users application.
+
 Registers the Profile model with the Django admin interface and integrates
 it into the standard User admin for a unified view.
 """
@@ -19,9 +19,7 @@ from .models import Profile
 
 
 class ProfileInline(StackedInline):
-    """
-    Allows editing the Profile directly within the User admin page.
-    """
+    """Allows editing the Profile directly within the User admin page."""
 
     model = Profile
     can_delete = False
@@ -36,9 +34,7 @@ class ProfileInline(StackedInline):
 
 
 class UserAdmin(BaseUserAdmin, ModelAdmin):
-    """
-    Extended User admin that includes the Profile inline.
-    """
+    """Extended User admin that includes the Profile inline."""
 
     form = UserChangeForm
     add_form = UserCreationForm
@@ -101,9 +97,7 @@ admin.site.register(User, UserAdmin)
 
 @admin.register(Profile)
 class ProfileAdmin(ModelAdmin):
-    """
-    Configuration for the Profile model in the admin panel.
-    """
+    """Configuration for the Profile model in the admin panel."""
 
     # Display more relevant fields in the list view.
     list_display = (

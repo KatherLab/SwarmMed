@@ -1,11 +1,11 @@
-"""
-Signal handlers for the project application.
+"""Signal handlers for the project application.
 This module listens for database events like pre-delete to trigger
 automatic cleanup of related resources.
 """
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
+
 from network.models import SwarmNetwork
 
 from .models import Project
@@ -13,8 +13,7 @@ from .models import Project
 
 @receiver(pre_delete, sender=Project)
 def delete_project_cleanup(sender, instance, **kwargs):
-    """
-    Ensures that when a Project is deleted, all associated Swarm Networks
+    """Ensures that when a Project is deleted, all associated Swarm Networks
     are also removed. This prevents 'orphaned' networks and ensures that
     the related Docker containers and files are properly cleaned up.
 

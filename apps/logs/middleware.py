@@ -1,5 +1,4 @@
-"""
-Audit Logging Middleware.
+"""Audit Logging Middleware.
 Automatically logs all data-modifying requests (POST, PUT, PATCH, DELETE)
 to ensure a complete audit trail for HIPAA/GDPR compliance.
 """
@@ -15,9 +14,7 @@ _internal_logger = logging.getLogger("app")
 
 
 class AuditLogMiddleware:
-    """
-    Middleware that captures and logs all data-modifying operations.
-    """
+    """Middleware that captures and logs all data-modifying operations."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -42,9 +39,7 @@ class AuditLogMiddleware:
         return response
 
     def _log_request(self, request, response):
-        """
-        Prepares and saves a log entry for the current request.
-        """
+        """Prepares and saves a log entry for the current request."""
         # Skip certain paths that might be too noisy or sensitive (e.g., login passwords)
         # Note: REDACT_PHI already handles passwords, but skipping login POST might be preferred
         # if using django-axes which logs its own auth events.

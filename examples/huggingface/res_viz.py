@@ -1,12 +1,12 @@
 import os
-import torch
-import numpy as np
-import pandas as pd
+
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
+import torch
+from sklearn.metrics import auc, confusion_matrix, roc_curve
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from sklearn.metrics import confusion_matrix, roc_curve, auc
-from datasets import Dataset
+
 
 def main():
     print("--- Starting HuggingFace Model Performance Visualization ---")

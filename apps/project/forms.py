@@ -1,18 +1,17 @@
-"""
-Forms for the project application.
+"""Forms for the project application.
 This module defines the forms used for creating and updating projects,
 including custom logic for handling project member identifiers.
 """
 
 from django import forms
+
 from users.models import Profile
 
 from .models import Project
 
 
 class ProjectForm(forms.ModelForm):
-    """
-    Form for creating and editing a Project instance.
+    """Form for creating and editing a Project instance.
     Includes an additional field for entering member UUIDs as strings.
     """
 
@@ -30,9 +29,7 @@ class ProjectForm(forms.ModelForm):
     )
 
     class Meta:
-        """
-        Metadata for the ProjectForm, linking it to the Project model.
-        """
+        """Metadata for the ProjectForm, linking it to the Project model."""
 
         model = Project
         # List of fields from the Project model to include in the form.
@@ -48,13 +45,12 @@ class ProjectForm(forms.ModelForm):
         ]
 
     def __init__(self, *args, **kwargs):
-        """
-        Initialize the form.
+        """Initialize the form.
         If editing an existing project, we prepopulate the member_identifiers field.
         """
         # Extract the project instance if provided (standard for editing
         # existing objects).
-        instance = kwargs.get("instance", None)
+        instance = kwargs.get("instance")
         super().__init__(*args, **kwargs)
 
         # If we are editing an existing project (instance exists),

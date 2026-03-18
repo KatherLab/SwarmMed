@@ -1,5 +1,5 @@
-"""
-Custom decorators for access control in the users application.
+"""Custom decorators for access control in the users application.
+
 Provides simple checks to ensure users have the required roles (admin/developer)
 before they can access specific view functions.
 """
@@ -8,9 +8,16 @@ from django.core.exceptions import PermissionDenied
 
 
 def admin_required(view_func):
-    """
-    Decorator that restricts access to the view only to users with the 'admin' role.
-    Raises a PermissionDenied exception if the requirement is not met.
+    """Decorator that restricts access to the view only to users with the 'admin' role.
+
+    Args:
+        view_func (function): The view function to be decorated.
+
+    Returns:
+        function: The wrapped view function.
+
+    Raises:
+        PermissionDenied: If the user is not authenticated or does not have the required role.
     """
 
     def _wrapped_view(request, *args, **kwargs):
@@ -40,9 +47,18 @@ def admin_required(view_func):
 
 
 def developer_required(view_func):
-    """
-    Decorator that restricts access to users with either 'admin' or 'developer' roles.
+    """Decorator that restricts access to users with either 'admin' or 'developer' roles.
+
     Allows developers and admins to access shared workspace features.
+
+    Args:
+        view_func (function): The view function to be decorated.
+
+    Returns:
+        function: The wrapped view function.
+
+    Raises:
+        PermissionDenied: If the user is not authenticated or does not have the required role.
     """
 
     def _wrapped_view(request, *args, **kwargs):

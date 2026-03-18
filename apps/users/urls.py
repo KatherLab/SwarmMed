@@ -1,13 +1,13 @@
-"""
-URL configuration for the users application.
+"""URL configuration for the users application.
 Maps web addresses to view functions for authentication, profile management,
 and administrative user control.
 """
 
-from common import views as common_views
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
 from django.views.generic.base import RedirectView
+
+from common import views as common_views
 
 # from two_factor.urls import urlpatterns as tf_urls
 from . import two_factor_views, views

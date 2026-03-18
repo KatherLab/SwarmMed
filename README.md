@@ -5,8 +5,6 @@
 
 MedSwarmHub is a decentralized medical data storage and collaborative training platform. It leverages **Swarm Learning** (via NVIDIA FLARE) to enable privacy-preserving machine learning across distributed medical institutions without the need to move raw data.
 
----
-
 ## 🧠 Supported Frameworks
 
 MedSwarmHub is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
@@ -15,11 +13,7 @@ MedSwarmHub is framework-agnostic and provides a built-in adapter for all major 
 - **TensorFlow** & **Keras**
 - **Scikit-learn**
 - **HuggingFace Transformers**
-- **MONAI** (Medical Open Network for AI)
-
-The platform handles the streaming of data from S3-compatible storage (MinIO) and the secure loading of model weights across all common formats (`.pt`, `.pth`, `.ckpt`, `.h5`, `.keras`, `.npy`, `.pkl`, `.joblib`).
-
----
+- **MONAI** 
 
 ## 🚀 Installation & Setup
 
@@ -48,37 +42,17 @@ cd MedSwarmHub
 Then rely on the Makefile so you no longer run the manual prep scripts directly:
 
 ```bash
-make install        # install uv and synchronize requirements into .venv
-make setup          # copy .env (if missing), run PgBouncer setup, and generate TLS certificates
-# edit .env as needed before starting
+make install        # install uv and sync Python dependencies
+make env            # generate .env file with secure random secrets
 make start          # build the Docker services and bring them up
 ```
-
-Use `make stop` to tear the stack down, `make logs` to tail `medswarmhub`, and `make docs-serve`/`make docs-build` for MkDocs work.
-
-### 5. Cleanup targets
-
-Use `make deinstall` when you want to scrub everything and start from a clean slate; it stops the compose stack, prunes volumes/images/builder caches, and removes the uv-managed `.venv`, `.cache/uv`, generated `.secrets` folders, `staticfiles`, `_build`, `tmp`, and `workspaces` artifacts.
-
-Run `make deinstall-docker` if you only need to stop the containers, drop volumes, and prune Docker caches without touching the uv environment or generated files.
-
-### Tooling (uv)
-
-MedSwarmHub relies on uv for Python dependency management. The root Makefile installs uv when needed and synchronizes `requirements.txt` into `.venv`, so running the install target is all you need to provision the local Python tooling:
-
-```bash
-make install
-```
-
-Use the Makefile to run documentation helpers (`make docs-serve`, `make docs-build`) or docker shortcuts (`make compose-up`, `make compose-down`).
 
 ### 4. Initialize Superuser
 ```bash
 make superuser
 ```
 
----
-### Documentation
+## Documentation
 ```bash
 make docs-serve
 ```

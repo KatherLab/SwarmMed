@@ -1,5 +1,4 @@
-"""
-Custom Logging Handlers for the logs app.
+"""Custom Logging Handlers for the logs app.
 Defines a handler that writes log records directly into the Django database.
 """
 
@@ -13,14 +12,12 @@ _internal_logger = logging.getLogger("app")
 
 
 class DatabaseLogHandler(logging.Handler):
-    """
-    A custom logging handler that redirects Python logging output
+    """A custom logging handler that redirects Python logging output
     into the database as LogEntry records.
     """
 
     def emit(self, record):
-        """
-        Process a single log record and offload it to a Celery task
+        """Process a single log record and offload it to a Celery task
         for asynchronous database storage.
         """
         try:

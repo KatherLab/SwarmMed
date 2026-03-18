@@ -1,5 +1,4 @@
-"""
-Signal handlers for the users application.
+"""Signal handlers for the users application.
 Listens for database events related to the User model to automatically
 manage associated Profile instances.
 """
@@ -12,6 +11,7 @@ from django.contrib.auth.signals import (
 )
 from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
+
 from logs.logger import get_logger
 
 from .models import ROLE_CHOICES, Profile
@@ -19,8 +19,13 @@ from .models import ROLE_CHOICES, Profile
 
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
-    """
-    Automatically creates a Profile instance whenever a new User is created.
+    """Automatically creates a Profile instance whenever a new User is created.
+
+    Args:
+        sender (Type[User]): The model class.
+        instance (User): The actual instance being saved.
+        created (bool): A boolean; True if a new record was created.
+        **kwargs: Additional keyword arguments.
     """
     if created:
         if instance.is_superuser:
@@ -33,8 +38,12 @@ def create_user_profile(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=User)
 def save_user_profile(sender, instance, **kwargs):
-    """
-    Ensures the Profile is saved whenever the User is saved.
+    """Ensures the Profile is saved whenever the User is saved.
+
+    Args:
+        sender (Type[User]): The model class.
+        instance (User): The actual instance being saved.
+        **kwargs: Additional keyword arguments.
     """
     # This handles updates to existing users.
     try:
@@ -48,9 +57,14 @@ def save_user_profile(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Profile)
 def sync_role_to_group(sender, instance, **kwargs):
-    """
-    Synchronizes the Profile.role with Django's built-in Group system.
+    """Synchronizes the Profile.role with Django's built-in Group system.
+
     This ensures roles are visible and manageable via the standard Django admin.
+
+    Args:
+        sender (Type[Profile]): The model class.
+        instance (Profile): The actual instance being saved.
+        **kwargs: Additional keyword arguments.
     """
     user = instance.user
     role = instance.role
@@ -74,9 +88,17 @@ def sync_role_to_group(sender, instance, **kwargs):
 
 @receiver(m2m_changed, sender=User.groups.through)
 def sync_group_to_role(sender, instance, action, reverse, pk_set, **kwargs):
-    """
-    Synchronizes Django Groups back to Profile.role when groups are modified.
+    """Synchronizes Django Groups back to Profile.role when groups are modified.
+
     This allows managing roles via the standard User admin Groups section.
+
+    Args:
+        sender (Type[User]): The model class.
+        instance (User): The actual instance being saved.
+        action (str): The type of change (e.g., 'post_add').
+        reverse (bool): If True, the relationship is being updated from the other side.
+        pk_set (set): The set of primary keys being added or removed.
+        **kwargs: Additional keyword arguments.
     """
     if action in ["post_add", "post_remove", "post_clear"] and not reverse:
         # Avoid recursion: sync_role_to_group also modifies groups.
@@ -106,8 +128,13 @@ def sync_group_to_role(sender, instance, action, reverse, pk_set, **kwargs):
 
 @receiver(user_logged_in)
 def log_user_login(sender, request, user, **kwargs):
-    """
-    Logs successful user login events.
+    """Logs successful user login events.
+
+    Args:
+        sender (Type[User]): The model class.
+        request (HttpRequest): The current request instance.
+        user (User): The user that just logged in.
+        **kwargs: Additional keyword arguments.
     """
     logger = get_logger(user=user)
     ip_address = request.META.get("REMOTE_ADDR")
@@ -118,8 +145,13 @@ def log_user_login(sender, request, user, **kwargs):
 
 @receiver(user_logged_out)
 def log_user_logout(sender, request, user, **kwargs):
-    """
-    Logs user logout events.
+    """Logs user logout events.
+
+    Args:
+        sender (Type[User]): The model class.
+        request (HttpRequest): The current request instance.
+        user (User): The user that just logged out.
+        **kwargs: Additional keyword arguments.
     """
     logger = get_logger(user=user)
     logger.auth.info("User logged out")
@@ -127,8 +159,13 @@ def log_user_logout(sender, request, user, **kwargs):
 
 @receiver(user_login_failed)
 def log_login_failed(sender, credentials, request, **kwargs):
-    """
-    Logs failed login attempts.
+    """Logs failed login attempts.
+
+    Args:
+        sender (Type[User]): The model class.
+        credentials (dict): The credentials used for login.
+        request (HttpRequest): The current request instance.
+        **kwargs: Additional keyword arguments.
     """
     username = credentials.get("username", "unknown")
     ip_address = request.META.get("REMOTE_ADDR") if request else "unknown"

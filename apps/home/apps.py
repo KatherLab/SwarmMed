@@ -1,18 +1,19 @@
-"""
-Configuration for the Home application.
-This module defines the HomeConfig class which Django uses to manage the app's lifecycle.
+"""App configuration for the home app.
+
+Defines the metadata and initialization settings for the home application.
 """
 
 from django.apps import AppConfig
 
 
 class HomeConfig(AppConfig):
-    """
-    Standard Django AppConfig for the 'home' application.
+    """Configuration class for the home application.
+
+    Attributes:
+        default_auto_field (str): The name of the field to use for primary keys
+            when none is specified.
+        name (str): The full Python path to the application.
     """
 
-    # Specifies the type of auto-generated primary key for models in this app.
     default_auto_field = "django.db.models.BigAutoField"
-
-    # The full Python path to the application.
     name = "home"

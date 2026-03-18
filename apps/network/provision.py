@@ -1,5 +1,5 @@
-"""
-NVFlare Provisioning Logic.
+"""NVFlare Provisioning Logic.
+
 Handles the generation of project.yml and execution of 'nvflare provision'
 to create secure startup kits for federated learning participants.
 """
@@ -12,17 +12,23 @@ import subprocess  # nosec B404
 from pathlib import Path
 
 import yaml
-from common.utils import get_safe_slug, get_s3_client
 from django.conf import settings
 from django.utils.text import slugify
+
+from common.utils import get_s3_client
 from logs.logger import get_logger
 
 from .models import SwarmNetwork
 
 
 def is_valid_ip(ip):
-    """
-    Basic validation for IPv4 addresses or 'host.docker.internal'.
+    """Basic validation for IPv4 addresses or 'host.docker.internal'.
+
+    Args:
+        ip (str): The IP address or hostname to validate.
+
+    Returns:
+        bool: True if the input is a valid IPv4 address or 'host.docker.internal', False otherwise.
     """
     if ip == "host.docker.internal":
         return True
@@ -38,8 +44,7 @@ def generate_flare_startup_kit(
     server_ip=None,
     ha_servers=None,
 ):
-    """
-    Generates the startup kits for a given SwarmNetwork using NVFlare.
+    """Generates the startup kits for a given SwarmNetwork using NVFlare.
 
     This function:
     1. Creates a workspace directory for the specific network.
@@ -47,6 +52,13 @@ def generate_flare_startup_kit(
     3. Fetches optional project requirements from S3 storage.
     4. Runs the NVFlare Lighter provisioning tool.
     5. Updates configuration files with the provided server IP if applicable.
+
+    Args:
+        network_id (uuid): The identifier of the SwarmNetwork.
+        local_test (bool): Whether to generate a local test setup. Defaults to False.
+        clients (list): List of client configuration dictionaries. Defaults to None.
+        server_ip (str): The public/accessible IP of the server. Defaults to None.
+        ha_servers (list): Reserved for future HA server support. Defaults to None.
     """
     if clients is None:
         clients = []
@@ -347,8 +359,7 @@ def generate_flare_startup_kit(
         result = subprocess.run(  # nosec B603
             command,
             cwd=provision_dir,
-            capture_output=True,
-            text=True,
+            capture_output=True, text=True,
             check=True,
         )
 

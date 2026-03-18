@@ -1,3 +1,9 @@
+"""Utility functions for performing system backups and restores.
+
+This module provides the core logic for backing up databases, media files,
+and S3 storage, as well as encrypting and storing the resulting archives.
+"""
+
 import base64
 import hashlib
 import os
@@ -20,13 +26,30 @@ from .models import BackupStatus, StorageBackend
 
 
 def _is_within_directory(base_path, target_path):
+    """Helper to check if a path is within a directory.
+
+    Args:
+        base_path (str): The base directory path.
+        target_path (str): The target path to check.
+
+    Returns:
+        bool: True if target_path is within base_path, False otherwise.
+    """
     base = os.path.realpath(base_path)
     target = os.path.realpath(target_path)
     return target == base or target.startswith(f"{base}{os.sep}")
 
 
 def safe_extract_tar(archive, destination):
-    """Safely extract tar files without allowing traversal or symlink abuse."""
+    """Safely extract tar files without allowing traversal or symlink abuse.
+
+    Args:
+        archive (tarfile.TarFile): The tar archive to extract.
+        destination (str): The destination directory path.
+
+    Raises:
+        Exception: If a member would extract outside the destination or is a symlink.
+    """
     dest = Path(destination).resolve()
     for member in archive.getmembers():
         member_path = dest / member.name
@@ -36,13 +59,19 @@ def safe_extract_tar(archive, destination):
             )
         if not _is_within_directory(dest, member_path):
             raise Exception(
-                f"Archive member '{member.name}' would extract outside of {dest}. Aborting restore."
+                f"Archive member '{member.name}' would extract outside of {dest}."
+                " Aborting restore."
             )
     # Bandit B202: members are validated for traversal and symlinks above.
     archive.extractall(path=dest)  # nosec B202
 
 
 def get_fernet():
+    """Creates a Fernet encryption instance using the configured backup key.
+
+    Returns:
+        cryptography.fernet.Fernet: A Fernet instance for encryption/decryption.
+    """
     key = base64.urlsafe_b64encode(
         hashlib.sha256(settings.BACKUP_ENCRYPTION_KEY.encode()).digest()
     )
@@ -50,15 +79,24 @@ def get_fernet():
 
 
 def get_backup_storage(config):
-    """
-    Returns a storage instance for the backup destination.
+    """Returns a storage instance for the backup destination.
+
     If custom S3 credentials are provided, returns a custom S3Boto3Storage.
     Otherwise, returns the default storage.
+
+    Args:
+        config (BackupConfiguration): The backup configuration to use.
+
+    Returns:
+        django.core.files.storage.Storage: A configured storage instance.
     """
-    if config.storage_backend == StorageBackend.S3:
-        if config.s3_access_key_id and config.s3_secret_access_key:
-            return S3Boto3Storage(
-                access_key=config.s3_access_key_id,
+    if (
+        config.storage_backend == StorageBackend.S3
+        and config.s3_access_key_id
+        and config.s3_secret_access_key
+    ):
+        return S3Boto3Storage(
+            access_key=config.s3_access_key_id,
                 secret_key=config.s3_secret_access_key,
                 bucket_name=config.s3_bucket
                 or settings.AWS_STORAGE_BUCKET_NAME,
@@ -71,8 +109,10 @@ def get_backup_storage(config):
 
 
 def check_postgres_tools():
-    """
-    Verifies that necessary PostgreSQL client tools are available in the system PATH.
+    """Verifies that necessary PostgreSQL client tools are available in the system PATH.
+
+    Raises:
+        Exception: If any required PostgreSQL tools are missing.
     """
     tools = ["pg_dump", "pg_restore", "psql", "createdb", "dropdb"]
     missing = [tool for tool in tools if shutil.which(tool) is None]
@@ -83,6 +123,15 @@ def check_postgres_tools():
 
 
 def backup_database(db_alias, output_path):
+    """Dumps a PostgreSQL database to a file.
+
+    Args:
+        db_alias (str): The database alias from settings.DATABASES.
+        output_path (str): The path where the dump file should be saved.
+
+    Raises:
+        Exception: If the pg_dump command fails.
+    """
     check_postgres_tools()
     db_settings = settings.DATABASES[db_alias]
     env = os.environ.copy()
@@ -113,6 +162,17 @@ def backup_database(db_alias, output_path):
 
 
 def restore_database(db_alias, input_path):
+    """Restores a PostgreSQL database from a dump file.
+
+    Drops the existing database and recreates it before restoring.
+
+    Args:
+        db_alias (str): The database alias from settings.DATABASES.
+        input_path (str): The path to the database dump file.
+
+    Raises:
+        Exception: If any of the database commands fail.
+    """
     check_postgres_tools()
     db_settings = settings.DATABASES[db_alias]
     env = os.environ.copy()
@@ -194,8 +254,13 @@ def restore_database(db_alias, input_path):
 
 
 def is_same_s3_destination(config):
-    """
-    Checks if the backup destination is the same as the source S3 bucket.
+    """Checks if the backup destination is the same as the source S3 bucket.
+
+    Args:
+        config (BackupConfiguration): The backup configuration to check.
+
+    Returns:
+        bool: True if source and destination buckets/endpoints match, False otherwise.
     """
     if config.storage_backend != StorageBackend.S3:
         return False
@@ -210,8 +275,11 @@ def is_same_s3_destination(config):
 
 
 def backup_s3_storage(target_dir, exclude_prefix):
-    """
-    Downloads all objects from the default system S3 storage to a local directory.
+    """Downloads all objects from the default system S3 storage to a local directory.
+
+    Args:
+        target_dir (str): The local directory to save S3 objects to.
+        exclude_prefix (str, optional): A prefix to exclude from the backup.
     """
     s3_dir = os.path.join(target_dir, "s3_storage")
     os.makedirs(s3_dir, exist_ok=True)
@@ -228,9 +296,11 @@ def backup_s3_storage(target_dir, exclude_prefix):
             local_file_path = os.path.join(s3_dir, full_s3_path)
             os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
 
-            with default_storage.open(full_s3_path, "rb") as s3_file:
-                with open(local_file_path, "wb") as local_file:
-                    local_file.write(s3_file.read())
+            with (
+                default_storage.open(full_s3_path, "rb") as s3_file,
+                open(local_file_path, "wb") as local_file,
+            ):
+                local_file.write(s3_file.read())
 
         for directory in dirs:
             if directory:
@@ -240,8 +310,10 @@ def backup_s3_storage(target_dir, exclude_prefix):
 
 
 def restore_s3_storage(source_dir):
-    """
-    Uploads all objects from a local directory back to the default system S3 storage.
+    """Uploads all objects from a local directory back to the default system S3 storage.
+
+    Args:
+        source_dir (str): The local directory containing the S3 objects to restore.
     """
     s3_src_dir = os.path.join(source_dir, "s3_storage")
     if not os.path.exists(s3_src_dir):
@@ -259,6 +331,17 @@ def restore_s3_storage(source_dir):
 
 
 def perform_backup(log_obj):
+    """Orchestrates the full backup process for a given log object.
+
+    Includes database dumps, media file copying, S3 object retrieval,
+    tarball creation, encryption, and final storage.
+
+    Args:
+        log_obj (BackupLog): The backup log instance to process.
+
+    Raises:
+        Exception: If any part of the backup process fails.
+    """
     config = log_obj.config
     temp_dir = os.path.join(settings.PROJECT_TEMP_DIR, str(log_obj.identifier))
     os.makedirs(temp_dir, exist_ok=True)
@@ -343,6 +426,17 @@ def perform_backup(log_obj):
 
 
 def perform_restore(log_obj):
+    """Orchestrates the full restore process from a given log object.
+
+    Includes file retrieval, decryption, extraction, database restoration,
+    media file restoration, and S3 object restoration.
+
+    Args:
+        log_obj (BackupLog): The backup log instance containing the backup to restore.
+
+    Raises:
+        Exception: If any part of the restore process fails.
+    """
     config = log_obj.config
     temp_dir = os.path.join(
         settings.PROJECT_TEMP_DIR, f"restore_{log_obj.identifier}"

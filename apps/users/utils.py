@@ -1,16 +1,18 @@
-"""
-Utility functions for the users application.
+"""Utility functions for the users application.
 Includes helper functions for filtering user lists based on request parameters.
 """
 
 
 def user_filter(request):
-    """
-    Parses the GET parameters from an HTTP request and converts them into
-    a dictionary of Django database filters.
+    """Parses GET parameters to create Django database filters.
 
-    Currently supports:
-    - search: Filters by username (case-insensitive contains).
+    Currently supports searching by username.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request containing GET parameters.
+
+    Returns:
+        dict: A dictionary of Django filter lookups.
     """
     filter_dict = {}
 
@@ -29,13 +31,14 @@ def user_filter(request):
 
 
 def anonymize_user_data(user):
-    """
-    Pseudonymizes user-linked metadata in audit logs without modifying
-    cryptographically signed log content.
+    """Pseudonymizes user-linked metadata in audit logs.
 
     Important: We intentionally do NOT edit signed message bodies because that
     would invalidate tamper-evidence guarantees. Instead, we detach the user FK
     and replace user_identifier with a pseudonymous value.
+
+    Args:
+        user (User): The user object to anonymize.
     """
     from logs.models import LogEntry
 

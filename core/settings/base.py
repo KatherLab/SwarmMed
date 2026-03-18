@@ -1,5 +1,4 @@
-"""
-Django settings for the MedSwarmHub project.
+"""Django settings for the MedSwarmHub project.
 This file contains the configuration for the entire web application, including
 database connections, security keys, installed apps, and middleware.
 """

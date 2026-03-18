@@ -1,17 +1,17 @@
-"""
-Celery tasks for the data app.
-Handles background execution of data validation and visualization scripts
-to keep the web interface responsive during long-running computations.
+"""Celery tasks for the data app.
+
+This module handles the asynchronous execution of data validation and visualization
+scripts within a secure sandbox environment. These tasks ensure that long-running
+computations do not block the main web interface.
 """
 
 import base64
-import json
 import os
-import traceback
 
-from celery import shared_task
 from django.core.files.base import ContentFile
 from django.utils import timezone
+
+from celery import shared_task
 from logs import logger
 from logs.context import set_context
 from logs.utils import format_exception
@@ -28,8 +28,18 @@ from .sandbox import run_script_in_sandbox
 
 @shared_task(bind=True)
 def run_validation_task(self, validation_run_id):
-    """
-    Background task to execute a user's data validation script.
+    """Background task to execute a user's data validation script.
+
+    This task prepares a temporary filesystem, wraps the user's script with a
+    `ValidationHelper`, and executes it in a Docker sandbox. The results are
+    then parsed and saved back to the database.
+
+    Args:
+        self (Task): The Celery task instance (bound task).
+        validation_run_id (str): The ID of the `ValidationRun` to execute.
+
+    Returns:
+        dict: A dictionary containing the 'success' status and optional 'error' message.
     """
     try:
         validation_run = ValidationRun.objects.get(id=validation_run_id)
@@ -67,17 +77,36 @@ import fsspec
 from urllib.parse import urlparse
 
 class ValidationHelper:
+    \"\"\"Helper class injected into the sandbox for data validation.
+
+    Provides methods to list files, open them for reading via streaming,
+    and report validation checks.
+    \"\"\"
+
     def __init__(self, manifest_file, output_file):
+        \"\"\"Initializes the ValidationHelper.
+
+        Args:
+            manifest_file: Path to the JSON manifest file.
+            output_file: Path where the results JSON will be saved.
+        \"\"\"
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.output_file = output_file
         self.checks = []
         # Initialize internal streaming filesystem.
-        # Request-level SSL verification is handled in self.open().
         self.fs = fsspec.filesystem("http")
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):
+        \"\"\"Updates manifest URLs to point to the internal MinIO endpoint.
+
+        Args:
+            manifest: The original manifest dictionary.
+
+        Returns:
+            dict: The updated manifest dictionary.
+        \"\"\"
         internal_host = "minio"
         first_url = next(iter(manifest.values()), "")
         scheme = "https" if first_url.startswith("https") else "http"
@@ -92,6 +121,14 @@ class ValidationHelper:
         return updated
 
     def add_check(self, name, status, message="", details=None):
+        \"\"\"Adds a validation check result.
+
+        Args:
+            name: Name of the check.
+            status: Status ('success', 'warning', 'error').
+            message: Summary message.
+            details: Additional JSON-serializable details.
+        \"\"\"
         self.checks.append({{
             'name': name,
             'status': status,
@@ -101,21 +138,57 @@ class ValidationHelper:
         self._save()
 
     def get_data_path(self, relative_path=""):
+        \"\"\"Returns the internal URL for a given relative path.
+
+        Args:
+            relative_path: The path relative to the project root.
+
+        Returns:
+            str: The internal URL for the file.
+        \"\"\"
         if not relative_path: return "."
         return self.manifest.get(relative_path.lstrip("/"))
 
     def open(self, relative_path, mode='r', **kwargs):
+        \"\"\"Opens a file for streaming from S3.
+
+        Args:
+            relative_path: Path relative to the project root.
+            mode: File open mode. Defaults to 'r'.
+            **kwargs: Additional arguments passed to fsspec.open.
+
+        Returns:
+            file-like object: The opened file.
+
+        Raises:
+            FileNotFoundError: If the file is not in the manifest.
+        \"\"\"
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
-        # We pass ssl=False to individual requests to support internal MinIO.
         kwargs.setdefault("ssl", False)
         return self.fs.open(self.manifest[path], mode=mode, **kwargs)
 
     def exists(self, relative_path):
+        \"\"\"Checks if a file exists in the manifest.
+
+        Args:
+            relative_path: Path relative to the project root.
+
+        Returns:
+            bool: True if the file exists, False otherwise.
+        \"\"\"
         return relative_path.lstrip("/") in self.manifest
 
     def listdir(self, relative_path=""):
+        \"\"\"Lists files in a given directory relative to the project root.
+
+        Args:
+            relative_path: Path relative to the project root.
+
+        Returns:
+            list: A list of file names.
+        \"\"\"
         path = relative_path.lstrip("/").rstrip("/")
         if not path:
             return list(self.manifest.keys())
@@ -123,6 +196,7 @@ class ValidationHelper:
         return [k[len(prefix):] for k in self.manifest.keys() if k.startswith(prefix)]
 
     def _save(self):
+        \"\"\"Saves current results to the results file.\"\"\"
         with open(self.output_file, 'w') as f:
             json.dump({{'checks': self.checks}}, f)
 
@@ -166,21 +240,31 @@ validation = ValidationHelper('/home/sandboxuser/data/data_manifest.json', 'resu
     except Exception as e:
         log = logger.get_logger()
         log.data.error(f"Validation task failed: {format_exception(e)}")
-        
+
         try:
             run = ValidationRun.objects.get(id=validation_run_id)
             run.status = "failed"
             run.error_message = str(e)
             run.save()
-        except:
+        except Exception:
             pass
         return {"success": False, "error": str(e)}
 
 
 @shared_task(bind=True)
 def run_visualization_task(self, visualization_run_id):
-    """
-    Background task to execute a user's data visualization script.
+    """Background task to execute a user's data visualization script.
+
+    This task prepares a temporary filesystem, wraps the user's script with a
+    `VisualizationHelper`, and executes it in a Docker sandbox. Generated plots
+    are captured as JSON/Base64 and saved as files in the database.
+
+    Args:
+        self (Task): The Celery task instance (bound task).
+        visualization_run_id (str): The ID of the `VisualizationRun` to execute.
+
+    Returns:
+        dict: A dictionary containing the 'success' status and optional 'error' message.
     """
     try:
         visualization_run = VisualizationRun.objects.get(id=visualization_run_id)
@@ -221,17 +305,23 @@ import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 
 class VisualizationHelper:
+    \"\"\"Helper class injected into the sandbox for data visualization.
+
+    Provides methods to list files, open them for reading via streaming,
+    and save Matplotlib plots.
+    \"\"\"
+
     def __init__(self, manifest_file, plots_dir):
         with open(manifest_file) as f:
             manifest = json.load(f)
         self.plots_dir = plots_dir
         self.plot_count = 0
         # Initialize internal streaming filesystem.
-        # Request-level SSL verification is handled in self.open().
         self.fs = fsspec.filesystem("http")
         self.manifest = self._process_manifest(manifest)
 
     def _process_manifest(self, manifest):
+        \"\"\"Updates manifest URLs to point to the internal MinIO endpoint.\"\"\"
         internal_host = "minio"
         first_url = next(iter(manifest.values()), "")
         scheme = "https" if first_url.startswith("https") else "http"
@@ -246,7 +336,11 @@ class VisualizationHelper:
         return updated
 
     def save_plot(self, title="Untitled Plot"):
+        \"\"\"Captures the current Matplotlib figure and saves it as PNG and SVG.
 
+        Args:
+            title (str): Title for the plot.
+        \"\"\"
         if self.plot_count >= 4:
             return
         self.plot_count += 1
@@ -273,21 +367,30 @@ class VisualizationHelper:
         plt.clf()
 
     def get_data_path(self, relative_path=""):
+        \"\"\"Returns the internal URL for a given relative path.\"\"\"
         if not relative_path: return "."
         return self.manifest.get(relative_path.lstrip("/"))
 
     def open(self, relative_path, mode='r', **kwargs):
+        \"\"\"Opens a file for streaming from S3.
+
+        Args:
+            relative_path (str): Path relative to the project root.
+            mode (str): File open mode. Defaults to 'r'.
+            **kwargs: Additional arguments passed to fsspec.open.
+        \"\"\"
         path = relative_path.lstrip("/")
         if path not in self.manifest:
             raise FileNotFoundError(f"File not in manifest: {{path}}")
-        # We pass ssl=False to individual requests to support internal MinIO.
         kwargs.setdefault("ssl", False)
         return self.fs.open(self.manifest[path], mode=mode, **kwargs)
 
     def exists(self, relative_path):
+        \"\"\"Checks if a file exists in the manifest.\"\"\"
         return relative_path.lstrip("/") in self.manifest
 
     def listdir(self, relative_path=""):
+        \"\"\"Lists files in a given directory relative to the project root.\"\"\"
         path = relative_path.lstrip("/").rstrip("/")
         if not path:
             return list(self.manifest.keys())
@@ -354,12 +457,12 @@ visualization = VisualizationHelper('/home/sandboxuser/data/data_manifest.json',
     except Exception as e:
         log = logger.get_logger()
         log.data.error(f"Visualization task failed: {format_exception(e)}")
-        
+
         try:
             run = VisualizationRun.objects.get(id=visualization_run_id)
             run.status = "failed"
             run.error_message = str(e)
             run.save()
-        except:
+        except Exception:
             pass
         return {"success": False, "error": str(e)}

@@ -1,12 +1,10 @@
-"""
-View functions for the users application.
+"""View functions for the users application.
 Handles authentication (sign in, sign up, sign out), password management,
 profile updates, and administrative user management.
 """
 
 import json
 
-from common.utils import get_safe_referer
 from django.contrib import messages
 from django.contrib.auth import logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -27,8 +25,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.decorators.http import require_POST
-from logs import logger
 
+from common.utils import get_safe_referer
+from logs import logger
 from users.forms import (
     AdminAddUserForm,
     ProfileForm,
@@ -44,19 +43,39 @@ from .decorators import admin_required
 
 
 def index(request):
-    """Simple index view for users (mainly for testing)."""
+    """Simple index view for users (mainly for testing).
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: The rendered response.
+    """
     return HttpResponse("INDEX Users")
 
 
 class UserPasswordChangeView(PasswordChangeView):
-    """View to allow users to change their password while logged in."""
+    """View to allow users to change their password while logged in.
+
+    Attributes:
+        template_name (str): The template used to render the password change form.
+        form_class (Form): The form class used for changing the password.
+    """
 
     template_name = "apps/users/auth/password-change.html"
     form_class = UserPasswordChangeForm
 
 
 class UserPasswordResetView(PasswordResetView):
-    """View to initiate the password reset process via email."""
+    """View to initiate the password reset process via email.
+
+    Attributes:
+        template_name (str): The template used to render the password reset form.
+        form_class (Form): The form class used for requesting a password reset.
+        success_url (str): The URL to redirect to after a successful reset request.
+        email_template_name (str): The template used for the password reset email.
+        subject_template_name (str): The template used for the email subject.
+    """
 
     template_name = "apps/users/auth/forgot-password.html"
     form_class = UserPasswordResetForm
@@ -66,7 +85,13 @@ class UserPasswordResetView(PasswordResetView):
 
 
 class UserPasswordResetConfirmView(PasswordResetConfirmView):
-    """View to finalize password reset after clicking the email link."""
+    """View to finalize password reset after clicking the email link.
+
+    Attributes:
+        template_name (str): The template used to render the reset confirmation form.
+        form_class (Form): The form class used for setting the new password.
+        success_url (str): The URL to redirect to after a successful password reset.
+    """
 
     template_name = "apps/users/auth/reset-password.html"
     form_class = UserSetPasswordForm
@@ -75,7 +100,14 @@ class UserPasswordResetConfirmView(PasswordResetConfirmView):
 
 @login_required
 def settings(request):
-    """Displays and handles updates for the logged-in user's settings."""
+    """Displays and handles updates for the logged-in user's settings.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: The rendered settings page.
+    """
     # Retrieve or create the Profile associated with the current user.
     user_profile, created = Profile.objects.get_or_create(
         user=request.user,
@@ -142,9 +174,15 @@ def settings(request):
 
 @login_required
 def change_password(request):
-    """
-    Handles a password change request using a simple POST method.
+    """Handles a password change request.
+
     Verifies the current password before setting the new one.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: A redirect to the referring page.
     """
     user = request.user
     if request.method == "POST":
@@ -173,9 +211,15 @@ def change_password(request):
 
 @admin_required
 def user_list(request):
-    """
-    Administrative view to list, search, and manage all users.
+    """Administrative view to list, search, and manage all users.
+
     Includes pagination and user creation capabilities.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: The rendered user list page.
     """
     # Generate database filters based on search queries in the GET parameters.
     filters = user_filter(request)
@@ -222,7 +266,17 @@ def user_list(request):
 
 @admin_required
 def delete_user(request, id):
-    """Deletes a user by their ID. Protected by admin requirement."""
+    """Deletes a user by their ID.
+
+    Protected by admin requirement.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+        id (int): The ID of the user to delete.
+
+    Returns:
+        HttpResponse: A redirect to the referring page.
+    """
     user_to_delete = get_object_or_404(User, id=id)
     # Anonymize logs before deletion to comply with GDPR
     anonymize_user_data(user_to_delete)
@@ -239,7 +293,15 @@ def delete_user(request, id):
 
 @admin_required
 def update_user(request, id):
-    """Updates a user's details (username, email, role) from the admin panel."""
+    """Updates a user's details from the admin panel.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+        id (int): The ID of the user to update.
+
+    Returns:
+        HttpResponse: A redirect to the referring page or user list.
+    """
     user_to_update = get_object_or_404(User, id=id)
 
     if request.method == "POST":
@@ -260,7 +322,15 @@ def update_user(request, id):
 
 @admin_required
 def user_change_password(request, id):
-    """Allows an administrator to forcefully reset a user's password."""
+    """Allows an administrator to forcefully reset a user's password.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+        id (int): The ID of the user whose password is being reset.
+
+    Returns:
+        HttpResponse: A redirect to the referring page or user list.
+    """
     user_to_change = get_object_or_404(User, id=id)
     log = logger.get_logger()
 
@@ -305,10 +375,20 @@ def user_change_password(request, id):
 @admin_required
 @require_POST
 def toggle_emergency_access(request, id):
-    """
-    Enables or disables emergency access for a user.
+    """Enables or disables emergency access for a user.
+
     Logs the event as CRITICAL for audit purposes (HIPAA requirement).
     Only superusers can perform this action to prevent recursive elevation.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+        id (int): The ID of the user for whom to toggle emergency access.
+
+    Returns:
+        HttpResponse: A redirect to the referring page.
+
+    Raises:
+        PermissionDenied: If the user is not a superuser.
     """
     if not request.user.is_superuser:
         log = logger.get_logger()
@@ -368,8 +448,13 @@ def toggle_emergency_access(request, id):
 
 @login_required
 def accept_terms(request):
-    """
-    Forces users to accept Terms and Privacy Policy before accessing the dashboard.
+    """Forces users to accept Terms and Privacy Policy.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: The rendered terms acceptance page or a redirect to dashboard.
     """
     profile = request.user.profile
 
@@ -402,8 +487,10 @@ def accept_terms(request):
 
 
 def cleanup_user_resources(user):
-    """
-    Cleans up external resources (like S3/MinIO objects) associated with the user.
+    """Cleans up external resources associated with the user.
+
+    Args:
+        user (User): The user object whose resources are being cleaned up.
     """
     # Delete S3 objects for each project authored by the user
     # Optimize with select_related to avoid N+1 queries
@@ -428,7 +515,14 @@ def cleanup_user_resources(user):
 
 @login_required
 def delete_own_account(request):
-    """Allows a user to delete their own account."""
+    """Allows a user to delete their own account.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: A redirect to the sign-in page or settings.
+    """
     if request.method == "POST":
         user = request.user
         # Anonymize logs before deletion to comply with GDPR
@@ -450,9 +544,13 @@ def delete_own_account(request):
 
 @login_required
 def update_cookie_consent(request):
-    """
-    Updates the user's cookie consent status in their profile.
-    This is called via AJAX from the cookie banner.
+    """Updates the user's cookie consent status.
+
+    Args:
+        request (HttpRequest): The HTTP request object containing consent data in JSON.
+
+    Returns:
+        HttpResponse: A response with status 204 on success or 400 on failure.
     """
     if request.method == "POST":
         try:
@@ -471,10 +569,13 @@ def update_cookie_consent(request):
 
 @login_required
 def export_user_data(request):
-    """
-    Exports the current user's data in JSON format for GDPR compliance (Data Portability).
-    Includes User model fields, Profile, Logs, Projects, Validation/Visualization runs, and Training Jobs.
-    Ensures third-party data in logs is redacted.
+    """Exports the current user's data in JSON format for GDPR compliance.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: A JSON response containing the user's data.
     """
     user = request.user
     profile = user.profile

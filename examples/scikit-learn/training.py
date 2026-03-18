@@ -15,9 +15,7 @@ SWARM_ROUNDS = 10
 
 
 def load_data(fs):
-    """
-    Reads all CSV files from the virtual filesystem and prepares them for Scikit-learn.
-    """
+    """Reads all CSV files from the virtual filesystem and prepares them for Scikit-learn."""
     file_list = fs.glob("*.csv")
 
     if not file_list:

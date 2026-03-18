@@ -1,5 +1,4 @@
-"""
-Forms for the users application.
+"""Forms for the users application.
 Defines the forms used for authentication, user creation, profile updates,
 and password management, with custom styling for the Tailwind CSS UI.
 """
@@ -26,7 +25,11 @@ AUTH_INPUT_CLASSES = (
 
 
 class AdminAddUserForm(UserCreationForm):
-    """Form used by admins to add new users without requiring legal agreement at creation."""
+    """Form used by admins to add new users without requiring legal agreement at creation.
+
+    Attributes:
+        role (ChoiceField): The role to assign to the new user.
+    """
 
     role = forms.ChoiceField(
         choices=ROLE_CHOICES,
@@ -46,6 +49,12 @@ class AdminAddUserForm(UserCreationForm):
         )
 
     def __init__(self, *args, **kwargs):
+        """Initializes the form and sets custom styling for all fields.
+
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+        """
         super().__init__(*args, **kwargs)
         for _field_name, field in self.fields.items():
             if not field.widget.attrs.get("placeholder"):
@@ -55,7 +64,11 @@ class AdminAddUserForm(UserCreationForm):
 
 
 class UserUpdateForm(forms.ModelForm):
-    """Form used by admins to update basic user information."""
+    """Form used by admins to update basic user information.
+
+    Attributes:
+        role (ChoiceField): The role assigned to the user.
+    """
 
     role = forms.ChoiceField(
         choices=ROLE_CHOICES,
@@ -70,6 +83,12 @@ class UserUpdateForm(forms.ModelForm):
         fields = ("username", "first_name", "last_name", "email")
 
     def __init__(self, *args, **kwargs):
+        """Initializes the form and sets custom styling for most fields.
+
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+        """
         super().__init__(*args, **kwargs)
         for field_name, field in self.fields.items():
             if field_name != "role":
@@ -167,7 +186,12 @@ class ProfileForm(forms.ModelForm):
         )
 
     def __init__(self, *args, **kwargs):
-        """Standardize widget attributes for the profile form."""
+        """Standardize widget attributes for the profile form.
+
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+        """
         super().__init__(*args, **kwargs)
 
         for _field_name, field in self.fields.items():

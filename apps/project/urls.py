@@ -1,5 +1,4 @@
-"""
-URL configuration for the project application.
+"""URL configuration for the project application.
 Maps web addresses to the view functions that handle project listing,
 creation, editing, deletion, and context management.
 """

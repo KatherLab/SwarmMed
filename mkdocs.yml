@@ -18,20 +18,17 @@ extra:
   generator: false
   social:
     - icon: fontawesome/solid/globe
-      link: https://odelia.ai
-      name: ODELIA Website
+      link: https://kather.ai
+      name: KatherLab Website
     - icon: fontawesome/brands/x-twitter 
-      link: https://twitter.com/ODELIA_ai
-      name: ODELIA on X
-    - icon: fontawesome/brands/linkedin 
-      link: https://www.linkedin.com/showcase/odelia-project
-      name: ODELIA on LinkedIn
+      link: https://x.com/katherlab
+      name: KatherLab on X
     - icon: fontawesome/brands/github 
-      link: https://github.com/odelia-ai
-      name: ODELIA on Github
+      link: https://github.com/KatherLab
+      name: KatherLab on Github
 
 copyright: >
-  &copy; 2025 Kather Lab –
+  &copy; 2026 Kather Lab –
   <a href="https://kather.ai">Imprint and Privacy Policy</a>  <a href="#__consent">Change cookie settings</a> 
 
 theme:

@@ -1,5 +1,4 @@
-"""
-Logging Context Management.
+"""Logging Context Management.
 Uses thread-local storage to track the current user and project context,
 making it easier to associate log entries with specific users or projects
 without passing objects through every function call.
@@ -14,8 +13,7 @@ _internal_logger = logging.getLogger("app")
 
 
 def set_context(user=None, project=None, network=None):
-    """
-    Manually set the logging context for the current thread.
+    """Manually set the logging context for the current thread.
     Useful for background tasks (like Celery) where request middleware isn't active.
     """
     _thread_locals.user = user
@@ -24,8 +22,7 @@ def set_context(user=None, project=None, network=None):
 
 
 def get_context():
-    """
-    Retrieves the current user, project and network from thread-local storage.
+    """Retrieves the current user, project and network from thread-local storage.
     If not explicitly set, it attempts to auto-detect from the Django request.
 
     Returns:
@@ -76,8 +73,7 @@ def get_context():
 
 
 class RequestContextMiddleware:
-    """
-    Middleware that captures the current request object into thread-local storage.
+    """Middleware that captures the current request object into thread-local storage.
     This allows the logger to automatically know which user is performing an action.
     """
 

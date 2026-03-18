@@ -1,5 +1,4 @@
-"""
-URL configuration for the results application.
+"""URL configuration for the results application.
 Maps web addresses to view functions for viewing results, downloading files,
 and managing visualization runs.
 """

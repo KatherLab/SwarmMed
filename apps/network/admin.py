@@ -1,20 +1,23 @@
-"""
-Admin configuration for the network app.
+"""Admin configuration for the network app.
+
 This file registers the models with the Django admin interface,
 allowing administrators to manage Swarm Networks and Participants.
 """
 
-from common.admin_filters import ProjectFilter_ByNetwork
 from django.contrib import admin, messages
 from django.utils.translation import ngettext
-from training.models import TrainingJob
 from unfold.admin import ModelAdmin, TabularInline
+
+from common.admin_filters import ProjectFilter_ByNetwork
+from training.models import TrainingJob
 
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .tasks import stop_swarm_network_task
 
 
 class SwarmParticipantInline(TabularInline):
+    """Inline admin for SwarmParticipant."""
+
     model = SwarmParticipant
     extra = 0
     fields = ("user", "role", "participant_id")
@@ -22,6 +25,8 @@ class SwarmParticipantInline(TabularInline):
 
 
 class TrainingJobInline(TabularInline):
+    """Inline admin for TrainingJob."""
+
     model = TrainingJob
     extra = 0
     fields = ("identifier", "status", "created_at")
@@ -31,9 +36,7 @@ class TrainingJobInline(TabularInline):
 
 @admin.register(SwarmNetwork)
 class SwarmNetworkAdmin(ModelAdmin):
-    """
-    Admin interface for SwarmNetwork model.
-    """
+    """Admin interface for SwarmNetwork model."""
 
     list_display = ("name", "project", "status", "author", "created_at")
     list_filter = ("status", "project")
@@ -64,8 +67,11 @@ class SwarmNetworkAdmin(ModelAdmin):
     actions = ["stop_selected_networks"]
 
     def stop_selected_networks(self, request, queryset):
-        """
-        Action to stop selected swarm networks using the celery task.
+        """Action to stop selected swarm networks using the celery task.
+
+        Args:
+            request (HttpRequest): The current HTTP request.
+            queryset (QuerySet): The selected SwarmNetwork instances.
         """
         count = 0
         for network in queryset:
@@ -101,9 +107,7 @@ class SwarmNetworkAdmin(ModelAdmin):
 
 @admin.register(SwarmParticipant)
 class SwarmParticipantAdmin(ModelAdmin):
-    """
-    Admin interface for SwarmParticipant model.
-    """
+    """Admin interface for SwarmParticipant model."""
 
     list_display = ("user", "network", "role", "participant_id")
     # Allow filtering participants by their role, network, and the project
@@ -114,9 +118,7 @@ class SwarmParticipantAdmin(ModelAdmin):
 
 @admin.register(UserCurrentNetwork)
 class UserCurrentNetworkAdmin(ModelAdmin):
-    """
-    Admin interface for tracking users' current active network.
-    """
+    """Admin interface for tracking users' current active network."""
 
     list_display = ("user", "network")
     search_fields = ("user__username", "network__name")

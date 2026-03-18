@@ -1,22 +1,27 @@
-"""
-Context processors for the communication app.
+"""Context processors for the communication app.
+
 These functions make certain data available globally in all templates
 without having to pass them explicitly in every view.
 """
 
 from django.core.cache import cache
 from django.db.models import Count, F, OuterRef, Q, Subquery
+
 from project.models import Project
 
 from .models import Message, ProjectBoardAccess
 
 
 def unread_messages(request):
-    """
-    Calculates the total number of unread direct messages and new project board posts
-    for the currently logged-in user.
+    """Calculates the total unread messages and new project board posts for a user.
 
-    This is used to show notification badges in the navigation bar.
+    Used to display notification badges in the navigation bar.
+
+    Args:
+        request (HttpRequest): The current HTTP request.
+
+    Returns:
+        dict: A dictionary containing the 'unread_message_count'.
     """
     # If the user is not logged in, they don't have any messages
     if not request.user.is_authenticated:

@@ -1,5 +1,4 @@
-"""
-Utility functions for the project application.
+"""Utility functions for the project application.
 Handles dynamic path generation for file uploads, processing of project members,
 and manual file management for complex directory uploads.
 """
@@ -12,45 +11,93 @@ import uuid
 
 from django.conf import settings
 from django.core.files.storage import default_storage
+
 from users.models import Profile
 
 
 def get_upload_path(instance, filename, subfolder):
-    """
-    Generates a standardized storage path for project-related files.
+    """Generates a standardized storage path for project-related files.
+
     The path structure is: <project-uuid>/<subfolder>/<filename>
+
+    Args:
+        instance (Project): The project model instance.
+        filename (str): The original name of the file.
+        subfolder (str): The subfolder name (e.g., 'code/training').
+
+    Returns:
+        str: The generated storage path.
     """
     return os.path.join(str(instance.identifier), subfolder, filename)
 
 
 def training_code_path(instance, filename):
-    """Specific path generator for training code scripts."""
+    """Specific path generator for training code scripts.
+
+    Args:
+        instance (Project): The project model instance.
+        filename (str): The original name of the file.
+
+    Returns:
+        str: The storage path for training code.
+    """
     return get_upload_path(instance, filename, "code/training")
 
 
 def requirements_path(instance, filename):
-    """Specific path generator for requirements.txt files."""
+    """Specific path generator for requirements.txt files.
+
+    Args:
+        instance (Project): The project model instance.
+        filename (str): The original name of the file.
+
+    Returns:
+        str: The storage path for requirements.
+    """
     return get_upload_path(instance, filename, "code/requirements")
 
 
 def data_validation_path(instance, filename):
-    """Specific path generator for data validation scripts."""
+    """Specific path generator for data validation scripts.
+
+    Args:
+        instance (Project): The project model instance.
+        filename (str): The original name of the file.
+
+    Returns:
+        str: The storage path for data validation scripts.
+    """
     return get_upload_path(instance, filename, "code/data_validation")
 
 
 def data_visualization_path(instance, filename):
-    """Specific path generator for dataset visualization scripts."""
+    """Specific path generator for dataset visualization scripts.
+
+    Args:
+        instance (Project): The project model instance.
+        filename (str): The original name of the file.
+
+    Returns:
+        str: The storage path for data visualization scripts.
+    """
     return get_upload_path(instance, filename, "code/data_visualization")
 
 
 def results_visualization_path(instance, filename):
-    """Specific path generator for results visualization scripts."""
+    """Specific path generator for results visualization scripts.
+
+    Args:
+        instance (Project): The project model instance.
+        filename (str): The original name of the file.
+
+    Returns:
+        str: The storage path for results visualization scripts.
+    """
     return get_upload_path(instance, filename, "code/results_visualization")
 
 
 def process_member_identifiers(project, member_identifiers):
-    """
-    Parses a string of UUIDs and adds the corresponding users to the project members.
+    """Parses a string of UUIDs and adds the corresponding users to the project.
 
     Args:
         project (Project): The project instance to update.
@@ -101,9 +148,7 @@ def process_member_identifiers(project, member_identifiers):
 
 
 def handle_training_code_upload(project, request):
-    """
-    Handles complex uploads where multiple files are uploaded at once,
-    preserving their relative directory structure.
+    """Handles complex multi-file uploads preserving directory structure.
 
     Args:
         project (Project): The project instance.
@@ -172,8 +217,7 @@ def handle_training_code_upload(project, request):
 
 
 def clean_folder_path(identifier, subfolder):
-    """
-    Deletes all files within a specific subfolder of a project.
+    """Deletes all files within a specific subfolder of a project.
 
     Args:
         identifier (uuid): Project's unique identifier.

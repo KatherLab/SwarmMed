@@ -1,5 +1,4 @@
-"""
-Views for the communication app.
+"""Views for the communication app.
 Contains the logic for displaying the chat dashboard, individual chat rooms,
 and project discussion boards.
 """
@@ -10,6 +9,7 @@ from django.core.cache import cache
 from django.db.models import Count, F, OuterRef, Q, Subquery
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+
 from logs import logger
 from project.decorators import project_membership_required
 from project.models import Project
@@ -20,9 +20,15 @@ from .models import Message, ProjectBoardAccess, ProjectPost
 
 @login_required
 def chat_dashboard(request):
-    """
-    Displays the main communication hub.
+    """Displays the main communication hub.
+
     Lists existing direct message conversations and active project boards.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+
+    Returns:
+        HttpResponse: The rendered chat dashboard page.
     """
     user = request.user
 
@@ -165,9 +171,14 @@ def chat_dashboard(request):
 
 @login_required
 def chat_room(request, user_id):
-    """
-    Displays the conversation history with a specific user and
-    processes new messages.
+    """Displays the conversation history with a specific user and processes new messages.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+        user_id (int): The ID of the other user in the conversation.
+
+    Returns:
+        HttpResponse: The rendered chat room page or a redirect after sending a message.
     """
     other_user = get_object_or_404(User, pk=user_id)
     user = request.user
@@ -226,9 +237,16 @@ def chat_room(request, user_id):
 @login_required
 @project_membership_required
 def project_board(request, project_id):
-    """
-    Displays the discussion board for a specific project.
+    """Displays the discussion board for a specific project.
+
     Allows members to post updates and questions.
+
+    Args:
+        request (HttpRequest): The HTTP request object.
+        project_id (int): The ID of the project whose board is being accessed.
+
+    Returns:
+        HttpResponse: The rendered project board page or a redirect after creating a post.
     """
     project = get_object_or_404(Project, pk=project_id)
     log = logger.get_logger(user=request.user, project=project)

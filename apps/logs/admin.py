@@ -1,5 +1,4 @@
-"""
-Admin configuration for the logs app.
+"""Admin configuration for the logs app.
 Registers the LogEntry model with the Django admin interface.
 """
 
@@ -11,8 +10,7 @@ from .models import LogEntry, LogSigningKey
 
 @admin.register(LogEntry)
 class LogEntryAdmin(ModelAdmin):
-    """
-    Configuration for the LogEntry model in the admin panel.
+    """Configuration for the LogEntry model in the admin panel.
     Provides filtering and search capabilities for administrators.
     """
 
@@ -74,8 +72,7 @@ class LogEntryAdmin(ModelAdmin):
 
 @admin.register(LogSigningKey)
 class LogSigningKeyAdmin(ModelAdmin):
-    """
-    Configuration for auditing LogSigningKeys.
+    """Configuration for auditing LogSigningKeys.
     Keys are critical for integrity and should be read-only.
     """
 

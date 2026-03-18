@@ -1,5 +1,8 @@
-"""
-Shared abstract models for the entire project.
+"""Shared abstract models for the entire project.
+
+This module provides base model classes that include common fields like
+UUID identifiers and timestamps, ensuring consistency across all
+database models in the application.
 """
 
 import uuid
@@ -8,9 +11,14 @@ from django.db import models
 
 
 class AbstractBaseModel(models.Model):
-    """
-    An abstract base class that provides a UUID identifier and
-    standard creation/update timestamps for all models.
+    """An abstract base class for all models in the project.
+
+    Provides a UUID identifier and standard creation/update timestamps.
+
+    Attributes:
+        identifier (UUID): Unique identifier for this object.
+        created_at (DateTimeField): The date and time this object was created.
+        updated_at (DateTimeField): The date and time this object was last updated.
     """
 
     identifier = models.UUIDField(
@@ -33,4 +41,5 @@ class AbstractBaseModel(models.Model):
     )
 
     class Meta:
+        """Meta options for AbstractBaseModel."""
         abstract = True

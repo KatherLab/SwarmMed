@@ -1,5 +1,4 @@
-"""
-Views for the network app.
+"""Views for the network app.
 Handles the orchestration of swarm networks, including provisioning,
 deployment (start/stop), status monitoring, and startup kit distribution.
 """
@@ -9,7 +8,6 @@ import os
 import secrets
 import shutil
 import zipfile
-import requests
 
 import yaml
 from django.contrib import messages
@@ -18,6 +16,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
+
 from logs.logger import get_logger
 from project.decorators import (
     project_context_required,
@@ -34,15 +33,16 @@ from .utils import (
     get_tailscale_ip,
     is_tailscale_connected,
 )
-from common.utils import get_safe_slug
 
 # Standard project-wide logger initialization
 logger = get_logger()
 
 
 def get_user_project(request):
-    """
-    Retrieves the identifier of the project currently active for the user.
+    """Retrieves the identifier of the project currently active for the user.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
 
     Returns:
         tuple: (project_uuid_string, is_valid_boolean)
@@ -60,6 +60,14 @@ def get_user_project(request):
 
 
 def _dedupe_keep_order(values):
+    """Removes duplicate values from a list while preserving the original order.
+
+    Args:
+        values (list): The list of values to deduplicate.
+
+    Returns:
+        list: A new list with duplicates removed, maintaining order.
+    """
     deduped = []
     for value in values:
         if value in deduped:
@@ -69,7 +77,18 @@ def _dedupe_keep_order(values):
 
 
 def _authenticate_participant_request(request, network):
-    """Authenticate machine-to-machine requests with shared gossip credentials."""
+    """Authenticates machine-to-machine requests with shared gossip credentials.
+
+    Checks for X-Gossip-Participant and X-Gossip-Token headers against
+    the network's shared secret.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network (SwarmNetwork): The network instance to authenticate against.
+
+    Returns:
+        SwarmParticipant: The authenticated participant instance, or None if failed.
+    """
     participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
     provided_token = request.headers.get("X-Gossip-Token")
     if not participant_id or not provided_token:
@@ -90,10 +109,16 @@ def _authenticate_participant_request(request, network):
 
 
 def _get_local_participant_status(swarm_network):
-    """
-    Heuristic to determine participant status from local server logs and container state.
-    On a Server node, it reads server logs to find Joined/Disconnected clients.
-    On a Client node, it verifies if the local participant's container is alive.
+    """Heuristically determines participant status from local server logs and containers.
+
+    On a Server node, it reads server logs to find joined or disconnected clients.
+    On a Client node, it verifies if the local participant's container is active.
+
+    Args:
+        swarm_network (SwarmNetwork): The network instance to check status for.
+
+    Returns:
+        dict: A mapping of participant IDs to their current status strings.
     """
     from django.core.cache import cache
     cache_key = f"network_status_{swarm_network.identifier}"
@@ -109,8 +134,9 @@ def _get_local_participant_status(swarm_network):
 
     if swarm_network.status == "RUNNING":
         try:
-            from .tasks import _container_name_for
             import subprocess
+
+            from .tasks import _container_name_for
             server_container = _container_name_for(swarm_network.identifier, "server")
             # Performance: Reduced tail from 12000 to 3000
             result = subprocess.run(
@@ -182,8 +208,9 @@ def _get_local_participant_status(swarm_network):
             if role == "server":
                 # Check if server container is actually running
                 try:
-                    from .tasks import _is_container_running, _container_name_for
                     import shutil
+
+                    from .tasks import _container_name_for, _is_container_running
                     docker_path = shutil.which("docker") or "docker"
                     env = os.environ.copy()
                     if _is_container_running(docker_path, _container_name_for(swarm_network.identifier, "server"), env):
@@ -302,8 +329,9 @@ def _get_local_participant_status(swarm_network):
         name = p.participant_id
         if status_map.get(name) in ["Offline", "Disconnected"] and p.ip == local_ip:
             try:
-                from .tasks import _is_container_running, _container_name_for
                 import shutil
+
+                from .tasks import _container_name_for, _is_container_running
                 docker_path = shutil.which("docker") or "docker"
                 env = os.environ.copy()
                 my_container = _container_name_for(swarm_network.identifier, name)
@@ -322,11 +350,19 @@ def _get_local_participant_status(swarm_network):
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
+
 @csrf_exempt
 def network_api_gossip(request, network_id):
-    """
-    SECURE Gossip Endpoint: Receives status "shouts" from peers.
+    """SECURE Gossip Endpoint: Receives status "shouts" from peers.
+
     Verifies Gossip Token and Sender IP for security.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the swarm network.
+
+    Returns:
+        JsonResponse: A response indicating acknowledgement or failure.
     """
     client_ip = request.META.get('REMOTE_ADDR')
     logger.network.info(
@@ -410,10 +446,13 @@ def network_api_gossip(request, network_id):
 
 
 def broadcast_network_status(network_id):
-    """
-    Helper to 'shout' local status to all peers in the network.
+    """Helper to 'shout' local status to all peers in the network.
+
     Includes engine-level enrollment info if we are the server.
     Optimized: Dispatches status updates asynchronously via Celery.
+
+    Args:
+        network_id (str): The identifier of the network to broadcast.
     """
     from .tasks import shout_to_peer_task
     network = SwarmNetwork.objects.filter(identifier=network_id).first()
@@ -476,9 +515,15 @@ def broadcast_network_status(network_id):
 @login_required
 @project_context_required
 def network(request):
-    """
-    Main dashboard for managing swarm networks within the active project.
+    """Main dashboard for managing swarm networks within the active project.
+
     Displays network statuses, connection info, and participant details.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: The rendered network dashboard.
     """
     current_project_uuid, _ = get_user_project(request)
 
@@ -565,9 +610,16 @@ def network(request):
 
 @csrf_exempt
 def network_api_status(request, network_id):
-    """
-    Internal API endpoint providing live participant status from local server logs.
+    """Internal API endpoint providing live participant status from local server logs.
+
     Authenticates via either Session or Gossip Token.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the swarm network.
+
+    Returns:
+        JsonResponse: A JSON mapping of participant statuses.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     source_participant = _authenticate_participant_request(request, swarm_network)
@@ -594,13 +646,18 @@ def network_api_status(request, network_id):
 @login_required
 @project_context_required
 def new_network(request):
-    """
-    Handles the creation of a new swarm network configuration.
+    """Handles the creation of a new swarm network configuration.
 
     Supports three methods:
     1. 'create': Provision a new network from a list of client names and IPs.
     2. 'upload': Import an existing FLARE startup kit zip file.
     3. 'local_test': Auto-generate a local-only testing network.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: A redirect to the network dashboard or the rendered form.
     """
     if request.method == "POST":
         creation_method = request.POST.get("creation_method")
@@ -948,7 +1005,7 @@ def new_network(request):
                             recovered_token = zip_ref.read(".gossip_token").decode("utf-8").strip()
                             if recovered_token:
                                 swarm_network.gossip_token = recovered_token
-                                log.network.info(f"Recovered shared gossip token from upload.")
+                                log.network.info("Recovered shared gossip token from upload.")
 
                         # 2. Recover Participant Metadata (The Master List)
                         if ".participants.json" in file_list:
@@ -1072,8 +1129,14 @@ def new_network(request):
 @login_required
 @project_membership_required
 def set_current_network(request, network_id):
-    """
-    Sets the specified network as the 'active' network for the current user.
+    """Sets the specified network as the 'active' network for the current user.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the network to set as current.
+
+    Returns:
+        HttpResponse: A redirect to the network dashboard.
     """
     network_obj = get_object_or_404(SwarmNetwork, identifier=network_id)
     current_project_relation = UserCurrentProject.objects.get(
@@ -1094,9 +1157,14 @@ def set_current_network(request, network_id):
 @login_required
 @project_membership_required
 def download_startup_kits(request, network_id):
-    """
-    Gathers the generated client startup kits (certs, config, start scripts),
-    packages them into a ZIP file, and returns it as a download.
+    """Gathers startup kits, packages them into a ZIP file, and returns it.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the swarm network.
+
+    Returns:
+        HttpResponse: The ZIP file download or a redirect with an error message.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     log = get_logger(user=request.user, project=swarm_network.project)
@@ -1131,9 +1199,14 @@ def download_startup_kits(request, network_id):
 @login_required
 @project_membership_required
 def start_swarm_network(request, network_id):
-    """
-    Triggers the asynchronous Celery task to start the swarm network containers
-    using containerized deployment.
+    """Triggers the asynchronous Celery task to start the swarm network containers.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the swarm network.
+
+    Returns:
+        HttpResponse: A redirect to the network dashboard.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     log = get_logger(user=request.user, project=swarm_network.project)
@@ -1153,9 +1226,14 @@ def start_swarm_network(request, network_id):
 @login_required
 @project_membership_required
 def stop_swarm_network(request, network_id):
-    """
-    Triggers the asynchronous Celery task to stop and remove swarm
-    network containers from containerized deployment.
+    """Triggers the asynchronous Celery task to stop and remove swarm containers.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the swarm network.
+
+    Returns:
+        HttpResponse: A redirect to the network dashboard.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     log = get_logger(user=request.user, project=swarm_network.project)
@@ -1175,9 +1253,14 @@ def stop_swarm_network(request, network_id):
 @login_required
 @project_membership_required
 def get_swarm_network_status(request, network_id):
-    """
-    AJAX endpoint that returns the current status of a network.
-    Used for live UI updates while provisioning or starting.
+    """Returns the current status of a network for live UI updates.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the swarm network.
+
+    Returns:
+        JsonResponse: A JSON object containing the status display string.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     return JsonResponse({"status": swarm_network.get_status_display()})
@@ -1187,9 +1270,16 @@ def get_swarm_network_status(request, network_id):
 @login_required
 @project_membership_required
 def delete_swarm_network(request, network_id):
-    """
-    Deletes a swarm network configuration and its associated files from disk.
+    """Deletes a swarm network configuration and its associated files from disk.
+
     Only the project author is permitted to delete networks.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        network_id (str): The ID of the swarm network.
+
+    Returns:
+        HttpResponse: A redirect to the network dashboard.
     """
     swarm_network = get_object_or_404(SwarmNetwork, identifier=network_id)
     log = get_logger(user=request.user, project=swarm_network.project)

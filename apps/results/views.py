@@ -1,5 +1,4 @@
-"""
-View functions for the results application.
+"""View functions for the results application.
 Handles displaying training results, starting/stopping visualization tasks,
 and downloading result files from S3.
 """
@@ -10,8 +9,6 @@ import os
 import re
 import zipfile
 
-from celery import current_app
-from common.utils import get_s3_client
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import models
@@ -25,6 +22,9 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
+
+from celery import current_app
+from common.utils import get_s3_client
 from logs import logger
 from project.decorators import (
     project_context_required,
@@ -45,8 +45,7 @@ _logger = logging.getLogger(__name__)
 
 
 def get_user_project(request):
-    """
-    Helper function to retrieve the user's currently active project.
+    """Helper function to retrieve the user's currently active project.
 
     Returns:
         (str or None, bool): (Project UUID string, Success flag)
@@ -66,8 +65,7 @@ def get_user_project(request):
 @project_context_required
 @ensure_csrf_cookie
 def results(request):
-    """
-    The main results dashboard view.
+    """The main results dashboard view.
     Synchronizes results from S3, lists available jobs, and displays result files.
     """
     current_project_uuid, _ = get_user_project(request)
@@ -239,9 +237,7 @@ def results(request):
 @require_POST
 @project_membership_required
 def start_results_visualization(request, job_id):
-    """
-    Triggers a background task to run the project's results visualization script.
-    """
+    """Triggers a background task to run the project's results visualization script."""
     current_project_uuid, _ = get_user_project(request)
 
     try:
@@ -358,9 +354,7 @@ def start_results_visualization(request, job_id):
 @login_required
 @require_POST
 def stop_results_visualization(request):
-    """
-    Stops a currently running visualization task.
-    """
+    """Stops a currently running visualization task."""
     run_id = request.POST.get("run_id")
     try:
         visualization_run = ResultsVisualizationRun.objects.get(
@@ -407,9 +401,7 @@ def stop_results_visualization(request):
 @login_required
 @project_membership_required
 def results_visualization_status(request, job_id):
-    """
-    API endpoint for the frontend to poll the status of a visualization run.
-    """
+    """API endpoint for the frontend to poll the status of a visualization run."""
     try:
         current_project_uuid, _ = get_user_project(request)
         project = get_object_or_404(Project, identifier=current_project_uuid)
@@ -498,9 +490,7 @@ def results_visualization_status(request, job_id):
 
 
 def _proxy_s3_download(request, key, filename):
-    """
-    Helper to proxy a file download from S3 through Django using StreamingHttpResponse.
-    """
+    """Helper to proxy a file download from S3 through Django using StreamingHttpResponse."""
     s3 = get_s3_client()
     bucket = settings.AWS_STORAGE_BUCKET_NAME
 
@@ -624,7 +614,8 @@ def _proxy_s3_download(request, key, filename):
 
 def _proxy_s3_download_file(key, filename):
     """Fully buffer the S3 object and return a plain HttpResponse to avoid any
-    streaming/range/chunked edge cases in Chrome/self-signed TLS setups."""
+    streaming/range/chunked edge cases in Chrome/self-signed TLS setups.
+    """
     s3 = get_s3_client()
     bucket = settings.AWS_STORAGE_BUCKET_NAME
 
@@ -649,8 +640,7 @@ def _proxy_s3_download_file(key, filename):
 @login_required
 @project_membership_required
 def download_result(request, result_id):
-    """
-    Serves a result file by proxying the download through Django.
+    """Serves a result file by proxying the download through Django.
     This avoids issues with self-signed certificates or inaccessible S3 hosts (e.g. Docker network).
     """
     try:
@@ -682,8 +672,7 @@ def download_result(request, result_id):
 @login_required
 @project_membership_required
 def download_all_results(request, project_id):
-    """
-    Gathers all result files for a project (or job) and provides them as a ZIP archive.
+    """Gathers all result files for a project (or job) and provides them as a ZIP archive.
     Logs the bulk access event.
     """
     try:
@@ -751,8 +740,7 @@ def download_all_results(request, project_id):
 @login_required
 @project_context_required
 def download_result_by_key(request):
-    """
-    Downloads a result file using its S3 key (passed as a GET parameter).
+    """Downloads a result file using its S3 key (passed as a GET parameter).
     Used as a fallback for results not yet indexed in the database.
     """
     current_project_uuid, _ = get_user_project(request)
@@ -777,9 +765,7 @@ def download_result_by_key(request):
 @login_required
 @project_membership_required
 def get_visualization_plot(request, plot_id, plot_type):
-    """
-    Proxies a visualization plot image from S3 through Django.
-    """
+    """Proxies a visualization plot image from S3 through Django."""
     current_project_uuid, _ = get_user_project(request)
     if not current_project_uuid:
         return HttpResponse("Plot data not found", status=404)

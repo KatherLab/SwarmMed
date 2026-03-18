@@ -1,5 +1,4 @@
-"""
-Unified Logger Interface.
+"""Unified Logger Interface.
 Provides a simple, object-oriented way to log messages into different categories
 while automatically handling user/project context and database persistence.
 """
@@ -15,8 +14,7 @@ _setup_done = False
 
 
 def _setup_logger():
-    """
-    Configures the internal Python logger with appropriate handlers.
+    """Configures the internal Python logger with appropriate handlers.
     Ensures that console and database handlers are only registered once.
     """
     global _setup_done
@@ -56,8 +54,7 @@ def _setup_logger():
 
 
 def log(level, message, category="project", user=None, project=None, network=None, **extra):
-    """
-    Core logging function that prepares metadata and triggers the Python logger.
+    """Core logging function that prepares metadata and triggers the Python logger.
 
     Args:
         level (str): Log level (INFO, ERROR, etc.)
@@ -71,7 +68,6 @@ def log(level, message, category="project", user=None, project=None, network=Non
     _setup_logger()
 
     # Get the current context (user/project/network) if not explicitly provided
-    from .context import get_context
     ctx_user, ctx_project, ctx_network = get_context()
     
     final_user = user or ctx_user
@@ -127,9 +123,8 @@ def log(level, message, category="project", user=None, project=None, network=Non
 
 
 class CategoryLogger:
-    """
-    Helper class that provides standard logging methods for a specific category.
-    Example usage: logger.data.info("Data processed")
+    """Helper class that provides standard logging methods for a specific category.
+    Example usage: logger.data.info("Data processed").
     """
 
     def __init__(self, category, user=None, project=None, network=None):
@@ -195,8 +190,7 @@ class CategoryLogger:
 
 
 class Logger:
-    """
-    Main Logger object that provides categorized access to the logging system.
+    """Main Logger object that provides categorized access to the logging system.
     Exposes properties for each defined LogCategory.
     """
 
@@ -215,9 +209,7 @@ class Logger:
         network=None,
         **kwargs,
     ):
-        """
-        Generic log method that allows specifying a category string.
-        """
+        """Generic log method that allows specifying a category string."""
         log(
             level,
             message,
@@ -279,8 +271,7 @@ class Logger:
 
 
 def get_logger(user=None, project=None, network=None) -> Logger:
-    """
-    The primary entry point to get a logger instance.
+    """The primary entry point to get a logger instance.
 
     Args:
         user: Optional User object (auto-detected from context if None)
@@ -291,7 +282,6 @@ def get_logger(user=None, project=None, network=None) -> Logger:
         Logger: A configured logger instance.
     """
     # Detect context if not provided
-    from .context import get_context
     ctx_user, ctx_project, ctx_network = get_context()
     
     final_user = user or ctx_user

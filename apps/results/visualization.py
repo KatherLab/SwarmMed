@@ -1,20 +1,16 @@
-"""
-Visualization context and utilities for the results application.
+"""Visualization context and utilities for the results application.
 Provides the bridge between user-written Python scripts and the project's
 stored data and model weights.
 """
 
-import base64
-import io
-import os
 import socket
 from urllib.parse import urlparse
 
+import fsspec
 import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import fsspec
+
 from data.filesystem import DataFileSystem
 from logs import logger
 from training.models import TrainingJob
@@ -26,8 +22,7 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 
 
 class ResultsVisualizationContext:
-    """
-    Context manager that provides a safe and easy-to-use API for
+    """Context manager that provides a safe and easy-to-use API for
     user-submitted visualization scripts.
     """
 
@@ -110,7 +105,7 @@ class ResultsVisualizationContext:
                     break
         
         if not url:
-            raise FileNotFoundError(f"Could not find model weights in manifest.")
+            raise FileNotFoundError("Could not find model weights in manifest.")
 
         # We pass ssl=False to individual requests to support internal MinIO.
         with self.fs.open(url, "rb", ssl=False) as f:

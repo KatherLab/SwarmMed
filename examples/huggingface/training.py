@@ -1,10 +1,13 @@
-import os
-import pandas as pd
-import torch
-import numpy as np
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
-from datasets import Dataset
 import flare_adapter
+import numpy as np
+import pandas as pd
+from datasets import Dataset
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+)
 
 SWARM_ROUNDS = 10
 

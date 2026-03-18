@@ -1,5 +1,4 @@
-"""
-Signal handlers for the logs application.
+"""Signal handlers for the logs application.
 Listen for data-modifying events in other applications to create audit entries.
 """
 
@@ -13,9 +12,7 @@ from .logger import get_logger
 
 @receiver(post_save)
 def log_model_save(sender, instance, created, **kwargs):
-    """
-    Generic signal handler to log the creation or update of important models.
-    """
+    """Generic signal handler to log the creation or update of important models."""
     app_label = sender._meta.app_label
     model_name = sender._meta.model_name
 
@@ -70,9 +67,7 @@ def log_model_save(sender, instance, created, **kwargs):
 
 @receiver(post_delete)
 def log_model_delete(sender, instance, **kwargs):
-    """
-    Generic signal handler to log the deletion of important models.
-    """
+    """Generic signal handler to log the deletion of important models."""
     app_label = sender._meta.app_label
     model_name = sender._meta.model_name
 
@@ -101,9 +96,7 @@ def log_model_delete(sender, instance, **kwargs):
 
 @receiver(m2m_changed)
 def log_m2m_changes(sender, instance, action, pk_set, **kwargs):
-    """
-    Logs changes to Many-to-Many relationships, like Project members.
-    """
+    """Logs changes to Many-to-Many relationships, like Project members."""
     model_name = instance._meta.model_name
 
     if model_name == "project" and "members" in str(sender):

@@ -1,15 +1,16 @@
-"""
-Models for the network app.
+"""Models for the network app.
+
 Defines the structure for Swarm Learning Networks, participants,
 and tracking active networks for users.
 """
 
 import secrets
 
-from common.fields import EncryptedCharField
-from common.models import AbstractBaseModel
 from django.contrib.auth.models import User
 from django.db import models
+
+from common.fields import EncryptedCharField
+from common.models import AbstractBaseModel
 from logs.logger import get_logger
 from project.models import Project
 
@@ -17,10 +18,20 @@ logger = get_logger()
 
 
 class SwarmNetwork(AbstractBaseModel):
-    """
-    Represents a Swarm Learning Network configuration.
+    """Represents a Swarm Learning Network configuration.
+
     This model tracks the provisioning and execution status of
     a decentralized learning setup.
+
+    Attributes:
+        name (CharField): Display name for the network.
+        description (TextField): Optional detailed description.
+        project (ForeignKey): The project this network belongs to.
+        author (ForeignKey): The user who created this network configuration.
+        status (CharField): Current lifecycle status.
+        admin_startup_dir (CharField): Optional path to admin startup kit.
+        gossip_token (EncryptedCharField): Shared secret for status sync.
+        creation_method (CharField): How the network was initialized.
     """
 
     # Possible states of a swarm network
@@ -89,14 +100,24 @@ class SwarmNetwork(AbstractBaseModel):
         help_text="How this network configuration was initialized."
     )
 
+    class Meta:
+        """Meta options for SwarmNetwork."""
+        ordering = ["-created_at"]
+
     @staticmethod
     def resolve_current(user) -> 'SwarmNetwork':
-        """
-        Heuristic to find the most relevant network for the user's current project context.
+        """Heuristic to find the most relevant network for the user's project context.
+
         Prioritizes:
         1. User's manually selected network (UserCurrentNetwork).
         2. Any network in the project that is currently 'RUNNING'.
         3. The most recently created 'PROVISIONED' network in the project.
+
+        Args:
+            user (User): The user for whom to resolve the current network.
+
+        Returns:
+            SwarmNetwork: The resolved current network, or None if not found.
         """
         from project.models import UserCurrentProject
         try:
@@ -135,16 +156,22 @@ class SwarmNetwork(AbstractBaseModel):
         return current_network
 
     def __str__(self):
-        """Returns a string representation of the network."""
+        """Returns a string representation of the network.
+
+        Returns:
+            str: The network name and associated project title.
+        """
         return f"{self.name} for Project {self.project.title}"
 
     def delete(self, *args, **kwargs):
-        """
-        Custom delete method to ensure associated Docker resources
-        and filesystem directories are cleaned up.
+        """Custom delete method to ensure associated resources are cleaned up.
 
         If the network is running, it transitions to STOPPING and
         triggers an async task to stop and then delete the record.
+
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
         """
         from .tasks import (
             cleanup_network_resources,
@@ -177,9 +204,18 @@ class SwarmNetwork(AbstractBaseModel):
 
 
 class SwarmParticipant(models.Model):
-    """
-    Represents a participant (server or client) in a Swarm Learning Network.
-    Each participant has a specific role and identifier within NVFlare.
+    """Represents a participant (server or client) in a Swarm Learning Network.
+
+    Attributes:
+        network (ForeignKey): The network this participant belongs to.
+        user (ForeignKey): The system user associated with this participant.
+        role (CharField): Role in the federated learning setup.
+        participant_id (CharField): Unique identifier used by FLARE.
+        org (CharField): Organization name.
+        ip (CharField): IP address or hostname.
+        status (CharField): Current gossip status.
+        last_seen (DateTimeField): When the participant was last seen.
+        gossip_token (EncryptedCharField): Participant-scoped secret.
     """
 
     ROLE_CHOICES = [
@@ -223,6 +259,8 @@ class SwarmParticipant(models.Model):
     )
 
     class Meta:
+        """Meta options for SwarmParticipant."""
+
         # Ensure that participant IDs are unique within a specific network
         unique_together = ("network", "participant_id")
         indexes = [
@@ -232,19 +270,31 @@ class SwarmParticipant(models.Model):
         ]
 
     def __str__(self):
-        """Returns a string representation of the participant."""
+        """Returns a string representation of the participant.
+
+        Returns:
+            str: Description of the participant's role and network.
+        """
         return f"{self.user.username} as {self.get_role_display()} in {self.network.name}"
 
     def save(self, *args, **kwargs):
+        """Saves the participant instance, generating a gossip token if missing.
+
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+        """
         if not self.gossip_token:
             self.gossip_token = secrets.token_hex(32)
         super().save(*args, **kwargs)
 
 
 class UserCurrentNetwork(AbstractBaseModel):
-    """
-    Model to track which network is currently active for a user.
-    This allows the UI to remember the user's focus.
+    """Model to track which network is currently active for a user.
+
+    Attributes:
+        user (OneToOneField): The user associated with the record.
+        network (ForeignKey): The specific network currently being focused on.
     """
 
     # Each user has exactly one 'current network' record
@@ -261,10 +311,16 @@ class UserCurrentNetwork(AbstractBaseModel):
     )
 
     class Meta:
+        """Meta options for UserCurrentNetwork."""
+
         # Extra safety to ensure uniqueness
         unique_together = ("user", "network")
 
     def __str__(self):
-        """Returns string representation."""
+        """Returns string representation.
+
+        Returns:
+            str: Description of the user's active network.
+        """
         network_name = self.network.name if self.network else "None"
         return f"Current network for {self.user.username}: {network_name}"

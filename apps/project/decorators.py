@@ -6,8 +6,7 @@ from .models import Project, UserCurrentProject
 
 
 def project_membership_required(view_func):
-    """
-    Decorator for views that require a user to be either the author or a member
+    """Decorator for views that require a user to be either the author or a member
     of a specific project, identified by a 'pk' or 'identifier' in the URL.
     """
 
@@ -50,8 +49,7 @@ def project_membership_required(view_func):
 
 
 def project_context_required(view_func):
-    """
-    Decorator for views that rely on a 'current' project being selected
+    """Decorator for views that rely on a 'current' project being selected
     via UserCurrentProject. Ensures the user is still a member.
     """
 

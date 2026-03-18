@@ -34,9 +34,7 @@ MEDICAL_ID_REGEX = r"(?:mrn|patient\s*id|record\s*number)[:\s]*([a-zA-Z0-9-]+)"
 
 
 def redact_phi(data):
-    """
-    Recursively redacts sensitive information from dictionaries or lists.
-    """
+    """Recursively redacts sensitive information from dictionaries or lists."""
     if isinstance(data, dict):
         redacted = {}
         for key, value in data.items():
@@ -64,9 +62,7 @@ def redact_phi(data):
 
 
 def redact_message(message):
-    """
-    Redacts sensitive information from a log message string.
-    """
+    """Redacts sensitive information from a log message string."""
     if not isinstance(message, str):
         return message
 
@@ -84,8 +80,7 @@ def redact_message(message):
 
 
 def bulk_create_signed_logs(log_entries):
-    """
-    Computes signatures and chains for a list of LogEntry objects
+    """Computes signatures and chains for a list of LogEntry objects
     and performs a bulk_create. This allows for high-volume logging
     (like container output) without sacrificing the tamper-evident audit trail.
     """
@@ -125,8 +120,7 @@ def bulk_create_signed_logs(log_entries):
 
 
 def format_exception(exc):
-    """
-    Formats an exception into a structured dictionary for logging.
+    """Formats an exception into a structured dictionary for logging.
     Includes type, message, and a redacted traceback.
     """
     return {

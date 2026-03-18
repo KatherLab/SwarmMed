@@ -1,5 +1,5 @@
-"""
-Utility functions for the training application.
+"""Utility functions for the training application.
+
 Handles communication with S3 for downloading training code
 and uploading results from the training workspace.
 """
@@ -13,9 +13,15 @@ from common.utils import get_s3_client
 
 
 def scrape_docker_progress(participant_ids=None):
-    """
-    Scrapes progress from local docker containers running NVFlare clients/servers.
-    Returns a list of dictionaries with extracted progress info.
+    """Scrapes progress from local docker containers running NVFlare clients/servers.
+
+    Args:
+        participant_ids (list, optional): List of participant IDs to filter containers.
+            Defaults to None.
+
+    Returns:
+        list: A list of dictionaries with extracted progress info (container, job_id,
+            rounds_finished, ended).
     """
     from logs.logger import get_logger
     log = get_logger()
@@ -128,9 +134,9 @@ def scrape_docker_progress(participant_ids=None):
 
 
 def download_s3_folder(bucket_name, s3_folder, local_dir):
-    """
-    Recursively downloads all contents from a specific folder (prefix) in S3
-    to a local directory. This is used to fetch the user's training code.
+    """Recursively downloads all contents from a specific folder (prefix) in S3 to a local directory.
+
+    This is used to fetch the user's training code.
 
     Args:
         bucket_name (str): The name of the S3 bucket.
@@ -158,16 +164,20 @@ def download_s3_folder(bucket_name, s3_folder, local_dir):
 
 
 def upload_file_to_s3(bucket_name, key, local_path):
-    """
-    Uploads a single file to S3.
+    """Uploads a single file to S3.
+
+    Args:
+        bucket_name (str): The name of the S3 bucket.
+        key (str): The key (path) in S3.
+        local_path (str): The local path of the file to upload.
     """
     s3 = get_s3_client()
     s3.upload_file(local_path, bucket_name, key)
 
 
 def upload_folder_to_s3(bucket_name, local_dir, prefix):
-    """
-    Uploads all relevant files from a local directory to S3.
+    """Uploads all relevant files from a local directory to S3.
+
     Specifically used to sync training results (weights, logs) while
     ignoring code and hidden files.
 

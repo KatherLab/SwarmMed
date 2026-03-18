@@ -1,8 +1,11 @@
-"""
-Shared utility functions for the entire application.
+"""Shared utility functions for the entire application.
+
+This module provides various helper functions for Docker interactions, S3 storage,
+API response formatting, and general utility tasks used across different apps.
 """
 
 import os
+import socket
 from urllib.parse import urlparse
 
 import boto3
@@ -14,10 +17,15 @@ from django.utils.text import slugify
 
 
 def get_docker_client(target="host"):
-    """
-    Returns a Docker client configured for a specific target.
-    'host' -> talk to the host via docker-proxy (Infra/Flare)
-    'sandbox' -> talk to sandbox-dind (User scripts)
+    """Returns a Docker client configured for a specific target.
+
+    Args:
+        target (str): The target environment. Can be 'host' to talk to the host via
+            docker-proxy (Infra/Flare) or 'sandbox' to talk to sandbox-dind (User scripts).
+            Defaults to "host".
+
+    Returns:
+        docker.DockerClient: A configured Docker client instance.
     """
     # Temporarily remove these to avoid interference
     cert_file = os.environ.pop("SSL_CERT_FILE", None)
@@ -53,9 +61,15 @@ def get_docker_client(target="host"):
 
 
 def get_host_path(container_path):
-    """
-    Translates a path inside the container to its absolute path on the host.
+    """Translates a path inside the container to its absolute path on the host.
+
     Required for Docker volume mounting when running in a DIND environment.
+
+    Args:
+        container_path (str): The absolute path within the current container.
+
+    Returns:
+        str: The corresponding absolute path on the host system.
     """
     host_project_path = os.getenv("HOST_PROJECT_PATH")
     if not host_project_path:
@@ -67,9 +81,12 @@ def get_host_path(container_path):
 
 
 def get_s3_client():
-    """
-    Creates and returns an S3 client using the internal network credentials.
+    """Creates and returns an S3 client using the internal network credentials.
+
     This client uses the internal endpoint URL (useful for server-to-server).
+
+    Returns:
+        botocore.client.S3: A configured S3 client for internal use.
     """
     return boto3.client(
         "s3",
@@ -81,9 +98,12 @@ def get_s3_client():
 
 
 def get_public_s3_client():
-    """
-    Creates and returns an S3 client using the public URL settings.
+    """Creates and returns an S3 client using the public URL settings.
+
     This is used for generating presigned URLs that work in the user's browser.
+
+    Returns:
+        botocore.client.S3: A configured S3 client for generating public URLs.
     """
     return boto3.client(
         "s3",
@@ -95,8 +115,13 @@ def get_public_s3_client():
 
 
 def format_size(size_bytes):
-    """
-    Converts a number of bytes into a human-readable string (e.g., '1.2 MB').
+    """Converts a number of bytes into a human-readable string (e.g., '1.2 MB').
+
+    Args:
+        size_bytes (int): The number of bytes to format.
+
+    Returns:
+        str: A human-readable size string.
     """
     if size_bytes == 0:
         return "0 B"
@@ -115,8 +140,14 @@ def format_size(size_bytes):
 
 
 def get_s3_download_url(key, expires=3600):
-    """
-    Generates a temporary presigned URL for downloading an S3 object.
+    """Generates a temporary presigned URL for downloading an S3 object.
+
+    Args:
+        key (str): The S3 object key.
+        expires (int): The number of seconds until the URL expires. Defaults to 3600.
+
+    Returns:
+        str: A presigned S3 download URL.
     """
     s3 = get_public_s3_client()
     url = s3.generate_presigned_url(
@@ -128,9 +159,16 @@ def get_s3_download_url(key, expires=3600):
 
 
 def get_internal_s3_download_url(key, expires=3600):
-    """
-    Generates a temporary presigned URL for internal use within the Docker network.
+    """Generates a temporary presigned URL for internal use within the Docker network.
+
     Ensures that the host in the URL is reachable from other containers.
+
+    Args:
+        key (str): The S3 object key.
+        expires (int): The number of seconds until the URL expires. Defaults to 3600.
+
+    Returns:
+        str: A presigned S3 download URL resolvable within the internal network.
     """
     s3 = get_s3_client()
     url = s3.generate_presigned_url(
@@ -144,7 +182,6 @@ def get_internal_s3_download_url(key, expires=3600):
     internal_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
     if not internal_host:
         # 1. Try to resolve 'minio' (standard internal name)
-        import socket
         try:
             socket.gethostbyname("minio")
             internal_host = "minio"
@@ -153,34 +190,41 @@ def get_internal_s3_download_url(key, expires=3600):
             public_url = getattr(settings, "PUBLIC_URL", "")
             if public_url:
                 parsed_public = urlparse(public_url)
-                if parsed_public.hostname and parsed_public.hostname not in {"localhost", "127.0.0.1"}:
+                if parsed_public.hostname and parsed_public.hostname not in {
+                    "localhost",
+                    "127.0.0.1",
+                }:
                     internal_host = parsed_public.hostname
-    
+
     if not internal_host:
         # Fallback to docker gateway
         internal_host = "172.17.0.1"
 
     # Robustly replace all local host candidates with a resolvable hostname
-    # We avoid replacing with 127.0.0.1 here because it breaks SSL/SNI checks
-    # in some libraries even when verification is disabled.
     if "localhost" in url:
         url = url.replace("localhost", internal_host)
     if "127.0.0.1" in url:
         url = url.replace("127.0.0.1", internal_host)
-    
+
     # Ensure 'minio' service name is used if internal_host was detected as something else
     # but the URL already points to minio (to avoid breaking existing working setups)
     if "://minio" in url and internal_host != "minio":
-        # Only replace if internal_host is a valid IP or external DNS name
         url = url.replace("://minio", f"://{internal_host}")
-    
+
     return url
 
 
 def get_safe_referer(request, default="/"):
-    """
-    Returns a safe referer URL or a default path if the referer is missing
-    or potentially malicious (open redirect).
+    """Returns a safe referer URL or a default path if the referer is missing or malicious.
+
+    Prevents open redirect vulnerabilities by validating the referer's host and scheme.
+
+    Args:
+        request (HttpRequest): The incoming Django request object.
+        default (str): The default path to return if the referer is unsafe. Defaults to "/".
+
+    Returns:
+        str: A validated safe referer path or the default.
     """
     referer = request.META.get("HTTP_REFERER")
     if not referer:
@@ -216,8 +260,15 @@ def get_safe_referer(request, default="/"):
 
 
 def api_success(data=None, message=None, status=200):
-    """
-    Returns a standardized JSON success response.
+    """Returns a standardized JSON success response.
+
+    Args:
+        data (dict, optional): Data to include in the 'data' field of the response.
+        message (str, optional): A descriptive message for the success.
+        status (int): The HTTP status code. Defaults to 200.
+
+    Returns:
+        JsonResponse: A Django JSON response with status 'success'.
     """
     payload = {"status": "success"}
     if data is not None:
@@ -228,8 +279,15 @@ def api_success(data=None, message=None, status=200):
 
 
 def api_error(message, errors=None, status=400):
-    """
-    Returns a standardized JSON error response.
+    """Returns a standardized JSON error response.
+
+    Args:
+        message (str): A descriptive error message.
+        errors (dict, optional): Specific field errors or details.
+        status (int): The HTTP status code. Defaults to 400.
+
+    Returns:
+        JsonResponse: A Django JSON response with status 'error'.
     """
     payload = {"status": "error", "message": message}
     if errors is not None:
@@ -238,7 +296,15 @@ def api_error(message, errors=None, status=400):
 
 
 def get_safe_slug(source_value, fallback):
-    """Return a filesystem-safe slug, falling back to provided identifier."""
+    """Returns a filesystem-safe slug, falling back to a provided identifier.
+
+    Args:
+        source_value (str): The value to slugify.
+        fallback (Any): The fallback value if the slugified source is empty.
+
+    Returns:
+        str: A URL and filesystem-safe slug.
+    """
     slug = slugify(source_value or "")
     if not slug:
         slug = str(fallback)

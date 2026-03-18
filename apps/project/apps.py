@@ -1,5 +1,4 @@
-"""
-Configuration for the Project application.
+"""Configuration for the Project application.
 This module defines the ProjectConfig class which Django uses to manage the app's lifecycle.
 """
 
@@ -7,9 +6,7 @@ from django.apps import AppConfig
 
 
 class ProjectConfig(AppConfig):
-    """
-    Standard Django AppConfig for the 'project' application.
-    """
+    """Standard Django AppConfig for the 'project' application."""
 
     # Specifies the type of auto-generated primary key for models in this app.
     # BigAutoField is a 64-bit integer, recommended for large databases.
@@ -19,8 +16,7 @@ class ProjectConfig(AppConfig):
     name = "project"
 
     def ready(self):
-        """
-        This method is called as soon as the application is loaded by Django.
+        """This method is called as soon as the application is loaded by Django.
         We use it to import signal handlers to ensure they are registered
         when the server starts.
         """

@@ -1,5 +1,4 @@
-"""
-Celery configuration for the MedSwarmHub project.
+"""Celery configuration for the MedSwarmHub project.
 This module initializes the Celery application and configures it to use
 the Django settings. It also enables automatic discovery of tasks in
 all registered Django apps.

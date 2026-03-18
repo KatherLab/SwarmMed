@@ -1,5 +1,4 @@
-"""
-Visualization utilities for the data app.
+"""Visualization utilities for the data app.
 Provides a context manager for executing visualization scripts,
 handling data access, and capturing matplotlib plots as Base64.
 """
@@ -9,6 +8,7 @@ import io
 
 import matplotlib
 import matplotlib.pyplot as plt
+
 from logs import logger
 
 from .filesystem import DataFileSystem
@@ -20,12 +20,26 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 
 
 class VisualizationContext:
-    """
-    Context manager that provides access to project data and utilities
-    for user-defined visualization scripts.
+    """Context manager that provides access to project data and utilities.
+
+    Used for executing user-defined visualization scripts.
+
+    Attributes:
+        project_uuid (str): The unique identifier of the project.
+        visualization_run_id (str): The unique identifier of the visualization run.
+        filesystem (DataFileSystem): The virtual filesystem for data access.
+        plots (list): A list of dictionaries containing plot data (base64 PNG and SVG).
+        current_plot_number (int): The number of plots saved during this run.
+        log (Logger): The logger instance.
     """
 
     def __init__(self, project_uuid: str, visualization_run_id: str):
+        """Initializes the VisualizationContext.
+
+        Args:
+            project_uuid (str): The unique identifier of the project.
+            visualization_run_id (str): The unique identifier of the visualization run.
+        """
         self.project_uuid = project_uuid
         self.visualization_run_id = visualization_run_id
         # Provide access to the virtual filesystem for reading data
@@ -36,12 +50,22 @@ class VisualizationContext:
         self.log = logger.get_logger()
 
     def __enter__(self):
-        """Initializes the filesystem context."""
+        """Initializes the filesystem context.
+
+        Returns:
+            VisualizationContext: The initialized context manager.
+        """
         self.filesystem.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Cleans up the filesystem and logs any errors."""
+        """Cleans up the filesystem and logs any errors.
+
+        Args:
+            exc_type: The type of the exception, if any.
+            exc_val: The exception instance, if any.
+            exc_tb: The traceback, if any.
+        """
         if exc_type:
             self.log.data.error(
                 f"Visualization context exited with error: {str(exc_val)}"
@@ -49,9 +73,15 @@ class VisualizationContext:
         self.filesystem.__exit__(exc_type, exc_val, exc_tb)
 
     def save_plot(self, title="Untitled Plot"):
-        """
-        Captures the current Matplotlib figure, encodes it as PNG and SVG,
-        and clears the figure for the next plot.
+        """Captures the current Matplotlib figure and encodes it as PNG and SVG.
+
+        Clears the figure for the next plot. Limits to 4 plots per run.
+
+        Args:
+            title (str, optional): The title for the plot. Defaults to "Untitled Plot".
+
+        Raises:
+            Exception: If plot saving fails.
         """
         # Limit to 4 plots per run to prevent excessive database/memory usage
         if self.current_plot_number >= 4:
@@ -109,8 +139,18 @@ class VisualizationContext:
             raise
 
     def open(self, relative_path: str, mode: str = "r", **kwargs):
-        """
-        Opens a project data file from S3 (via the virtual filesystem).
+        """Opens a project data file from S3 (via the virtual filesystem).
+
+        Args:
+            relative_path (str): The path to the file relative to the project root.
+            mode (str, optional): The mode in which to open the file. Defaults to "r".
+            **kwargs: Additional arguments for the file open operation.
+
+        Returns:
+            IO: The opened file object.
+
+        Raises:
+            Exception: If the file cannot be opened.
         """
         try:
             return self.filesystem.open(relative_path, mode, **kwargs)
@@ -119,14 +159,28 @@ class VisualizationContext:
             raise
 
     def exists(self, relative_path: str) -> bool:
-        """
-        Checks if a file exists in the project data.
+        """Checks if a file exists in the project data.
+
+        Args:
+            relative_path (str): The path to the file relative to the project root.
+
+        Returns:
+            bool: True if the file exists, False otherwise.
         """
         return self.filesystem.exists(relative_path)
 
     def listdir(self, relative_path: str = "") -> list:
-        """
-        Lists files in a project data directory.
+        """Lists files in a project data directory.
+
+        Args:
+            relative_path (str, optional): The directory path relative to the project root.
+                Defaults to "".
+
+        Returns:
+            list: A list of filenames in the directory.
+
+        Raises:
+            Exception: If the directory cannot be listed.
         """
         try:
             return self.filesystem.listdir(relative_path)
@@ -135,10 +189,17 @@ class VisualizationContext:
             raise
 
     def get_data_path(self, relative_path: str = "") -> str:
-        """
-        Returns a local filesystem path for a data file.
+        """Returns a local filesystem path for a data file.
+
         Useful for libraries that require a file path instead of a file handle.
+
+        Args:
+            relative_path (str, optional): The path to the file relative to the project root.
+                Defaults to "".
+
+        Returns:
+            str: The local absolute path to the data file or temporary directory.
         """
         if relative_path:
-            return self.filesystem.get_path(relative_path)
+            return self.filesystem.get_data_path(relative_path)
         return self.filesystem.temp_dir

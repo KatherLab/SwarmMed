@@ -3,16 +3,32 @@ from django.urls import reverse
 
 
 class GDPRRestrictionMiddleware:
-    """
-    Middleware that enforces the GDPR Right to Restriction.
+    """Middleware that enforces the GDPR Right to Restriction.
+
     If a user's profile is marked as 'is_restricted', they are blocked
     from accessing most platform features until the restriction is lifted.
+
+    Attributes:
+        get_response (Callable): The next middleware or view in the chain.
     """
 
     def __init__(self, get_response):
+        """Initialize the middleware.
+
+        Args:
+            get_response (Callable): The next middleware or view in the chain.
+        """
         self.get_response = get_response
 
     def __call__(self, request):
+        """Handle the incoming request.
+
+        Args:
+            request (HttpRequest): The incoming HTTP request.
+
+        Returns:
+            HttpResponse: The response from the next middleware or view, or a 403 error.
+        """
         # Exempt paths that remain accessible during restriction (e.g., policy, support)
         exempt_paths = [
             reverse("privacy"),
@@ -38,15 +54,29 @@ class GDPRRestrictionMiddleware:
 
 
 class LegalAcceptanceMiddleware:
-    """
-    Middleware that ensures authenticated users have accepted the
-    Terms and Conditions and Privacy Policy.
+    """Middleware that ensures authenticated users have accepted the Terms and Conditions and Privacy Policy.
+
+    Attributes:
+        get_response (Callable): The next middleware or view in the chain.
     """
 
     def __init__(self, get_response):
+        """Initialize the middleware.
+
+        Args:
+            get_response (Callable): The next middleware or view in the chain.
+        """
         self.get_response = get_response
 
     def __call__(self, request):
+        """Handle the incoming request.
+
+        Args:
+            request (HttpRequest): The incoming HTTP request.
+
+        Returns:
+            HttpResponse: The response from the next middleware or view, or a redirect.
+        """
         if request.user.is_authenticated:
             # List of URLs that don't require legal acceptance check
             # to avoid redirect loops and allow the user to actually accept or sign out.

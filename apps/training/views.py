@@ -1,25 +1,33 @@
+"""View functions for the training application.
+
+Handles training job management, progress monitoring, and decentralized
+communication between NVFlare nodes.
+"""
+
 import ast
+import contextlib
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import ssl
-import secrets
 import threading
 import time
-import requests
 
-from common.utils import get_safe_slug
+import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.http import JsonResponse, HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+
+from common.utils import get_safe_slug
 from logs.logger import get_logger
-from network.models import SwarmNetwork, UserCurrentNetwork
+from network.models import SwarmNetwork
 from project.decorators import (
     project_context_required,
     project_membership_required,
@@ -33,10 +41,14 @@ logger = get_logger()
 
 
 def _peer_tls_verify_path():
-    """
-    Determines the CA certificate path for peer-to-peer TLS verification.
-    Can be overridden via MEDSWARMHUB_CA_CERT or disabled via MEDSWARMHUB_SKIP_PEER_SSL_VERIFY.
-    Defaults to skipping verification (False) if not explicitly set to 'false'.
+    """Determines the CA certificate path for peer-to-peer TLS verification.
+
+    Can be overridden via MEDSWARMHUB_CA_CERT or disabled via
+    MEDSWARMHUB_SKIP_PEER_SSL_VERIFY. Defaults to skipping verification (False)
+    if not explicitly set to 'false'.
+
+    Returns:
+        str or bool: Path to CA cert or False if verification is skipped.
     """
     if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
         return False
@@ -49,6 +61,15 @@ def _peer_tls_verify_path():
 
 
 def _authenticate_participant_request(request, network):
+    """Authenticates a request from a participant node using gossip headers.
+
+    Args:
+        request (HttpRequest): The incoming request.
+        network (SwarmNetwork): The network the participant belongs to.
+
+    Returns:
+        SwarmParticipant or None: The authenticated participant or None.
+    """
     participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
     provided_token = request.headers.get("X-Gossip-Token")
     if not participant_id or not provided_token:
@@ -67,10 +88,17 @@ def _authenticate_participant_request(request, network):
 
 
 def training_api_state(request, network_id):
-    """
-    Internal API: Returns the latest training job state from this node.
+    """Internal API: Returns the latest training job state from this node.
+
     Used by client nodes to mirror the server node's training state.
     Authenticates via either Session or Gossip Token.
+
+    Args:
+        request (HttpRequest): The incoming request.
+        network_id (str): The identifier of the network.
+
+    Returns:
+        JsonResponse: The latest training job state.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
     source_participant = _authenticate_participant_request(request, network)
@@ -105,10 +133,17 @@ def training_api_state(request, network_id):
 
 
 def training_api_results(request, network_id):
-    """
-    Internal API: Provides the training results (aggregated model) as a download.
+    """Internal API: Provides the training results (aggregated model) as a download.
+
     Server node serves this to client nodes for decentralized sync.
     Authenticates via either Session or Gossip Token.
+
+    Args:
+        request (HttpRequest): The incoming request.
+        network_id (str): The identifier of the network.
+
+    Returns:
+        JsonResponse or HttpResponse: The model file or error.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
     source_participant = _authenticate_participant_request(request, network)
@@ -138,7 +173,7 @@ def training_api_results(request, network_id):
     model_path = None
     
     # Heuristic to find the best model file
-    for root, dirs, files in os.walk(workspace_root):
+    for root, _dirs, files in os.walk(workspace_root):
         if job_uuid in root:
             for f in files:
                 if f in ["best_FL_model.pt", "model_weights.npz", "global_model.pt"]:
@@ -156,6 +191,14 @@ def training_api_results(request, network_id):
 
 
 def _extract_cert_common_name(cert_path: str) -> str:
+    """Extracts the Common Name (CN) from an SSL certificate.
+
+    Args:
+        cert_path (str): Path to the certificate file.
+
+    Returns:
+        str: The common name if found, else an empty string.
+    """
     cert_path = (cert_path or "").strip()
     if not cert_path or not os.path.exists(cert_path):
         return ""
@@ -173,6 +216,15 @@ def _extract_cert_common_name(cert_path: str) -> str:
 
 
 def _build_training_status_payload(current_network, job):
+    """Constructs a training status dictionary for API responses.
+
+    Args:
+        current_network (SwarmNetwork): The currently active network.
+        job (TrainingJob): The training job to get status for.
+
+    Returns:
+        dict: A dictionary containing training status, progress, etc.
+    """
     if not job:
         return {
             "status": "idle",
@@ -195,6 +247,14 @@ def _build_training_status_payload(current_network, job):
 
 
 def _resolve_admin_startup_dir(current_network) -> str | None:
+    """Resolves the directory containing the NVFlare admin startup kit.
+
+    Args:
+        current_network (SwarmNetwork): The network to resolve for.
+
+    Returns:
+        str or None: The absolute path to the admin startup directory or None.
+    """
     if current_network.admin_startup_dir and os.path.exists(
         current_network.admin_startup_dir
     ):
@@ -240,6 +300,14 @@ def _resolve_admin_startup_dir(current_network) -> str | None:
 
 
 def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | None:
+    """Resolves the admin username, session directory, and server IP for NVFlare.
+
+    Args:
+        current_network (SwarmNetwork): The network instance.
+
+    Returns:
+        tuple or None: (admin_username, session_dir, server_ip) or None if resolution fails.
+    """
     startup_dir = _resolve_admin_startup_dir(current_network)
     if not startup_dir:
         return None
@@ -283,10 +351,8 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | Non
         session_dir = canonical
 
     for folder in ["local", "transfer", "logs"]:
-        try:
+        with contextlib.suppress(Exception):
             os.makedirs(os.path.join(session_dir, folder), exist_ok=True)
-        except Exception:
-            pass
     
     admin_name = "admin@nvidia.com"
     admin_cert_path = os.path.join(session_dir, "startup", "client.crt")
@@ -347,6 +413,14 @@ def _resolve_admin_session_target(current_network) -> tuple[str, str, str] | Non
 
 
 def _parse_nvflare_jobs(response):
+    """Parses NVFlare job information from an API response or text output.
+
+    Args:
+        response: The raw response from NVFlare (dict, list, or str).
+
+    Returns:
+        list: A list of job dictionaries containing 'job_id' and 'status'.
+    """
     if isinstance(response, dict):
         if "jobs" in response and isinstance(response["jobs"], list):
             return response["jobs"]
@@ -377,6 +451,14 @@ def _parse_nvflare_jobs(response):
 
 
 def _select_nvflare_job(jobs):
+    """Selects the most relevant (running or first) job from a list of NVFlare jobs.
+
+    Args:
+        jobs (list): A list of job dictionaries.
+
+    Returns:
+        dict or None: The selected job dictionary or None if the list is empty.
+    """
     if not jobs:
         return None
 
@@ -399,6 +481,14 @@ def _select_nvflare_job(jobs):
 
 
 def _dedupe_keep_order(values):
+    """Removes duplicate items from a list while maintaining the original order.
+
+    Args:
+        values (list): The list to deduplicate.
+
+    Returns:
+        list: A new list with duplicates removed.
+    """
     deduped = []
     for value in values:
         if value in deduped:
@@ -411,10 +501,19 @@ _NVFLARE_GRPC_PATCHED: bool = False
 _NVFLARE_GRPC_PATCH_LOCK = threading.Lock()
 
 import logging as _stdlib_logging
+
 _grpc_patch_log = _stdlib_logging.getLogger(__name__)
 
 
 def _ensure_grpc_ssl_patched(tls_server_name: str) -> None:
+    """Patches gRPC secure channel to allow SSL target name override.
+
+    This is necessary for NVFlare admin API connections when the host IP
+    doesn't match the certificate's common name.
+
+    Args:
+        tls_server_name (str): The server name to use for SSL verification.
+    """
     global _NVFLARE_GRPC_PATCHED
     if _NVFLARE_GRPC_PATCHED:
         return
@@ -446,6 +545,15 @@ def _ensure_grpc_ssl_patched(tls_server_name: str) -> None:
 
 
 def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
+    """Builds a prioritized list of IP/Hostname candidates for FLARE API connection.
+
+    Args:
+        requested_host (str): The host provided via configuration.
+        default_host (str, optional): The default host from FLARE session.
+
+    Returns:
+        list: A deduplicated list of strings.
+    """
     requested_host = (requested_host or "").strip()
     default_host = (default_host or "").strip()
     seed_candidates = ["server", requested_host, default_host, "127.0.0.1", "localhost", ""]
@@ -453,13 +561,19 @@ def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
 
 
 def _build_flare_port_candidates(default_port: int = 0):
+    """Builds a list of potential ports for the FLARE admin API.
+
+    Args:
+        default_port (int, optional): The default port from FLARE session.
+
+    Returns:
+        list: A list of integers.
+    """
     env_admin_port = os.getenv("MEDSWARMHUB_FLARE_ADMIN_PORT", "").strip()
     candidates = []
     if env_admin_port:
-        try:
+        with contextlib.suppress(ValueError):
             candidates.append(int(env_admin_port))
-        except ValueError:
-            pass
     if default_port and int(default_port) > 0 and int(default_port) not in candidates:
         candidates.append(int(default_port))
     if 8003 not in candidates:
@@ -470,6 +584,14 @@ def _build_flare_port_candidates(default_port: int = 0):
 
 
 def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: str, requested_host: str):
+    """Logs detailed connectivity and TLS diagnostics before job submission.
+
+    Args:
+        log: The logger instance.
+        username (str): The NVFlare admin username.
+        startup_kit_location (str): The workspace directory for the session.
+        requested_host (str): The server host address to test.
+    """
     try:
         from nvflare.fuel.flare_api.flare_api import Session
         startup_dir = os.path.join(startup_kit_location, "startup")
@@ -527,7 +649,7 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
                 reachable = False
                 detail = ""
                 try:
-                    with socket.create_connection((effective_host, int(port)), timeout=2.0) as s:
+                    with socket.create_connection((effective_host, int(port)), timeout=2.0):
                         reachable = True
                 except Exception as e:
                     detail = str(e)
@@ -586,7 +708,14 @@ def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: 
 
 
 def _parse_nvflare_clients(response) -> list[str]:
-    """Extract list of client names from FLARE list_clients response."""
+    """Extracts a list of client names from an NVFlare 'list_clients' response.
+
+    Args:
+        response: The raw response from NVFlare.
+
+    Returns:
+        list: A list of strings.
+    """
     clients = []
     if isinstance(response, dict):
         data = response.get("data") or response.get("clients") or []
@@ -609,6 +738,25 @@ def _parse_nvflare_clients(response) -> list[str]:
 
 
 def new_secure_session_with_host(username: str, startup_kit_location: str, host: str, debug: bool = False, timeout: float = 20.0, network_id=None):
+    """Establishes a secure connection to the NVFlare admin API.
+
+    Attempts to connect using several host candidates (server, IP, local aliases)
+    and handles gRPC SSL patching for non-standard hostnames.
+
+    Args:
+        username (str): The NVFlare admin identity.
+        startup_kit_location (str): Path to the admin startup kit.
+        host (str): The primary server host/IP to try.
+        debug (bool, optional): Enable NVFlare SDK debugging output. Defaults to False.
+        timeout (float, optional): Connection timeout in seconds. Defaults to 20.0.
+        network_id (uuid, optional): The ID of the swarm network. Defaults to None.
+
+    Returns:
+        Session: An active NVFlare flare_api.Session.
+
+    Raises:
+        RuntimeError: If all connection attempts to the admin API fail.
+    """
     from nvflare.fuel.flare_api.flare_api import Session
     canonical_host = ""
     admin_port = 0
@@ -628,10 +776,8 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
         if temp_session.api and not getattr(temp_session.api, "cell", None):
             temp_session.api.closed = True
         else:
-            try:
+            with contextlib.suppress(Exception):
                 temp_session.close()
-            except Exception:
-                pass
     except Exception:
         pass
 
@@ -671,13 +817,11 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
 
         try:
             if session.api:
-                try:
+                with contextlib.suppress(Exception):
                     session.api.authenticate_msg_timeout = max(
                         float(timeout),
                         float(getattr(session.api, "authenticate_msg_timeout", 5.0) or 5.0),
                     )
-                except Exception:
-                    pass
 
                 session.api.host = candidate
                 session.api.port = int(admin_port)
@@ -759,6 +903,14 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
 
 
 def _nvflare_status_payload(current_network):
+    """Fetches the current job status directly from the NVFlare admin API.
+
+    Args:
+        current_network (SwarmNetwork): The network to query.
+
+    Returns:
+        dict or None: A status payload dictionary or None if the API is unreachable.
+    """
     cache_key = f"nvflare_status_payload_{current_network.identifier}"
     cached_payload = cache.get(cache_key)
     if cached_payload is not None:
@@ -779,10 +931,8 @@ def _nvflare_status_payload(current_network):
             network_id=current_network.identifier
         )
         response = sess.api.do_command("list_jobs")
-        try:
+        with contextlib.suppress(Exception):
             sess.close()
-        except Exception:
-            pass
 
         jobs = _parse_nvflare_jobs(response)
         job = _select_nvflare_job(jobs)
@@ -826,6 +976,15 @@ def _nvflare_status_payload(current_network):
 
 
 def _tail_text(file_path: str, max_bytes: int = 2048 * 1024) -> str:
+    """Reads the tail end of a text file.
+
+    Args:
+        file_path (str): Path to the file.
+        max_bytes (int, optional): Max bytes to read from the end. Defaults to 2MB.
+
+    Returns:
+        str: The content read as a string.
+    """
     try:
         with open(file_path, "rb") as f:
             f.seek(0, os.SEEK_END)
@@ -839,6 +998,17 @@ def _tail_text(file_path: str, max_bytes: int = 2048 * 1024) -> str:
 
 
 def _find_latest_training_log(project_id: str, network_id: str, job_uuid: str, cache_ttl_seconds: int = 60) -> str | None:
+    """Locates the latest log_fl.txt or log.txt for a specific job in the workspace.
+
+    Args:
+        project_id (str): The project unique ID.
+        network_id (str): The network unique ID.
+        job_uuid (str): The NVFlare job UUID.
+        cache_ttl_seconds (int, optional): How long to cache the log path. Defaults to 60.
+
+    Returns:
+        str or None: The absolute path to the log file or None.
+    """
     cache_key = f"training_log_path_{project_id}_{network_id}_{job_uuid}"
     cached_path = cache.get(cache_key)
     if cached_path and os.path.exists(cached_path):
@@ -866,6 +1036,14 @@ def _find_latest_training_log(project_id: str, network_id: str, job_uuid: str, c
 
 
 def get_user_project(request):
+    """Utility to extract the active project ID for the current request user.
+
+    Args:
+        request (HttpRequest): The incoming request.
+
+    Returns:
+        tuple: (project_id_str, success_bool)
+    """
     try:
         user_current_project = UserCurrentProject.objects.get(user=request.user)
         if not user_current_project.project:
@@ -876,6 +1054,14 @@ def get_user_project(request):
 
 
 def format_duration(seconds):
+    """Formats a duration in seconds into a human-readable string like '1h 2m 3s'.
+
+    Args:
+        seconds (float): Time in seconds.
+
+    Returns:
+        str: Human-friendly duration string.
+    """
     if seconds < 0: return "0s"
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
@@ -885,6 +1071,15 @@ def format_duration(seconds):
 
 
 def get_training_progress_info(training_job, current_network):
+    """Heuristically calculates training progress by scanning workspace logs.
+
+    Args:
+        training_job (TrainingJob): The job record from the database.
+        current_network (SwarmNetwork): The network record from the database.
+
+    Returns:
+        dict: A dictionary with keys 'status', 'progress', 'duration', 'eta', 'is_running'.
+    """
     cache_key = f"training_progress_{training_job.id}_{training_job.status}"
     cached_result = cache.get(cache_key)
     if cached_result is not None:
@@ -920,7 +1115,7 @@ def get_training_progress_info(training_job, current_network):
             total_rounds = 10
             # Be more aggressive about finding the server config
             workspace_dir = os.path.join("workspaces", str(training_job.project.identifier), str(current_network.identifier), "workspace")
-            for root, dirs, files in os.walk(workspace_dir):
+            for root, _dirs, files in os.walk(workspace_dir):
                 if "config_fed_server.json" in files:
                     try:
                         with open(os.path.join(root, "config_fed_server.json")) as f:
@@ -962,7 +1157,7 @@ def get_training_progress_info(training_job, current_network):
                         if rnum > rounds_finished: rounds_finished = rnum
 
             if not have_cached_progress:
-                for root, dirs, files in os.walk(workspace_dir):
+                for root, _dirs, files in os.walk(workspace_dir):
                     if job_uuid in root:
                         for fname in files:
                             if fname.startswith("log") and fname.endswith(".txt"):
@@ -1014,6 +1209,14 @@ def get_training_progress_info(training_job, current_network):
 @login_required
 @project_context_required
 def training(request):
+    """Displays the main training dashboard for the active project.
+
+    Args:
+        request (HttpRequest): The incoming request.
+
+    Returns:
+        HttpResponse: The rendered dashboard page.
+    """
     current_network = SwarmNetwork.resolve_current(request.user)
     if not current_network or current_network.status not in ["RUNNING", "STARTING", "PROVISIONED"]:
         return render(request, "apps/training/no_network_started.html", {"segment": "training"})
@@ -1080,6 +1283,19 @@ def training(request):
 @login_required
 @project_membership_required
 def start_training(request, network_id):
+    """Assembles the federated learning job, and submits it to the swarm network.
+
+    This function fetches training code from S3, handles project-specific 
+    parameter injection, detects the framework (PyTorch/TF/NP), 
+    and uses the NVFlare SDK to submit the job.
+
+    Args:
+        request (HttpRequest): The incoming request.
+        network_id (uuid): The network to run the training on.
+
+    Returns:
+        HttpResponseRedirect: A redirect back to the training dashboard.
+    """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
     if network.status != "RUNNING":
         messages.error(request, f"Network '{network.name}' is not running. Please start the network before initiating training.")
@@ -1188,8 +1404,7 @@ def start_training(request, network_id):
                     if mod: imported_modules.add(mod)
             if imported_modules.intersection({"tensorflow", "keras"}): framework = "tf"
             elif imported_modules.intersection({"torch", "pytorch_lightning", "lightning", "transformers", "monai"}): framework = "pt"
-            elif imported_modules.intersection({"sklearn", "numpy", "pandas"}): framework = "np"
-            elif "sklearn" in imported_modules: framework = "np"
+            elif imported_modules.intersection({"sklearn", "numpy", "pandas"}) or "sklearn" in imported_modules: framework = "np"
         except SyntaxError:
             if "tensorflow" in script_text.lower() or "keras" in script_text.lower(): framework = "tf"
 
@@ -1217,20 +1432,27 @@ def start_training(request, network_id):
         submit_connect_timeout = 20.0
         env_timeout = os.getenv("MEDSWARMHUB_FLARE_CONNECT_TIMEOUT", "").strip()
         if env_timeout:
-            try: submit_connect_timeout = float(env_timeout)
-            except ValueError: pass
+            with contextlib.suppress(ValueError): submit_connect_timeout = float(env_timeout)
 
         log.training.info(f"FLARE submit timeout config: requested_timeout={submit_connect_timeout}, env_MEDSWARMHUB_FLARE_CONNECT_TIMEOUT={env_timeout or 'unset'}")
 
-        from nvflare.job_config.api import FedJob
-        from nvflare.app_common.ccwf import SwarmServerController, SwarmClientController
         from nvflare.apis.dxo import DataKind
-        from nvflare.app_common.aggregators.intime_accumulate_model_aggregator import InTimeAccumulateWeightedAggregator
-        from nvflare.app_common.ccwf.comps.simple_model_shareable_generator import SimpleModelShareableGenerator
-        from nvflare.app_common.ccwf.comps.simple_intime_model_selector import SimpleIntimeModelSelector
+        from nvflare.app_common.aggregators.intime_accumulate_model_aggregator import (
+            InTimeAccumulateWeightedAggregator,
+        )
+        from nvflare.app_common.ccwf import SwarmClientController, SwarmServerController
+        from nvflare.app_common.ccwf.comps.simple_intime_model_selector import (
+            SimpleIntimeModelSelector,
+        )
+        from nvflare.app_common.ccwf.comps.simple_model_shareable_generator import (
+            SimpleModelShareableGenerator,
+        )
 
         # Set default executor
-        from nvflare.app_common.executors.in_process_client_api_executor import InProcessClientAPIExecutor
+        from nvflare.app_common.executors.in_process_client_api_executor import (
+            InProcessClientAPIExecutor,
+        )
+        from nvflare.job_config.api import FedJob
         executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
 
         # Select appropriate persistor based on framework
@@ -1252,7 +1474,9 @@ def start_training(request, network_id):
 
         if framework == "tf":
             try:
-                from nvflare.app_opt.tf.in_process_client_api_executor import TFInProcessClientAPIExecutor
+                from nvflare.app_opt.tf.in_process_client_api_executor import (
+                    TFInProcessClientAPIExecutor,
+                )
                 executor = TFInProcessClientAPIExecutor(task_script_path="custom/training.py")
             except (ModuleNotFoundError, ImportError):
                 pass
@@ -1260,7 +1484,9 @@ def start_training(request, network_id):
             use_pt_executor = os.getenv("MEDSWARMHUB_ENABLE_PT_EXECUTOR", "").strip().lower() in {"1", "true", "yes", "on"}
             if use_pt_executor:
                 try:
-                    from nvflare.app_opt.pt.in_process_client_api_executor import PTInProcessClientAPIExecutor
+                    from nvflare.app_opt.pt.in_process_client_api_executor import (
+                        PTInProcessClientAPIExecutor,
+                    )
                     executor = PTInProcessClientAPIExecutor(task_script_path="custom/training.py")
                 except (ModuleNotFoundError, ImportError):
                     pass
@@ -1303,7 +1529,7 @@ def start_training(request, network_id):
         try:
             training_script_path = os.path.join(app_client_custom_dir, "training.py")
             if os.path.exists(training_script_path):
-                with open(training_script_path, "r") as f:
+                with open(training_script_path) as f:
                     content = f.read()
                     match = re.search(r"SWARM_ROUNDS\s*=\s*(\d+)", content)
                     if match:
@@ -1348,8 +1574,7 @@ def start_training(request, network_id):
         log.training.info(f"Submitting exported job from: {job_definition_path}")
 
         job_id = sess.submit_job(job_definition_path)
-        try: sess.close()
-        except Exception: pass
+        with contextlib.suppress(Exception): sess.close()
 
         TrainingJob.objects.create(project=project, network=network, status="RUNNING" if job_id else "FAILED", flare_job_id=job_id or "unknown")
         messages.success(request, f"Successfully submitted job {job_id}")
@@ -1364,6 +1589,15 @@ def start_training(request, network_id):
 @login_required
 @project_membership_required
 def stop_training(request, network_id):
+    """Aborts a currently running training job on the given network.
+
+    Args:
+        request (HttpRequest): The incoming request.
+        network_id (uuid): The ID of the network.
+
+    Returns:
+        HttpResponseRedirect: A redirect back to the training dashboard.
+    """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
     job = TrainingJob.objects.filter(network=network, status="RUNNING").order_by("-created_at").first()
     if not job:
@@ -1405,6 +1639,17 @@ def stop_training(request, network_id):
 @login_required
 @project_context_required
 def training_status_api(request):
+    """AJAX endpoint for fetching the live training status and progress.
+
+    This function coordinates decentralized status synchronization by polling
+    local Docker logs and mirroring state from other online peers in the swarm.
+
+    Args:
+        request (HttpRequest): The incoming request.
+
+    Returns:
+        JsonResponse: The job status payload.
+    """
     current_network = SwarmNetwork.resolve_current(request.user)
     if not current_network: 
         logger.training.debug("StatusAPI: No current network found for user")
@@ -1636,10 +1881,10 @@ def training_status_api(request):
                 possible_files = ["best_FL_model.pt", "model_weights.npz", "global_model.pt", "FL_model.pt"]
                 
                 found_and_synced = False
-                from django.core.files.storage import default_storage
                 from django.core.files.base import ContentFile
+                from django.core.files.storage import default_storage
 
-                for root, dirs, files in os.walk(workspace_root):
+                for root, _dirs, files in os.walk(workspace_root):
                     if job_uuid in root:
                         for filename in files:
                             if filename in possible_files:
@@ -1663,11 +1908,17 @@ def training_status_api(request):
         nv_status = str(nvflare_status.get("status", "")).upper().strip()
         terminal_states = {"COMPLETED", "FAILED", "STOPPED"}
         unknown_states = {"", "UNKNOWN", "N/A", "NONE"}
-        should_override_status = (nv_status not in unknown_states and not (local_status in terminal_states and nv_status not in terminal_states))
-        if should_override_status: payload["status"] = nvflare_status.get("status", payload["status"])
+        should_override_status = (
+            nv_status not in unknown_states
+            and not (local_status in terminal_states and nv_status not in terminal_states)
+        )
+        if should_override_status:
+            payload["status"] = nvflare_status.get("status", payload["status"])
         payload["job_id"] = nvflare_status.get("job_id", payload["job_id"])
         nvflare_progress = nvflare_status.get("progress")
-        if isinstance(nvflare_progress, (int, float)) and payload["progress"] < int(nvflare_progress):
+        if isinstance(nvflare_progress, (int, float)) and payload["progress"] < int(
+            nvflare_progress
+        ):
             payload["progress"] = int(nvflare_progress)
     return JsonResponse(payload)
 
@@ -1675,25 +1926,46 @@ def training_status_api(request):
 @login_required
 @project_context_required
 def training_logs_api(request):
+    """AJAX endpoint providing real-time log streaming for training jobs.
+
+    Args:
+        request (HttpRequest): The incoming request.
+
+    Returns:
+        JsonResponse: A JSON list of log lines formatted for display.
+    """
     current_network = SwarmNetwork.resolve_current(request.user)
-    if not current_network: return JsonResponse({"logs": []})
+    if not current_network:
+        return JsonResponse({"logs": []})
     logs = []
     try:
-        job = TrainingJob.objects.filter(network=current_network).order_by("-created_at").first()
-        if not job: return JsonResponse({"logs": logs})
+        job = (
+            TrainingJob.objects.filter(network=current_network)
+            .order_by("-created_at")
+            .first()
+        )
+        if not job:
+            return JsonResponse({"logs": logs})
         job_uuid = str(job.flare_job_id)
         match = re.search(r"Submitted job:\s*([0-9a-f-]+)", job_uuid)
-        if match: job_uuid = match.group(1)
+        if match:
+            job_uuid = match.group(1)
         else:
             match_uuid = re.search(r"([0-9a-f-]{36})", job_uuid)
-            if match_uuid: job_uuid = match_uuid.group(1)
+            if match_uuid:
+                job_uuid = match_uuid.group(1)
         cache_key = f"training_log_path_{job_uuid}"
         latest_log = cache.get(cache_key)
         if latest_log and not os.path.exists(latest_log):
             latest_log = None
             cache.delete(cache_key)
         if not latest_log:
-            workspace_root = os.path.join("workspaces", str(job.project.identifier), str(current_network.identifier), "workspace")
+            workspace_root = os.path.join(
+                "workspaces",
+                str(job.project.identifier),
+                str(current_network.identifier),
+                "workspace",
+            )
             for root, _, files in os.walk(workspace_root):
                 if job_uuid in root:
                     for cand in ("log_fl.txt", "log.txt"):

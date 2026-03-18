@@ -1,5 +1,4 @@
-"""
-URL configuration for the network app.
+"""URL configuration for the network app.
 Maps web addresses to the view functions for managing swarm networks.
 """
 

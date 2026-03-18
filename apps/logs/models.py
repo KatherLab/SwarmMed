@@ -1,5 +1,4 @@
-"""
-Models for the logs app.
+"""Models for the logs app.
 Defines how log entries are stored in the database, including categories
 like project, data, network, training, and results.
 """
@@ -8,16 +7,16 @@ import hashlib
 import hmac
 import uuid
 
-from common.fields import EncryptedTextField
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
 
+from common.fields import EncryptedTextField
+
 
 class LogCategory(models.TextChoices):
-    """
-    Defines the different types of logs we track in the system.
+    """Defines the different types of logs we track in the system.
     This helps in filtering and organizing logs for the user.
     """
 
@@ -29,8 +28,7 @@ class LogCategory(models.TextChoices):
 
 
 class LogSigningKey(models.Model):
-    """
-    Stores keys used for signing log entries.
+    """Stores keys used for signing log entries.
     Allows for key rotation while maintaining the ability to verify old logs.
     """
 
@@ -44,8 +42,7 @@ class LogSigningKey(models.Model):
 
     @classmethod
     def get_active_key(cls):
-        """
-        Retrieves the currently active signing key or creates one if none exists.
+        """Retrieves the currently active signing key or creates one if none exists.
         Uses Django cache to avoid repeated database lookups.
         """
         from django.core.cache import cache
@@ -74,8 +71,7 @@ class LogSigningKey(models.Model):
 
 
 class LogEntry(models.Model):
-    """
-    Represents a single log event in the system.
+    """Represents a single log event in the system.
     Stores metadata like user, project, category, and the actual message.
     """
 
