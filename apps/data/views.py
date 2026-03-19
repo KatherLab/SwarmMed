@@ -235,6 +235,15 @@ def upload_files(request):
             ".h5",
             ".pt",
             ".pth",
+            ".dcm",
+            ".nii",
+            ".nii.gz",
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".bmp",
+            ".gif",
+            ".pdf",
         }
 
         for idx, file in enumerate(files):
