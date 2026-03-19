@@ -1570,29 +1570,6 @@ def start_swarm_network_task(network_id, user_id):
             f"Starting containerized runtime (server_only_mode={server_only_mode})"
         )
 
-        # Connect app/storage before starting FL containers so early startup
-        # calls (e.g., manifest fetch) can resolve medswarmhub immediately.
-        try:
-            logger.network.info(
-                f"Pre-connecting app and storage to network: {network_name}"
-            )
-            subprocess.run(  # nosec B603
-                [docker_path, "network", "connect", network_name, "medswarmhub"],
-                capture_output=True,
-                env=env,
-                check=False,
-            )
-            subprocess.run(  # nosec B603
-                [docker_path, "network", "connect", network_name, "minio"],
-                capture_output=True,
-                env=env,
-                check=False,
-            )
-        except Exception as e:
-            logger.network.warning(
-                f"Could not pre-connect app/storage to FLARE network: {e}"
-            )
-
         # Check for GPU support once to avoid repeated slow docker-py calls or invalid flags
         gpu_request_enabled = (
             os.getenv("MEDSWARMHUB_ENABLE_GPU", "true")
