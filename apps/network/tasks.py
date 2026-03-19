@@ -1529,6 +1529,7 @@ def start_swarm_network_task(network_id, user_id):
                 runtimes = info.get("Runtimes", {})
                 if "nvidia" in runtimes:
                     gpu_is_available = True
+                    logger.network.info("GPU support detected and enabled for this network.")
                 else:
                     logger.network.warning(
                         "GPU was requested but 'nvidia' runtime is not available on this Docker daemon. "
@@ -1639,18 +1640,22 @@ def start_swarm_network_task(network_id, user_id):
 
             if use_host_network:
                 # In host network mode, the container shares the host's loopback and network.
-                # We try to find a reachable gateway IP, but also allow localhost/minio 
-                # for flare_adapter's dynamic probing to handle.
+                # We need to map 'minio' to the host IP where MinIO is listening.
                 
-                # Check for host.docker.internal (standard for Docker Desktop)
-                target_gateway = "172.17.0.1"
+                # Default to 127.0.0.1 which works on Linux if bound to 127.0.0.1 or 0.0.0.0
+                target_gateway = "127.0.0.1"
+                
+                # Check for host.docker.internal (standard for Docker Desktop on Mac/Windows)
                 try:
                     target_gateway = socket.gethostbyname("host.docker.internal")
                 except (socket.gaierror, socket.herror):
                     pass
                 
-                local_s3_endpoint = raw_local_s3.replace("://minio", f"://{target_gateway}").replace("://localhost", f"://{target_gateway}")
-                container_s3_endpoint = raw_s3_endpoint.replace("://minio", f"://{target_gateway}").replace("://localhost", f"://{target_gateway}")
+                # Also fallback to bridge gateway if needed (legacy or specific setups)
+                # But 127.0.0.1 is preferred if we bound MinIO to 127.0.0.1 in docker-compose.
+                
+                local_s3_endpoint = raw_local_s3
+                container_s3_endpoint = raw_s3_endpoint
             else:
                 local_s3_endpoint = raw_local_s3
                 container_s3_endpoint = raw_s3_endpoint

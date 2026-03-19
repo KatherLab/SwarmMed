@@ -100,6 +100,7 @@ def main(project_id: str):
         epochs_per_round = 5
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Training on device: {device} {'(GPU)' if device.type == 'cuda' else '(CPU)'}")
 
         # Load Data using the streaming filesystem
         try:

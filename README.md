@@ -33,6 +33,11 @@ sudo apt update && sudo apt install tailscale
 sudo tailscale up
 ```
 
+An installation guide for other platforms can be found in the [Tailscale documentation](https://tailscale.com/docs/install).
+
+> [!WARNING]
+> Please make sure Tailscale CLI is accessible in your terminal, as the setup scripts rely on it to configure the VPN network. Please verify the installation by running `tailscale status` before proceeding. To run it on macOS see [Tailscale CLI documentation](https://tailscale.com/docs/reference/tailscale-cli?tab=macos).
+
 ### 🚢 3. Deploy Application
 Pull the code and navigate to the project directory:
 ```bash

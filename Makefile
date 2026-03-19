@@ -76,7 +76,12 @@ setup: install env-setup setup-pgbouncer generate-certs ## Bootstrap secrets, sc
 	@echo "🧰 Bootstrapping secrets, scripts, and certs"
 	@echo "Environment setup complete"
 
-start: setup compose-build compose-up ## Prepare the env, build assets, and start the services
+tailscale: ## Start the background Tailscale watcher
+	@echo "📡 Starting Tailscale watcher in background"
+	@chmod +x scripts/tailscale_watcher.sh
+	@./scripts/tailscale_watcher.sh >/dev/null 2>&1 &
+
+start: setup tailscale compose-build compose-up ## Prepare the env, build assets, and start the services
 	@echo "⚙️ Kicking off MedSwarmHub services"
 	@echo "MedSwarmHub services are running"
 
