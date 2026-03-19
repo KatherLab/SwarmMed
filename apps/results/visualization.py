@@ -60,18 +60,43 @@ class ResultsVisualizationContext:
 
     def _process_manifest(self, manifest: dict) -> dict:
         """Ensures that URLs in the manifest are reachable from the current environment."""
-        internal_host = "minio"
-        try:
-            socket.gethostbyname("minio")
-        except socket.gaierror:
-            internal_host = "host.docker.internal"
+        from django.conf import settings
+        import os
+
+        internal_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+        if not internal_host:
+            # 1. Try to resolve 'minio' (standard internal name)
+            try:
+                socket.gethostbyname("minio")
+                internal_host = "minio"
+            except (socket.gaierror, socket.herror):
+                # 2. Try to extract host from PUBLIC_URL (e.g. Tailscale IP)
+                public_url = getattr(settings, "PUBLIC_URL", "")
+                if public_url:
+                    parsed_public = urlparse(public_url)
+                    if parsed_public.hostname and parsed_public.hostname not in {
+                        "localhost",
+                        "127.0.0.1",
+                    }:
+                        internal_host = parsed_public.hostname
+
+        if not internal_host:
+            # 3. Check for host.docker.internal (macOS/Windows)
+            try:
+                socket.gethostbyname("host.docker.internal")
+                internal_host = "host.docker.internal"
+            except (socket.gaierror, socket.herror):
+                pass
+
+        if not internal_host:
+            # Fallback to docker gateway (standard for Linux)
+            internal_host = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
 
         updated = {}
         for rel_path, url in manifest.items():
             p = urlparse(url)
-            # If the hostname is a Tailscale IP or localhost, replace it with 'minio'
-            # which is reachable inside the Docker network.
-            if p.hostname != internal_host:
+            # If the hostname is a local candidate, replace it with the detected internal host
+            if p.hostname in {"localhost", "127.0.0.1", "minio"} and p.hostname != internal_host:
                 new_url = url.replace(p.netloc, f"{internal_host}:{p.port or 9000}")
             else:
                 new_url = url

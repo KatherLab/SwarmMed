@@ -791,7 +791,8 @@ def new_secure_session_with_host(username: str, startup_kit_location: str, host:
         short_id = str(network_id)[:12]
         ip_candidates.append(f"swarm-{short_id}-server")
     
-    ip_candidates.extend(["172.17.0.1", "host.docker.internal", "127.0.0.1", "localhost"])
+    docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
+    ip_candidates.extend([docker_host_ip, "host.docker.internal", "127.0.0.1", "localhost"])
     ip_candidates = _dedupe_keep_order([c for c in ip_candidates if c])
 
     _ensure_grpc_ssl_patched(canonical_host)

@@ -3,7 +3,7 @@ title: Getting Started
 description: Getting started with the MedSwarmHub platform.
 ---
 
-# 🚀 Getting Started
+# Getting Started
 
 This guide will help you get started with the MedSwarmHub platform, including installation and initial setup, usage and code adaptation.
 

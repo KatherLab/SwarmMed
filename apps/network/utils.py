@@ -20,30 +20,21 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils.text import slugify
 
-TAILSCALE_STATUS_BASE_URL = os.environ.get("TAILSCALE_STATUS_BASE_URL")
+TAILSCALE_STATUS_FILE = Path(settings.BASE_DIR) / "tmp" / "tailscale_status.json"
 
 
-def _fetch_tailscale_status():
-    """Fetches Tailscale status from the dedicated sidecar if configured.
+def _read_tailscale_file():
+    """Reads Tailscale status from the shared JSON file.
 
     Returns:
-        dict: The Tailscale status JSON, or None if failed.
+        dict: The status data or None if unavailable.
     """
-    if not TAILSCALE_STATUS_BASE_URL:
+    if not TAILSCALE_STATUS_FILE.exists():
         return None
-
-    status_url = f"{TAILSCALE_STATUS_BASE_URL.rstrip('/')}/status"
-    if not status_url.startswith(("http://", "https://")):
-        return None
-
     try:
-        # Bandit B310: url is validated as http(s) and points at a configured sidecar; short timeout.
-        with urllib.request.urlopen(
-            status_url, timeout=2
-        ) as response:  # nosec B310
-            data = response.read().decode("utf-8")
-            return json.loads(data)
-    except (urllib.error.URLError, ValueError, TimeoutError):
+        with open(TAILSCALE_STATUS_FILE, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
         return None
 
 
@@ -59,78 +50,37 @@ def get_tailscale_ip():
     if cached_ip:
         return cached_ip
 
-    payload = _fetch_tailscale_status()
+    # Try reading from shared file
+    payload = _read_tailscale_file()
     if payload and payload.get("ipv4"):
-        cache.set("tailscale_ip", payload["ipv4"], 300)
-        return payload["ipv4"]
-
-    try:
-        # Run 'tailscale ip --4' to get the local Tailscale IPv4 address
-        tailscale_path = shutil.which("tailscale") or "tailscale"
-        # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
-        result = subprocess.run(  # nosec B603
-            [tailscale_path, "ip", "--4"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        ip = result.stdout.strip()
-
-        # Store in cache (300 seconds = 5 minutes)
+        ip = payload["ipv4"]
         cache.set("tailscale_ip", ip, 300)
         return ip
 
-    except PermissionError:
-        return "Permission Denied"
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return "Not Available"
+    return "Not Available"
 
 
 def is_tailscale_connected():
     """Checks if Tailscale is currently connected.
 
     Returns:
-        str: "connected", "disconnected", or "Permission Denied".
+        str: "connected", "disconnected", or "Not Available".
     """
     cached_state = cache.get("tailscale_connected")
     if cached_state is not None:
         return cached_state
 
-    payload = _fetch_tailscale_status()
-    if payload and "connected" in payload:
-        status = "connected" if payload["connected"] else "disconnected"
-        cache.set("tailscale_connected", status, 30)
-        return status
-
-    try:
-        # 'tailscale status' returns information about the node and its peers
-        tailscale_path = shutil.which("tailscale") or "tailscale"
-        # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
-        result = subprocess.run(  # nosec B603
-            [tailscale_path, "status"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-
-        # Logic: If status is not empty and we are not in a restricted
-        # 'peerapi' state
-        is_connected = (
-            bool(result.stdout.strip())
-            and "peerapi" not in result.stdout.lower()
-        )
-
+    # Try reading from shared file
+    payload = _read_tailscale_file()
+    if payload:
+        connected = payload.get("connected")
+        # Handle both boolean and string "true" from the watcher
+        is_connected = str(connected).lower() == "true"
         status = "connected" if is_connected else "disconnected"
-        # Short cache for status as it can change frequently
         cache.set("tailscale_connected", status, 30)
         return status
 
-    except PermissionError:
-        cache.set("tailscale_connected", "Permission Denied", 10)
-        return "Permission Denied"
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        cache.set("tailscale_connected", "disconnected", 10)
-        return "disconnected"
+    return "Not Available"
 
 
 def get_hostname():

@@ -3,7 +3,7 @@ title: Developer Guide
 description: A guide for developers to write scripts for the MedSwarmHub platform.
 ---
 
-# 💻 Developer Guide
+# Developer Guide
 
 This guide provides information for developers who write scripts to be run on the MedSwarmHub platform. The platform supports four types of scripts:
 

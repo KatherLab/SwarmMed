@@ -116,6 +116,14 @@ ENV_HELP = {
         "desc": "Custom hostname for the platform deployment.",
         "example": "pc1.tud",
     },
+    "ALLOWED_EXTENSIONS": {
+        "desc": "Comma-separated list of allowed file extensions for data upload.",
+        "example": ".csv,.txt,.json,.parquet,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf",
+    },
+    "DOCKER_HOST_IP": {
+        "desc": "The IP address of the host machine as seen from the containers, or for binding ports to the host.",
+        "example": "127.0.0.1 (Mac/Win) or 172.17.0.1 (Linux)",
+    },
 }
 
 
@@ -239,6 +247,16 @@ def setup_env():
         elif key == "SECRET_KEY":
             val = generate_secret_key()
             print(f"✨ Generated {key}")
+        elif key == "DOCKER_HOST_IP":
+            if sys.platform == "darwin":
+                val = "127.0.0.1"
+            elif sys.platform.startswith("linux"):
+                val = "172.17.0.1"
+            elif sys.platform == "win32":
+                val = "127.0.0.1"
+            else:
+                val = "127.0.0.1"
+            print(f"✨ Auto-detected {key} for {sys.platform}: {val}")
         elif ("PASSWORD" in key or key.endswith("_PASS")) and key != "EMAIL_HOST_PASSWORD":
             val = generate_password()
             print(f"✨ Generated {key}")

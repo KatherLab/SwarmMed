@@ -79,11 +79,12 @@ class FlareDataFileSystem:
         # 1. Fetch manifest from the secure App Proxy API.
         # We MUST prioritize the node's local app proxy (localhost/gateway).
         manifest_secret = os.getenv("MANIFEST_SECRET")
+        docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
         if manifest_secret and self.project_uuid:
             # Try multiple hosts to reach the local Django app.
             # We check port 5085 (Nginx proxy) and 8000 (direct app container).
             discovery_targets = [
-                ("172.17.0.1", 5085),
+                (docker_host_ip, 5085),
                 ("localhost", 5085),
                 ("127.0.0.1", 5085),
                 ("medswarmhub", 8000),
@@ -161,7 +162,7 @@ class FlareDataFileSystem:
 
         # Determine local networking candidates
         # We include the 100.127.11.1 IP as it's the confirmed reachable host.
-        gateway_ip = "172.17.0.1"
+        gateway_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
         local_ips = [
             "100.127.11.1",
             "minio",

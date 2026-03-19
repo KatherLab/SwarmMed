@@ -19,3 +19,4 @@ infrastructure/certs/
 **/*.csr
 celerybeat-schedule
 uv.lock
+*.pyc

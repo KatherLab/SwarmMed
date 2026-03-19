@@ -1513,6 +1513,34 @@ def start_swarm_network_task(network_id, user_id):
             f"Starting containerized runtime (server_only_mode={server_only_mode})"
         )
 
+        # Check for GPU support once to avoid repeated slow docker-py calls or invalid flags
+        gpu_request_enabled = (
+            os.getenv("MEDSWARMHUB_ENABLE_GPU", "true")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        gpu_is_available = False
+        if gpu_request_enabled:
+            try:
+                # Use the imported 'docker' library to check runtime support
+                client = docker.from_env()
+                info = client.info()
+                runtimes = info.get("Runtimes", {})
+                if "nvidia" in runtimes:
+                    gpu_is_available = True
+                    logger.network.info("GPU support detected and enabled for this network.")
+                else:
+                    logger.network.warning(
+                        "GPU was requested but 'nvidia' runtime is not available on this Docker daemon. "
+                        "Falling back to CPU."
+                    )
+            except Exception as e:
+                # If we cannot check, we assume no GPU support to be safe
+                logger.network.warning(
+                    f"Could not check for GPU support: {e}. Falling back to CPU."
+                )
+
         for target in filtered_targets:
             startup_dir = target["startup_dir"]
             role = target["role"]
@@ -1611,11 +1639,24 @@ def start_swarm_network_task(network_id, user_id):
             raw_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
 
             if use_host_network:
-                # In host network mode, we MUST use 172.17.0.1 (Docker bridge gateway) 
-                # because MinIO is typically bound to that IP and 127.0.0.1 would 
-                # refer to the host's own loopback which is not where MinIO listens.
-                local_s3_endpoint = raw_local_s3.replace("://minio", "://172.17.0.1").replace("://localhost", "://172.17.0.1")
-                container_s3_endpoint = raw_s3_endpoint.replace("://minio", "://172.17.0.1").replace("://localhost", "://172.17.0.1")
+                # In host network mode, the container shares the host's loopback and network.
+                # We need to map 'minio' to the host IP where MinIO is listening.
+                
+                # Default to 127.0.0.1 which works on Linux if bound to 127.0.0.1 or 0.0.0.0
+                target_gateway = os.getenv("DOCKER_HOST_IP", "127.0.0.1")
+                
+                # Check for host.docker.internal (standard for Docker Desktop on Mac/Windows)
+                if target_gateway == "127.0.0.1":
+                    try:
+                        target_gateway = socket.gethostbyname("host.docker.internal")
+                    except (socket.gaierror, socket.herror):
+                        pass
+                
+                # Also fallback to bridge gateway if needed (legacy or specific setups)
+                # But 127.0.0.1 is preferred if we bound MinIO to 127.0.0.1 in docker-compose.
+                
+                local_s3_endpoint = raw_local_s3
+                container_s3_endpoint = raw_s3_endpoint
             else:
                 local_s3_endpoint = raw_local_s3
                 container_s3_endpoint = raw_s3_endpoint
@@ -1664,13 +1705,7 @@ def start_swarm_network_task(network_id, user_id):
                 run_cmd.extend(["-e", f"MEDSWARMHUB_SERVER_HOST={remote_host}"])
 
             # Enable GPU access if available
-            gpu_enabled = (
-                os.getenv("MEDSWARMHUB_ENABLE_GPU", "true")
-                .strip()
-                .lower()
-                in {"1", "true", "yes", "on"}
-            )
-            if gpu_enabled:
+            if gpu_is_available:
                 run_cmd.insert(2, "--gpus")
                 run_cmd.insert(3, "all")
 
@@ -1761,7 +1796,7 @@ def start_swarm_network_task(network_id, user_id):
                 # Also ensure 'minio' is resolvable in host network mode to keep S3 signatures valid.
                 if use_host_network:
                     # Map 'minio' to the Docker bridge gateway where it is listening.
-                    run_cmd.extend(["--add-host", "minio:172.17.0.1"])
+                    run_cmd.extend(["--add-host", f"minio:{target_gateway}"])
 
             run_cmd.extend([image_name] + command)
 

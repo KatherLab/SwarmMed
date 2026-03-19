@@ -76,7 +76,12 @@ setup: install env-setup setup-pgbouncer generate-certs ## Bootstrap secrets, sc
 	@echo "🧰 Bootstrapping secrets, scripts, and certs"
 	@echo "Environment setup complete"
 
-start: setup compose-build compose-up ## Prepare the env, build assets, and start the services
+tailscale: ## Start the background Tailscale watcher
+	@echo "📡 Starting Tailscale watcher in background"
+	@chmod +x scripts/tailscale_watcher.sh
+	@./scripts/tailscale_watcher.sh >/dev/null 2>&1 &
+
+start: setup tailscale compose-build compose-up ## Prepare the env, build assets, and start the services
 	@echo "⚙️ Kicking off MedSwarmHub services"
 	@echo "MedSwarmHub services are running"
 
@@ -94,7 +99,7 @@ docs-install: install ## Install MkDocs dependencies with uv
 
 docs-serve: docs-install ## Serve the MkDocs documentation
 	@echo "🚀 Spinning up the MkDocs dev server"
-	@$(UV) run mkdocs serve --dev-addr localhost:9999
+	@$(UV) run mkdocs serve --dev-addr 0.0.0.0:9999
 
 docs-build: docs-install ## Build the MkDocs documentation
 	@echo "📦 Building the MkDocs site"

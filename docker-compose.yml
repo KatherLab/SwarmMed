@@ -24,7 +24,6 @@ services:
       - redis
       - docker-proxy
       - sandbox-dind
-      - tailscale-status
     env_file:
       - .env
     environment:
@@ -33,7 +32,6 @@ services:
       - AWS_CA_BUNDLE=/usr/local/share/ca-certificates/internal-ca.crt
       - HOST_PROJECT_PATH=${HOST_PROJECT_PATH}
       - DOCKER_HOST=tcp://docker-proxy:2375
-      - TAILSCALE_STATUS_BASE_URL=http://tailscale-status:9002
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
     deploy:
       resources:
@@ -96,7 +94,6 @@ services:
       - redis
       - docker-proxy
       - sandbox-dind
-      - tailscale-status
     env_file:
       - .env
     environment:
@@ -107,7 +104,6 @@ services:
       - CELERY_WORKER=1
       - HOST_PROJECT_PATH=${HOST_PROJECT_PATH}
       - DOCKER_HOST=tcp://docker-proxy:2375
-      - TAILSCALE_STATUS_BASE_URL=http://tailscale-status:9002
       - PGBOUNCER_CONTAINER_NAME=pgbouncer
     deploy:
       resources:
@@ -161,23 +157,6 @@ services:
           memory: 4096M
         reservations:
           memory: 1024M
-
-  tailscale-status:
-    build:
-      context: .
-      dockerfile: services/tailscale_status/Dockerfile
-    container_name: tailscale-status
-    restart: always
-    networks:
-      - db_network
-      - web_network
-    volumes:
-      - /var/run/tailscale:/var/run/tailscale:ro
-      - /usr/bin/tailscale:/usr/bin/tailscale:ro
-    environment:
-      - PORT=9002
-      - TAILSCALE_BIN=/usr/bin/tailscale
-      - TAILSCALE_SOCKET=/var/run/tailscale/tailscaled.sock
 
   redis:
     image: redis:7.0.12
@@ -266,8 +245,8 @@ services:
       - minio_data:/data
       - ./.secrets/certs/internal/minio_certs:/root/.minio/certs:ro
     ports:
-      - "172.17.0.1:9000:9000"
-      - "172.17.0.1:9001:9001"
+      - "${DOCKER_HOST_IP:-127.0.0.1}:9000:9000"
+      - "${DOCKER_HOST_IP:-127.0.0.1}:9001:9001"
     env_file:
       - .env
     environment:

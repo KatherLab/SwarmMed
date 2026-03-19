@@ -60,6 +60,8 @@ sudo apt update
 sudo apt install tailscale
 ```
 
+An installation guide for other platforms can be found in the [Tailscale documentation](https://tailscale.com/docs/install).
+
 ### Login
 
 Login with your credentials:
@@ -75,6 +77,9 @@ Test your connectivity:
 ``` bash
 tailscale ip -4
 ```
+
+!!! warning "Tailscale CLI Access"
+    Please make sure Tailscale CLI is accessible in your terminal, as the setup scripts rely on it to configure the VPN network. Please verify the installation by running `tailscale status` before proceeding. To run it on macOS see [Tailscale CLI documentation](https://tailscale.com/docs/reference/tailscale-cli?tab=macos).
 
 ### Troubleshooting
 
@@ -165,18 +170,6 @@ sudo update-ca-certificates
 ```
 
 ## 📂 Troubleshooting
-
-### Mac error
-`Error response from daemon: ports are not available: exposing port TCP 172.17.0.1:9001 -> 127.0.0.1:0: listen tcp4 172.17.0.1:9001: bind: can't assign requested address make: *** [compose-up] Error 1`
-
-```bash
-sudo ifconfig lo0 alias 172.17.0.1
-```
-
-Remove the alias after stopping:
-```bash
-sudo ifconfig lo0 172.17.0.1 -alias
-```
 
 ### Docker Logs
 To view real-time logs from all services:

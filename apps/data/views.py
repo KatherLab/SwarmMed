@@ -224,23 +224,10 @@ def upload_files(request):
         if not full_destination.endswith("/"):
             full_destination += "/"
 
-        # Security: Allowed file extensions
-        ALLOWED_EXTENSIONS = {
-            ".csv",
-            ".txt",
-            ".json",
-            ".parquet",
-            ".npy",
-            ".npz",
-            ".h5",
-            ".pt",
-            ".pth",
-        }
-
         for idx, file in enumerate(files):
             # Basic security check: Validate file extension
             _, ext = os.path.splitext(file.name)
-            if ext.lower() not in ALLOWED_EXTENSIONS:
+            if ext.lower() not in settings.ALLOWED_EXTENSIONS:
                 log.data.warning(
                     f"Blocked upload of disallowed file type: {file.name}"
                 )
