@@ -88,6 +88,12 @@ CSRF_TRUSTED_ORIGINS = os.environ.get(
 # IPs allowed to see the Django Debug Toolbar.
 INTERNAL_IPS = ["127.0.0.1"]
 
+# Allowed file extensions for data upload.
+ALLOWED_EXTENSIONS = set(os.environ.get(
+    "ALLOWED_EXTENSIONS",
+    ".csv,.txt,.json,,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf"
+).split(","))
+
 # --- Application Definition ---
 
 # List of Django apps enabled for this project.

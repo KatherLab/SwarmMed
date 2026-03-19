@@ -116,6 +116,10 @@ ENV_HELP = {
         "desc": "Custom hostname for the platform deployment.",
         "example": "pc1.tud",
     },
+    "ALLOWED_EXTENSIONS": {
+        "desc": "Comma-separated list of allowed file extensions for data upload.",
+        "example": ".csv,.txt,.json,.parquet,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf",
+    },
 }
 
 
