@@ -102,18 +102,6 @@ tailscale set --accept-dns=false
 sudo systemctl restart tailscaled
 ```
 
-### Mac error
-`Error response from daemon: ports are not available: exposing port TCP 172.17.0.1:9001 -> 127.0.0.1:0: listen tcp4 172.17.0.1:9001: bind: can't assign requested address make: *** [compose-up] Error 1`
-
-```bash
-sudo ifconfig lo0 alias 172.17.0.1
-```
-
-Remove the alias after stopping:
-```bash
-sudo ifconfig lo0 172.17.0.1 -alias
-```
-
 ### 🐳 Docker Logs
 To view real-time logs from all services:
 ```bash

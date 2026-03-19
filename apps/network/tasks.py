@@ -1643,13 +1643,14 @@ def start_swarm_network_task(network_id, user_id):
                 # We need to map 'minio' to the host IP where MinIO is listening.
                 
                 # Default to 127.0.0.1 which works on Linux if bound to 127.0.0.1 or 0.0.0.0
-                target_gateway = "127.0.0.1"
+                target_gateway = os.getenv("DOCKER_HOST_IP", "127.0.0.1")
                 
                 # Check for host.docker.internal (standard for Docker Desktop on Mac/Windows)
-                try:
-                    target_gateway = socket.gethostbyname("host.docker.internal")
-                except (socket.gaierror, socket.herror):
-                    pass
+                if target_gateway == "127.0.0.1":
+                    try:
+                        target_gateway = socket.gethostbyname("host.docker.internal")
+                    except (socket.gaierror, socket.herror):
+                        pass
                 
                 # Also fallback to bridge gateway if needed (legacy or specific setups)
                 # But 127.0.0.1 is preferred if we bound MinIO to 127.0.0.1 in docker-compose.

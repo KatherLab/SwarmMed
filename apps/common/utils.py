@@ -206,7 +206,7 @@ def get_internal_s3_download_url(key, expires=3600):
 
     if not internal_host:
         # Fallback to docker gateway (standard for Linux)
-        internal_host = "172.17.0.1"
+        internal_host = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
 
     # Robustly replace all local host candidates with a resolvable hostname
     if "localhost" in url:
