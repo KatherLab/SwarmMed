@@ -6,6 +6,7 @@ to create secure startup kits for federated learning participants.
 
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess  # nosec B404
