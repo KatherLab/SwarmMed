@@ -7,7 +7,6 @@ preflight checks, and real-time log streaming.
 import ipaddress
 import json
 import os
-import platform
 import re
 import shutil
 import socket
@@ -1671,15 +1670,6 @@ def start_swarm_network_task(network_id, user_id):
             if not remote_host and role == "client":
                 remote_host = _extract_host_from_server_endpoint(startup_dir)
 
-            is_docker_desktop = False
-            if os.path.exists("/proc/sys/kernel/osrelease"):
-                try:
-                    with open("/proc/sys/kernel/osrelease", "r") as f:
-                        if "linuxkit" in f.read().lower():
-                            is_docker_desktop = True
-                except Exception:
-                    pass
-
             run_cmd = [
                 docker_path,
                 "run",
@@ -1711,11 +1701,6 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 "MEDSWARMHUB_USE_LOCAL_DATA=1",
             ]
-
-            if is_docker_desktop and role == "client":
-                # Force internal parent-child communication to bind to loopback on Mac/Windows.
-                # Only applied to clients because they use host networking mode.
-                run_cmd.extend(["-e", "NVFLARE_START_ARGS=listening_host=127.0.0.1"])
             if remote_host:
                 run_cmd.extend(["-e", f"MEDSWARMHUB_SERVER_HOST={remote_host}"])
 
