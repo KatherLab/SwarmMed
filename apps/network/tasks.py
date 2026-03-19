@@ -1265,53 +1265,6 @@ def _docker_container_exists(docker_path, container_name, env):
     return result.returncode == 0
 
 
-def _discover_sandbox_network_name(docker_path, env):
-    """Finds the sandbox/internal network name used by the running MinIO container.
-
-    Prefers an explicit override and otherwise discovers the real Compose network
-    (which may be prefixed, e.g. '<project>_sandbox_internal').
-
-    Args:
-        docker_path (str): The path to the docker binary.
-        env (dict): Environment variables for the subprocess.
-
-    Returns:
-        str: A resolved Docker network name or an empty string when unavailable.
-    """
-    explicit = os.getenv("MEDSWARMHUB_SANDBOX_NETWORK", "").strip()
-    if explicit:
-        return explicit
-
-    result = subprocess.run(  # nosec B603
-        [
-            docker_path,
-            "inspect",
-            "-f",
-            "{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}",
-            "minio",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
-    if result.returncode != 0:
-        return ""
-
-    networks = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    if not networks:
-        return ""
-
-    for network in networks:
-        if network == "sandbox_internal":
-            return network
-    for network in networks:
-        if network.endswith("_sandbox_internal"):
-            return network
-
-    return ""
-
-
 import requests
 
 
@@ -1513,16 +1466,6 @@ def start_swarm_network_task(network_id, user_id):
 
         network_name = _docker_network_name(swarm_network.identifier)
         _ensure_docker_network(docker_path, network_name, env, logger)
-        sandbox_network_name = _discover_sandbox_network_name(docker_path, env)
-        if sandbox_network_name:
-            logger.network.info(
-                f"Resolved sandbox network for runtime attachment: {sandbox_network_name}"
-            )
-        else:
-            logger.network.warning(
-                "Could not resolve sandbox network from MinIO container. "
-                "FL runtime will only use the primary FL network."
-            )
 
         server_only_mode = (
             os.getenv("MEDSWARMHUB_SERVER_ONLY_MODE", "")
@@ -1681,7 +1624,7 @@ def start_swarm_network_task(network_id, user_id):
             )
 
             client_host_network_enabled = (
-                os.getenv("MEDSWARMHUB_CLIENT_HOST_NETWORK", "false")
+                os.getenv("MEDSWARMHUB_CLIENT_HOST_NETWORK", "true")
                 .strip()
                 .lower()
                 in {"1", "true", "yes", "on"}
@@ -1883,39 +1826,6 @@ def start_swarm_network_task(network_id, user_id):
                 raise RuntimeError(
                     f"Container {container_name} exited during startup. Logs:\n{container_logs}"
                 )
-
-            if role in {"client", "server"} and sandbox_network_name:
-                if use_host_network:
-                    logger.network.warning(
-                        f"Skipping sandbox network attach for {container_name}: "
-                        "container is using host network mode."
-                    )
-                else:
-                    connect_sandbox = subprocess.run(  # nosec B603
-                        [
-                            docker_path,
-                            "network",
-                            "connect",
-                            sandbox_network_name,
-                            container_name,
-                        ],
-                        capture_output=True,
-                        text=True,
-                        env=env,
-                        check=False,
-                    )
-                    if connect_sandbox.returncode == 0:
-                        logger.network.info(
-                            f"Attached {container_name} to sandbox network {sandbox_network_name}."
-                        )
-                    else:
-                        error_text = (connect_sandbox.stderr or "").strip()
-                        lower_error = error_text.lower()
-                        if "already exists" not in lower_error and "already connected" not in lower_error:
-                            logger.network.warning(
-                                f"Could not attach {container_name} to sandbox network "
-                                f"{sandbox_network_name}: {error_text}"
-                            )
 
         try:
             logger.network.info(
