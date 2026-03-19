@@ -197,7 +197,15 @@ def get_internal_s3_download_url(key, expires=3600):
                     internal_host = parsed_public.hostname
 
     if not internal_host:
-        # Fallback to docker gateway
+        # 3. Check for host.docker.internal (macOS/Windows)
+        try:
+            socket.gethostbyname("host.docker.internal")
+            internal_host = "host.docker.internal"
+        except (socket.gaierror, socket.herror):
+            pass
+
+    if not internal_host:
+        # Fallback to docker gateway (standard for Linux)
         internal_host = "172.17.0.1"
 
     # Robustly replace all local host candidates with a resolvable hostname
