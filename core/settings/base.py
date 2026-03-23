@@ -169,6 +169,8 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # Custom context processor for unread message counts.
                 "communication.context_processors.unread_messages",
+                # Custom context processor for common legal and contact information.
+                "common.context_processors.legal_and_contact_info",
             ],
             # To be overridden in dev/prod
             "loaders": [
@@ -436,24 +438,41 @@ IP_ANONYMIZATION_DAYS = int(os.environ.get("IP_ANONYMIZATION_DAYS", 90))
 # --- Privacy Policy Runtime Values ---
 # These values populate the in-app privacy policy so deployments do not ship
 # unresolved placeholders for controller, DPO, or retention metadata.
+
+# --- Global Organization and Contact Information ---
+ORGANIZATION_NAME = os.environ.get("ORGANIZATION_NAME", "Not specified")
+ORGANIZATION_STREET = os.environ.get("ORGANIZATION_STREET", "Not specified")
+ORGANIZATION_ZIP_CITY = os.environ.get("ORGANIZATION_ZIP_CITY", "Not specified")
+ORGANIZATION_COUNTRY = os.environ.get("ORGANIZATION_COUNTRY", "Not specified")
+ORGANIZATION_WEBSITE = os.environ.get("ORGANIZATION_WEBSITE", "Not specified")
+REPRESENTATIVE_NAME = os.environ.get("REPRESENTATIVE_NAME", "Not specified")
+CONTACT_EMAIL = os.environ.get("CONTACT_EMAIL", "Not specified")
+CONTACT_PHONE = os.environ.get("CONTACT_PHONE", "Not specified")
+EDITORIAL_RESPONSIBLE_NAME = os.environ.get("EDITORIAL_RESPONSIBLE_NAME", REPRESENTATIVE_NAME)
+EDITORIAL_RESPONSIBLE_ADDRESS = os.environ.get(
+    "EDITORIAL_RESPONSIBLE_ADDRESS", 
+    f"{ORGANIZATION_STREET}, {ORGANIZATION_ZIP_CITY}, {ORGANIZATION_COUNTRY}"
+)
+
 PRIVACY_CONTROLLER_NAME = os.environ.get(
-    "PRIVACY_CONTROLLER_NAME", "MedSwarmHub Self-Hosted Operator"
+    "PRIVACY_CONTROLLER_NAME", ORGANIZATION_NAME
 )
 PRIVACY_CONTROLLER_ADDRESS = os.environ.get(
-    "PRIVACY_CONTROLLER_ADDRESS", "Not specified by operator"
+    "PRIVACY_CONTROLLER_ADDRESS", 
+    f"{ORGANIZATION_STREET}, {ORGANIZATION_ZIP_CITY}, {ORGANIZATION_COUNTRY}"
 )
 PRIVACY_CONTACT_EMAIL = os.environ.get(
-    "PRIVACY_CONTACT_EMAIL", "privacy@localhost"
+    "PRIVACY_CONTACT_EMAIL", CONTACT_EMAIL
 )
 PRIVACY_DPO_EMAIL = os.environ.get("PRIVACY_DPO_EMAIL", PRIVACY_CONTACT_EMAIL)
 PRIVACY_DPO_ADDRESS = os.environ.get(
     "PRIVACY_DPO_ADDRESS", PRIVACY_CONTROLLER_ADDRESS
 )
 PRIVACY_HOSTING_PROVIDER = os.environ.get(
-    "PRIVACY_HOSTING_PROVIDER", "Self-hosted"
+    "PRIVACY_HOSTING_PROVIDER", "Not specified"
 )
 PRIVACY_DATA_REGION = os.environ.get(
-    "PRIVACY_DATA_REGION", "Operator-defined"
+    "PRIVACY_DATA_REGION", "Not specified"
 )
 ACCOUNT_ERASURE_GRACE_DAYS = int(
     os.environ.get("ACCOUNT_ERASURE_GRACE_DAYS", 30)
