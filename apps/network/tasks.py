@@ -1289,6 +1289,7 @@ def start_swarm_network_task(network_id, user_id):
                     image_name=image_name,
                     provision_dir=provision_dir,
                     base_prod_path=base_prod_path,
+                    project=swarm_network.project,
                 )
 
         network_name = _docker_network_name(swarm_network.identifier)
