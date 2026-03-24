@@ -663,14 +663,23 @@ def _build_local_fallback_image(
         shutil.copyfile(requirements_src, requirements_dst)
     else:
         with open(requirements_dst, "w") as rf:
+            # Fallback requirements if no runtime_requirements.txt is found
             rf.write("nvflare==2.7.1\n")
-            rf.write("gunicorn\n")
-            rf.write("boto3\n")
-            rf.write("python-dotenv\n")
-            rf.write("pandas\n")
-            rf.write("numpy\n")
-            rf.write("torch\n")
-            rf.write("scikit-learn\n")
+            rf.write("gunicorn==23.0.0\n")
+            rf.write("boto3==1.34.100\n")
+            rf.write("python-dotenv==1.0.1\n")
+            rf.write("pandas==2.3.3\n")
+            rf.write("numpy==2.4.3\n")
+            rf.write("torch==2.10.0\n")
+            rf.write("scikit-learn==1.8.0\n")
+            rf.write("pytorch-lightning==2.4.0\n")
+            rf.write("monai==1.5.2\n")
+            rf.write("transformers==5.3.0\n")
+            rf.write("datasets\n")
+            rf.write("tensorflow==2.21.0\n")
+            rf.write("keras==3.13.0\n")
+            rf.write("fsspec==2025.2.0\n")
+            rf.write("aiohttp==3.13.3\n")
 
     dockerfile_path = os.path.join(build_dir, "Dockerfile")
     with open(dockerfile_path, "w") as df:

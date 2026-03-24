@@ -279,15 +279,21 @@ def generate_flare_startup_kit(
         provision_dir, "runtime_requirements.txt"
     )
     with open(req_file_path, "w") as rf:
-        # Basic requirements for all participants
+        # Basic requirements for all participants (matched with pyproject.toml)
         rf.write("nvflare==2.7.1\n")
         rf.write("gunicorn==23.0.0\n")
         rf.write("boto3==1.34.100\n")
         rf.write("python-dotenv==1.0.1\n")
         rf.write("pandas==2.3.3\n")
-        rf.write("numpy<2.0.0\n")
+        rf.write("numpy==2.4.3\n")
         rf.write("torch==2.10.0\n")
         rf.write("scikit-learn==1.8.0\n")
+        rf.write("pytorch-lightning==2.4.0\n")
+        rf.write("monai==1.5.2\n")
+        rf.write("transformers==5.3.0\n")
+        rf.write("datasets\n")
+        rf.write("tensorflow==2.21.0\n")
+        rf.write("keras==3.13.0\n")
         rf.write("fsspec==2025.2.0\n")
         rf.write("aiohttp==3.13.3\n")
 

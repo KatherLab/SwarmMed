@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import fsspec
 import numpy as np
 import nvflare.client as flare
+import nvflare.client.lightning # Ensure lightning is accessible through flare.lightning
 import requests
 from dotenv import load_dotenv
 
@@ -594,3 +595,18 @@ def _ensure_transportable(params: dict):
         else:
             converted[k] = np.array(v)
     return converted
+
+
+# =================================================================================
+# Public Client API Aliases
+# =================================================================================
+# These aliases allow 'import flare_adapter as flare' for a unified experience,
+# providing the best of both the original NVFlare client and our adapter.
+
+init = init_flare
+receive = receive_model
+send = send_model
+is_running = flare.is_running
+FLModel = flare.FLModel
+lightning = nvflare.client.lightning
+flare = flare
