@@ -135,8 +135,8 @@ compose-down-v: ## Stop services and remove the attached volumes
 	@docker compose down -v
 
 restart-debug: ## Restart the Celery worker service
-	@echo "⚡ Restarting Celery worker"
-	@docker compose restart celery_worker medswarmhub
+	@echo "⚡ Restarting Celery worker and MedSwarmHub for debug purposes"
+	@docker restart celery_worker medswarmhub
 
 migrate: ## Run Django migrations inside the app container
 	@echo "🧱 Applying Django migrations"
