@@ -89,10 +89,15 @@ CSRF_TRUSTED_ORIGINS = os.environ.get(
 INTERNAL_IPS = ["127.0.0.1"]
 
 # Allowed file extensions for data upload.
-ALLOWED_EXTENSIONS = set(os.environ.get(
-    "ALLOWED_EXTENSIONS",
-    ".csv,.txt,.json,,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf"
-).split(","))
+# Normalize to lowercase, trim whitespace, and drop empty entries.
+ALLOWED_EXTENSIONS = {
+    ext.strip().lower()
+    for ext in os.environ.get(
+        "ALLOWED_EXTENSIONS",
+        ".csv,.txt,.json,.parquet,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf",
+    ).split(",")
+    if ext.strip()
+}
 
 # --- Application Definition ---
 
