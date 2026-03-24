@@ -767,7 +767,7 @@ def _collect_project_runtime_requirements(project, logger):
         "boto3",
         "python-dotenv",
         "pandas",
-        "numpy<2.0.0",
+        "numpy==2.4.3",
         "torch==2.10.0",
         "scikit-learn==1.8.0",
         "fsspec==2025.2.0",
