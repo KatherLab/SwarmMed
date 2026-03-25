@@ -523,7 +523,7 @@ def send_model(params, metrics: dict = None, meta: dict = None):
     """Sends model updates and metrics back to the server.
 
     Args:
-        params: The model parameters to send.
+        params: The model parameters to send. Could be a dictionary, list/tuple, or FLModel.
         metrics (dict, optional): Optional dictionary of metrics.
         meta (dict, optional): Optional dictionary of metadata.
 
@@ -532,6 +532,13 @@ def send_model(params, metrics: dict = None, meta: dict = None):
     """
     if params is None:
         raise ValueError("flare_adapter: send_model received params=None.")
+
+    # If an FLModel is passed, extract its components
+    if isinstance(params, flare.FLModel):
+        metrics = metrics or params.metrics
+        meta = meta or params.meta
+        params = params.params
+
     if isinstance(params, (list, tuple)):
         params = {str(i): v for i, v in enumerate(params)}
     params = _ensure_transportable(params)

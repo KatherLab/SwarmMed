@@ -10,3 +10,4 @@ nibabel==5.2.1
 torchmetrics==1.4.2
 matplotlib==3.10.0
 seaborn==0.13.2
+huggingface-hub

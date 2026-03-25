@@ -7,8 +7,10 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.data as data
 import pytorch_lightning as pl
+from torchmetrics import AUROC, Accuracy
 import monai.networks.nets as nets
 import nibabel as nib
 import flare_adapter as flare
@@ -41,33 +43,61 @@ class BreastResNet101(pl.LightningModule):
         # Custom FC layer for the specific task
         self.model.fc = nn.Linear(2048, num_classes)
         self.loss_fn = nn.CrossEntropyLoss()
+        
+        # Metrics aligned with BasicClassifier in base_model.py
+        self.auc_roc = nn.ModuleDict({
+            state: AUROC(task="multiclass", num_classes=num_classes) 
+            for state in ["train_", "val_"]
+        })
+        self.acc = nn.ModuleDict({
+            state: Accuracy(task="multiclass", num_classes=num_classes) 
+            for state in ["train_", "val_"]
+        })
 
     def forward(self, x):
         return self.model(x)
 
-    def training_step(self, batch, batch_idx):
+    def _shared_step(self, batch, state):
         x, y = batch['source'], batch['target'].long().view(-1)
         logits = self(x)
         loss = self.loss_fn(logits, y)
-        acc = (logits.argmax(dim=1) == y).float().mean()
-        self.log("train_loss", loss, prog_bar=True)
-        self.log("train/ACC", acc, prog_bar=True)
+        
+        # Update metrics
+        self.acc[state + "_"].update(logits, y)
+        self.auc_roc[state + "_"].update(logits, y)
+        
+        self.log(f"{state}/loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         return loss
+
+    def training_step(self, batch, batch_idx):
+        return self._shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch['source'], batch['target'].long().view(-1)
-        logits = self(x)
-        loss = self.loss_fn(logits, y)
-        acc = (logits.argmax(dim=1) == y).float().mean()
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val/ACC", acc, prog_bar=True)
-        return loss
+        return self._shared_step(batch, "val")
+
+    def on_train_epoch_end(self):
+        self._log_epoch_end("train")
+
+    def on_validation_epoch_end(self):
+        self._log_epoch_end("val")
+
+    def _log_epoch_end(self, state):
+        acc_val = self.acc[state + "_"].compute()
+        auc_val = self.auc_roc[state + "_"].compute()
+        
+        self.log(f"{state}/ACC", acc_val, prog_bar=True)
+        self.log(f"{state}/AUC_ROC", auc_val, prog_bar=True)
+        
+        # Reset metrics
+        self.acc[state + "_"].reset()
+        self.auc_roc[state + "_"].reset()
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        # Aligned with BasicModel in base_model.py (AdamW, lr=1e-4, weight_decay=1e-2)
+        return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=1e-2)
 
     def logits2probabilities(self, logits):
-        return torch.softmax(logits, dim=1)
+        return F.softmax(logits, dim=1)
 
 # =================================================================================
 # 2. Data Loading (Streaming & Discovery)
@@ -98,10 +128,10 @@ class FlareStreamingDataset(data.Dataset):
         return len(self.df)
 
     def _load_nifti(self, path):
-        """Reads NIfTI and applies preprocessing matching ODELIA_Dataset3D and ImageOrSubjectToTensor."""
+        """Reads NIfTI and applies preprocessing matching ODELIA_Dataset3D."""
         content = self.fs.read_bytes(path)
-        # Handle .nii.gz
-        if path.endswith('.gz'):
+        # Handle .nii.gz: Check for gzip magic bytes (0x1f 0x8b)
+        if path.endswith('.gz') and content.startswith(b'\x1f\x8b'):
             with gzip.GzipFile(fileobj=io.BytesIO(content)) as gf:
                 content = gf.read()
         
@@ -114,6 +144,7 @@ class FlareStreamingDataset(data.Dataset):
         data = torch.from_numpy(data).float().unsqueeze(0)
         
         # 1. Z-Normalization with percentile clipping (0.5, 99.5) and masking
+        # Aligned with ZNormalization in augmentations_3d.py
         mask = (data > data.min()) & (data < data.max())
         if mask.any():
             masked_data = data[mask]
@@ -122,7 +153,7 @@ class FlareStreamingDataset(data.Dataset):
             high = torch.quantile(masked_data, 0.995)
             data = torch.clamp(data, low, high)
             
-            # Standardization
+            # Standardization (znorm)
             mean = data[mask].mean()
             std = data[mask].std()
             if std > 0:
@@ -132,7 +163,6 @@ class FlareStreamingDataset(data.Dataset):
         data = self._resize_volume(data, (224, 224, 32))
         
         # 3. Swap axes matching ImageOrSubjectToTensor: (C, H, W, D) -> (C, D, H, W)
-        # Assuming NIfTI load gave (H, W, D) and unsqueeze(0) gave (C, H, W, D)
         return data.permute(0, 3, 1, 2)
 
     def _resize_volume(self, tensor, target_shape):
@@ -180,16 +210,22 @@ class FlareStreamingDataset(data.Dataset):
             return self.__getitem__((index + 1) % len(self))
 
 def discover_folders(fs):
-    """Uses logic from val.py to find the unilateral folders."""
+    """Uses robust logic to find the unilateral folders, avoiding substring matches."""
     all_files = list(fs.manifest.keys())
     metadata_folder = None
     data_folder = None
     
     for file_path in all_files:
-        if "metadata_unilateral" in file_path:
-            metadata_folder = file_path.split("metadata_unilateral")[0] + "metadata_unilateral"
-        if "data_unilateral" in file_path:
-            data_folder = file_path.split("data_unilateral")[0] + "data_unilateral"
+        parts = file_path.split('/')
+        for i, part in enumerate(parts):
+            if part == "data_unilateral":
+                data_folder = "/".join(parts[:i+1])
+            elif part == "metadata_unilateral":
+                metadata_folder = "/".join(parts[:i+1])
+    
+    # Per user instruction: use data_unilateral if metadata folder is missing
+    if data_folder and not metadata_folder:
+        metadata_folder = data_folder
             
     return metadata_folder, data_folder
 
@@ -198,6 +234,10 @@ def discover_folders(fs):
 # =================================================================================
 
 def main():
+    # Memory Optimizations for 8GB GPUs (RTX 3070 Ti)
+    torch.set_float32_matmul_precision('high')
+    os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
+    
     # Initialize Flare Adapter
     flare.init()
     
@@ -244,14 +284,18 @@ def main():
         if input_model.params:
             model.load_state_dict(input_model.params)
             
-        # 3. Run local training (1 epoch per round)
+        # 3. Clean up memory before training
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            
+        # 4. Run local training (1 epoch per round)
         trainer.fit(model, train_loader, val_loader)
         
-        # 4. Send updates back
+        # 5. Send updates back
         # The trainer.fit() already has our updated weights
         output_model = flare.FLModel(
             params=model.state_dict(),
-            metrics={"val_loss": trainer.callback_metrics.get("val_loss", 0.0)}
+            metrics={"val_loss": trainer.callback_metrics.get("val/loss_epoch", 0.0)}
         )
         flare.send(output_model)
         
