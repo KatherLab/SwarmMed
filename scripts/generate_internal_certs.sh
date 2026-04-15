@@ -47,7 +47,8 @@ cleanup_file_if_present "$CA_DIR/ca.crt"
 cleanup_file_if_present "$SERIAL_FILE"
 openssl genrsa -aes256 -passout pass:"$CA_PASSPHRASE" -out "$CA_DIR/ca.key" 4096
 openssl req -x509 -new -key "$CA_DIR/ca.key" -passin pass:"$CA_PASSPHRASE" \
-    -sha256 -days 3650 -out "$CA_DIR/ca.crt" -subj "/CN=InternalCA"
+    -sha256 -days 3650 -out "$CA_DIR/ca.crt" -subj "/CN=InternalCA" \
+    -addext "basicConstraints=critical,CA:TRUE"
 
 # Distribute CA certificate (public) alongside issued certs for convenience
 install -m 644 "$CA_DIR/ca.crt" "$CERT_DIR/ca.crt"
