@@ -426,7 +426,7 @@ os.makedirs(PROJECT_TEMP_DIR, exist_ok=True)
 DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 
 # Maximum number of files allowed in a single multipart upload.
-DATA_UPLOAD_MAX_NUMBER_FILES = 5000
+DATA_UPLOAD_MAX_NUMBER_FILES = 50000
 
 # --- HIPAA Compliance: Data Retention and Backup ---
 # Retention period for database backups (in days)
