@@ -9,6 +9,7 @@ nav:
     - Security: security.md
     - Getting Started: getting-started.md
     - Usage: usage.md
+    - CLI: cli.md
     - Installation: installation.md
     - Developer: developer.md
     - Contribution: contribution.md

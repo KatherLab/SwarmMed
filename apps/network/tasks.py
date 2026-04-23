@@ -93,6 +93,34 @@ def _container_name_for(network_identifier, participant_name):
     return f"swarm-{str(network_identifier)[:12]}-{safe_participant}"[:63]
 
 
+def _split_runtime_entrypoint(command: list[str]) -> tuple[str | None, list[str]]:
+    """Split a runtime command into a Docker entrypoint override and args.
+
+    FLARE runtime containers can reuse the main application image. That image's
+    default entrypoint waits for database, cache, and object-store services,
+    which are not needed for isolated FLARE server/client containers and can
+    block the actual runtime command. If the runtime launcher already provides
+    an explicit shell command, promote that shell to the Docker entrypoint so
+    the app bootstrap is bypassed.
+    """
+
+    if command and command[0] == "/bin/bash":
+        return "/bin/bash", list(command[1:])
+    return None, list(command)
+
+
+def _get_runtime_manifest_base_url(
+    *, use_host_network: bool, remote_host: str = ""
+) -> str:
+    """Choose the most direct app URL for manifest requests from runtime containers."""
+    cleaned_remote_host = str(remote_host or "").strip()
+    if use_host_network:
+        if cleaned_remote_host:
+            return f"https://{cleaned_remote_host}:5085"
+        return "https://127.0.0.1:5085"
+    return "http://medswarmhub:8000"
+
+
 def _load_json_file(path):
     """Loads a JSON file from the given path.
 
@@ -1701,6 +1729,14 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 "MEDSWARMHUB_USE_LOCAL_DATA=1",
             ]
+            manifest_base_url = _get_runtime_manifest_base_url(
+                use_host_network=use_host_network,
+                remote_host=remote_host,
+            )
+            if manifest_base_url:
+                run_cmd.extend(
+                    ["-e", f"MEDSWARMHUB_MANIFEST_URL={manifest_base_url}"]
+                )
             if remote_host:
                 run_cmd.extend(["-e", f"MEDSWARMHUB_SERVER_HOST={remote_host}"])
 
@@ -1798,7 +1834,13 @@ def start_swarm_network_task(network_id, user_id):
                     # Map 'minio' to the Docker bridge gateway where it is listening.
                     run_cmd.extend(["--add-host", f"minio:{target_gateway}"])
 
-            run_cmd.extend([image_name] + command)
+            entrypoint_override, runtime_command = _split_runtime_entrypoint(
+                command
+            )
+            if entrypoint_override:
+                run_cmd.extend(["--entrypoint", entrypoint_override])
+
+            run_cmd.extend([image_name] + runtime_command)
 
             logger.network.info(
                 f"Starting {role} container: {container_name}"

@@ -12,6 +12,94 @@ import subprocess
 from common.utils import get_s3_client
 
 
+TRAINING_ROUND_PATTERNS = (
+    re.compile(r"Finished round\s+(\d+)", re.I),
+    re.compile(r"Round\s+(\d+)\s+\|", re.I),
+    re.compile(r"Round:\s+(\d+)", re.I),
+    re.compile(r"finished training round\s+(\d+)", re.I),
+    re.compile(r"number of rounds completed\s+(\d+)", re.I),
+    re.compile(r"Start aggregation for round\s+(\d+)", re.I),
+)
+
+TRAINING_COMPLETION_MARKERS = (
+    "ending workflow",
+    "child worker process finished",
+    "mpm: good bye!",
+    "training finished or aborted",
+    "swarm learning done",
+)
+
+TRAINING_FAILURE_MARKERS = (
+    "execution_exception",
+    "fatal_system_error",
+    "received failure report from client",
+    "data loading error in training script",
+    "traceback (most recent call last)",
+    "exception ending gatherer",
+    "error during model persistence",
+)
+
+TRAINING_STOPPED_MARKERS = (
+    "abort_job",
+    "job aborted",
+    "abort signal received",
+    "abort requested",
+)
+
+TERMINAL_TRAINING_STATUSES = {"COMPLETED", "FAILED", "STOPPED"}
+
+
+def extract_training_rounds(log_text: str) -> int:
+    """Return the highest completed round found in a log blob."""
+    rounds_finished = -1
+    for pattern in TRAINING_ROUND_PATTERNS:
+        for match in pattern.finditer(log_text):
+            round_number = int(match.group(1))
+            if round_number > rounds_finished:
+                rounds_finished = round_number
+    return rounds_finished
+
+
+def infer_training_terminal_status(log_text: str) -> str | None:
+    """Classify a training log tail into a terminal status when possible."""
+    lowered = str(log_text or "").lower()
+    if not lowered:
+        return None
+
+    if any(marker in lowered for marker in TRAINING_FAILURE_MARKERS):
+        return "FAILED"
+    if any(marker in lowered for marker in TRAINING_STOPPED_MARKERS):
+        return "STOPPED"
+    if any(marker in lowered for marker in TRAINING_COMPLETION_MARKERS):
+        return "COMPLETED"
+    return None
+
+
+def summarize_training_log(log_text: str) -> dict:
+    """Extract progress and terminal state from a training log blob."""
+    return {
+        "rounds_finished": extract_training_rounds(log_text),
+        "terminal_status": infer_training_terminal_status(log_text),
+    }
+
+
+def should_update_terminal_status(
+    current_status: str | None, new_status: str | None
+) -> bool:
+    """Return True when a new terminal status should replace the current one."""
+    if not new_status:
+        return False
+
+    current_status = str(current_status or "").upper()
+    new_status = str(new_status).upper()
+    if current_status not in TERMINAL_TRAINING_STATUSES:
+        return True
+    return current_status == "COMPLETED" and new_status in {
+        "FAILED",
+        "STOPPED",
+    }
+
+
 def scrape_docker_progress(participant_ids=None):
     """Scrapes progress from local docker containers running NVFlare clients/servers.
 
@@ -21,7 +109,7 @@ def scrape_docker_progress(participant_ids=None):
 
     Returns:
         list: A list of dictionaries with extracted progress info (container, job_id,
-            rounds_finished, ended).
+            rounds_finished, ended, terminal_status).
     """
     from logs.logger import get_logger
     log = get_logger()
@@ -64,18 +152,9 @@ def scrape_docker_progress(participant_ids=None):
     log.training.debug(f"Scrape: Filtered candidate containers: {candidates}")
 
     results = []
-    round_patterns = [
-        re.compile(r"Finished round\s+(\d+)", re.I),
-        re.compile(r"Round\s+(\d+)\s+\|", re.I),
-        re.compile(r"Round:\s+(\d+)", re.I),
-        re.compile(r"finished training round\s+(\d+)", re.I),
-        re.compile(r"number of rounds completed\s+(\d+)", re.I),
-        re.compile(r"Start aggregation for round\s+(\d+)", re.I),
-    ]
     # Match UUIDs (36 chars) after common prefixes
     # Added 'run' variants common in SwarmClientController logs
     job_id_pattern = re.compile(r"(?:Got job|Local Job ID|Deploying job|job_id|job|run|run\s*\(|run[:=])\s*[:=]?\s*([0-9a-f-]{36})", re.I)
-    completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished", "Swarm Learning Done"]
 
     for container in candidates:
         try:
@@ -92,8 +171,10 @@ def scrape_docker_progress(participant_ids=None):
                 continue
             
             job_id = None
-            rounds_finished = -1
-            ended = False
+            summary = summarize_training_log(logs)
+            rounds_finished = summary["rounds_finished"]
+            terminal_status = summary["terminal_status"]
+            ended = terminal_status is not None
             
             # Find Job ID (search from the end)
             job_matches = job_id_pattern.findall(logs)
@@ -101,29 +182,21 @@ def scrape_docker_progress(participant_ids=None):
                 job_id = job_matches[-1]
                 log.training.debug(f"Scrape: Found job_id {job_id} in {container} logs")
                 
-            # Find Rounds (search from the end)
-            for pattern in round_patterns:
-                for m in pattern.finditer(logs):
-                    rnum = int(m.group(1))
-                    if rnum > rounds_finished:
-                        rounds_finished = rnum
-            
             if rounds_finished >= 0:
                 log.training.debug(f"Scrape: Found rounds_finished {rounds_finished} in {container} logs")
             
-            # Check completion
-            for marker in completion_markers:
-                if marker.lower() in logs.lower():
-                    ended = True
-                    log.training.debug(f"Scrape: Found completion marker '{marker}' in {container} logs")
-                    break
+            if terminal_status:
+                log.training.debug(
+                    f"Scrape: Found terminal status '{terminal_status}' in {container} logs"
+                )
                 
             if job_id or rounds_finished >= 0:
                 results.append({
                     "container": container,
                     "job_id": job_id,
                     "rounds_finished": rounds_finished,
-                    "ended": ended
+                    "ended": ended,
+                    "terminal_status": terminal_status,
                 })
         except Exception as e:
             log.training.error(f"Scrape: Error processing container {container}: {e}")

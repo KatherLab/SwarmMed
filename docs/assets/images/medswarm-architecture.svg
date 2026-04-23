@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">MedSwarm architecture overview</title>
+  <desc id="desc">Architecture diagram showing MedSwarmHub and the medswarm CLI sharing one Django service layer and backend state for decentralized learning.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f5f7fb; }
+      .panel { fill: #ffffff; stroke: #b8c2d1; stroke-width: 2; rx: 22; ry: 22; }
+      .panel-alt { fill: #eef4ff; stroke: #7b9acc; stroke-width: 2; rx: 22; ry: 22; }
+      .panel-accent { fill: #eef9f1; stroke: #7ab38b; stroke-width: 2; rx: 22; ry: 22; }
+      .panel-runtime { fill: #fff7ec; stroke: #d2a661; stroke-width: 2; rx: 22; ry: 22; }
+      .title { font: 700 34px Helvetica, Arial, sans-serif; fill: #1a2533; }
+      .subtitle { font: 500 18px Helvetica, Arial, sans-serif; fill: #536273; }
+      .section { font: 700 22px Helvetica, Arial, sans-serif; fill: #223044; }
+      .box-title { font: 700 24px Helvetica, Arial, sans-serif; fill: #1f2d3d; }
+      .box-subtitle { font: 500 16px Helvetica, Arial, sans-serif; fill: #58677a; }
+      .label { font: 600 18px Helvetica, Arial, sans-serif; fill: #223044; }
+      .body { font: 500 17px Helvetica, Arial, sans-serif; fill: #425266; }
+      .small { font: 500 15px Helvetica, Arial, sans-serif; fill: #58677a; }
+      .chip-gui { fill: #dceaff; stroke: #7b9acc; stroke-width: 1.5; rx: 16; ry: 16; }
+      .chip-cli { fill: #e3f5e8; stroke: #7ab38b; stroke-width: 1.5; rx: 16; ry: 16; }
+      .arrow { stroke: #4e6075; stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .dashed { stroke-dasharray: 10 10; }
+    </style>
+    <marker id="arrowhead" markerWidth="14" markerHeight="12" refX="11" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#4e6075" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="980" />
+
+  <text class="title" x="70" y="72">MedSwarm architecture: shared backend for GUI and CLI workflows</text>
+  <text class="subtitle" x="70" y="106">Both interfaces operate on the same project, data, network, training, and results state inside one local MedSwarm deployment.</text>
+
+  <text class="section" x="130" y="170">User-facing entry points</text>
+  <text class="section" x="620" y="170">Shared orchestration layer</text>
+  <text class="section" x="1070" y="170">Shared state and local execution</text>
+
+  <rect class="panel-alt" x="70" y="210" width="380" height="220" />
+  <text class="box-title" x="100" y="258">MedSwarmHub</text>
+  <text class="box-subtitle" x="100" y="288">Graphical user interface</text>
+  <rect class="chip-gui" x="100" y="320" width="126" height="38" />
+  <text class="small" x="123" y="345">Browser UI</text>
+  <text class="body" x="100" y="388">Project setup, data management,</text>
+  <text class="body" x="100" y="416">network provisioning, training control,</text>
+  <text class="body" x="100" y="444">and results review for non-programmers.</text>
+
+  <rect class="panel-accent" x="70" y="490" width="380" height="220" />
+  <text class="box-title" x="100" y="538">medswarm</text>
+  <text class="box-subtitle" x="100" y="568">Local companion command-line interface</text>
+  <rect class="chip-cli" x="100" y="600" width="134" height="38" />
+  <text class="small" x="125" y="625">argparse CLI</text>
+  <text class="body" x="100" y="668">Scriptable local workflow for advanced users,</text>
+  <text class="body" x="100" y="696">reproducible automation, and batch-friendly</text>
+  <text class="body" x="100" y="724">project, network, and training operations.</text>
+
+  <rect class="panel" x="560" y="210" width="400" height="560" />
+  <text class="box-title" x="590" y="258">Django service layer</text>
+  <text class="box-subtitle" x="590" y="288">Shared orchestration used by both Hub and CLI</text>
+
+  <rect class="panel-alt" x="590" y="328" width="160" height="92" />
+  <text class="label" x="626" y="383">Project</text>
+
+  <rect class="panel-alt" x="770" y="328" width="160" height="92" />
+  <text class="label" x="820" y="383">Data</text>
+
+  <rect class="panel-alt" x="590" y="446" width="160" height="92" />
+  <text class="label" x="623" y="501">Network</text>
+
+  <rect class="panel-alt" x="770" y="446" width="160" height="92" />
+  <text class="label" x="808" y="501">Training</text>
+
+  <rect class="panel-alt" x="680" y="564" width="160" height="92" />
+  <text class="label" x="719" y="619">Results</text>
+
+  <text class="body" x="600" y="708">Shared services enforce one workflow contract:</text>
+  <text class="body" x="600" y="736">project code ingestion, data operations,</text>
+  <text class="body" x="600" y="764">network lifecycle, training submission,</text>
+  <text class="body" x="600" y="792">result synchronization and visualization.</text>
+
+  <rect class="panel" x="1030" y="210" width="500" height="220" />
+  <text class="box-title" x="1060" y="258">Persistent shared state</text>
+  <text class="box-subtitle" x="1060" y="288">Common backend resources used by both interfaces</text>
+  <text class="body" x="1060" y="340">PostgreSQL:</text>
+  <text class="body" x="1195" y="340">projects, current context, jobs, results metadata</text>
+  <text class="body" x="1060" y="376">MinIO / S3:</text>
+  <text class="body" x="1195" y="376">training code, datasets, synced artifacts</text>
+  <text class="body" x="1060" y="412">Celery:</text>
+  <text class="body" x="1195" y="412">background validation, visualization, sync tasks</text>
+
+  <rect class="panel-runtime" x="1030" y="470" width="500" height="300" />
+  <text class="box-title" x="1060" y="518">Local node execution</text>
+  <text class="box-subtitle" x="1060" y="548">Where decentralized training and analysis actually run</text>
+  <text class="body" x="1060" y="600">NVFlare workspace and startup packages</text>
+  <text class="body" x="1060" y="636">Training containers and local Python environments</text>
+  <text class="body" x="1060" y="672">Validation / visualization sandbox execution</text>
+  <text class="body" x="1060" y="708">Local datasets remain on-site throughout training</text>
+  <text class="body" x="1060" y="744">Synced result artifacts return to object storage</text>
+
+  <path class="arrow" marker-end="url(#arrowhead)" d="M450 320 C505 320, 515 320, 560 320" />
+  <path class="arrow" marker-end="url(#arrowhead)" d="M450 600 C505 600, 515 600, 560 600" />
+
+  <path class="arrow" marker-end="url(#arrowhead)" d="M960 350 C995 350, 1000 350, 1030 350" />
+  <path class="arrow" marker-end="url(#arrowhead)" d="M960 620 C995 620, 1000 620, 1030 620" />
+
+  <path class="arrow dashed" marker-end="url(#arrowhead)" d="M1280 430 L1280 470" />
+
+  <rect class="panel" x="70" y="790" width="1460" height="120" />
+  <text class="box-title" x="100" y="840">Interpretation for the manuscript</text>
+  <text class="body" x="100" y="876">The GUI and CLI are two local entry points into the same MedSwarm deployment. They do not maintain separate backends; both trigger the same Django service layer and act on the same database, object storage, task queue, and NVFlare runtime.</text>
+  <text class="small" x="100" y="902">Suggested caption: Overview of the MedSwarm architecture. MedSwarmHub and the medswarm CLI share one service layer and one local backend state, enabling equivalent core project, data, network, training, and results workflows through either interface.</text>
+</svg>

@@ -18,7 +18,11 @@ from logs.utils import format_exception
 from network.models import SwarmNetwork
 
 from .models import TrainingJob
-from .utils import upload_folder_to_s3
+from .utils import (
+    summarize_training_log,
+    should_update_terminal_status,
+    upload_folder_to_s3,
+)
 
 
 def _get_total_rounds(workspace_base):
@@ -53,6 +57,31 @@ def _get_total_rounds(workspace_base):
             ):
                 continue
     return 10
+
+
+def _select_result_root(target: str, app_subdir: str) -> str:
+    """Prefer the participant job root when it contains result artifacts."""
+    artifact_markers = {
+        "audit.log",
+        "fl_app.txt",
+        "log.json",
+        "log.txt",
+        "log_error.txt",
+        "log_fl.txt",
+        "meta.json",
+        "stats_pool_summary.json",
+    }
+    if os.path.isdir(os.path.join(target, "models")):
+        return target
+    if os.path.exists(target):
+        try:
+            if artifact_markers.intersection(os.listdir(target)):
+                return target
+        except OSError:
+            pass
+    if os.path.exists(app_subdir):
+        return app_subdir
+    return target
 
 
 @shared_task
@@ -211,12 +240,16 @@ def monitor_training_jobs():
                                 ]
                             )
 
-                    if res["ended"] and l_job.status == "RUNNING":
+                    terminal_status = res.get("terminal_status")
+                    if should_update_terminal_status(
+                        l_job.status, terminal_status
+                    ):
                         log.training.info(
-                            f"Monitor: Job {job_id} marked as COMPLETED via local docker logs"
+                            f"Monitor: Job {job_id} marked as {terminal_status} via local docker logs"
                         )
-                        l_job.status = "COMPLETED"
-                        l_job.progress_percent = 100
+                        l_job.status = terminal_status
+                        if terminal_status == "COMPLETED":
+                            l_job.progress_percent = 100
                         l_job.completed_at = timezone.now()
                         l_job.save(
                             update_fields=[
@@ -254,49 +287,42 @@ def monitor_training_jobs():
                 continue
 
             # Step 1: Check Admin API status
-            remote_finished = job.status == "COMPLETED"
-            if not remote_finished:
-                admin_target = _resolve_admin_session_target(job.network)
-                if admin_target:
-                    try:
-                        admin_name, admin_dir, server_ip = admin_target
-                        sess = new_secure_session_with_host(
-                            username=admin_name,
-                            startup_kit_location=admin_dir,
-                            host=server_ip,
-                            timeout=10.0,
-                            network_id=job.network.identifier,
-                        )
-                        resp = sess.api.do_command(
-                            f"list_jobs {flare_job_uuid}"
-                        )
-                        rjobs = _parse_nvflare_jobs(resp)
-                        if rjobs:
-                            rstatus = str(
-                                rjobs[0].get("status")
-                                or rjobs[0].get("state")
-                                or ""
-                            ).upper()
-                            if rstatus in ["COMPLETED", "FAILED", "STOPPED"]:
-                                remote_finished = True
-                        sess.close()
-                    except Exception:
-                        pass
+            terminal_status = (
+                job.status if job.status in {"COMPLETED", "FAILED", "STOPPED"} else None
+            )
+            admin_target = _resolve_admin_session_target(job.network)
+            if admin_target:
+                try:
+                    admin_name, admin_dir, server_ip = admin_target
+                    sess = new_secure_session_with_host(
+                        username=admin_name,
+                        startup_kit_location=admin_dir,
+                        host=server_ip,
+                        timeout=10.0,
+                        network_id=job.network.identifier,
+                    )
+                    resp = sess.api.do_command(f"list_jobs {flare_job_uuid}")
+                    rjobs = _parse_nvflare_jobs(resp)
+                    if rjobs:
+                        rstatus = str(
+                            rjobs[0].get("status")
+                            or rjobs[0].get("state")
+                            or ""
+                        ).upper()
+                        if should_update_terminal_status(
+                            terminal_status, rstatus
+                        ):
+                            terminal_status = rstatus
+                    sess.close()
+                except Exception:
+                    pass
 
             # Step 2: Progress from logs
-            ended = remote_finished
-            if job.status == "RUNNING":
-                rounds_finished = 0
+            if job.status in {"RUNNING", "COMPLETED"}:
+                rounds_finished = job.rounds_finished or 0
                 total_rounds = job.total_rounds or _get_total_rounds(
                     workspace_base
                 )
-
-                round_patterns = [
-                    re.compile(r"Finished round\s+(\d+)", re.I),
-                    re.compile(r"Round\s+(\d+)\s+\|", re.I),
-                    re.compile(r"Round:\s+(\d+)", re.I),
-                    re.compile(r"finished training round\s+(\d+)", re.I),
-                ]
 
                 for root, _, files in os.walk(workspace_base):
                     if flare_job_uuid in root:
@@ -315,23 +341,16 @@ def monitor_training_jobs():
                                         tail = f.read().decode(
                                             "utf-8", errors="ignore"
                                         )
-
-                                        completion_markers = [
-                                            "ending workflow",
-                                            "child worker process finished",
-                                            "MPM: Good Bye!",
-                                        ]
-                                        if not ended and any(
-                                            m in tail
-                                            for m in completion_markers
+                                        summary = summarize_training_log(tail)
+                                        if summary["rounds_finished"] > rounds_finished:
+                                            rounds_finished = summary["rounds_finished"]
+                                        if should_update_terminal_status(
+                                            terminal_status,
+                                            summary["terminal_status"],
                                         ):
-                                            ended = True
-
-                                        for pattern in round_patterns:
-                                            for m in pattern.finditer(tail):
-                                                rnum = int(m.group(1))
-                                                if rnum > rounds_finished:
-                                                    rounds_finished = rnum
+                                            terminal_status = summary[
+                                                "terminal_status"
+                                            ]
                                 except Exception:
                                     pass
 
@@ -340,7 +359,11 @@ def monitor_training_jobs():
                         rounds_finished + 1 if rounds_finished >= 0 else 0
                     )
                     pct = int(rounds_completed * 100 / total_rounds)
-                    job.progress_percent = 100 if ended else min(99, pct)
+                    job.progress_percent = (
+                        100
+                        if terminal_status == "COMPLETED"
+                        else min(99, pct)
+                    )
 
                 job.rounds_finished = rounds_finished
                 job.progress_updated_at = timezone.now()
@@ -353,7 +376,7 @@ def monitor_training_jobs():
                 )
 
             # Step 3: Result Sync
-            if ended:
+            if terminal_status == "COMPLETED":
                 found_folders = []
                 job_root = os.path.join(workspace_base, flare_job_uuid)
                 if os.path.exists(job_root):
@@ -382,12 +405,12 @@ def monitor_training_jobs():
                                 app_sub = os.path.join(
                                     target, f"app_{participant}"
                                 )
-                                if os.path.exists(app_sub):
-                                    found_folders.append(
-                                        (participant, app_sub)
+                                found_folders.append(
+                                    (
+                                        participant,
+                                        _select_result_root(target, app_sub),
                                     )
-                                else:
-                                    found_folders.append((participant, target))
+                                )
 
                 if found_folders:
                     log.training.info(
@@ -401,8 +424,10 @@ def monitor_training_jobs():
                             s3_prefix,
                         )
 
-                    if job.status != "COMPLETED":
-                        job.status = "COMPLETED"
+                    if should_update_terminal_status(
+                        job.status, terminal_status
+                    ):
+                        job.status = terminal_status
                         job.completed_at = timezone.now()
                         job.progress_percent = 100
                         job.save(
@@ -412,6 +437,18 @@ def monitor_training_jobs():
                                 "progress_percent",
                             ]
                         )
+            elif should_update_terminal_status(job.status, terminal_status):
+                job.status = terminal_status
+                if terminal_status == "COMPLETED":
+                    job.progress_percent = 100
+                job.completed_at = timezone.now()
+                job.save(
+                    update_fields=[
+                        "status",
+                        "completed_at",
+                        "progress_percent",
+                    ]
+                )
         except Exception as e:
             log.training.error(
                 f"Monitor: Error monitoring job {job.identifier}: {e}",

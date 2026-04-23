@@ -10,7 +10,6 @@ import json
 import os
 import re
 import secrets
-import shutil
 import socket
 import ssl
 import threading
@@ -34,8 +33,12 @@ from project.decorators import (
 )
 from project.models import UserCurrentProject
 
+from . import services as training_services
 from .models import TrainingJob
-from .utils import download_s3_folder
+from .utils import (
+    summarize_training_log,
+    should_update_terminal_status,
+)
 
 logger = get_logger()
 
@@ -1129,33 +1132,23 @@ def get_training_progress_info(training_job, current_network):
                 if total_rounds != 10: break
 
             rounds_finished = 0
-            ended = False
+            terminal_status = None
             if have_cached_progress:
                 rounds_finished = training_job.rounds_finished or 0
 
-            # Robust log scanning regexes
-            round_patterns = [
-                re.compile(r"Finished round\s+(\d+)", re.I),
-                re.compile(r"Round\s+(\d+)\s+\|", re.I),
-                re.compile(r"Round:\s+(\d+)", re.I),
-                re.compile(r"finished training round\s+(\d+)", re.I),
-                re.compile(r"number of rounds completed\s+(\d+)", re.I),
-                re.compile(r"Start aggregation for round\s+(\d+)", re.I),
-            ]
-
             def scan_log_tail(fpath: str) -> None:
-                nonlocal ended, rounds_finished
+                nonlocal terminal_status, rounds_finished
                 data = _tail_text(fpath, max_bytes=512 * 1024)
-                if not data: return
-                
-                completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished", "Swarm Learning Done"]
-                if any(m.lower() in data.lower() for m in completion_markers):
-                    ended = True
-                
-                for pattern in round_patterns:
-                    for m in pattern.finditer(data):
-                        rnum = int(m.group(1))
-                        if rnum > rounds_finished: rounds_finished = rnum
+                if not data:
+                    return
+
+                summary = summarize_training_log(data)
+                if summary["rounds_finished"] > rounds_finished:
+                    rounds_finished = summary["rounds_finished"]
+                if should_update_terminal_status(
+                    terminal_status, summary["terminal_status"]
+                ):
+                    terminal_status = summary["terminal_status"]
 
             if not have_cached_progress:
                 for root, _dirs, files in os.walk(workspace_dir):
@@ -1163,17 +1156,33 @@ def get_training_progress_info(training_job, current_network):
                         for fname in files:
                             if fname.startswith("log") and fname.endswith(".txt"):
                                 scan_log_tail(os.path.join(root, fname))
-                                if ended: break
-                    if ended: break
+                                if terminal_status: break
+                    if terminal_status: break
 
-            if ended:
-                training_progress = 100
-                training_status = "Completed"
+            if terminal_status:
+                if not have_cached_progress and total_rounds > 0:
+                    rounds_completed = (
+                        rounds_finished + 1 if rounds_finished >= 0 else 0
+                    )
+                    training_progress = min(
+                        99, int(rounds_completed * 100 / total_rounds)
+                    )
+
+                if terminal_status == "COMPLETED":
+                    training_progress = 100
+
+                training_status = terminal_status.title()
                 is_training_running = False
-                if training_job.status != "COMPLETED":
-                    training_job.status = "COMPLETED"
+                if should_update_terminal_status(
+                    training_job.status, terminal_status
+                ):
+                    training_job.status = terminal_status
                     training_job.completed_at = timezone.now()
-                    training_job.save(update_fields=["status", "completed_at"])
+                    update_fields = ["status", "completed_at"]
+                    if terminal_status == "COMPLETED":
+                        training_job.progress_percent = 100
+                        update_fields.append("progress_percent")
+                    training_job.save(update_fields=update_fields)
             elif not have_cached_progress and total_rounds > 0:
                 rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                 training_progress = min(99, int(rounds_completed * 100 / total_rounds))
@@ -1184,6 +1193,11 @@ def get_training_progress_info(training_job, current_network):
     elif training_job.status == "COMPLETED":
         training_progress = 100
         training_status = "Completed"
+    elif training_job.status in {"FAILED", "STOPPED"}:
+        training_progress = min(
+            99, int(training_job.progress_percent or 0)
+        )
+        training_status = training_job.status.title()
 
     now = timezone.now()
     start_time = training_job.created_at
@@ -1298,290 +1312,14 @@ def start_training(request, network_id):
         HttpResponseRedirect: A redirect back to the training dashboard.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    if network.status != "RUNNING":
-        messages.error(request, f"Network '{network.name}' is not running. Please start the network before initiating training.")
-        return redirect("training:training")
-
-    project = network.project
-    log = get_logger(user=request.user, project=project)
-    job_dir = os.path.join(settings.BASE_DIR, "workspaces", str(project.identifier), str(network.identifier), "job")
-    project_name = get_safe_slug(project.title, project.identifier).replace("-", "_")
-    admin_target = _resolve_admin_session_target(network)
-    if not admin_target:
-        messages.error(request, "No admin startup kit found for this center. Please re-provision or upload a complete startup package.")
-        return redirect("training:training")
-
-    admin_username, admin_session_dir, server_ip = admin_target
-    app_server_dir = os.path.join(job_dir, "app_server")
-    app_client_dir = os.path.join(job_dir, "app_client")
-    app_client_custom_dir = os.path.join(app_client_dir, "custom")
-    os.makedirs(os.path.join(app_server_dir, "config"), exist_ok=True)
-    os.makedirs(os.path.join(app_client_dir, "config"), exist_ok=True)
-    os.makedirs(app_client_custom_dir, exist_ok=True)
-
-    source_code_prefix = f"{project.identifier}/code/training/"
     try:
-        download_s3_folder(settings.AWS_STORAGE_BUCKET_NAME, source_code_prefix, app_client_custom_dir)
-        log.training.info(f"Downloaded training code from S3: {source_code_prefix}")
+        training_job = training_services.submit_training_job(
+            actor=request.user, network=network
+        )
+        messages.success(
+            request, f"Successfully submitted job {training_job.flare_job_id}"
+        )
     except Exception as e:
-        log.training.error(f"Failed to download training code: {e}")
-
-    flare_adapter_src = os.path.join(settings.BASE_DIR, "apps", "training", "flare_adapter.py")
-    shutil.copyfile(flare_adapter_src, os.path.join(app_client_custom_dir, "flare_adapter.py"))
-
-    # We NO LONGER build a data manifest on the coordinator.
-    # Each node now dynamically discovers its own local data at runtime using 
-    # the flare_adapter's local discovery logic. This prevents sensitive 
-    # data URLs from being leaked across the swarm.
-
-    training_py_path = os.path.join(app_client_custom_dir, "training.py")
-    if os.path.exists(training_py_path):
-        with open(training_py_path) as f: content = f.read()
-        replacement = f'main(project_id="{str(project.identifier)}")'
-        content = content.replace('main(project_id="default_project")', replacement).replace("main(project_id='default_project')", replacement)
-        with open(training_py_path, "w") as f: f.write(content)
-
-    client_names = list(network.participants.filter(role="CLIENT").values_list("participant_id", flat=True))
-    if not client_names:
-        _workspace_root = os.path.join(settings.BASE_DIR, "workspaces", str(project.identifier), str(network.identifier))
-        try:
-            _prod_00_check = os.path.dirname(os.path.abspath(admin_session_dir))
-            _lcn_file = os.path.join(_prod_00_check, ".local_client_names.json")
-            if os.path.exists(_lcn_file):
-                with open(_lcn_file) as _f:
-                    _lcn = json.load(_f)
-                if isinstance(_lcn, list): client_names.extend([str(n) for n in _lcn if n])
-            
-            if not client_names:
-                _ap_file = os.path.join(admin_session_dir, "startup", ".all_participants.json")
-                if os.path.exists(_ap_file):
-                    with open(_ap_file) as _f:
-                        _ap = json.load(_f)
-                    if isinstance(_ap, dict) and "clients" in _ap:
-                        client_names.extend([str(n) for n in _ap["clients"] if n])
-        except Exception: pass
-
-        if not client_names:
-            try:
-                import yaml as _yaml
-                _project_yml = os.path.join(_workspace_root, "project.yml")
-                if os.path.exists(_project_yml):
-                    with open(_project_yml) as _f:
-                        _yml = _yaml.safe_load(_f) or {}
-                    for _p in _yml.get("participants", []):
-                        _role = str(_p.get("type", _p.get("role", ""))).lower()
-                        _name = str(_p.get("name", "")).strip()
-                        if _name and _role in {"client", "fl_client"}: client_names.append(_name)
-            except Exception: pass
-
-        if not client_names:
-            try:
-                _prod_00 = os.path.dirname(os.path.abspath(admin_session_dir))
-                _EXCL = {"server", "admin_startup", "startup", "transfer", "local", "logs", "custom"}
-                for _e in sorted(os.scandir(_prod_00), key=lambda x: x.name):
-                    if (_e.is_dir() and _e.name not in _EXCL and not _e.name.startswith(".") and os.path.isdir(os.path.join(_e.path, "startup"))):
-                        client_names.append(_e.name)
-            except Exception: pass
-
-    # Sanitize current list (dedupe and filter)
-    client_names = _dedupe_keep_order([n for n in client_names if n and n.lower() not in ["server", "admin"]])
-
-    server_names = list(network.participants.filter(role="SERVER").values_list("participant_id", flat=True))
-    if "server" not in server_names: server_names = ["server"]
-
-    framework = "np"
-    if os.path.exists(training_py_path):
-        with open(training_py_path) as f: script_text = f.read()
-        try:
-            tree = ast.parse(script_text)
-            imported_modules = set()
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        mod = (alias.name or "").split(".")[0].strip()
-                        if mod: imported_modules.add(mod)
-                elif isinstance(node, ast.ImportFrom):
-                    mod = (node.module or "").split(".")[0].strip()
-                    if mod: imported_modules.add(mod)
-            if imported_modules.intersection({"tensorflow", "keras"}): framework = "tf"
-            elif imported_modules.intersection({"torch", "pytorch_lightning", "lightning", "transformers", "monai"}): framework = "pt"
-            elif imported_modules.intersection({"sklearn", "numpy", "pandas"}) or "sklearn" in imported_modules: framework = "np"
-        except SyntaxError:
-            if "tensorflow" in script_text.lower() or "keras" in script_text.lower(): framework = "tf"
-
-    log.training.info(f"Detected training framework: {framework}")
-    if framework == "pt":
-        runtime_requirements_path = os.path.join(settings.BASE_DIR, "workspaces", str(project.identifier), str(network.identifier), "runtime_requirements.txt")
-        has_torch_dependency = False
-        if os.path.exists(runtime_requirements_path):
-            try:
-                with open(runtime_requirements_path) as rf:
-                    for raw_line in rf:
-                        line = raw_line.strip().lower()
-                        if not line or line.startswith("#"): continue
-                        if line.startswith("torch"):
-                            has_torch_dependency = True
-                            break
-            except Exception as e: log.training.warning(f"Could not validate runtime requirements for PyTorch: {e}")
-        if not has_torch_dependency:
-            err_msg = "PyTorch training detected, but runtime requirements do not include 'torch'. Add torch to the project's requirements file, re-provision/start the network, and retry training."
-            log.training.error(err_msg)
-            messages.error(request, err_msg)
-            return redirect("training:training")
-
-    try:
-        submit_connect_timeout = 20.0
-        env_timeout = os.getenv("MEDSWARMHUB_FLARE_CONNECT_TIMEOUT", "").strip()
-        if env_timeout:
-            with contextlib.suppress(ValueError): submit_connect_timeout = float(env_timeout)
-
-        log.training.info(f"FLARE submit timeout config: requested_timeout={submit_connect_timeout}, env_MEDSWARMHUB_FLARE_CONNECT_TIMEOUT={env_timeout or 'unset'}")
-
-        from nvflare.apis.dxo import DataKind
-        from nvflare.app_common.aggregators.intime_accumulate_model_aggregator import (
-            InTimeAccumulateWeightedAggregator,
-        )
-        from nvflare.app_common.ccwf import SwarmClientController, SwarmServerController
-        from nvflare.app_common.ccwf.comps.simple_intime_model_selector import (
-            SimpleIntimeModelSelector,
-        )
-        from nvflare.app_common.ccwf.comps.simple_model_shareable_generator import (
-            SimpleModelShareableGenerator,
-        )
-
-        # Set default executor
-        from nvflare.app_common.executors.in_process_client_api_executor import (
-            InProcessClientAPIExecutor,
-        )
-        from nvflare.job_config.api import FedJob
-        executor = InProcessClientAPIExecutor(task_script_path="custom/training.py")
-
-        # Select appropriate persistor based on framework
-        # NOTE: PTFileModelPersistor is used for PT and TF because it handles dictionaries of arrays.
-        if framework == "np":
-            try:
-                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-                persistor = NPModelPersistor()
-            except (ModuleNotFoundError, ImportError):
-                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
-                persistor = PTFileModelPersistor()
-        else:
-            try:
-                from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
-                persistor = PTFileModelPersistor()
-            except (ModuleNotFoundError, ImportError):
-                from nvflare.app_common.np.np_model_persistor import NPModelPersistor
-                persistor = NPModelPersistor()
-
-        if framework == "tf":
-            try:
-                from nvflare.app_opt.tf.in_process_client_api_executor import (
-                    TFInProcessClientAPIExecutor,
-                )
-                executor = TFInProcessClientAPIExecutor(task_script_path="custom/training.py")
-            except (ModuleNotFoundError, ImportError):
-                pass
-        elif framework == "pt":
-            use_pt_executor = os.getenv("MEDSWARMHUB_ENABLE_PT_EXECUTOR", "").strip().lower() in {"1", "true", "yes", "on"}
-            if use_pt_executor:
-                try:
-                    from nvflare.app_opt.pt.in_process_client_api_executor import (
-                        PTInProcessClientAPIExecutor,
-                    )
-                    executor = PTInProcessClientAPIExecutor(task_script_path="custom/training.py")
-                except (ModuleNotFoundError, ImportError):
-                    pass
-
-        # Select appropriate shareable generator
-        shareable_generator = SimpleModelShareableGenerator()
-
-        # Select appropriate aggregator
-        aggregator = InTimeAccumulateWeightedAggregator(expected_data_kind=DataKind.WEIGHTS)
-        
-        # Add model selector for tracking best model
-        model_selector = SimpleIntimeModelSelector(validation_metric_name="accuracy")
-        
-        log.training.info(f"Selected NVFlare executor: {executor.__class__.__module__}.{executor.__class__.__name__}")
-
-        _log_flare_pre_submit_diagnostics(log=log, username=admin_username, startup_kit_location=admin_session_dir, requested_host=server_ip)
-
-        sess = new_secure_session_with_host(username=admin_username, startup_kit_location=admin_session_dir, host=server_ip, timeout=submit_connect_timeout, network_id=network.identifier)
-
-        # Dynamic client discovery if local methods yielded nothing or generic defaults
-        if not client_names or set(client_names).issubset({"fl-client-1", "fl-client-2"}):
-            try:
-                log.training.info("Querying live server for connected clients...")
-                client_resp = sess.api.do_command("list_clients")
-                live_clients = _parse_nvflare_clients(client_resp)
-                if live_clients:
-                    client_names = live_clients
-                    log.training.info(f"Discovered connected clients: {client_names}")
-            except Exception as _ce:
-                log.training.warning(f"Live client discovery failed: {_ce}")
-
-        if not client_names: client_names = ["fl-client-1", "fl-client-2"]
-
-        job = FedJob(name=f"{project_name}_job")
-        private_p2p = os.getenv("MEDSWARMHUB_PRIVATE_P2P", "").strip().lower() in {"1", "true", "yes", "on"}
-        starting_client = client_names[0] if client_names else ""
-
-        # Try to extract the number of swarm rounds from the training script
-        swarm_rounds = 10
-        try:
-            training_script_path = os.path.join(app_client_custom_dir, "training.py")
-            if os.path.exists(training_script_path):
-                with open(training_script_path) as f:
-                    content = f.read()
-                    match = re.search(r"SWARM_ROUNDS\s*=\s*(\d+)", content)
-                    if match:
-                        swarm_rounds = int(match.group(1))
-                        log.training.info(f"Extracted SWARM_ROUNDS={swarm_rounds} from training script: {training_script_path}")
-                    else:
-                        log.training.warning(f"SWARM_ROUNDS not found in {training_script_path}, defaulting to 10")
-            else:
-                log.training.warning(f"Training script not found at {training_script_path} for round extraction, defaulting to 10")
-        except Exception as e:
-            log.training.warning(f"Failed to extract SWARM_ROUNDS from training script: {e}")
-
-        controller = SwarmServerController(
-            num_rounds=swarm_rounds, participating_clients=client_names, result_clients=client_names,
-            starting_client=starting_client, private_p2p=private_p2p, aggr_clients=client_names, train_clients=client_names,
-        )
-        log.training.info(f"Swarm controller config: private_p2p={private_p2p}, starting_client={starting_client}, participants={client_names}")
-        for server_name in server_names:
-            job.to(controller, server_name)
-            job.to(persistor, server_name, id="persistor")
-            job.to(shareable_generator, server_name, id="shareable_generator")
-            job.to(aggregator, server_name, id="aggregator")
-
-        swarm_client_controller = SwarmClientController(
-            learn_task_name="train", persistor_id="persistor", aggregator_id="aggregator",
-            shareable_generator_id="shareable_generator", min_responses_required=len(client_names),
-        )
-
-        for client_name in client_names:
-            job.to(executor, client_name, tasks=["train", "validate", "submit_model"])
-            job.to(swarm_client_controller, client_name, tasks=["swarm_*"])
-            job.to(persistor, client_name, id="persistor")
-            job.to(shareable_generator, client_name, id="shareable_generator")
-            job.to(aggregator, client_name, id="aggregator")
-            job.to(model_selector, client_name, id="model_selector")
-            job.to(app_client_custom_dir, client_name)
-
-        generated_jobs_root = os.path.join(job_dir, "generated")
-        os.makedirs(generated_jobs_root, exist_ok=True)
-        job.export_job(generated_jobs_root)
-        job_definition_path = os.path.abspath(os.path.join(generated_jobs_root, job.name))
-        log.training.info(f"Submitting exported job from: {job_definition_path}")
-
-        job_id = sess.submit_job(job_definition_path)
-        with contextlib.suppress(Exception): sess.close()
-
-        TrainingJob.objects.create(project=project, network=network, status="RUNNING" if job_id else "FAILED", flare_job_id=job_id or "unknown")
-        messages.success(request, f"Successfully submitted job {job_id}")
-    except Exception as e:
-        log.training.error(f"Submit job via FLARE API failed: {e}")
-        TrainingJob.objects.create(project=project, network=network, status="FAILED", flare_job_id="error")
         messages.error(request, f"Failed to submit job: {e}")
 
     return redirect("training:training")
@@ -1600,40 +1338,15 @@ def stop_training(request, network_id):
         HttpResponseRedirect: A redirect back to the training dashboard.
     """
     network = get_object_or_404(SwarmNetwork, identifier=network_id)
-    job = TrainingJob.objects.filter(network=network, status="RUNNING").order_by("-created_at").first()
-    if not job:
-        messages.warning(request, "No running job found to stop.")
-        return redirect("training:training")
-
     try:
-        admin_target = _resolve_admin_session_target(network)
-        if not admin_target:
-            messages.error(request, "No admin startup kit found for this center.")
-            return redirect("training:training")
-
-        admin_username, admin_user_dir, server_ip = admin_target
-        sess = new_secure_session_with_host(username=admin_username, startup_kit_location=admin_user_dir, host=server_ip, network_id=network.identifier)
-        job_uuid = str(job.flare_job_id)
-        match = re.search(r"([0-9a-f-]{36})", job_uuid)
-        if match: job_uuid = match.group(1)
-        sess.api.do_command(f"abort_job {job_uuid}")
-        job.status = "STOPPED"
-        job.completed_at = timezone.now()
-        job.progress_percent = 100
-        job.progress_updated_at = timezone.now()
-        job.save(update_fields=["status", "completed_at", "progress_percent", "progress_updated_at"])
-        messages.success(request, f"Successfully aborted job {job_uuid}")
+        job = training_services.stop_training_job(
+            actor=request.user, network=network
+        )
+        messages.success(request, f"Successfully aborted job {job.flare_job_id}")
+    except LookupError as e:
+        messages.warning(request, str(e))
     except Exception as e:
-        logger.training.error(f"Abort job failed: {e}")
-        err = str(e).lower()
-        if any(token in err for token in ["not running", "invalid job id", "no such job"]):
-            job.status = "COMPLETED"
-            job.completed_at = timezone.now()
-            job.progress_percent = 100
-            job.progress_updated_at = timezone.now()
-            job.save(update_fields=["status", "completed_at", "progress_percent", "progress_updated_at"])
-            messages.info(request, "Training job had already finished. Status updated to Completed.")
-        else: messages.error(request, f"Failed to abort job: {e}")
+        messages.error(request, f"Failed to abort job: {e}")
     return redirect("training:training")
 
 
@@ -1688,7 +1401,10 @@ def training_status_api(request):
                 job_id = job.flare_job_id
             
             if job_id:
-                logger.training.debug(f"StatusAPI: Processing docker result for job_id {job_id} (rounds: {res['rounds_finished']}, ended: {res['ended']})")
+                logger.training.debug(
+                    f"StatusAPI: Processing docker result for job_id {job_id} "
+                    f"(rounds: {res['rounds_finished']}, terminal_status: {res.get('terminal_status')})"
+                )
                 # Find or create mirror job in local database
                 l_job = TrainingJob.objects.filter(network=current_network, flare_job_id=job_id).first()
                 if not l_job:
@@ -1711,12 +1427,22 @@ def training_status_api(request):
                         l_job.save(update_fields=["rounds_finished", "progress_percent", "progress_updated_at"])
                 
                 # Update status if ended
-                if res["ended"] and l_job.status == "RUNNING":
-                    logger.training.info(f"StatusAPI: Job {job_id} marked as COMPLETED via docker logs")
-                    l_job.status = "COMPLETED"
-                    l_job.progress_percent = 100
+                terminal_status = res.get("terminal_status")
+                if should_update_terminal_status(l_job.status, terminal_status):
+                    logger.training.info(
+                        f"StatusAPI: Job {job_id} marked as {terminal_status} via docker logs"
+                    )
+                    l_job.status = terminal_status
+                    if terminal_status == "COMPLETED":
+                        l_job.progress_percent = 100
                     l_job.completed_at = timezone.now()
-                    l_job.save(update_fields=["status", "progress_percent", "completed_at"])
+                    l_job.save(
+                        update_fields=[
+                            "status",
+                            "progress_percent",
+                            "completed_at",
+                        ]
+                    )
                 
                 # Use this job for the response
                 if not job or l_job.created_at >= job.created_at:

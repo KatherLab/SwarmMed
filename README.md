@@ -65,6 +65,33 @@ Host the documentation locally for the best experience:
 make docs-serve
 ```
 
+## 💻 Local CLI
+
+`medswarm` is a local companion CLI for the same Django environment as the web UI. It uses the same database, object storage, Celery workers, and current-project/current-network context as MedSwarmHub.
+
+The CLI is intended for Linux hosts in v1. After `make install`, run it through the project environment:
+
+```bash
+uv run medswarm project create --user alice --title "Demo" --code-dir ./demo-code
+uv run medswarm project use --user alice <PROJECT_UUID>
+uv run medswarm data upload --user alice --project <PROJECT_UUID> --dest incoming ./data.csv
+uv run medswarm network create --user alice --project <PROJECT_UUID> --name "Local Test" --local-test
+uv run medswarm training start --user alice --network <NETWORK_UUID>
+uv run medswarm results sync --user alice --project <PROJECT_UUID>
+```
+
+Use `--json` on any command to get a stable envelope:
+
+```json
+{
+  "ok": true,
+  "command": "project list",
+  "result": {},
+  "warnings": [],
+  "errors": []
+}
+```
+
 ## 🔐 Security Architecture Highlights
 
 MedSwarmHub is designed from the ground up for maximum security in decentralized medical environments:
@@ -129,4 +156,3 @@ If you no longer need Tailscale:
 ```bash
 sudo apt remove tailscale
 ```
-

@@ -1,0 +1,181 @@
+---
+title: CLI
+description: Local command-line workflow for MedSwarmHub.
+---
+
+# CLI
+
+`medswarm` is a local companion CLI for MedSwarmHub. It runs inside the same Django environment as the web UI and uses the same database records, object storage, Celery tasks, and active project/network context.
+
+## Scope
+
+- v1 is a local companion tool, not a remote API client.
+- v1 is intended for Linux hosts.
+- The CLI covers the executable workflow only: projects, data, networks, training, and results.
+
+## Running the CLI
+
+Install the project environment first:
+
+```bash
+make install
+```
+
+Then run commands through the managed environment:
+
+```bash
+uv run medswarm --help
+```
+
+The acting user resolves in this order:
+
+1. `--user USERNAME`
+2. `MEDSWARM_USER`
+3. the local OS username
+
+If no matching MedSwarmHub user exists, the command exits with a validation error.
+
+## Output and Exit Codes
+
+Every command supports `--json`.
+
+```json
+{
+  "ok": true,
+  "command": "project list",
+  "result": {},
+  "warnings": [],
+  "errors": []
+}
+```
+
+Exit codes:
+
+- `0`: success
+- `2`: usage or validation error
+- `1`: unexpected failure
+
+## Workflow Quickstart
+
+### 1. Create a project from a code directory
+
+`training.py` is required at the root of `--code-dir`.
+
+Optional root-level files are picked up automatically:
+
+- `requirements.txt`
+- `validation.py`
+- `visualization.py`
+- `results_visualization.py`
+
+Any other files under the directory are uploaded under the existing training code layout.
+
+```bash
+uv run medswarm project create \
+  --user alice \
+  --title "Demo Project" \
+  --description "CLI workflow" \
+  --code-dir ./demo-code
+```
+
+### 2. Select the current project
+
+```bash
+uv run medswarm project use --user alice <PROJECT_UUID>
+```
+
+### 3. Upload data
+
+```bash
+uv run medswarm data upload \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --dest incoming \
+  ./data/patients.csv ./data/images
+```
+
+### 4. Run optional data checks
+
+```bash
+uv run medswarm data validate --user alice --project <PROJECT_UUID>
+uv run medswarm data visualize --user alice --project <PROJECT_UUID> --wait
+```
+
+### 5. Create or import a network
+
+Local test network:
+
+```bash
+uv run medswarm network create \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --name "Local Test" \
+  --local-test
+```
+
+Provisioned startup-package network:
+
+```bash
+uv run medswarm network create \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --name "Hospital Swarm" \
+  --participant site-a=100.64.0.10 \
+  --participant site-b=100.64.0.11
+```
+
+Import an existing startup package:
+
+```bash
+uv run medswarm network import \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --name "Imported Network" \
+  --package ./startup-kits.zip
+```
+
+### 6. Select and start the network
+
+```bash
+uv run medswarm network use --user alice <NETWORK_UUID>
+uv run medswarm network start --user alice <NETWORK_UUID> --wait
+```
+
+### 7. Start and watch training
+
+```bash
+uv run medswarm training start --user alice --network <NETWORK_UUID>
+uv run medswarm training watch --user alice <JOB_UUID>
+```
+
+### 8. Sync and download results
+
+```bash
+uv run medswarm results sync --user alice --project <PROJECT_UUID>
+uv run medswarm results list --user alice --project <PROJECT_UUID>
+uv run medswarm results download \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --job <JOB_UUID> \
+  --out ./results
+```
+
+### 9. Run results visualization
+
+```bash
+uv run medswarm results visualize \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --job <JOB_UUID> \
+  --wait
+```
+
+## Command Tree
+
+```text
+project create|list|show|use|update
+data upload|ls|download|mv|rm|validate|visualize
+network create|import|list|show|use|export-package|start|stop|status
+training start|list|status|watch|stop
+results sync|list|download|visualize
+```

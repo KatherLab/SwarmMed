@@ -10,7 +10,6 @@ import secrets
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.core.files.storage import default_storage
 from django.http import (
     HttpResponse,
     JsonResponse,
@@ -18,10 +17,8 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from celery import current_app
 from common.utils import format_size, get_s3_client, get_safe_referer
 from logs import logger
 from project.decorators import (
@@ -30,21 +27,11 @@ from project.decorators import (
 )
 from project.models import Project, UserCurrentProject
 
-from .models import (
-    ValidationCheck,
-    ValidationRun,
-    VisualizationPlot,
-    VisualizationRun,
-)
-from .tasks import run_validation_task, run_visualization_task
+from . import services as data_services
 from .utils import (
-    delete_s3_folder,
-    delete_s3_object,
     get_column_prefixes,
     get_storage_stats,
     list_s3_folder,
-    rename_s3_folder,
-    rename_s3_object,
 )
 
 
@@ -217,51 +204,18 @@ def upload_files(request):
             )
             return HttpResponse("Invalid destination folder", status=400)
 
-        root_path = f"{current_project_uuid}/data/"
-        full_destination = os.path.join(root_path, destination_folder).replace(
-            "\\", "/"
+        project = Project.objects.get(identifier=current_project_uuid)
+        result = data_services.upload_request_files(
+            project,
+            files=files,
+            directories=directories,
+            destination_folder=destination_folder,
         )
-        if not full_destination.endswith("/"):
-            full_destination += "/"
-
-        for idx, file in enumerate(files):
-            # Basic security check: Validate file extension
-            _, ext = os.path.splitext(file.name)
-            if ext.lower() not in settings.ALLOWED_EXTENSIONS:
+        if result["skipped"]:
+            for warning in result["skipped"]:
                 log.data.warning(
-                    f"Blocked upload of disallowed file type: {file.name}"
+                    f"Skipped upload of {warning['path']}: {warning['reason']}"
                 )
-                continue
-
-            # We use an index-based key to match the directory map
-            key = f"{file.name}_{idx}"
-            rel_path = directories.get(key, file.name)
-
-            # Security Check: Prevent path traversal
-            clean_rel_path = os.path.normpath(rel_path).lstrip(
-                os.path.sep + (os.path.altsep or "")
-            )
-            if clean_rel_path.startswith("..") or os.path.isabs(
-                clean_rel_path
-            ):
-                log.data.warning(
-                    f"Blocked upload with path traversal attempt: {rel_path}"
-                )
-                continue
-
-            # Combine paths and ensure forward slashes for S3 compatibility
-            save_path = os.path.join(full_destination, clean_rel_path).replace(
-                "\\", "/"
-            )
-
-            # Save the file to S3
-            default_storage.save(save_path, file)
-            
-            # Invalidate caches for this path
-            from .utils import invalidate_s3_caches
-            invalidate_s3_caches(save_path)
-
-        log.data.info(f"Files uploaded to {full_destination} successfully.")
         return HttpResponse("Files uploaded with folder structure preserved!")
 
     return render(request, "apps/data/upload.html", {"segment": "data"})
@@ -403,12 +357,12 @@ def delete_file(request):
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
     try:
-        if key.endswith("/"):
-            delete_s3_folder(key)
-            log.data.info(f"Deleted folder: {key}")
-        else:
-            delete_s3_object(key)
-            log.data.info(f"Deleted file: {key}")
+        project = Project.objects.get(identifier=current_project_uuid)
+        relative_key = key[len(f"{current_project_uuid}/data/") :]
+        result = data_services.delete_project_data(project, relative_key)
+        log.data.info(
+            f"Deleted {result['type']}: {result['deleted']}"
+        )
     except Exception as e:
         log.data.error(f"Error deleting {key}: {e}")
 
@@ -449,20 +403,19 @@ def rename_file(request):
     # Construct the new S3 key
     if prefix:
         new_key = f"{prefix}/{new_name}"
-        if old_key.endswith("/"):
-            new_key += "/"
     else:
-        # This case should technically not happen given our root_path structure,
-        # but we handle it for robustness.
-        new_key = new_name + ("/" if old_key.endswith("/") else "")
+        new_key = new_name
 
     try:
-        if old_key.endswith("/"):
-            rename_s3_folder(old_key, new_key)
-            log.data.info(f"Renamed folder {old_key} to {new_key}")
-        else:
-            rename_s3_object(old_key, new_key)
-            log.data.info(f"Renamed file {old_key} to {new_key}")
+        project = Project.objects.get(identifier=current_project_uuid)
+        old_relative = old_key[len(f"{current_project_uuid}/data/") :]
+        new_relative = new_key[len(f"{current_project_uuid}/data/") :]
+        result = data_services.move_project_data(
+            project, old_relative, new_relative
+        )
+        log.data.info(
+            f"Renamed {result['type']} {result['source']} to {result['destination']}"
+        )
     except Exception as e:
         log.data.error(f"Error renaming {old_key}: {e}")
 
@@ -536,38 +489,13 @@ def start_validation(request):
 
     try:
         project = Project.objects.get(identifier=current_project_uuid)
-
-        if not project.data_validation_script:
-            return JsonResponse(
-                {"error": "No validation script found"}, status=400
-            )
-
-        # Stop any existing runs that are still pending or running
-        active_runs = ValidationRun.objects.filter(
-            project=project, status__in=["pending", "running"]
-        )
-        for run in active_runs:
-            if run.celery_task_id:
-                current_app.control.revoke(run.celery_task_id, terminate=True)
-            run.status = "cancelled"
-            run.completed_at = timezone.now()
-            run.save()
-
-        # Create a new run record
-        validation_run = ValidationRun.objects.create(
-            project=project, user=request.user
-        )
-
-        # Trigger the Celery task
-        task = run_validation_task.delay(str(validation_run.id))
-        validation_run.celery_task_id = task.id
-        validation_run.save()
+        validation_run = data_services.start_validation(project, request.user)
 
         return JsonResponse(
             {
                 "success": True,
                 "validation_run_id": str(validation_run.id),
-                "task_id": task.id,
+                "task_id": validation_run.celery_task_id,
             }
         )
 
@@ -593,26 +521,15 @@ def stop_validation(request):
     project = get_object_or_404(Project, identifier=current_project_uuid)
     log = logger.get_logger(user=request.user, project=project)
 
-    run = ValidationRun.objects.filter(
-        project=project, status__in=["pending", "running"]
-    ).first()
-
-    if run:
-        if run.celery_task_id:
-            current_app.control.revoke(run.celery_task_id, terminate=True)
-            log.data.info(
-                f"Revoked Celery task {run.celery_task_id} for validation run {run.id}"
-            )
-        run.status = "cancelled"
-        run.completed_at = timezone.now()
-        run.save()
+    try:
+        run = data_services.stop_validation(project)
         log.data.warning(f"Validation run {run.id} cancelled by user.")
         return JsonResponse({"success": True})
-
-    log.data.debug(
-        "Stop validation requested but no running validation found."
-    )
-    return JsonResponse({"error": "No running validation found"}, status=404)
+    except LookupError:
+        log.data.debug(
+            "Stop validation requested but no running validation found."
+        )
+        return JsonResponse({"error": "No running validation found"}, status=404)
 
 
 @login_required
@@ -630,34 +547,9 @@ def validation_status(request):
         return JsonResponse({"error": "No project selected"}, status=400)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
-    latest_run = ValidationRun.objects.filter(project=project).first()
-
-    if not latest_run:
-        return JsonResponse(
-            {
-                "status": "none",
-                "checks": [],
-                "has_script": bool(project.data_validation_script),
-                "project_id": project.id,
-            }
-        )
-
-    checks = list(
-        ValidationCheck.objects.filter(validation_run=latest_run).values(
-            "name", "status", "message", "details"
-        )
-    )
-
+    latest_run = data_services.get_latest_validation_run(project)
     return JsonResponse(
-        {
-            "status": latest_run.status,
-            "success": latest_run.success,
-            "output": latest_run.output,
-            "error_message": latest_run.error_message,
-            "checks": checks,
-            "started_at": latest_run.started_at,
-            "completed_at": latest_run.completed_at,
-        }
+        data_services.serialize_validation_run(latest_run, project)
     )
 
 
@@ -681,36 +573,13 @@ def start_visualization(request):
 
     try:
         project = Project.objects.get(identifier=current_project_uuid)
-
-        if not project.data_visualization_script:
-            return JsonResponse(
-                {"error": "No visualization script found"}, status=400
-            )
-
-        # Stop existing visualization runs
-        active_runs = VisualizationRun.objects.filter(
-            project=project, status__in=["pending", "running"]
-        )
-        for run in active_runs:
-            if run.celery_task_id:
-                current_app.control.revoke(run.celery_task_id, terminate=True)
-            run.status = "cancelled"
-            run.completed_at = timezone.now()
-            run.save()
-
-        viz_run = VisualizationRun.objects.create(
-            project=project, user=request.user
-        )
-
-        task = run_visualization_task.delay(str(viz_run.id))
-        viz_run.celery_task_id = task.id
-        viz_run.save()
+        viz_run = data_services.start_visualization(project, request.user)
 
         return JsonResponse(
             {
                 "success": True,
                 "visualization_run_id": str(viz_run.id),
-                "task_id": task.id,
+                "task_id": viz_run.celery_task_id,
             }
         )
 
@@ -736,28 +605,17 @@ def stop_visualization(request):
     project = get_object_or_404(Project, identifier=current_project_uuid)
     log = logger.get_logger(user=request.user, project=project)
 
-    run = VisualizationRun.objects.filter(
-        project=project, status__in=["pending", "running"]
-    ).first()
-
-    if run:
-        if run.celery_task_id:
-            current_app.control.revoke(run.celery_task_id, terminate=True)
-            log.data.info(
-                f"Revoked Celery task {run.celery_task_id} for visualization run {run.id}"
-            )
-        run.status = "cancelled"
-        run.completed_at = timezone.now()
-        run.save()
+    try:
+        run = data_services.stop_visualization(project)
         log.data.warning(f"Visualization run {run.id} cancelled by user.")
         return JsonResponse({"success": True})
-
-    log.data.debug(
-        "Stop visualization requested but no running visualization found."
-    )
-    return JsonResponse(
-        {"error": "No running visualization found"}, status=404
-    )
+    except LookupError:
+        log.data.debug(
+            "Stop visualization requested but no running visualization found."
+        )
+        return JsonResponse(
+            {"error": "No running visualization found"}, status=404
+        )
 
 
 @login_required
@@ -775,51 +633,33 @@ def visualization_status(request):
         return JsonResponse({"error": "No project selected"}, status=400)
 
     project = get_object_or_404(Project, identifier=current_project_uuid)
-    latest_run = VisualizationRun.objects.filter(project=project).first()
-
-    if not latest_run:
-        return JsonResponse(
+    latest_run = data_services.get_latest_visualization_run(project)
+    serialized = data_services.serialize_visualization_run(latest_run, project)
+    if latest_run:
+        serialized["plots"] = [
             {
-                "status": "none",
-                "plots": [],
-                "has_script": bool(project.data_visualization_script),
-                "project_id": project.id,
-            }
-        )
-
-    plots_qs = VisualizationPlot.objects.filter(visualization_run=latest_run)
-    plots = []
-    for p in plots_qs:
-        plots.append(
-            {
-                "title": p.title,
-                "plot_number": p.plot_number,
+                "title": plot["title"],
+                "plot_number": plot["plot_number"],
                 "image_url": (
                     reverse(
-                        "data:get_visualization_plot", args=[p.id, "image"]
+                        "data:get_visualization_plot",
+                        args=[plot["identifier"], "image"],
                     )
-                    if p.image_data
+                    if plot["image_key"]
                     else None
                 ),
                 "svg_url": (
-                    reverse("data:get_visualization_plot", args=[p.id, "svg"])
-                    if p.svg_data
+                    reverse(
+                        "data:get_visualization_plot",
+                        args=[plot["identifier"], "svg"],
+                    )
+                    if plot["svg_key"]
                     else None
                 ),
             }
-        )
-
-    return JsonResponse(
-        {
-            "status": latest_run.status,
-            "success": latest_run.success,
-            "output": latest_run.output,
-            "error_message": latest_run.error_message,
-            "plots": plots,
-            "started_at": latest_run.started_at,
-            "completed_at": latest_run.completed_at,
-        }
-    )
+            for plot in serialized["plots"]
+        ]
+    return JsonResponse(serialized)
 
 
 def _proxy_s3_download(request, key, filename):

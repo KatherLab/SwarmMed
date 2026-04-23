@@ -21,6 +21,77 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _dedupe_keep_order(values) -> list[str]:
+    """Return non-empty strings while preserving first-seen order."""
+    seen = set()
+    deduped: list[str] = []
+    for raw_value in values:
+        value = str(raw_value or "").strip()
+        if not value or value in seen:
+            continue
+        deduped.append(value)
+        seen.add(value)
+    return deduped
+
+
+def _build_manifest_request_url(base_url: str, project_uuid: str) -> str:
+    """Build the manifest API URL for a candidate app base URL."""
+    cleaned_base_url = str(base_url or "").strip().rstrip("/")
+    if not cleaned_base_url:
+        return ""
+
+    parsed = urlparse(cleaned_base_url)
+    if parsed.path.rstrip("/") == "/data/manifest":
+        separator = "&" if parsed.query else "?"
+        return f"{cleaned_base_url}{separator}project_id={project_uuid}"
+
+    return f"{cleaned_base_url}/data/manifest/?project_id={project_uuid}"
+
+
+def _get_manifest_discovery_targets() -> list[str]:
+    """Return candidate base URLs for manifest discovery."""
+    explicit_urls = os.getenv("MEDSWARMHUB_MANIFEST_URLS", "").strip()
+    if not explicit_urls:
+        explicit_urls = os.getenv("MEDSWARMHUB_MANIFEST_URL", "").strip()
+
+    targets: list[str] = []
+    if explicit_urls:
+        targets.extend(
+            candidate.strip()
+            for candidate in explicit_urls.split(",")
+            if candidate.strip()
+        )
+
+    docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1").strip()
+    env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+
+    https_hosts = _dedupe_keep_order(
+        [
+            env_host,
+            docker_host_ip,
+            "localhost",
+            "127.0.0.1",
+            "host.docker.internal",
+        ]
+    )
+    targets.extend(f"https://{host}:5085" for host in https_hosts)
+
+    http_hosts = _dedupe_keep_order(["medswarmhub", "app"])
+    targets.extend(f"http://{host}:8000" for host in http_hosts)
+
+    return _dedupe_keep_order(targets)
+
+
+def _get_manifest_verify_value(url: str):
+    """Return the SSL verification setting for a manifest request."""
+    if urlparse(url).scheme == "https":
+        return os.getenv(
+            "MEDSWARMHUB_CA_CERT",
+            "/usr/local/share/ca-certificates/internal-ca.crt",
+        )
+    return False
+
+
 class FlareDataFileSystem:
     """A streaming virtual filesystem for NVFlare jobs powered by fsspec.
 
@@ -79,55 +150,47 @@ class FlareDataFileSystem:
         # 1. Fetch manifest from the secure App Proxy API.
         # We MUST prioritize the node's local app proxy (localhost/gateway).
         manifest_secret = os.getenv("MANIFEST_SECRET")
-        docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
         if manifest_secret and self.project_uuid:
-            # Try multiple hosts to reach the local Django app.
-            # We check port 5085 (Nginx proxy) and 8000 (direct app container).
-            discovery_targets = [
-                (docker_host_ip, 5085),
-                ("localhost", 5085),
-                ("127.0.0.1", 5085),
-                ("medswarmhub", 8000),
-                ("host.docker.internal", 5085),
-            ]
-
-            # Also add configured host as fallback
-            env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
-            if env_host:
-                discovery_targets.append((env_host, 5085))
-
-            for host, port in discovery_targets:
+            for base_url in _get_manifest_discovery_targets():
+                request_url = _build_manifest_request_url(
+                    base_url, self.project_uuid
+                )
                 print(
-                    f"flare_adapter: Fetching secure manifest from app proxy at {host}:{port}..."
+                    "flare_adapter: Fetching secure manifest from app proxy at "
+                    f"{request_url}..."
                 )
                 try:
-                    url = f"https://{host}:{port}/data/manifest/?project_id={self.project_uuid}"
                     try:
                         resp = requests.get(
-                            url,
+                            request_url,
                             headers={"X-Manifest-Secret": manifest_secret},
                             timeout=3,
-                            verify=os.getenv(
-                                "MEDSWARMHUB_CA_CERT",
-                                "/usr/local/share/ca-certificates/internal-ca.crt",
-                            ),
+                            verify=_get_manifest_verify_value(request_url),
                         )
                         if resp.status_code == 200:
                             manifest = resp.json()
                             if manifest:
                                 print(
-                                    f"flare_adapter: Securely loaded manifest with {len(manifest)} files from {host}:{port}."
+                                    "flare_adapter: Securely loaded manifest with "
+                                    f"{len(manifest)} files from {request_url}."
                                 )
                                 return self._process_manifest_urls(manifest)
                             else:
                                 print(
-                                    f"flare_adapter: App proxy at {host}:{port} returned an empty manifest."
+                                    "flare_adapter: App proxy at "
+                                    f"{request_url} returned an empty manifest."
                                 )
+                        else:
+                            print(
+                                "flare_adapter: App proxy at "
+                                f"{request_url} returned status {resp.status_code}."
+                            )
                     except Exception:
                         continue
                 except Exception as e:
                     print(
-                        f"flare_adapter: Error connecting to app proxy at {host}:{port}: {e}"
+                        "flare_adapter: Error connecting to app proxy at "
+                        f"{request_url}: {e}"
                     )
 
         # 2. Fallback: Attempt legacy file-based manifest if present (e.g. for debugging)
@@ -506,13 +569,7 @@ def receive_model():
     """
     print("flare_adapter: Receiving global model...")
     try:
-        input_model = flare.receive()
-        if input_model and input_model.params and (
-            "numpy_key" in input_model.params
-            and len(input_model.params) == 1
-        ):
-            input_model.params = {}
-        return input_model
+        return flare.receive()
     except Exception as e:
         print(f"flare_adapter: Error receiving model: {e}")
         return None

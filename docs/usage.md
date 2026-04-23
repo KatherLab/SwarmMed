@@ -70,6 +70,9 @@ As a developer, you can view the logs of the training jobs to monitor their prog
 ??? info "User Rights"
     As a user, you can create projects, upload data, set up networks, and start training jobs.
 
+!!! info "CLI workflow"
+    The same workflow is also available through the local `medswarm` CLI. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
+
 ### 1. 📁 Create a Project
 
 ??? info "Project creator rights"

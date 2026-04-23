@@ -22,12 +22,11 @@ from django.views.decorators.http import require_POST
 
 from common.utils import get_s3_download_url
 from logs import logger
-from network.models import UserCurrentNetwork
 from users.models import Profile
 
+from . import services as project_services
 from .forms import ProjectForm
 from .models import Project, UserCurrentProject
-from .utils import handle_training_code_upload, process_member_identifiers
 
 
 @login_required
@@ -121,34 +120,40 @@ def project_create(request):
         # uploaded files.
         form = ProjectForm(request.POST, request.FILES)
         if form.is_valid():
-            # commit=False allows us to modify the object before saving to
-            # database.
-            project = form.save(commit=False)
-            project.author = request.user
-
-            # Save the project to generate a primary key and identifier.
-            project.save()
-
-            # Process the list of member UUIDs provided in the form.
-            process_member_identifiers(
-                project, form.cleaned_data.get("member_identifiers", "")
-            )
-
-            # Some files might be uploaded as a collection in a directory structure.
-            # handle_training_code_upload takes care of this complex file
-            # handling.
             try:
-                handle_training_code_upload(project, request)
-            except Exception as e:
-                # Log an error if something goes wrong during file processing.
-                log.project.error(
-                    f"ERROR PROCESSING TRAINING CODE UPLOAD - {project.title}: {str(e)}"
+                project_services.create_project(
+                    author=request.user,
+                    title=form.cleaned_data["title"],
+                    description=form.cleaned_data.get("description", ""),
+                    member_identifiers=[
+                        item.strip()
+                        for item in re.split(
+                            r"[,\n]+",
+                            form.cleaned_data.get("member_identifiers", ""),
+                        )
+                        if item.strip()
+                    ],
+                    request=request,
+                    training_code_file=request.FILES.get("training_code"),
+                    requirements_file=request.FILES.get("requirements_file"),
+                    data_validation_script=request.FILES.get(
+                        "data_validation_script"
+                    ),
+                    data_visualization_script=request.FILES.get(
+                        "data_visualization_script"
+                    ),
+                    results_visualization_script=request.FILES.get(
+                        "results_visualization_script"
+                    ),
                 )
+            except Exception as e:
+                log.project.error(
+                    f"ERROR CREATING PROJECT - {form.cleaned_data['title']}: {str(e)}"
+                )
+                form.add_error(None, str(e))
+            else:
+                return redirect("project:project_list")
 
-            # Log successful project creation.
-            log.project.info(f"PROJECT CREATED SUCCESSFULLY - {project.title}")
-
-            return redirect("project:project_list")
     else:
         # If it's a GET request, provide an empty form to the user.
         form = ProjectForm()
@@ -187,26 +192,41 @@ def project_edit(request, pk):
         # creating a new one.
         form = ProjectForm(request.POST, request.FILES, instance=project)
         if form.is_valid():
-            project = form.save(commit=False)
-            project.save()
-
-            # Update the member list based on new UUID inputs.
-            process_member_identifiers(
-                project, form.cleaned_data.get("member_identifiers", "")
-            )
-
-            # Update any uploaded training code files.
-            handle_training_code_upload(project, request)
-
-            # If users were removed from the project, we should unset it as
-            # their 'current' project.
-            UserCurrentProject.objects.filter(project=project).exclude(
-                user=project.author
-            ).exclude(user__in=project.members.all()).delete()
-
-            log.project.info(f"Project updated successfully: {project.title}")
-
-            return redirect("project:project_list")
+            try:
+                project_services.update_project(
+                    actor=request.user,
+                    project=project,
+                    title=form.cleaned_data.get("title"),
+                    description=form.cleaned_data.get("description", ""),
+                    member_identifiers=[
+                        item.strip()
+                        for item in re.split(
+                            r"[,\n]+",
+                            form.cleaned_data.get("member_identifiers", ""),
+                        )
+                        if item.strip()
+                    ],
+                    replace_members=True,
+                    request=request,
+                    training_code_file=request.FILES.get("training_code"),
+                    requirements_file=request.FILES.get("requirements_file"),
+                    data_validation_script=request.FILES.get(
+                        "data_validation_script"
+                    ),
+                    data_visualization_script=request.FILES.get(
+                        "data_visualization_script"
+                    ),
+                    results_visualization_script=request.FILES.get(
+                        "results_visualization_script"
+                    ),
+                )
+            except Exception as e:
+                log.project.error(
+                    f"ERROR UPDATING PROJECT - {project.title}: {str(e)}"
+                )
+                form.add_error(None, str(e))
+            else:
+                return redirect("project:project_list")
     else:
         # Populate the form with current project data.
         form = ProjectForm(instance=project)
@@ -270,18 +290,11 @@ def set_current_project(request, pk):
         )
         return redirect("project:project_list")
 
-    # Update or create the UserCurrentProject record for this user.
-    UserCurrentProject.objects.update_or_create(
-        user=request.user, defaults={"project": project}
-    )
+    project_services.set_current_project(request.user, project)
 
     log.project.debug(
         f"User {request.user.username} set active project to: '{project.title}'"
     )
-
-    # When switching projects, we clear the 'current network' as it's
-    # project-specific.
-    UserCurrentNetwork.objects.filter(user=request.user).delete()
 
     return redirect("project:project_list")
 

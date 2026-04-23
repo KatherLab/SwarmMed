@@ -14,9 +14,48 @@ SWARM_ROUNDS = 10
 # --- 1. Data Loading Function ---
 
 
+def pack_linear_model(model):
+    """Pack sklearn linear weights into a single numeric array for NVFlare."""
+    coef = np.atleast_2d(np.asarray(model.coef_, dtype=np.float32))
+    intercept = np.asarray(model.intercept_, dtype=np.float32).reshape(-1)
+    header = np.array(
+        [coef.shape[0], coef.shape[1], intercept.size], dtype=np.float32
+    )
+    return np.concatenate([header, coef.reshape(-1), intercept])
+
+
+def unpack_linear_model(payload):
+    """Decode packed sklearn linear weights from NVFlare."""
+    if payload is None:
+        return None
+
+    packed = np.asarray(payload, dtype=np.float32).reshape(-1)
+    if packed.size < 3:
+        return None
+
+    coef_rows = int(packed[0])
+    coef_cols = int(packed[1])
+    intercept_size = int(packed[2])
+    if coef_rows <= 0 or coef_cols <= 0 or intercept_size <= 0:
+        return None
+
+    coef_size = coef_rows * coef_cols
+    expected_size = 3 + coef_size + intercept_size
+    if packed.size != expected_size:
+        return None
+
+    coef_start = 3
+    coef_end = coef_start + coef_size
+    coef = packed[coef_start:coef_end].reshape(coef_rows, coef_cols)
+    intercept = packed[coef_end:].reshape(intercept_size)
+    return {"coef": coef, "intercept": intercept}
+
+
 def load_data(fs):
     """Reads all CSV files from the virtual filesystem and prepares them for Scikit-learn."""
     file_list = fs.glob("*.csv")
+    if not file_list:
+        file_list = fs.glob("biomed_data/*.csv")
 
     if not file_list:
         raise RuntimeError("No CSV files found in the project data.")
@@ -76,9 +115,24 @@ def main(project_id: str):
                 break
 
             # Load parameters into the local model
-            if input_model.params and "coef" in input_model.params and "intercept" in input_model.params:
-                model.coef_ = input_model.params["coef"]
-                model.intercept_ = input_model.params["intercept"]
+            decoded_weights = None
+            if input_model.params:
+                if (
+                    "coef" in input_model.params
+                    and "intercept" in input_model.params
+                ):
+                    decoded_weights = {
+                        "coef": input_model.params["coef"],
+                        "intercept": input_model.params["intercept"],
+                    }
+                elif "numpy_key" in input_model.params:
+                    decoded_weights = unpack_linear_model(
+                        input_model.params["numpy_key"]
+                    )
+
+            if decoded_weights:
+                model.coef_ = decoded_weights["coef"]
+                model.intercept_ = decoded_weights["intercept"]
                 print(
                     f"Received and loaded global model weights for round: {input_model.current_round}"
                 )
@@ -104,8 +158,7 @@ def main(project_id: str):
             current_round = input_model.current_round
             simulated_accuracy = 0.6 + (0.35 * (1.0 - np.exp(-current_round/5.0))) + (np.random.rand() * 0.02)
 
-            # Scikit-learn parameters are typically coef_ and intercept_
-            params_dict = {"coef": model.coef_, "intercept": model.intercept_}
+            params_dict = {"numpy_key": pack_linear_model(model)}
 
             flare_adapter.send_model(
                 params=params_dict, 

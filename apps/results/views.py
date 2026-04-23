@@ -11,7 +11,6 @@ import zipfile
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.db import models
 from django.http import (
     HttpResponse,
     JsonResponse,
@@ -23,7 +22,6 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
-from celery import current_app
 from common.utils import get_s3_client
 from logs import logger
 from project.decorators import (
@@ -33,12 +31,12 @@ from project.decorators import (
 from project.models import Project, UserCurrentProject
 from training.models import TrainingJob
 
+from . import services as results_services
 from .models import (
     ResultsVisualizationPlot,
-    ResultsVisualizationRun,
     TrainingResult,
 )
-from .tasks import run_results_visualization_task, sync_project_results
+from .tasks import sync_project_results
 
 # Standard Python logger for this module.
 _logger = logging.getLogger(__name__)
@@ -242,99 +240,8 @@ def start_results_visualization(request, job_id):
 
     try:
         project = get_object_or_404(Project, identifier=current_project_uuid)
-        log = logger.get_logger(user=request.user, project=project)
-
-        # 1. Try to find the job in DB by identifier (UUID) or flare_job_id.
-        job = TrainingJob.objects.filter(
-            models.Q(identifier=job_id)
-            | models.Q(flare_job_id__icontains=job_id),
-            project=project,
-        ).first()
-
-        # flare_id is what the sandbox needs to find the files in S3.
-        # If we have a DB record, use its clean flare_job_id.
-        # If not, assume job_id passed from frontend is the flare_job_id string from S3.
-        flare_id = job_id
-        if job:
-            flare_id = job.flare_job_id
-            # Clean the NVFlare job ID if it's complex.
-            try:
-                import ast
-
-                parsed = ast.literal_eval(flare_id)
-                if isinstance(parsed, list):
-                    for item in parsed:
-                        if (
-                            isinstance(item, dict)
-                            and item.get("type") == "string"
-                            and "Submitted job:" in item.get("data", "")
-                        ):
-                            flare_id = (
-                                item.get("data", "").split(":")[-1].strip()
-                            )
-                            break
-            except (ValueError, SyntaxError):
-                pass
-
-        # Check if the project actually has a visualization script uploaded.
-        script_prefix = f"{project.identifier}/code/results_visualization/"
-        s3 = get_s3_client()
-        response = s3.list_objects_v2(
-            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=script_prefix
-        )
-        py_scripts = [
-            obj["Key"]
-            for obj in response.get("Contents", [])
-            if obj["Key"].endswith(".py")
-        ]
-
-        if not py_scripts:
-            log.results.error(
-                f"No visualization script found for project {project.identifier}"
-            )
-            return JsonResponse(
-                {
-                    "error": (
-                        f"No visualization scripts found at {script_prefix}. "
-                        "Please upload one on the project page."
-                    )
-                },
-                status=400,
-            )
-
-        # Cancel any existing visualization tasks for this specific flare_id to
-        # avoid overlap.
-        running_query = ResultsVisualizationRun.objects.filter(
-            project=project,
-            status__in=["pending", "running"],
-            flare_job_id=flare_id,
-        )
-
-        for viz in running_query:
-            if viz.celery_task_id:
-                current_app.control.revoke(viz.celery_task_id, terminate=True)
-            viz.status = "cancelled"
-            viz.completed_at = timezone.now()
-            viz.save()
-            log.results.info(
-                f"Cancelled previous results visualization run {viz.id}"
-            )
-
-        # Create a new run record in the database.
-        visualization_run = ResultsVisualizationRun.objects.create(
-            project=project, job=job, flare_job_id=flare_id, user=request.user
-        )
-
-        # Dispatch the task to Celery.
-        # We pass flare_id to the task so it knows which S3 folder to download.
-        task = run_results_visualization_task.delay(
-            str(visualization_run.id), flare_id
-        )
-        visualization_run.celery_task_id = task.id
-        visualization_run.save()
-
-        log.results.info(
-            f"Started results visualization run {visualization_run.id} for job {flare_id}"
+        visualization_run = results_services.start_results_visualization(
+            project=project, user=request.user, job_identifier=job_id
         )
 
         return JsonResponse(
@@ -357,40 +264,13 @@ def stop_results_visualization(request):
     """Stops a currently running visualization task."""
     run_id = request.POST.get("run_id")
     try:
-        visualization_run = ResultsVisualizationRun.objects.get(
-            id=run_id, user=request.user
-        )
-        log = logger.get_logger(
-            user=request.user, project=visualization_run.project
-        )
-
-        if visualization_run.status not in ["pending", "running"]:
-            log.results.debug(
-                f"Stop visualization requested for {run_id} but status is {visualization_run.status}"
-            )
-            return JsonResponse(
-                {"error": "No running visualization found."}, status=404
-            )
-
-        if visualization_run.celery_task_id:
-            # Signal Celery to terminate the task process.
-            current_app.control.revoke(
-                visualization_run.celery_task_id, terminate=True
-            )
-            log.results.info(
-                f"Revoked Celery task {visualization_run.celery_task_id} for visualization run {run_id}"
-            )
-
-        visualization_run.status = "cancelled"
-        visualization_run.completed_at = timezone.now()
-        visualization_run.save()
-        log.results.warning(
-            f"Results visualization run {run_id} cancelled by user."
+        visualization_run = results_services.stop_results_visualization(
+            user=request.user, run_id=run_id
         )
 
         return JsonResponse({"success": True})
 
-    except ResultsVisualizationRun.DoesNotExist:
+    except LookupError:
         return JsonResponse(
             {"error": "Visualization run not found"}, status=404
         )
@@ -405,85 +285,42 @@ def results_visualization_status(request, job_id):
     try:
         current_project_uuid, _ = get_user_project(request)
         project = get_object_or_404(Project, identifier=current_project_uuid)
-
-        # Get the clean flare_id for filtering.
-        # Frontend might pass a UUID if DB record exists, or a string flare_id.
-        flare_id = job_id
-        job = TrainingJob.objects.filter(
-            models.Q(identifier=job_id)
-            | models.Q(flare_job_id__icontains=job_id),
-            project=project,
-        ).first()
-
-        if job:
-            flare_id = job.flare_job_id
-            try:
-                import ast
-
-                parsed = ast.literal_eval(flare_id)
-                if isinstance(parsed, list):
-                    for item in parsed:
-                        if (
-                            isinstance(item, dict)
-                            and item.get("type") == "string"
-                            and "Submitted job:" in item.get("data", "")
-                        ):
-                            flare_id = (
-                                item.get("data", "").split(":")[-1].strip()
-                            )
-                            break
-            except (ValueError, SyntaxError):
-                pass
-
-        # Get the most recent run for this flare_id.
-        latest_visualization = ResultsVisualizationRun.objects.filter(
-            project=project, flare_job_id=flare_id
-        ).first()
+        latest_visualization = results_services.get_results_visualization_run(
+            project, job_identifier=job_id
+        )
 
         if not latest_visualization:
             return JsonResponse({"status": "none", "plots": []})
 
-        # Retrieve all plots associated with this run.
-        plots_qs = ResultsVisualizationPlot.objects.filter(
-            visualization_run=latest_visualization
+        serialized = results_services.serialize_results_visualization_run(
+            latest_visualization
         )
-        plots = []
-        for p in plots_qs:
-            plots.append(
-                {
-                    "title": p.title,
-                    "plot_number": p.plot_number,
-                    "image_url": (
-                        reverse(
-                            "results:get_visualization_plot",
-                            args=[p.id, "image"],
-                        )
-                        if p.image_data
-                        else None
-                    ),
-                    "svg_url": (
-                        reverse(
-                            "results:get_visualization_plot",
-                            args=[p.id, "svg"],
-                        )
-                        if p.svg_data
-                        else None
-                    ),
-                }
-            )
-
-        return JsonResponse(
+        serialized["run_id"] = latest_visualization.id
+        serialized["plots"] = [
             {
-                "run_id": latest_visualization.id,
-                "status": latest_visualization.status,
-                "success": latest_visualization.success,
-                "output": latest_visualization.output,
-                "error_message": latest_visualization.error_message,
-                "plots": plots,
-                "started_at": latest_visualization.started_at,
-                "completed_at": latest_visualization.completed_at,
+                "title": plot["title"],
+                "plot_number": plot["plot_number"],
+                "image_url": (
+                    reverse(
+                        "results:get_visualization_plot",
+                        args=[plot["identifier"], "image"],
+                    )
+                    if plot["image_key"]
+                    else None
+                ),
+                "svg_url": (
+                    reverse(
+                        "results:get_visualization_plot",
+                        args=[plot["identifier"], "svg"],
+                    )
+                    if plot["svg_key"]
+                    else None
+                ),
             }
-        )
+            for plot in serialized["plots"]
+        ]
+
+        return JsonResponse(serialized)
 
     except Project.DoesNotExist:
         return JsonResponse({"error": "Project not found"}, status=404)

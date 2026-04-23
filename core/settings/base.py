@@ -14,6 +14,15 @@ from django.contrib import messages
 from dotenv import load_dotenv
 from str2bool import str2bool
 
+
+def _split_csv_env(name, default):
+    """Split a comma-separated environment variable into cleaned values."""
+    return [
+        item.strip()
+        for item in os.environ.get(name, default).split(",")
+        if item.strip()
+    ]
+
 # Load environment variables from a .env file into os.environ.
 # This is used for sensitive information like passwords and API keys.
 load_dotenv()
@@ -74,16 +83,19 @@ elif not DEBUG and BACKUP_ENCRYPTION_KEY == SECRET_KEY:
 
 # ALLOWED_HOSTS defines which domain names can access this server.
 # It should be restricted to your production domains.
-ALLOWED_HOSTS = os.environ.get(
+ALLOWED_HOSTS = _split_csv_env(
     "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"
-).split(",")
+)
+for internal_host in ("localhost", "127.0.0.1", "medswarmhub", "app"):
+    if internal_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(internal_host)
 
 # CSRF_TRUSTED_ORIGINS is required for cross-site request forgery protection
 # when running on specific domains or ports.
-CSRF_TRUSTED_ORIGINS = os.environ.get(
+CSRF_TRUSTED_ORIGINS = _split_csv_env(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     "http://localhost:8000,http://localhost:5085,http://127.0.0.1:8000,http://127.0.0.1:5085",
-).split(",")
+)
 
 # IPs allowed to see the Django Debug Toolbar.
 INTERNAL_IPS = ["127.0.0.1"]
@@ -379,6 +391,9 @@ AWS_STORAGE_BUCKET_NAME = os.environ.get(
 )
 AWS_S3_ENDPOINT_URL = os.environ.get(
     "AWS_S3_ENDPOINT_URL", "https://minio:9000"
+)
+MEDSWARMHUB_LOCAL_S3_ENDPOINT = os.environ.get(
+    "MEDSWARMHUB_LOCAL_S3_ENDPOINT", AWS_S3_ENDPOINT_URL
 )
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://localhost:9000")
 AWS_S3_CUSTOM_DOMAIN = (
