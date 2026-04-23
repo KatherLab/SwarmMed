@@ -1,0 +1,67 @@
+---
+title: MedSwarm Architecture
+---
+flowchart LR
+
+    subgraph A["User-Facing Entry Points"]
+        HUB["MedSwarmHub<br/>Graphical user interface<br/><br/>Project setup, data management,<br/>network provisioning, training control,<br/>and results review"]
+        CLI["medswarm CLI<br/>Local companion command-line interface<br/><br/>Scriptable local workflow for advanced users,<br/>reproducible automation, and batch-friendly<br/>project, network, and training operations"]
+    end
+
+    subgraph B["Shared Orchestration Layer"]
+        BOOT["Django bootstrap and context resolution<br/><br/>user resolution<br/>current project/current network<br/>JSON output envelope<br/>wait helpers"]
+        PROJ["Project service"]
+        DATA["Data service"]
+        NET["Network service"]
+        TRAIN["Training service"]
+        RES["Results service"]
+    end
+
+    subgraph C["Shared State and Local Execution"]
+        DB["PostgreSQL<br/>projects, jobs, current context"]
+        S3["MinIO / S3<br/>training code, datasets, synced artifacts"]
+        CEL["Celery<br/>validation, visualization, sync tasks"]
+        FLARE["NVFlare runtime and local workspaces<br/>startup packages, training runs, local artifacts"]
+        LOCAL["Local node data and sandbox execution<br/>data remain on-site throughout training"]
+    end
+
+    HUB --> BOOT
+    CLI --> BOOT
+
+    BOOT --> PROJ
+    BOOT --> DATA
+    BOOT --> NET
+    BOOT --> TRAIN
+    BOOT --> RES
+
+    PROJ --> DB
+    DATA --> DB
+    NET --> DB
+    TRAIN --> DB
+    RES --> DB
+
+    PROJ --> S3
+    DATA --> S3
+    RES --> S3
+
+    DATA --> CEL
+    NET --> CEL
+    TRAIN --> CEL
+    RES --> CEL
+
+    NET --> FLARE
+    TRAIN --> FLARE
+    RES --> FLARE
+    DATA --> LOCAL
+    TRAIN --> LOCAL
+    RES --> LOCAL
+
+    classDef hub fill:#e8f0ff,stroke:#6d8fcf,stroke-width:2px,color:#1f2d3d;
+    classDef cli fill:#e7f6eb,stroke:#6fa27a,stroke-width:2px,color:#1f2d3d;
+    classDef service fill:#fff7e8,stroke:#c99a3d,stroke-width:2px,color:#1f2d3d;
+    classDef state fill:#f3f4f6,stroke:#8b96a8,stroke-width:2px,color:#1f2d3d;
+
+    class HUB hub;
+    class CLI cli;
+    class BOOT,PROJ,DATA,NET,TRAIN,RES service;
+    class DB,S3,CEL,FLARE,LOCAL state;
