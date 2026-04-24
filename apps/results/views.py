@@ -11,6 +11,7 @@ import zipfile
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.db import models
 from django.http import (
     HttpResponse,
     JsonResponse,
@@ -30,6 +31,7 @@ from project.decorators import (
 )
 from project.models import Project, UserCurrentProject
 from training.models import TrainingJob
+from training.utils import extract_flare_job_uuid
 
 from . import services as results_services
 from .models import (
@@ -134,9 +136,11 @@ def results(request):
     # Build a list of job options for the dropdown selector.
     job_options = []
     for job_id_s3 in list(job_ids_in_s3):
+        normalized_job_id_s3 = extract_flare_job_uuid(job_id_s3) or job_id_s3
         # Match S3 job_id against flare_job_id in DB
         db_job = all_project_jobs.filter(
-            flare_job_id__icontains=job_id_s3
+            models.Q(flare_job_uuid=normalized_job_id_s3)
+            | models.Q(flare_job_id__icontains=normalized_job_id_s3)
         ).first()
         lm = job_last_modified.get(job_id_s3)
 
@@ -197,9 +201,13 @@ def results(request):
     # Selected job details for header and visualization.
     selected_job_details = None
     if selected_job_id:
+        normalized_selected_job_id = (
+            extract_flare_job_uuid(selected_job_id) or selected_job_id
+        )
         # Try to find the exact job first
         selected_job_details = all_project_jobs.filter(
-            flare_job_id__icontains=selected_job_id
+            models.Q(flare_job_uuid=normalized_selected_job_id)
+            | models.Q(flare_job_id__icontains=normalized_selected_job_id)
         ).first()
 
     # Fallback: if no job selected explicitly (first visit), but jobs exist,
@@ -213,8 +221,10 @@ def results(request):
         selected_job_details = all_project_jobs.first()
         if selected_job_details:
             selected_job_id = (
-                selected_job_details.flare_job_id
-            )  # Ensure we have a valid string for the fallback job
+                selected_job_details.flare_job_uuid
+                or extract_flare_job_uuid(selected_job_details.flare_job_id)
+                or selected_job_details.flare_job_id
+            )
 
     context = {
         "segment": "results",

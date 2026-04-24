@@ -16,7 +16,6 @@ from django.contrib.auth.models import User
 from network import services as network_services
 from network.models import SwarmNetwork
 from project import services as project_services
-from training.models import TrainingJob
 
 
 @dataclass
@@ -148,16 +147,18 @@ def resolve_training_job(
     required: bool = True,
 ) -> TrainingJob | None:
     """Resolve a training job by UUID or current network context."""
-    queryset = TrainingJob.objects.select_related("project", "network").order_by(
-        "-created_at"
-    )
-    if network is not None:
-        queryset = queryset.filter(network=network)
+    from training import services as training_services
+    from training.models import TrainingJob
+
+    queryset = training_services.list_training_jobs(network=network)
 
     if job_identifier:
-        job = queryset.filter(identifier=job_identifier).first()
-        if not job:
-            job = queryset.filter(flare_job_id__icontains=job_identifier).first()
+        try:
+            job = training_services.get_training_job(
+                network=network, identifier=job_identifier
+            )
+        except LookupError:
+            job = None
         if job and project_services.user_can_access_project(state.user, job.project):
             return job
         if required:

@@ -7,7 +7,6 @@ and synchronization of result files (weights/logs) to S3 storage.
 import contextlib
 import json
 import os
-import re
 
 from django.conf import settings
 from django.utils import timezone
@@ -17,8 +16,16 @@ from logs import logger
 from logs.utils import format_exception
 from network.models import SwarmNetwork
 
+from . import services as training_services
 from .models import TrainingJob
+from .runtime import (
+    new_secure_session_with_host,
+    parse_nvflare_jobs,
+    resolve_admin_session_target,
+)
 from .utils import (
+    extract_flare_job_uuid,
+    progress_from_rounds,
     summarize_training_log,
     should_update_terminal_status,
     upload_folder_to_s3,
@@ -94,11 +101,6 @@ def monitor_training_jobs():
     from network.utils import get_tailscale_ip
 
     from .utils import scrape_docker_progress
-    from .views import (
-        _parse_nvflare_jobs,
-        _resolve_admin_session_target,
-        new_secure_session_with_host,
-    )
 
     local_ip = get_tailscale_ip()
     log = logger.get_logger()
@@ -109,7 +111,7 @@ def monitor_training_jobs():
     )
 
     for network in active_networks:
-        admin_target = _resolve_admin_session_target(network)
+        admin_target = resolve_admin_session_target(network)
         if not admin_target:
             continue
 
@@ -124,27 +126,11 @@ def monitor_training_jobs():
             )
 
             response = sess.api.do_command("list_jobs")
-            remote_jobs = _parse_nvflare_jobs(response)
-
-            existing_job_ids = list(
-                TrainingJob.objects.filter(network=network).values_list(
-                    "flare_job_id", flat=True
-                )
-            )
+            remote_jobs = parse_nvflare_jobs(response)
 
             for rj in remote_jobs:
                 job_id = str(rj.get("job_id") or rj.get("id") or "")
                 if not job_id:
-                    continue
-
-                # Check for existing match (exact or substring)
-                already_exists = False
-                for ex_id in existing_job_ids:
-                    if job_id in str(ex_id) or str(ex_id) in job_id:
-                        already_exists = True
-                        break
-
-                if already_exists:
                     continue
 
                 status = str(
@@ -153,15 +139,26 @@ def monitor_training_jobs():
                 log.training.info(
                     f"Monitor: Discovered new remote job: {job_id} ({status})"
                 )
-                TrainingJob.objects.create(
-                    project=network.project,
+                job, _created = training_services.ensure_training_job(
                     network=network,
                     flare_job_id=job_id,
                     status=(
                         status
-                        if status in ["RUNNING", "COMPLETED", "FAILED"]
+                        if status in ["RUNNING", "COMPLETED", "FAILED", "STOPPED"]
                         else "RUNNING"
                     ),
+                )
+                training_services.persist_training_job_state(
+                    job,
+                    flare_job_id=job_id,
+                    status=(
+                        status
+                        if status in ["RUNNING", "COMPLETED", "FAILED", "STOPPED"]
+                        else "RUNNING"
+                    ),
+                    completed_at=timezone.now()
+                    if status in {"COMPLETED", "FAILED", "STOPPED"}
+                    else None,
                 )
 
             with contextlib.suppress(Exception):
@@ -192,72 +189,9 @@ def monitor_training_jobs():
                         job_id = recent_job.flare_job_id
 
                 if job_id:
-                    l_job = TrainingJob.objects.filter(
-                        network=network, flare_job_id=job_id
-                    ).first()
-                    if not l_job:
-                        log.training.info(
-                            f"Monitor: Creating local mirror for job {job_id} found in docker logs"
-                        )
-                        l_job = TrainingJob.objects.create(
-                            project=network.project,
-                            network=network,
-                            flare_job_id=job_id,
-                            status="RUNNING",
-                        )
-
-                    if res["rounds_finished"] >= 0:
-                        if (
-                            l_job.rounds_finished is None
-                            or res["rounds_finished"] > l_job.rounds_finished
-                        ):
-                            log.training.info(
-                                f"Monitor: Updating job {job_id} progress to round {res['rounds_finished']}"
-                            )
-                            l_job.rounds_finished = res["rounds_finished"]
-                            total_rounds = l_job.total_rounds or _get_total_rounds(
-                                os.path.join(
-                                    settings.BASE_DIR,
-                                    "workspaces",
-                                    str(l_job.project.identifier),
-                                    str(l_job.network.identifier),
-                                )
-                            )
-                            l_job.progress_percent = min(
-                                99,
-                                int(
-                                    (l_job.rounds_finished + 1)
-                                    * 100
-                                    / total_rounds
-                                ),
-                            )
-                            l_job.progress_updated_at = timezone.now()
-                            l_job.save(
-                                update_fields=[
-                                    "rounds_finished",
-                                    "progress_percent",
-                                    "progress_updated_at",
-                                ]
-                            )
-
-                    terminal_status = res.get("terminal_status")
-                    if should_update_terminal_status(
-                        l_job.status, terminal_status
-                    ):
-                        log.training.info(
-                            f"Monitor: Job {job_id} marked as {terminal_status} via local docker logs"
-                        )
-                        l_job.status = terminal_status
-                        if terminal_status == "COMPLETED":
-                            l_job.progress_percent = 100
-                        l_job.completed_at = timezone.now()
-                        l_job.save(
-                            update_fields=[
-                                "status",
-                                "progress_percent",
-                                "completed_at",
-                            ]
-                        )
+                    training_services.sync_job_from_docker_result(
+                        network=network, result=res
+                    )
         except Exception:
             continue
 
@@ -268,11 +202,11 @@ def monitor_training_jobs():
         try:
             project_id = str(job.project.identifier)
             network_id = str(job.network.identifier)
-            flare_job_uuid = job.flare_job_id
-
-            match = re.search(r"([0-9a-f-]{36})", str(job.flare_job_id))
-            if match:
-                flare_job_uuid = match.group(1)
+            flare_job_uuid = (
+                job.flare_job_uuid
+                or extract_flare_job_uuid(job.flare_job_id)
+                or job.flare_job_id
+            )
 
             network_workspace_root = os.path.join(
                 settings.BASE_DIR, "workspaces", project_id, network_id
@@ -290,7 +224,7 @@ def monitor_training_jobs():
             terminal_status = (
                 job.status if job.status in {"COMPLETED", "FAILED", "STOPPED"} else None
             )
-            admin_target = _resolve_admin_session_target(job.network)
+            admin_target = resolve_admin_session_target(job.network)
             if admin_target:
                 try:
                     admin_name, admin_dir, server_ip = admin_target
@@ -302,7 +236,7 @@ def monitor_training_jobs():
                         network_id=job.network.identifier,
                     )
                     resp = sess.api.do_command(f"list_jobs {flare_job_uuid}")
-                    rjobs = _parse_nvflare_jobs(resp)
+                    rjobs = parse_nvflare_jobs(resp)
                     if rjobs:
                         rstatus = str(
                             rjobs[0].get("status")
@@ -355,24 +289,20 @@ def monitor_training_jobs():
                                     pass
 
                 if total_rounds > 0:
-                    rounds_completed = (
-                        rounds_finished + 1 if rounds_finished >= 0 else 0
+                    pct = progress_from_rounds(
+                        rounds_finished,
+                        total_rounds,
+                        status=terminal_status or job.status,
                     )
-                    pct = int(rounds_completed * 100 / total_rounds)
-                    job.progress_percent = (
-                        100
-                        if terminal_status == "COMPLETED"
-                        else min(99, pct)
-                    )
+                else:
+                    pct = None
 
-                job.rounds_finished = rounds_finished
-                job.progress_updated_at = timezone.now()
-                job.save(
-                    update_fields=[
-                        "rounds_finished",
-                        "progress_percent",
-                        "progress_updated_at",
-                    ]
+                training_services.persist_training_job_state(
+                    job,
+                    rounds_finished=rounds_finished,
+                    total_rounds=total_rounds,
+                    progress_percent=pct,
+                    progress_updated_at=timezone.now(),
                 )
 
             # Step 3: Result Sync
@@ -424,30 +354,18 @@ def monitor_training_jobs():
                             s3_prefix,
                         )
 
-                    if should_update_terminal_status(
-                        job.status, terminal_status
-                    ):
-                        job.status = terminal_status
-                        job.completed_at = timezone.now()
-                        job.progress_percent = 100
-                        job.save(
-                            update_fields=[
-                                "status",
-                                "completed_at",
-                                "progress_percent",
-                            ]
-                        )
+                    training_services.persist_training_job_state(
+                        job,
+                        status=terminal_status,
+                        completed_at=timezone.now(),
+                        progress_percent=100,
+                    )
             elif should_update_terminal_status(job.status, terminal_status):
-                job.status = terminal_status
-                if terminal_status == "COMPLETED":
-                    job.progress_percent = 100
-                job.completed_at = timezone.now()
-                job.save(
-                    update_fields=[
-                        "status",
-                        "completed_at",
-                        "progress_percent",
-                    ]
+                training_services.persist_training_job_state(
+                    job,
+                    status=terminal_status,
+                    completed_at=timezone.now(),
+                    progress_percent=job.progress_percent,
                 )
         except Exception as e:
             log.training.error(

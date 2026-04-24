@@ -4,14 +4,20 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-from django.test import SimpleTestCase
+from django.contrib.auth.models import User
+from django.test import SimpleTestCase, TestCase
 
+from network.models import SwarmNetwork
+from project.models import Project
+
+from . import services as training_services
 from .flare_adapter import (
     _build_manifest_request_url,
     _get_manifest_discovery_targets,
     _get_manifest_verify_value,
     receive_model,
 )
+from .models import TrainingJob
 from .utils import infer_training_terminal_status, summarize_training_log
 
 
@@ -100,3 +106,133 @@ class FlareAdapterReceiveModelTests(SimpleTestCase):
         model = receive_model()
 
         self.assertIn("numpy_key", model.params)
+
+
+class TrainingIdentityServiceTests(TestCase):
+    """Regression coverage for canonical FLARE job identity handling."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="trainer", password="test-password"
+        )  # nosec B106
+        self.project = Project.objects.create(title="Train Project", author=self.user)
+        self.network = SwarmNetwork.objects.create(
+            name="Train Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+
+    def test_get_training_job_resolves_by_canonical_flare_uuid(self):
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id="Submitted job: 11111111-1111-1111-1111-111111111111",
+            flare_job_uuid="11111111-1111-1111-1111-111111111111",
+        )
+
+        resolved = training_services.get_training_job(
+            network=self.network,
+            identifier="11111111-1111-1111-1111-111111111111",
+        )
+
+        self.assertEqual(resolved.id, job.id)
+
+    def test_ensure_training_job_reuses_existing_canonical_row(self):
+        existing = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id="Submitted job: 22222222-2222-2222-2222-222222222222",
+            flare_job_uuid="22222222-2222-2222-2222-222222222222",
+        )
+
+        job, created = training_services.ensure_training_job(
+            network=self.network,
+            flare_job_id="22222222-2222-2222-2222-222222222222",
+            status="RUNNING",
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(job.id, existing.id)
+        self.assertEqual(
+            TrainingJob.objects.filter(network=self.network).count(),
+            1,
+        )
+
+    def test_persist_training_job_state_preserves_stopped_progress(self):
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id="33333333-3333-3333-3333-333333333333",
+            flare_job_uuid="33333333-3333-3333-3333-333333333333",
+            progress_percent=45,
+        )
+
+        training_services.persist_training_job_state(
+            job,
+            status="STOPPED",
+            progress_percent=job.progress_percent,
+        )
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, "STOPPED")
+        self.assertEqual(job.progress_percent, 45)
+
+    def test_sync_job_from_remote_payload_updates_existing_job(self):
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id="Submitted job: 44444444-4444-4444-4444-444444444444",
+            flare_job_uuid="44444444-4444-4444-4444-444444444444",
+            rounds_finished=1,
+            progress_percent=20,
+        )
+
+        synced = training_services.sync_job_from_remote_payload(
+            network=self.network,
+            remote_job={
+                "flare_job_id": "44444444-4444-4444-4444-444444444444",
+                "status": "COMPLETED",
+                "total_rounds": 5,
+                "rounds_finished": 4,
+                "progress_percent": 100,
+            },
+        )
+        job.refresh_from_db()
+
+        self.assertEqual(synced.id, job.id)
+        self.assertEqual(job.status, "COMPLETED")
+        self.assertEqual(job.progress_percent, 100)
+        self.assertEqual(job.rounds_finished, 4)
+
+    @patch("training.services.build_training_status_payload")
+    def test_get_training_status_payload_persists_terminal_status(self, mock_build):
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id="55555555-5555-5555-5555-555555555555",
+            flare_job_uuid="55555555-5555-5555-5555-555555555555",
+        )
+        mock_build.return_value = {
+            "status": "Completed",
+            "progress": 100,
+            "duration": "21s",
+            "eta": "0s",
+            "job_id": job.flare_job_uuid,
+            "created_at": job.created_at.isoformat(),
+        }
+
+        payload = training_services.get_training_status_payload(
+            network=self.network, job=job
+        )
+        job.refresh_from_db()
+
+        self.assertEqual(payload["status"], "Completed")
+        self.assertEqual(job.status, "COMPLETED")
+        self.assertEqual(job.progress_percent, 100)
+        self.assertIsNotNone(job.completed_at)

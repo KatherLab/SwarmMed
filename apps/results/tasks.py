@@ -1,13 +1,8 @@
-"""Celery background tasks for the results application.
-Handles synchronization of results from S3 and the execution of user-submitted
-visualization scripts in an isolated environment using fsspec streaming.
-"""
+"""Celery background tasks for the results application."""
 
-import ast
 import base64
 import json
 import os
-import re
 import textwrap
 
 from django.conf import settings
@@ -22,6 +17,7 @@ from logs.context import set_context
 from logs.utils import format_exception
 from project.models import Project
 from training.models import TrainingJob
+from training.utils import extract_flare_job_uuid
 from training.utils import upload_folder_to_s3
 
 from .models import (
@@ -30,33 +26,6 @@ from .models import (
     TrainingResult,
 )
 from .visualization import ResultsVisualizationContext
-
-_UUID_RE = re.compile(
-    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
-)
-
-
-def _extract_flare_job_uuid(flare_job_id_raw: str) -> str | None:
-    """Best-effort extraction of the NVFlare job UUID from stored flare_job_id."""
-    if not flare_job_id_raw:
-        return None
-    m = _UUID_RE.search(str(flare_job_id_raw))
-    if m:
-        return m.group(1)
-    try:
-        parsed = ast.literal_eval(flare_job_id_raw)
-        if isinstance(parsed, list):
-            for item in parsed:
-                if isinstance(item, dict):
-                    data = item.get("data", "")
-                    if isinstance(data, str) and "Submitted job:" in data:
-                        m2 = _UUID_RE.search(data)
-                        if m2:
-                            return m2.group(1)
-    except (ValueError, SyntaxError, TypeError):
-        return None
-    return None
-
 
 def _find_workspace_base(project_uuid: str, network_uuid: str) -> str | None:
     """Locate the NVFlare prod workspace for a project/network pair."""
@@ -99,7 +68,9 @@ def _select_result_root(target: str, app_subdir: str) -> str:
 
 def _iter_job_result_folders(job: TrainingJob):
     """Yield participant result folders for a completed training job."""
-    flare_job_uuid = _extract_flare_job_uuid(job.flare_job_id or "")
+    flare_job_uuid = job.flare_job_uuid or extract_flare_job_uuid(
+        job.flare_job_id or ""
+    )
     if not flare_job_uuid:
         return
 
@@ -173,8 +144,12 @@ def sync_project_results(project_uuid):
         _sync_local_workspace_results(project, log)
 
         job_lookup = {}
-        for job in TrainingJob.objects.filter(project=project).only("id", "flare_job_id", "project"):
-            job_uuid = _extract_flare_job_uuid(job.flare_job_id or "")
+        for job in TrainingJob.objects.filter(project=project).only(
+            "id", "project", "flare_job_id", "flare_job_uuid"
+        ):
+            job_uuid = job.flare_job_uuid or extract_flare_job_uuid(
+                job.flare_job_id or ""
+            )
             if job_uuid:
                 job_lookup[job_uuid] = job
 
@@ -194,13 +169,28 @@ def sync_project_results(project_uuid):
 
                 job_id_from_s3_key = parts[2]
                 obj.get("LastModified")
-                m_s3 = _UUID_RE.search(job_id_from_s3_key)
-                normalized_s3_uuid = m_s3.group(1) if m_s3 else job_id_from_s3_key
+                normalized_s3_uuid = extract_flare_job_uuid(job_id_from_s3_key) or job_id_from_s3_key
 
                 job = job_lookup.get(normalized_s3_uuid)
                 if not job:
-                    job = TrainingJob.objects.filter(project=project, flare_job_id__icontains=normalized_s3_uuid).first()
-                    if not job: continue
+                    job = (
+                        TrainingJob.objects.filter(
+                            project=project, flare_job_uuid=normalized_s3_uuid
+                        )
+                        .order_by("created_at", "id")
+                        .first()
+                    )
+                    if not job:
+                        job = (
+                            TrainingJob.objects.filter(
+                                project=project,
+                                flare_job_id__icontains=normalized_s3_uuid,
+                            )
+                            .order_by("created_at", "id")
+                            .first()
+                        )
+                    if not job:
+                        continue
 
                 res_obj, created = TrainingResult.objects.get_or_create(
                     job=job,

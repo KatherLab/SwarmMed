@@ -10,6 +10,7 @@ import re
 import shutil
 
 from django.conf import settings
+from django.db import models
 from django.utils import timezone
 
 from common.utils import get_safe_slug
@@ -17,7 +18,22 @@ from logs.logger import get_logger
 from network.models import SwarmNetwork
 
 from .models import TrainingJob
-from .utils import download_s3_folder
+from .runtime import (
+    build_training_status_payload,
+    dedupe_keep_order,
+    get_training_progress_info,
+    log_flare_pre_submit_diagnostics,
+    new_secure_session_with_host,
+    parse_nvflare_clients,
+    resolve_admin_session_target,
+)
+from .utils import (
+    clamp_progress_percent,
+    download_s3_folder,
+    extract_flare_job_uuid,
+    progress_from_rounds,
+    should_update_terminal_status,
+)
 
 
 def list_training_jobs(*, project=None, network=None):
@@ -30,14 +46,246 @@ def list_training_jobs(*, project=None, network=None):
     return queryset.order_by("-created_at")
 
 
+def _matching_jobs(queryset, identifier: str):
+    condition = models.Q(identifier=identifier) | models.Q(
+        flare_job_id__icontains=identifier
+    )
+    flare_job_uuid = extract_flare_job_uuid(identifier) or (
+        identifier if re.fullmatch(r"[0-9a-fA-F-]{36}", str(identifier or "")) else None
+    )
+    if flare_job_uuid:
+        condition |= models.Q(flare_job_uuid=flare_job_uuid)
+    return queryset.filter(condition)
+
+
+def ensure_training_job(
+    *, network: SwarmNetwork, flare_job_id: str, status: str = "RUNNING"
+) -> tuple[TrainingJob, bool]:
+    """Return the canonical local job row for a FLARE job identifier."""
+    queryset = (
+        TrainingJob.objects.select_related("project", "network")
+        .filter(network=network)
+        .order_by("created_at", "id")
+    )
+    flare_job_uuid = extract_flare_job_uuid(flare_job_id)
+    job = None
+    if flare_job_uuid:
+        job = queryset.filter(flare_job_uuid=flare_job_uuid).first()
+    if not job and flare_job_id:
+        job = queryset.filter(flare_job_id=flare_job_id).first()
+    if not job and flare_job_id:
+        job = queryset.filter(flare_job_id__icontains=flare_job_id).first()
+
+    created = False
+    if not job:
+        job = TrainingJob.objects.create(
+            project=network.project,
+            network=network,
+            status=status,
+            flare_job_id=flare_job_id,
+            flare_job_uuid=flare_job_uuid,
+        )
+        created = True
+    else:
+        update_fields = []
+        if flare_job_uuid and job.flare_job_uuid != flare_job_uuid:
+            job.flare_job_uuid = flare_job_uuid
+            update_fields.append("flare_job_uuid")
+        if flare_job_id and not job.flare_job_id:
+            job.flare_job_id = flare_job_id
+            update_fields.append("flare_job_id")
+        if update_fields:
+            job.save(update_fields=update_fields)
+    return job, created
+
+
+def persist_training_job_state(
+    job: TrainingJob,
+    *,
+    flare_job_id: str | None = None,
+    status: str | None = None,
+    total_rounds: int | None = None,
+    rounds_finished: int | None = None,
+    progress_percent: int | None = None,
+    completed_at=None,
+    progress_updated_at=None,
+) -> TrainingJob:
+    """Persist one canonical training-job state transition."""
+    update_fields = []
+    new_status = str(status or "").upper() or None
+
+    if flare_job_id:
+        flare_job_uuid = extract_flare_job_uuid(flare_job_id)
+        if not job.flare_job_id:
+            job.flare_job_id = flare_job_id
+            update_fields.append("flare_job_id")
+        if flare_job_uuid and job.flare_job_uuid != flare_job_uuid:
+            job.flare_job_uuid = flare_job_uuid
+            update_fields.append("flare_job_uuid")
+
+    if total_rounds is not None and total_rounds > 0 and job.total_rounds != total_rounds:
+        job.total_rounds = total_rounds
+        update_fields.append("total_rounds")
+
+    if (
+        rounds_finished is not None
+        and rounds_finished >= 0
+        and (job.rounds_finished is None or rounds_finished > job.rounds_finished)
+    ):
+        job.rounds_finished = rounds_finished
+        update_fields.append("rounds_finished")
+
+    if new_status:
+        current_status = str(job.status or "").upper()
+        if should_update_terminal_status(current_status, new_status):
+            if job.status != new_status:
+                job.status = new_status
+                update_fields.append("status")
+            if completed_at is None:
+                completed_at = timezone.now()
+        elif current_status not in {"COMPLETED", "FAILED", "STOPPED"} and job.status != new_status:
+            job.status = new_status
+            update_fields.append("status")
+
+    effective_status = str(job.status or new_status or "").upper()
+    normalized_progress = progress_percent
+    if normalized_progress is not None:
+        normalized_progress = clamp_progress_percent(
+            normalized_progress, status=effective_status
+        )
+    elif effective_status == "COMPLETED":
+        normalized_progress = 100
+
+    if normalized_progress is not None and job.progress_percent != normalized_progress:
+        job.progress_percent = normalized_progress
+        update_fields.append("progress_percent")
+        if progress_updated_at is None:
+            progress_updated_at = timezone.now()
+
+    if completed_at is not None and job.completed_at != completed_at:
+        job.completed_at = completed_at
+        update_fields.append("completed_at")
+
+    if progress_updated_at is not None and job.progress_updated_at != progress_updated_at:
+        job.progress_updated_at = progress_updated_at
+        update_fields.append("progress_updated_at")
+
+    if update_fields:
+        job.save(update_fields=list(dict.fromkeys(update_fields)))
+    return job
+
+
+def sync_job_from_docker_result(*, network: SwarmNetwork, result: dict) -> TrainingJob | None:
+    """Merge one docker-scraped runtime result into the canonical job row."""
+    job_id = result.get("job_id")
+    if not job_id:
+        running_job = (
+            TrainingJob.objects.filter(network=network, status="RUNNING")
+            .order_by("-created_at")
+            .first()
+        )
+        if running_job:
+            job_id = running_job.flare_job_id or running_job.flare_job_uuid
+    if not job_id:
+        return None
+
+    job, _created = ensure_training_job(
+        network=network,
+        flare_job_id=str(job_id),
+        status="RUNNING",
+    )
+    total_rounds = job.total_rounds or 10
+    rounds_finished = result.get("rounds_finished")
+    progress_percent = None
+    if rounds_finished is not None and rounds_finished >= 0:
+        progress_percent = progress_from_rounds(
+            rounds_finished, total_rounds, status=result.get("terminal_status") or "RUNNING"
+        )
+    return persist_training_job_state(
+        job,
+        flare_job_id=str(job_id),
+        rounds_finished=rounds_finished,
+        total_rounds=total_rounds,
+        progress_percent=progress_percent,
+        progress_updated_at=timezone.now() if progress_percent is not None else None,
+        status=result.get("terminal_status"),
+    )
+
+
+def sync_job_from_remote_payload(
+    *, network: SwarmNetwork, remote_job: dict
+) -> TrainingJob | None:
+    """Merge one peer-mirrored job payload into the canonical job row."""
+    flare_job_id = str(remote_job.get("flare_job_id") or "").strip()
+    if not flare_job_id:
+        return None
+
+    job, _created = ensure_training_job(
+        network=network,
+        flare_job_id=flare_job_id,
+        status=str(remote_job.get("status") or "RUNNING").upper(),
+    )
+    return persist_training_job_state(
+        job,
+        flare_job_id=flare_job_id,
+        status=remote_job.get("status"),
+        total_rounds=remote_job.get("total_rounds"),
+        rounds_finished=remote_job.get("rounds_finished"),
+        progress_percent=remote_job.get("progress_percent"),
+        completed_at=timezone.now()
+        if str(remote_job.get("status") or "").upper()
+        in {"COMPLETED", "FAILED", "STOPPED"}
+        else None,
+    )
+
+
+def sync_job_from_nvflare_status(
+    *, network: SwarmNetwork, nvflare_status: dict
+) -> TrainingJob | None:
+    """Merge one NVFlare admin status payload into the canonical job row."""
+    job_id_to_match = str(nvflare_status.get("job_id") or "").strip()
+    if not job_id_to_match:
+        return None
+
+    status_map = {
+        "RUNNING": "RUNNING",
+        "COMPLETED": "COMPLETED",
+        "STOPPED": "STOPPED",
+        "FAILED": "FAILED",
+        "SUBMITTED": "STARTING",
+        "APPROVED": "STARTING",
+        "DISPATCHED": "STARTING",
+    }
+    status_key = str(nvflare_status.get("status", "")).upper().strip()
+    mapped_status = status_map.get(status_key)
+    if not mapped_status:
+        return None
+
+    job, _created = ensure_training_job(
+        network=network,
+        flare_job_id=job_id_to_match,
+        status=mapped_status,
+    )
+    progress_percent = (
+        100 if mapped_status == "COMPLETED" else nvflare_status.get("progress")
+    )
+    return persist_training_job_state(
+        job,
+        flare_job_id=job_id_to_match,
+        status=mapped_status,
+        progress_percent=progress_percent,
+        completed_at=timezone.now()
+        if mapped_status in {"COMPLETED", "FAILED", "STOPPED"}
+        else None,
+    )
+
+
 def get_training_job(*, network=None, identifier: str) -> TrainingJob:
     """Resolve a training job by UUID identifier or FLARE job id."""
     queryset = TrainingJob.objects.select_related("project", "network")
     if network is not None:
         queryset = queryset.filter(network=network)
-    job = queryset.filter(identifier=identifier).first()
-    if not job:
-        job = queryset.filter(flare_job_id__icontains=identifier).first()
+    job = _matching_jobs(queryset, identifier).order_by("-created_at").first()
     if not job:
         raise LookupError(f"Training job '{identifier}' was not found.")
     return job
@@ -55,8 +303,6 @@ def get_latest_training_job(network: SwarmNetwork) -> TrainingJob | None:
 
 def serialize_training_job(job: TrainingJob) -> dict:
     """Serialize a training job for CLI output."""
-    from .views import get_training_progress_info
-
     info = get_training_progress_info(job, job.network)
     return {
         "identifier": str(job.identifier),
@@ -68,6 +314,7 @@ def serialize_training_job(job: TrainingJob) -> dict:
         "duration": info["duration"],
         "eta": info["eta"],
         "flare_job_id": job.flare_job_id,
+        "flare_job_uuid": job.flare_job_uuid,
         "total_rounds": job.total_rounds,
         "rounds_finished": job.rounds_finished,
         "created_at": job.created_at.isoformat(),
@@ -77,14 +324,6 @@ def serialize_training_job(job: TrainingJob) -> dict:
 
 def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
     """Assemble and submit an NVFlare job for a running network."""
-    from .views import (
-        _dedupe_keep_order,
-        _log_flare_pre_submit_diagnostics,
-        _parse_nvflare_clients,
-        _resolve_admin_session_target,
-        new_secure_session_with_host,
-    )
-
     if network.status != "RUNNING":
         raise ValueError(
             f"Network '{network.name}' is not running. Start the network before training."
@@ -102,7 +341,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
     project_name = get_safe_slug(project.title, project.identifier).replace(
         "-", "_"
     )
-    admin_target = _resolve_admin_session_target(network)
+    admin_target = resolve_admin_session_target(network)
     if not admin_target:
         raise LookupError(
             "No admin startup kit found for this center. Re-provision or upload a complete startup package."
@@ -231,7 +470,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
             except Exception:
                 pass
 
-    client_names = _dedupe_keep_order(
+    client_names = dedupe_keep_order(
         [
             name
             for name in client_names
@@ -419,7 +658,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
             f"{executor.__class__.__module__}.{executor.__class__.__name__}"
         )
 
-        _log_flare_pre_submit_diagnostics(
+        log_flare_pre_submit_diagnostics(
             log=log,
             username=admin_username,
             startup_kit_location=admin_session_dir,
@@ -440,7 +679,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
             try:
                 log.training.info("Querying live server for connected clients...")
                 client_response = session.api.do_command("list_clients")
-                live_clients = _parse_nvflare_clients(client_response)
+                live_clients = parse_nvflare_clients(client_response)
                 if live_clients:
                     client_names = live_clients
                     log.training.info(
@@ -542,18 +781,33 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
         with contextlib.suppress(Exception):
             session.close()
 
-        training_job = TrainingJob.objects.create(
-            project=project,
+        if not job_id:
+            return TrainingJob.objects.create(
+                project=project,
+                network=network,
+                status="FAILED",
+                flare_job_id="unknown",
+            )
+
+        training_job, _created = ensure_training_job(
             network=network,
-            status="RUNNING" if job_id else "FAILED",
-            flare_job_id=job_id or "unknown",
+            flare_job_id=job_id,
+            status="RUNNING",
         )
-        return training_job
+        return persist_training_job_state(
+            training_job,
+            flare_job_id=job_id,
+            status="RUNNING",
+        )
     except Exception as exc:
         log.training.error(f"Submit job via FLARE API failed: {exc}")
-        TrainingJob.objects.create(
-            project=project, network=network, status="FAILED", flare_job_id="error"
+        failed_job = TrainingJob.objects.create(
+            project=project,
+            network=network,
+            status="FAILED",
+            flare_job_id="error",
         )
+        persist_training_job_state(failed_job, status="FAILED")
         raise
 
 
@@ -561,8 +815,6 @@ def stop_training_job(
     *, actor, network: SwarmNetwork, job: TrainingJob | None = None
 ) -> TrainingJob:
     """Abort a running training job on a network."""
-    from .views import _resolve_admin_session_target, new_secure_session_with_host
-
     job = job or (
         TrainingJob.objects.filter(network=network, status="RUNNING")
         .order_by("-created_at")
@@ -572,7 +824,7 @@ def stop_training_job(
         raise LookupError("No running job found to stop.")
 
     log = get_logger(user=actor, project=network.project)
-    admin_target = _resolve_admin_session_target(network)
+    admin_target = resolve_admin_session_target(network)
     if not admin_target:
         raise LookupError("No admin startup kit found for this center.")
 
@@ -584,41 +836,28 @@ def stop_training_job(
             host=server_ip,
             network_id=network.identifier,
         )
-        job_uuid = str(job.flare_job_id)
-        match = re.search(r"([0-9a-f-]{36})", job_uuid)
-        if match:
-            job_uuid = match.group(1)
+        job_uuid = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id)
+        if not job_uuid:
+            job_uuid = str(job.flare_job_id)
         session.api.do_command(f"abort_job {job_uuid}")
-        job.status = "STOPPED"
-        job.completed_at = timezone.now()
-        job.progress_percent = 100
-        job.progress_updated_at = timezone.now()
-        job.save(
-            update_fields=[
-                "status",
-                "completed_at",
-                "progress_percent",
-                "progress_updated_at",
-            ]
+        return persist_training_job_state(
+            job,
+            status="STOPPED",
+            completed_at=timezone.now(),
+            progress_percent=job.progress_percent,
+            progress_updated_at=timezone.now(),
         )
-        return job
     except Exception as exc:
         log.training.error(f"Abort job failed: {exc}")
         err = str(exc).lower()
         if any(token in err for token in ["not running", "invalid job id", "no such job"]):
-            job.status = "COMPLETED"
-            job.completed_at = timezone.now()
-            job.progress_percent = 100
-            job.progress_updated_at = timezone.now()
-            job.save(
-                update_fields=[
-                    "status",
-                    "completed_at",
-                    "progress_percent",
-                    "progress_updated_at",
-                ]
+            return persist_training_job_state(
+                job,
+                status="COMPLETED",
+                completed_at=timezone.now(),
+                progress_percent=100,
+                progress_updated_at=timezone.now(),
             )
-            return job
         raise
 
 
@@ -626,11 +865,29 @@ def get_training_status_payload(
     *, network: SwarmNetwork, job: TrainingJob | None = None
 ) -> dict:
     """Return a CLI-friendly training status payload."""
-    from .views import _build_training_status_payload
-
     job = job or get_latest_training_job(network)
-    payload = _build_training_status_payload(network, job)
+    payload = build_training_status_payload(network, job)
     if job:
+        normalized_status = str(payload.get("status") or "").upper()
+        progress_percent = payload.get("progress")
+        progress_updated_at = (
+            timezone.now() if progress_percent is not None else None
+        )
+        if normalized_status in {"COMPLETED", "FAILED", "STOPPED"}:
+            persist_training_job_state(
+                job,
+                status=normalized_status,
+                progress_percent=progress_percent,
+                completed_at=job.completed_at or timezone.now(),
+                progress_updated_at=progress_updated_at,
+            )
+        elif normalized_status == "RUNNING":
+            persist_training_job_state(
+                job,
+                status="RUNNING",
+                progress_percent=progress_percent,
+                progress_updated_at=progress_updated_at,
+            )
         payload["identifier"] = str(job.identifier)
         payload["network_identifier"] = str(network.identifier)
         payload["project_identifier"] = str(job.project.identifier)

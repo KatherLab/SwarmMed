@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import os
 from pathlib import Path
 
@@ -15,33 +14,27 @@ from common.utils import get_s3_client
 from logs import logger
 from project.models import Project
 from training.models import TrainingJob
+from training.utils import extract_flare_job_uuid
 
 from .models import ResultsVisualizationPlot, ResultsVisualizationRun, TrainingResult
 from .tasks import run_results_visualization_task, sync_project_results
 
 
 def _resolve_job_and_flare_id(project: Project, job_identifier: str):
-    job = TrainingJob.objects.filter(
-        models.Q(identifier=job_identifier)
-        | models.Q(flare_job_id__icontains=job_identifier),
-        project=project,
-    ).first()
-    flare_id = job_identifier
+    normalized_identifier = extract_flare_job_uuid(job_identifier) or job_identifier
+    job = (
+        TrainingJob.objects.filter(project=project)
+        .filter(
+            models.Q(identifier=job_identifier)
+            | models.Q(flare_job_uuid=normalized_identifier)
+            | models.Q(flare_job_id__icontains=job_identifier)
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    flare_id = normalized_identifier
     if job:
-        flare_id = job.flare_job_id
-        try:
-            parsed = ast.literal_eval(flare_id)
-            if isinstance(parsed, list):
-                for item in parsed:
-                    if (
-                        isinstance(item, dict)
-                        and item.get("type") == "string"
-                        and "Submitted job:" in item.get("data", "")
-                    ):
-                        flare_id = item.get("data", "").split(":")[-1].strip()
-                        break
-        except (ValueError, SyntaxError):
-            pass
+        flare_id = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id) or normalized_identifier
     return job, flare_id
 
 
@@ -180,8 +173,18 @@ def start_results_visualization(
     running_query = ResultsVisualizationRun.objects.filter(
         project=project,
         status__in=["pending", "running"],
-        flare_job_id=flare_id,
     )
+    if job:
+        running_query = running_query.filter(
+            models.Q(job=job)
+            | models.Q(flare_job_id=flare_id)
+            | models.Q(flare_job_id__icontains=flare_id)
+        )
+    else:
+        running_query = running_query.filter(
+            models.Q(flare_job_id=flare_id)
+            | models.Q(flare_job_id__icontains=flare_id)
+        )
     for visualization in running_query:
         if visualization.celery_task_id:
             current_app.control.revoke(
@@ -232,10 +235,20 @@ def get_results_visualization_run(
     project: Project, *, job_identifier: str
 ) -> ResultsVisualizationRun | None:
     """Return the latest results visualization run for a job."""
-    _, flare_id = _resolve_job_and_flare_id(project, job_identifier)
-    return ResultsVisualizationRun.objects.filter(
-        project=project, flare_job_id=flare_id
-    ).first()
+    job, flare_id = _resolve_job_and_flare_id(project, job_identifier)
+    query = ResultsVisualizationRun.objects.filter(project=project)
+    if job:
+        query = query.filter(
+            models.Q(job=job)
+            | models.Q(flare_job_id=flare_id)
+            | models.Q(flare_job_id__icontains=flare_id)
+        )
+    else:
+        query = query.filter(
+            models.Q(flare_job_id=flare_id)
+            | models.Q(flare_job_id__icontains=flare_id)
+        )
+    return query.first()
 
 
 def serialize_results_visualization_run(

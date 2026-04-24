@@ -1,9 +1,10 @@
 """Utility functions for the training application.
 
-Handles communication with S3 for downloading training code
-and uploading results from the training workspace.
+Handles FLARE job identity parsing, runtime log inspection, and communication
+with object storage for training code and result uploads.
 """
 
+import ast
 import os
 import re
 import shutil
@@ -11,6 +12,10 @@ import subprocess
 
 from common.utils import get_s3_client
 
+
+FLARE_JOB_UUID_RE = re.compile(
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
 
 TRAINING_ROUND_PATTERNS = (
     re.compile(r"Finished round\s+(\d+)", re.I),
@@ -47,6 +52,62 @@ TRAINING_STOPPED_MARKERS = (
 )
 
 TERMINAL_TRAINING_STATUSES = {"COMPLETED", "FAILED", "STOPPED"}
+
+
+def extract_flare_job_uuid(flare_job_id_raw: str | None) -> str | None:
+    """Extract a canonical FLARE job UUID from stored raw job metadata."""
+    if not flare_job_id_raw:
+        return None
+
+    match = FLARE_JOB_UUID_RE.search(str(flare_job_id_raw))
+    if match:
+        return match.group(1)
+
+    try:
+        parsed = ast.literal_eval(str(flare_job_id_raw))
+    except (ValueError, SyntaxError, TypeError):
+        return None
+
+    if isinstance(parsed, list):
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            data = item.get("data", "")
+            if isinstance(data, str):
+                match = FLARE_JOB_UUID_RE.search(data)
+                if match:
+                    return match.group(1)
+    return None
+
+
+def clamp_progress_percent(
+    progress_percent: int | None, *, status: str | None = None
+) -> int | None:
+    """Clamp persisted progress according to runtime status semantics."""
+    if progress_percent is None:
+        return None
+
+    progress = max(0, int(progress_percent))
+    status = str(status or "").upper()
+    if status == "COMPLETED":
+        return 100
+    if status in {"FAILED", "STOPPED"}:
+        return min(99, progress)
+    return min(99, progress)
+
+
+def progress_from_rounds(
+    rounds_finished: int | None, total_rounds: int | None, *, status: str | None = None
+) -> int | None:
+    """Calculate progress percent from completed rounds."""
+    if total_rounds is None or total_rounds <= 0:
+        return None
+    rounds_completed = (
+        rounds_finished + 1 if rounds_finished is not None and rounds_finished >= 0 else 0
+    )
+    return clamp_progress_percent(
+        int(rounds_completed * 100 / total_rounds), status=status
+    )
 
 
 def extract_training_rounds(log_text: str) -> int:

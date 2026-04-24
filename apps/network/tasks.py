@@ -145,8 +145,15 @@ def _ensure_executable(path):
     """
     if not os.path.exists(path):
         return
+    if os.access(path, os.X_OK):
+        return
     current_mode = os.stat(path).st_mode
-    os.chmod(path, current_mode | stat.S_IXUSR)
+    try:
+        os.chmod(path, current_mode | stat.S_IXUSR)
+    except PermissionError:
+        if os.access(path, os.X_OK):
+            return
+        raise
 
 
 def _extract_host_from_server_endpoint(startup_dir):

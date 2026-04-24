@@ -313,8 +313,8 @@ def run(args: argparse.Namespace):
     bootstrap_django()
 
     from data import services as data_services
+    from network.runtime import get_local_participant_status
     from network import services as network_services
-    from network.views import _get_local_participant_status
     from project import services as project_services
     from results import services as results_services
     from training import services as training_services
@@ -561,7 +561,7 @@ def run(args: argparse.Namespace):
                 network, current_for=state.user, include_participants=True
             )
             try:
-                live_status = _get_local_participant_status(network)
+                live_status = get_local_participant_status(network)
                 for participant in serialized["participants"]:
                     participant["status"] = live_status.get(
                         participant["identifier"], participant["status"]
