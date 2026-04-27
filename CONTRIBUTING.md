@@ -1,6 +1,6 @@
-# Contributing to MedSwarmHub
+# Contributing to MedSwarm
 
-Welcome! We are thrilled that you are interested in contributing to MedSwarmHub. This project is a decentralized bio data storage and collaborative training platform leveraging Swarm Learning (NVIDIA FLARE).
+Welcome! We are thrilled that you are interested in contributing to MedSwarm. This repository contains the MedSwarmHub web interface together with the local `medswarm` CLI for decentralized data management and collaborative training via Swarm Learning (NVIDIA FLARE).
 
 This guide will help you get onboarded and explain how to contribute effectively.
 
@@ -9,8 +9,8 @@ This guide will help you get onboarded and explain how to contribute effectively
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/KatherLab/MedSwarmHub.git
-    cd MedSwarmHub
+    git clone https://github.com/pfeifferis/SwarmCloud.git
+    cd SwarmCloud
     ```
 3.  **Set up your environment**:
     - Run `make install` to install uv (if needed) and synchronize the Python dependencies into `.venv`.
@@ -111,4 +111,4 @@ Proactively add unit tests in the respective `tests.py` files of the app you are
 
 If you have questions or get stuck, feel free to open an Issue on GitHub. We are here to help!
 
-Thank you for helping us make **MedSwarmHub** better!
+Thank you for helping us make **MedSwarm** better!

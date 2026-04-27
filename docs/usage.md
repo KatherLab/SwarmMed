@@ -51,7 +51,7 @@ As an admin, you can manage existing users, including editing their details or d
     As a developer, you can create and manage swarm learning experiments on the MedSwarmHub platform and see logs.
 
 !!! info "Developer Guide"
-    A more detailed developer guide can be found [here](/developer).
+    A more detailed developer guide can be found [here](developer.md).
 
 ### 📜 View Logs
 
@@ -72,6 +72,9 @@ As a developer, you can view the logs of the training jobs to monitor their prog
 
 !!! info "CLI workflow"
     The same workflow is also available through the local `medswarm` CLI. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
+
+!!! info "Shared Project Bundle"
+    MedSwarmHub and `medswarm` use the same project code bundle. The required root entrypoint is `training.py`, with optional `requirements.txt`, `validation.py`, `visualization.py`, and `results_visualization.py`.
 
 ### 1. 📁 Create a Project
 

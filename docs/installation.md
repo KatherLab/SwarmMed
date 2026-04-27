@@ -1,11 +1,11 @@
 ---
 title: Installation
-description: Installation instructions for MedSwarmHub.
+description: Installation instructions for MedSwarmHub and the local medswarm CLI.
 ---
 
 # Installation
 
-This page provides detailed instructions for installing the MedSwarmHub platform.
+This page provides detailed instructions for installing the MedSwarm repository, which contains the MedSwarmHub web interface and the local `medswarm` companion CLI.
 
 ## 📋 System Requirements
 
@@ -16,7 +16,7 @@ Before you begin, ensure that your system meets the following requirements.
 *   **Recommended:** Linux (Ubuntu 22.04 LTS or newer)
     *   The installation guide uses `apt` commands typical for Debian/Ubuntu environments.
 *   **Supported:** macOS, Windows 10/11 (via Docker Desktop)
-    *   *Note: Windows users are recommended to use WSL2 (Windows Subsystem for Linux) to ensure compatibility with helper scripts.*
+    *   *Note: Windows users are recommended to use WSL2 (Windows Subsystem for Linux) to ensure compatibility with helper scripts. The `medswarm` CLI is currently a Linux-first workflow and is primarily validated on Linux hosts.*
 
 ### Hardware Resources
 
@@ -90,13 +90,13 @@ tailscale set --accept-dns=false
 systemctl restart tailscaled
 ```
 
-## 3. 🧩 MedSwarmHub
+## 3. 🧩 MedSwarm Repository
 
 ### Clone the Repository
 
 ``` bash
-git clone https://github.com/KatherLab/MedSwarmHub.git
-cd MedSwarmHub
+git clone https://github.com/pfeifferis/SwarmCloud.git
+cd SwarmCloud
 ```
 
 ### Install Python Dependencies
@@ -104,6 +104,8 @@ cd MedSwarmHub
 ``` bash
 make install
 ```
+
+This installs the shared Python environment for both MedSwarmHub and the local `medswarm` CLI. The CLI is not a separate product install; it runs from the same repository and uses the same Django environment as the web interface.
 
 ### Environment Variables
 
@@ -137,6 +139,12 @@ make start
 ```
 
 `make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `medswarmhub` logs with `make logs`.
+
+You can verify the CLI entrypoint from the same repository with:
+
+```bash
+uv run medswarm --help
+```
 
 ## 4. 👤 Create Superuser
 
@@ -179,7 +187,7 @@ make logs
 
 ## 🗑️ Deinstallation
 
-If you wish to remove MedSwarmHub and its associated data from your system:
+If you wish to remove MedSwarm and its associated local data from your system:
 
 ### 1. Stop and Cleanup Environment
 This will stop the containers, remove the virtual environment, caches, and generated secrets/certificates:
@@ -190,7 +198,7 @@ make deinstall
 ### 2. Remove Docker Images (Optional)
 To also remove the code to free up disk space:
 ```bash
-rm -r MedSwarmHub
+rm -r SwarmCloud
 ```
 
 ### 3. Remove Tailscale (Optional)

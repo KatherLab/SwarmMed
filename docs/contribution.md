@@ -1,15 +1,15 @@
 ---
 title: Contribution Guide
-description: Detailed guidelines for contributing to MedSwarmHub.
+description: Detailed guidelines for contributing to MedSwarmHub and the medswarm CLI.
 ---
 
 # Contribution Guide
 
-Welcome to the **MedSwarmHub** developer community! This document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
+Welcome to the **MedSwarm** developer community. This repository contains both MedSwarmHub and the local `medswarm` CLI, and this document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
 
 ## 🏗️ System Overview
 
-MedSwarmHub is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
+MedSwarm is a modular Django-based platform designed for decentralized data management and Swarm Learning.
 
 ### 💻 Core Technology Stack
 - **Backend:** Django 6.0, Celery, Redis.

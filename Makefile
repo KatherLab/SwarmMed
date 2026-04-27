@@ -5,7 +5,7 @@ export PATH
 UV := $(HOME)/.local/bin/uv
 UV_INSTALL_SCRIPT := https://astral.sh/uv/install.sh
 PYTHON_VERSION ?= 3.12
-MKDOCS_CONFIG := docs/mkdocs.yml
+MKDOCS_CONFIG := mkdocs.yml
 SECRETS_DIRS := .secrets/certs .secrets/docker .secrets/pgbouncer
 
 .DEFAULT_GOAL := help

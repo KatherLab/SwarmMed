@@ -1,24 +1,30 @@
 ---
 title: CLI
-description: Local command-line workflow for MedSwarmHub.
+description: Local companion command-line workflow for MedSwarmHub.
 ---
 
 # CLI
 
-`medswarm` is a local companion CLI for MedSwarmHub. It runs inside the same Django environment as the web UI and uses the same database records, object storage, Celery tasks, and active project/network context.
+`medswarm` is a local companion CLI for MedSwarmHub. It is installed from the same repository, runs inside the same Django environment as the web UI, and uses the same database records, object storage, Celery tasks, and active project/network context.
 
 ## Scope
 
 - v1 is a local companion tool, not a remote API client.
-- v1 is intended for Linux hosts.
+- v1 is Linux-first and validated on Linux hosts.
 - The CLI covers the executable workflow only: projects, data, networks, training, and results.
 
 ## Running the CLI
 
-Install the project environment first:
+Install the project environment first. This is the same repository and Python environment used by MedSwarmHub:
 
 ```bash
 make install
+```
+
+If the local stack is not configured yet, generate the environment file as well:
+
+```bash
+make env
 ```
 
 Then run commands through the managed environment:
