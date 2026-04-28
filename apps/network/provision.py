@@ -37,6 +37,12 @@ def is_valid_ip(ip):
     return bool(re.match(pattern, ip))
 
 
+def safe_participant_name(name: str, default: str = "client") -> str:
+    """Return an NVFlare-safe participant name while preserving case/underscores."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", str(name or "").strip()).strip("-_")
+    return cleaned or default
+
+
 def generate_flare_startup_kit(
     network_id,
     local_test=False,
@@ -171,7 +177,7 @@ def generate_flare_startup_kit(
         # 3) add clients/admins and map each center to the server
         prepared_clients = []
         for client in clients:
-            safe_client_name = slugify(client["name"])
+            safe_client_name = safe_participant_name(client["name"])
             ip = client.get("ip", "")
             if not is_valid_ip(ip):
                 logger.network.warning(

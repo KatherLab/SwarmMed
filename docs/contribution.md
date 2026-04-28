@@ -1,15 +1,15 @@
 ---
 title: Contribution Guide
-description: Detailed guidelines for contributing to MedSwarmHub and the medswarm CLI.
+description: Detailed guidelines for contributing to SwarmMedHub and the swarmed CLI.
 ---
 
 # Contribution Guide
 
-Welcome to the **MedSwarm** developer community. This repository contains both MedSwarmHub and the local `medswarm` CLI, and this document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
+Welcome to the **SwarmMed** developer community. This repository contains both SwarmMedHub and the local `swarmed` CLI, and this document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
 
 ## 🏗️ System Overview
 
-MedSwarm is a modular Django-based platform designed for decentralized data management and Swarm Learning.
+SwarmMed is a modular Django-based platform designed for decentralized data management and Swarm Learning.
 
 ### 💻 Core Technology Stack
 - **Backend:** Django 6.0, Celery, Redis.
@@ -46,7 +46,7 @@ make env
 make start
 ```
 
-Use `make stop` to tear the stack down, and `make logs` to follow the `medswarmhub` container logs.
+Use `make stop` to tear the stack down, and `make logs` to follow the `swarmmedhub` container logs.
 
 ### 4. Django Initialization
 ```bash

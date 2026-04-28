@@ -1,4 +1,4 @@
-"""Tests for the local medswarm CLI."""
+"""Tests for the local swarmed CLI."""
 
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 
 from data.models import ValidationRun
-from network.models import SwarmNetwork
+from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project, UserCurrentProject
 from results.models import ResultsVisualizationRun
 from training.models import TrainingJob
 
-from medswarm_cli.main import build_parser, main
-from medswarm_cli.support import CLIState, resolve_actor, resolve_project
+from swarmed_cli.main import build_parser, main
+from swarmed_cli.support import CLIState, resolve_actor, resolve_project
 
 
 class CLIParserTests(SimpleTestCase):
@@ -55,6 +55,23 @@ class CLIParserTests(SimpleTestCase):
         self.assertEqual(args.user, "alice")
         self.assertEqual(args.handler, "project_list")
 
+    def test_parser_accepts_no_local_client_for_real_network(self):
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "network",
+                "create",
+                "--name",
+                "DUKE IID 3-site",
+                "--participant",
+                "node_A=100.64.4.100",
+                "--no-local-client",
+            ]
+        )
+
+        self.assertTrue(args.no_local_client)
+        self.assertEqual(args.handler, "network_create")
+
     def test_main_returns_usage_code_for_invalid_command(self):
         stream = StringIO()
         with redirect_stdout(stream), redirect_stderr(stream):
@@ -68,7 +85,7 @@ class CLIParserTests(SimpleTestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(code, 2)
         self.assertFalse(payload["ok"])
-        self.assertEqual(payload["command"], "medswarm")
+        self.assertEqual(payload["command"], "swarmed")
         self.assertTrue(payload["errors"])
 
 
@@ -99,8 +116,8 @@ class CLIStateResolutionTests(TestCase):
         other_user = User.objects.create_user(
             username="from-env", password="test-password"
         )  # nosec B106
-        with patch.dict(os.environ, {"MEDSWARM_USER": "from-env"}, clear=False):
-            with patch("medswarm_cli.support.getpass.getuser", return_value="ignored"):
+        with patch.dict(os.environ, {"SWARMED_USER": "from-env"}, clear=False):
+            with patch("swarmed_cli.support.getpass.getuser", return_value="ignored"):
                 actor = resolve_actor()
         self.assertEqual(actor.id, other_user.id)
 
@@ -268,6 +285,43 @@ class CLISharedPathTests(TestCase):
             )
             self.assertEqual(code, 0)
             self.assertEqual(mocked.call_count, 2)
+
+    def test_network_create_no_local_client_records_only_explicit_clients(self):
+        with patch("network.services.generate_flare_startup_kit"), patch(
+            "network.services.get_hostname", return_value="cosmos"
+        ), patch("network.services.get_tailscale_ip", return_value="100.64.4.104"):
+            code, output = self._run_cli(
+                "network",
+                "create",
+                "--user",
+                self.user.username,
+                "--project",
+                str(self.project.identifier),
+                "--json",
+                "--name",
+                "DUKE IID 3-site",
+                "--server-ip",
+                "100.64.4.104",
+                "--participant",
+                "node_A=100.64.4.100",
+                "--participant",
+                "node_B=100.64.4.102",
+                "--participant",
+                "node_C=100.64.4.103",
+                "--no-local-client",
+            )
+
+        self.assertEqual(code, 0)
+        network_id = json.loads(output)["result"]["identifier"]
+        participants = SwarmParticipant.objects.filter(
+            network__identifier=network_id
+        ).order_by("role", "participant_id")
+        client_names = sorted(
+            p.participant_id for p in participants if p.role == "CLIENT"
+        )
+
+        self.assertEqual(client_names, ["node_A", "node_B", "node_C"])
+        self.assertNotIn("cosmos", client_names)
 
     def test_training_start_ui_and_cli_share_service(self):
         from training import views as training_views

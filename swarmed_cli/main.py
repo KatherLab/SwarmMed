@@ -1,4 +1,4 @@
-"""Argparse entrypoint for the medswarm CLI."""
+"""Argparse entrypoint for the swarmed CLI."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def _add_common_options(
     parser.add_argument(
         "--user",
         default=user_default,
-        help="Act as this local MedSwarmHub username. Defaults to MEDSWARM_USER or the OS username.",
+        help="Act as this local SwarmMedHub username. Defaults to SWARMED_USER or the OS username.",
     )
 
 
@@ -61,7 +61,7 @@ def _add_wait_options(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argparse parser."""
-    parser = CLIArgumentParser(prog="medswarm")
+    parser = CLIArgumentParser(prog="swarmed")
     _add_common_options(parser)
 
     common_parent = argparse.ArgumentParser(add_help=False)
@@ -166,6 +166,14 @@ def build_parser() -> argparse.ArgumentParser:
     network_create.add_argument("--participant", action="append", default=[])
     network_create.add_argument("--server-ip")
     network_create.add_argument("--local-test", action="store_true")
+    network_create.add_argument(
+        "--no-local-client",
+        action="store_true",
+        help=(
+            "Do not add this host as an extra FL client when creating a real "
+            "network. Use this when the local host is server/admin only."
+        ),
+    )
     network_create.set_defaults(handler="network_create", command_name="network create")
 
     network_import = network_subparsers.add_parser(
@@ -328,7 +336,7 @@ def run(args: argparse.Namespace):
         wait_for_state,
     )
 
-    command_name = getattr(args, "command_name", "medswarm")
+    command_name = getattr(args, "command_name", "swarmed")
     try:
         user = resolve_actor(getattr(args, "user", None))
         state = CLIState(user=user, json_output=getattr(args, "json", False))
@@ -467,6 +475,7 @@ def run(args: argparse.Namespace):
                     description=args.description,
                     participants=_parse_participants(args.participant),
                     server_ip=args.server_ip,
+                    include_local_client=not args.no_local_client,
                 )
             result = network_services.serialize_network(
                 network, current_for=state.user, include_participants=True
@@ -771,7 +780,7 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(
                     {
                         "ok": False,
-                        "command": "medswarm",
+                        "command": "swarmed",
                         "result": None,
                         "warnings": [],
                         "errors": [str(exc)],

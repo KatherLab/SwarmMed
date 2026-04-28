@@ -74,7 +74,7 @@ class ResultsVisualizationContext:
         from django.conf import settings
         import os
 
-        internal_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+        internal_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
         if not internal_host:
             # 1. Try to resolve 'minio' (standard internal name)
             try:

@@ -1,11 +1,11 @@
 ---
 title: Usage
-description: How to use the MedSwarmHub platform.
+description: How to use the SwarmMedHub platform.
 ---
 
 # Usage
 
-This page explains how to use the MedSwarmHub platform in more detail.
+This page explains how to use the SwarmMedHub platform in more detail.
 
 ## 👮 For Admins
 
@@ -48,7 +48,7 @@ As an admin, you can manage existing users, including editing their details or d
 ## 💻 For Developers
 
 ??? info "Developer Rights"
-    As a developer, you can create and manage swarm learning experiments on the MedSwarmHub platform and see logs.
+    As a developer, you can create and manage swarm learning experiments on the SwarmMedHub platform and see logs.
 
 !!! info "Developer Guide"
     A more detailed developer guide can be found [here](developer.md).
@@ -71,10 +71,10 @@ As a developer, you can view the logs of the training jobs to monitor their prog
     As a user, you can create projects, upload data, set up networks, and start training jobs.
 
 !!! info "CLI workflow"
-    The same workflow is also available through the local `medswarm` CLI. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
+    The same workflow is also available through the local `swarmed` CLI. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
 
 !!! info "Shared Project Bundle"
-    MedSwarmHub and `medswarm` use the same project code bundle. The required root entrypoint is `training.py`, with optional `requirements.txt`, `validation.py`, `visualization.py`, and `results_visualization.py`.
+    SwarmMedHub and `swarmed` use the same project code bundle. The required root entrypoint is `training.py`, with optional `requirements.txt`, `validation.py`, `visualization.py`, and `results_visualization.py`.
 
 ### 1. 📁 Create a Project
 

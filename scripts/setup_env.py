@@ -1,4 +1,4 @@
-"""Environment setup script for the MedSwarmHub platform.
+"""Environment setup script for the SwarmMedHub platform.
 
 This script automates the creation and configuration of the `.env` file from
 `.env.template`. It handles the generation of secure random passwords, Django
@@ -46,7 +46,7 @@ ENV_HELP = {
     },
     "MINIO_KMS_SECRET_KEY": {
         "desc": "Key Management Service secret key for MinIO encryption.",
-        "example": "medswarmhub:base64_encoded_key",
+        "example": "swarmmedhub:base64_encoded_key",
     },
     "AWS_S3_REGION_NAME": {
         "desc": "The region name for S3 storage (often us-east-1 for MinIO).",
@@ -66,11 +66,11 @@ ENV_HELP = {
     },
     "PRIVACY_CONTACT_EMAIL": {
         "desc": "Primary email for privacy-related inquiries.",
-        "example": "privacy@medswarmhub.org",
+        "example": "privacy@swarmmedhub.org",
     },
     "PRIVACY_DPO_EMAIL": {
         "desc": "Email address for the Data Protection Officer.",
-        "example": "dpo@medswarmhub.org",
+        "example": "dpo@swarmmedhub.org",
     },
     "PRIVACY_DPO_ADDRESS": {
         "desc": "Physical address for the Data Protection Officer.",
@@ -110,9 +110,9 @@ ENV_HELP = {
     },
     "HOST_PROJECT_PATH": {
         "desc": "Absolute path to the project on your HOST machine (for Docker mounts).",
-        "example": "/opt/MedSwarmHub",
+        "example": "/opt/SwarmMedHub",
     },
-    "MEDSWARMHUB_HOSTNAME": {
+    "SWARMMEDHUB_HOSTNAME": {
         "desc": "Custom hostname for the platform deployment.",
         "example": "pc1.tud",
     },
@@ -261,7 +261,7 @@ def setup_env():
             val = generate_password()
             print(f"✨ Generated {key}")
         elif key == "MINIO_KMS_SECRET_KEY":
-            val = f"medswarmhub:{generate_kms_key()}"
+            val = f"swarmmedhub:{generate_kms_key()}"
             print(f"✨ Generated {key}")
         elif key == "FERNET_KEYS" or key == "BACKUP_ENCRYPTION_KEY":
             val = generate_fernet_key()

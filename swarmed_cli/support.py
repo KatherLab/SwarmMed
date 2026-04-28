@@ -1,4 +1,4 @@
-"""Shared runtime helpers for the medswarm CLI."""
+"""Shared runtime helpers for the swarmed CLI."""
 
 from __future__ import annotations
 
@@ -80,13 +80,13 @@ def resolve_actor(explicit_username: str | None = None) -> User:
     """Resolve the acting user for a CLI invocation."""
     candidate = (
         explicit_username
-        or os.getenv("MEDSWARM_USER")
+        or os.getenv("SWARMED_USER")
         or getpass.getuser()
     )
     user = User.objects.filter(username=candidate).first()
     if not user:
         raise LookupError(
-            "Could not resolve the acting user. Pass --user or set MEDSWARM_USER."
+            "Could not resolve the acting user. Pass --user or set SWARMED_USER."
         )
     return user
 
@@ -98,7 +98,7 @@ def resolve_project(state: CLIState, project_identifier: str | None = None):
     project = project_services.get_current_project(state.user)
     if not project:
         raise LookupError(
-            "No current project is selected. Use `medswarm project use <PROJECT_UUID>` or pass --project."
+            "No current project is selected. Use `swarmed project use <PROJECT_UUID>` or pass --project."
         )
     return project
 
@@ -134,7 +134,7 @@ def resolve_network(
         return current_network
     if required:
         raise LookupError(
-            "No current network is selected. Use `medswarm network use <NETWORK_UUID>` or pass --network."
+            "No current network is selected. Use `swarmed network use <NETWORK_UUID>` or pass --network."
         )
     return None
 

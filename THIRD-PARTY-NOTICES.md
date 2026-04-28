@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-MedSwarmHub incorporates various third-party software components.
+SwarmMedHub incorporates various third-party software components.
 This file provides required notices and license information for direct
 dependencies declared in `pyproject.toml` and `package.json`.
 

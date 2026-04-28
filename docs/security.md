@@ -1,6 +1,6 @@
 ---
 title: Security
-description: Security best practices and implementations in MedSwarmHub.
+description: Security best practices and implementations in SwarmMedHub.
 ---
 
 # Security
@@ -9,16 +9,16 @@ description: Security best practices and implementations in MedSwarmHub.
     This platform has **not yet** undergone external security audits or professional penetration testing. These rigorous evaluations are scheduled for the next major version. Use this software with appropriate caution in sensitive environments.
 
 !!! warning "Shared Responsibility"
-    While MedSwarmHub provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
+    While SwarmMedHub provides a secure platform, the overall security of your decentralized learning setup also depends on the security of your own infrastructure and the adherence to security best practices by all participants.
 
-Security is a foundational aspect of the MedSwarmHub platform, designed to protect the confidentiality, integrity, and availability of medical data and machine learning models.
+Security is a foundational aspect of the SwarmMedHub platform, designed to protect the confidentiality, integrity, and availability of medical data and machine learning models.
 
 ## 🏗️ Infrastructure & Network Security
 
-MedSwarmHub employs multiple layers of isolation and encryption to protect the host system and secure communication between services.
+SwarmMedHub employs multiple layers of isolation and encryption to protect the host system and secure communication between services.
 
 ### Internal Service Mesh (Private PKI)
-MedSwarmHub employs an internal Public Key Infrastructure (PKI) to secure communication between all backend services.
+SwarmMedHub employs an internal Public Key Infrastructure (PKI) to secure communication between all backend services.
 
 - **Root CA:** A private internal Root CA issues certificates for each service (MinIO, Postgres, Redis).
 - **Mutual TLS (mTLS):** The application and worker containers trust this internal Root CA, ensuring secure and verified connections across the internal Docker network.
@@ -33,7 +33,7 @@ User-provided Python scripts (validation and visualization) are executed in ephe
 - **Network Isolation:** Workloads run on a dedicated `sandbox_internal` bridge network with no access to the host network or the internet, but restricted access to the internal MinIO gateway.
 
 ### Secure Network Telemetry
-To monitor VPN status without exposing the host system, MedSwarmHub uses a **Sidecar Architecture**:
+To monitor VPN status without exposing the host system, SwarmMedHub uses a **Sidecar Architecture**:
 - The application queries a dedicated `tailscale-status` sidecar over HTTP.
 - This eliminates the need to mount the host's `/var/run/tailscale` socket into the application container, preventing unauthorized access to the host VPN daemon.
 
@@ -45,7 +45,7 @@ Access to the PostgreSQL database is mediated by PgBouncer for connection poolin
 - **Baseline Security:** The system refuses to start with default or weak passwords.
 
 ### VPN Isolation (Tailscale)
-MedSwarmHub leverages [Tailscale](https://tailscale.com/security/) to create a secure, private network for participants:
+SwarmMedHub leverages [Tailscale](https://tailscale.com/security/) to create a secure, private network for participants:
 
 - **End-to-End Encryption:** All traffic is encrypted using WireGuard.
 - **Zero-Config VPN:** Simplifies secure peer-to-peer communication without complex firewall rules.
@@ -53,7 +53,7 @@ MedSwarmHub leverages [Tailscale](https://tailscale.com/security/) to create a s
 ## 💻 Application Security
 
 ### Access Control (RBAC)
-MedSwarmHub implements a robust Role-Based Access Control (RBAC) system:
+SwarmMedHub implements a robust Role-Based Access Control (RBAC) system:
 
 - **Admin:** Full control over the platform, users, projects, and system settings.
 - **Developer:** Can create and manage projects, upload data, run training jobs, and view logs.
@@ -104,7 +104,7 @@ Powered by [NVIDIA FLARE](https://nvidia.github.io/NVFlare/security/), the platf
 ## 📋 Compliance
 
 ### HIPAA Capable
-MedSwarmHub provides the technical safeguards required for handling Protected Health Information (PHI):
+SwarmMedHub provides the technical safeguards required for handling Protected Health Information (PHI):
 
 - **Unique Identification:** Every user has a unique UUID and audit trail.
 - **Emergency Access (Break-Glass):** Supports temporary administrative override for emergency access, with mandatory justification and `CRITICAL` severity logging.

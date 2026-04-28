@@ -1,4 +1,4 @@
-"""Django bootstrap helpers for the medswarm CLI."""
+"""Django bootstrap helpers for the swarmed CLI."""
 
 from __future__ import annotations
 

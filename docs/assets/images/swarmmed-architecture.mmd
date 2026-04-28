@@ -1,11 +1,11 @@
 ---
-title: MedSwarm Architecture
+title: SwarmMed Architecture
 ---
 flowchart LR
 
     subgraph A["User-Facing Entry Points"]
-        HUB["MedSwarmHub<br/>Graphical user interface<br/><br/>Project setup, data management,<br/>network provisioning, training control,<br/>and results review"]
-        CLI["medswarm CLI<br/>Local companion command-line interface<br/><br/>Scriptable local workflow for advanced users,<br/>reproducible automation, and batch-friendly<br/>project, network, and training operations"]
+        HUB["SwarmMedHub<br/>Graphical user interface<br/><br/>Project setup, data management,<br/>network provisioning, training control,<br/>and results review"]
+        CLI["swarmed CLI<br/>Local companion command-line interface<br/><br/>Scriptable local workflow for advanced users,<br/>reproducible automation, and batch-friendly<br/>project, network, and training operations"]
     end
 
     subgraph B["Shared Orchestration Layer"]

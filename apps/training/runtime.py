@@ -58,7 +58,7 @@ def resolve_admin_startup_dir(current_network) -> str | None:
     ):
         return current_network.admin_startup_dir
 
-    override = os.environ.get("MEDSWARMHUB_NVFLARE_ADMIN_DIR", "").strip()
+    override = os.environ.get("SWARMMEDHUB_NVFLARE_ADMIN_DIR", "").strip()
     if override and os.path.exists(override):
         return override
 
@@ -211,7 +211,7 @@ def resolve_admin_session_target(current_network) -> tuple[str, str, str] | None
 
     server_ip = ""
     try:
-        env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+        env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
         if env_host:
             server_ip = env_host
 
@@ -349,7 +349,7 @@ def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
 
 
 def _build_flare_port_candidates(default_port: int = 0):
-    env_admin_port = os.getenv("MEDSWARMHUB_FLARE_ADMIN_PORT", "").strip()
+    env_admin_port = os.getenv("SWARMMEDHUB_FLARE_ADMIN_PORT", "").strip()
     candidates = []
     if env_admin_port:
         with contextlib.suppress(ValueError):

@@ -1,4 +1,4 @@
-"""Django settings for the MedSwarmHub project.
+"""Django settings for the SwarmMedHub project.
 This file contains the configuration for the entire web application, including
 database connections, security keys, installed apps, and middleware.
 """
@@ -86,7 +86,7 @@ elif not DEBUG and BACKUP_ENCRYPTION_KEY == SECRET_KEY:
 ALLOWED_HOSTS = _split_csv_env(
     "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"
 )
-for internal_host in ("localhost", "127.0.0.1", "medswarmhub", "app"):
+for internal_host in ("localhost", "127.0.0.1", "swarmmedhub", "app"):
     if internal_host not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(internal_host)
 
@@ -196,10 +196,21 @@ WSGI_APPLICATION = "core.wsgi.application"
 
 # --- Database Configuration ---
 
+DB_ENGINE = os.getenv("DB_ENGINE")
+DB_OPTIONS = {}
+if DB_ENGINE and "postgres" in DB_ENGINE:
+    DB_OPTIONS["sslmode"] = os.getenv("DB_SSLMODE", "require")
+    db_sslrootcert = os.getenv(
+        "DB_SSLROOTCERT",
+        os.getenv("CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt"),
+    )
+    if db_sslrootcert:
+        DB_OPTIONS["sslrootcert"] = db_sslrootcert
+
 # Uses environment variables to securely connect to the database.
 DATABASES = {
     "default": {
-        "ENGINE": os.getenv("DB_ENGINE"),
+        "ENGINE": DB_ENGINE,
         "NAME": os.getenv("DB_NAME"),
         "USER": os.getenv("DB_USER"),
         "PASSWORD": os.getenv("DB_PASS"),
@@ -207,10 +218,7 @@ DATABASES = {
         "PORT": os.getenv("DB_PORT"),
         "CONN_MAX_AGE": 600,  # Persistent connections (10 mins)
         "CONN_HEALTH_CHECKS": True,  # Validate connections before reuse
-        "OPTIONS": {
-            "sslmode": "require",
-            "sslrootcert": "/usr/local/share/ca-certificates/internal-ca.crt",
-        },
+        "OPTIONS": DB_OPTIONS,
     },
 }
 
@@ -228,9 +236,11 @@ if not REDIS_PASSWORD and not DEBUG:
 if DEBUG:
     REDIS_PASSWORD = REDIS_PASSWORD or ""
 
-REDIS_HOST = "redis"
-REDIS_PORT = 6379
-CA_CERT_PATH = "/usr/local/share/ca-certificates/internal-ca.crt"
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+CA_CERT_PATH = os.environ.get(
+    "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt"
+)
 
 # Configures Django to use Redis for caching.
 # This improves performance for frequently accessed data and sessions.
@@ -387,13 +397,13 @@ if DEBUG:
     AWS_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID or "minioadmin"
     AWS_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY or "minioadmin"
 AWS_STORAGE_BUCKET_NAME = os.environ.get(
-    "AWS_STORAGE_BUCKET_NAME", "medswarmhub"
+    "AWS_STORAGE_BUCKET_NAME", "swarmmedhub"
 )
 AWS_S3_ENDPOINT_URL = os.environ.get(
     "AWS_S3_ENDPOINT_URL", "https://minio:9000"
 )
-MEDSWARMHUB_LOCAL_S3_ENDPOINT = os.environ.get(
-    "MEDSWARMHUB_LOCAL_S3_ENDPOINT", AWS_S3_ENDPOINT_URL
+SWARMMEDHUB_LOCAL_S3_ENDPOINT = os.environ.get(
+    "SWARMMEDHUB_LOCAL_S3_ENDPOINT", AWS_S3_ENDPOINT_URL
 )
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://localhost:9000")
 AWS_S3_CUSTOM_DOMAIN = (
@@ -452,7 +462,7 @@ IP_ANONYMIZATION_DAYS = int(os.environ.get("IP_ANONYMIZATION_DAYS", 90))
 # These values populate the in-app privacy policy so deployments do not ship
 # unresolved placeholders for controller, DPO, or retention metadata.
 PRIVACY_CONTROLLER_NAME = os.environ.get(
-    "PRIVACY_CONTROLLER_NAME", "MedSwarmHub Self-Hosted Operator"
+    "PRIVACY_CONTROLLER_NAME", "SwarmMedHub Self-Hosted Operator"
 )
 PRIVACY_CONTROLLER_ADDRESS = os.environ.get(
     "PRIVACY_CONTROLLER_ADDRESS", "Not specified by operator"
@@ -488,9 +498,11 @@ if not REDIS_PASSWORD and not DEBUG:
 if DEBUG:
     REDIS_PASSWORD = REDIS_PASSWORD or ""
 
-REDIS_HOST = "redis"
-REDIS_PORT = 6379
-CA_CERT_PATH = "/usr/local/share/ca-certificates/internal-ca.crt"
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+CA_CERT_PATH = os.environ.get(
+    "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt"
+)
 
 CELERY_BROKER_URL = f"rediss://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0?ssl_cert_reqs=required&ssl_ca_certs={CA_CERT_PATH}"
 CELERY_RESULT_BACKEND = f"rediss://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0?ssl_cert_reqs=required&ssl_ca_certs={CA_CERT_PATH}"
@@ -588,8 +600,8 @@ LOGGING = {
 # --- Unfold Admin Configuration ---
 
 UNFOLD = {
-    "SITE_TITLE": "MedSwarmHub Admin",
-    "SITE_HEADER": "MedSwarmHub Admin",
+    "SITE_TITLE": "SwarmMedHub Admin",
+    "SITE_HEADER": "SwarmMedHub Admin",
     "SITE_SYMBOL": "cloud",  # icon from Material Symbols
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": True,

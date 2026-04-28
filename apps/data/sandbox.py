@@ -1,4 +1,4 @@
-"""Sandbox execution utility for MedSwarmHub.
+"""Sandbox execution utility for SwarmMedHub.
 
 This module handles the secure execution of user-provided Python scripts using
 ephemeral Docker containers. It provides isolation, resource control, and
@@ -39,7 +39,7 @@ def get_host_path(container_path):
 
 
 def ensure_sandbox_image():
-    """Ensures the 'medswarmhub-sandbox' image exists on the sandbox daemon.
+    """Ensures the 'swarmmedhub-sandbox' image exists on the sandbox daemon.
 
     If the image is not found, it is built automatically from the
     `Dockerfile.sandbox` in the project root.
@@ -53,10 +53,10 @@ def ensure_sandbox_image():
     client = get_docker_client(target="sandbox")
 
     try:
-        client.images.get("medswarmhub-sandbox")
+        client.images.get("swarmmedhub-sandbox")
     except docker.errors.ImageNotFound:
         log.data.info(
-            "Sandbox image not found. Building 'medswarmhub-sandbox' "
+            "Sandbox image not found. Building 'swarmmedhub-sandbox' "
             "automatically (this may take a few minutes)..."
         )
         dockerfile_path = os.path.join(settings.BASE_DIR, "Dockerfile.sandbox")
@@ -71,7 +71,7 @@ def ensure_sandbox_image():
             generator = client.api.build(
                 path=str(settings.BASE_DIR),
                 dockerfile="Dockerfile.sandbox",
-                tag="medswarmhub-sandbox",
+                tag="swarmmedhub-sandbox",
                 rm=True,
                 decode=True,
             )
@@ -192,7 +192,7 @@ def run_script_in_sandbox(
             # Enable GPU if requested and available on the daemon
             device_requests = []
             gpu_enabled = (
-                os.getenv("MEDSWARMHUB_ENABLE_GPU", "false").strip().lower()
+                os.getenv("SWARMMEDHUB_ENABLE_GPU", "false").strip().lower()
                 in {"1", "true", "yes", "on"}
             )
             if gpu_enabled:
@@ -217,7 +217,7 @@ def run_script_in_sandbox(
 
             # Run the container with resource limits.
             container = client.containers.run(
-                image="medswarmhub-sandbox",
+                image="swarmmedhub-sandbox",
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",

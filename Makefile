@@ -50,8 +50,8 @@ deinstall: deinstall-docker ## Remove uv-managed environment, caches, and genera
 		rm -rf .secrets/certs .secrets/docker .secrets/pgbouncer || true; \
 	fi
 
-deinstall-docker: ## Stop MedSwarmHub compose stack, drops volumes, and prunes build caches
-	@echo "🧽 Stopping MedSwarmHub containers and removing volumes/build caches"
+deinstall-docker: ## Stop SwarmMedHub compose stack, drops volumes, and prunes build caches
+	@echo "🧽 Stopping SwarmMedHub containers and removing volumes/build caches"
 	@docker compose down --remove-orphans --rmi local -v || true
 	@docker builder prune -af || true
 	@docker image prune -af || true
@@ -82,13 +82,13 @@ tailscale: ## Start the background Tailscale watcher
 	@./scripts/tailscale_watcher.sh >/dev/null 2>&1 &
 
 start: setup tailscale compose-build compose-up ## Prepare the env, build assets, and start the services
-	@echo "⚙️ Kicking off MedSwarmHub services"
-	@echo "MedSwarmHub services are running"
+	@echo "⚙️ Kicking off SwarmMedHub services"
+	@echo "SwarmMedHub services are running"
 
 stop: ## Stop the Docker services
-	@echo "🛑 Tearing down MedSwarmHub services"
+	@echo "🛑 Tearing down SwarmMedHub services"
 	@$(MAKE) compose-down
-	@echo "MedSwarmHub services stopped"
+	@echo "SwarmMedHub services stopped"
 
 restart: stop start ## Recreate the services
 	@echo "♻️ Restart sequence initiated"
@@ -125,9 +125,9 @@ compose-down: ## Stop the Docker services
 	@echo "🛑 Bringing down the Docker services"
 	@docker compose down --remove-orphans
 
-logs: ## Follow the MedSwarmHub application logs
-	@echo "📜 Streaming medswarmhub logs"
-	@docker compose logs -f medswarmhub
+logs: ## Follow the SwarmMedHub application logs
+	@echo "📜 Streaming swarmmedhub logs"
+	@docker compose logs -f swarmmedhub
 
 compose-down-v: ## Stop services and remove the attached volumes
 	@echo "🧼 Removing services and attached volumes"

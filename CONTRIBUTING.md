@@ -1,6 +1,6 @@
-# Contributing to MedSwarm
+# Contributing to SwarmMed
 
-Welcome! We are thrilled that you are interested in contributing to MedSwarm. This repository contains the MedSwarmHub web interface together with the local `medswarm` CLI for decentralized data management and collaborative training via Swarm Learning (NVIDIA FLARE).
+Welcome! We are thrilled that you are interested in contributing to SwarmMed. This repository contains the SwarmMedHub web interface together with the local `swarmed` CLI for decentralized data management and collaborative training via Swarm Learning (NVIDIA FLARE).
 
 This guide will help you get onboarded and explain how to contribute effectively.
 
@@ -111,4 +111,4 @@ Proactively add unit tests in the respective `tests.py` files of the app you are
 
 If you have questions or get stuck, feel free to open an Issue on GitHub. We are here to help!
 
-Thank you for helping us make **MedSwarm** better!
+Thank you for helping us make **SwarmMed** better!

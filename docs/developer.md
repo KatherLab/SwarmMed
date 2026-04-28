@@ -1,13 +1,13 @@
 ---
 title: Developer Guide
-description: A guide for developers to write shared project scripts for MedSwarmHub and the medswarm CLI.
+description: A guide for developers to write shared project scripts for SwarmMedHub and the swarmed CLI.
 ---
 
 # Developer Guide
 
-This guide describes the shared project script contract used by both MedSwarmHub and the local `medswarm` CLI. The same project code bundle can be uploaded through the web UI or ingested locally with `medswarm project create --code-dir PATH` or `medswarm project update --code-dir PATH`.
+This guide describes the shared project script contract used by both SwarmMedHub and the local `swarmed` CLI. The same project code bundle can be uploaded through the web UI or ingested locally with `swarmed project create --code-dir PATH` or `swarmed project update --code-dir PATH`.
 
-MedSwarm supports four script types:
+SwarmMed supports four script types:
 
 *   **Data Validation Scripts:** Verify the quality and format of your datasets.
 *   **Data Visualization Scripts:** Explore your datasets through plots and charts.
@@ -18,7 +18,7 @@ MedSwarm supports four script types:
     You can find example scripts in the [examples/](https://github.com/pfeifferis/SwarmCloud/tree/main/examples) directory of the repository.
 
 !!! tip "Testing Locally"
-    You can test your validation and visualization scripts locally either by selecting `Test in local environment` as the creation method in the network settings or by creating a CLI local-test network with `medswarm network create --local-test` and reviewing the output on the logs page.
+    You can test your validation and visualization scripts locally either by selecting `Test in local environment` as the creation method in the network settings or by creating a CLI local-test network with `swarmed network create --local-test` and reviewing the output on the logs page.
 
 ## 📦 Shared Project Bundle
 
@@ -28,7 +28,7 @@ Both interfaces use the same project bundle layout:
 *   **Optional:** `requirements.txt`, `validation.py`, `visualization.py`, `results_visualization.py`
 *   **Additional support files:** Preserved relative to the project root and uploaded under the training code layout
 
-This shared bundle is what lets the same project be created and executed through either MedSwarmHub or the local `medswarm` workflow.
+This shared bundle is what lets the same project be created and executed through either SwarmMedHub or the local `swarmed` workflow.
 
 ## 🧪 Validation Scripts
 
@@ -508,7 +508,7 @@ In addition to the standard methods, the results visualization object includes:
 
 ## 🧠 Training Scripts (NVFlare)
 
-Custom training code is executed within the NVIDIA FLARE framework. This training contract is shared by MedSwarmHub and `medswarm`. We provide a `flare_adapter.py` module to simplify data access and model exchange.
+Custom training code is executed within the NVIDIA FLARE framework. This training contract is shared by SwarmMedHub and `swarmed`. We provide a `flare_adapter.py` module to simplify data access and model exchange.
 
 ### The `flare_adapter` Module
 

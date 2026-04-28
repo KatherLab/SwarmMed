@@ -1,4 +1,4 @@
-"""NVIDIA FLARE Adapter for MedSwarmHub.
+"""NVIDIA FLARE Adapter for SwarmMedHub.
 
 This module provides a simplified, streaming interface for training scripts to
 interact with the NVFlare system and the project's S3 data storage.
@@ -15,10 +15,16 @@ import fsspec
 import numpy as np
 import nvflare.client as flare
 import requests
-from dotenv import load_dotenv
 
-# Load environment variables from a local .env file if it exists.
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+# Load environment variables from a local .env file when python-dotenv is
+# available. Runtime FLARE images may intentionally omit it.
+if load_dotenv is not None:
+    load_dotenv()
 
 
 def _dedupe_keep_order(values) -> list[str]:
@@ -50,9 +56,9 @@ def _build_manifest_request_url(base_url: str, project_uuid: str) -> str:
 
 def _get_manifest_discovery_targets() -> list[str]:
     """Return candidate base URLs for manifest discovery."""
-    explicit_urls = os.getenv("MEDSWARMHUB_MANIFEST_URLS", "").strip()
+    explicit_urls = os.getenv("SWARMMEDHUB_MANIFEST_URLS", "").strip()
     if not explicit_urls:
-        explicit_urls = os.getenv("MEDSWARMHUB_MANIFEST_URL", "").strip()
+        explicit_urls = os.getenv("SWARMMEDHUB_MANIFEST_URL", "").strip()
 
     targets: list[str] = []
     if explicit_urls:
@@ -63,7 +69,7 @@ def _get_manifest_discovery_targets() -> list[str]:
         )
 
     docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1").strip()
-    env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+    env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
 
     https_hosts = _dedupe_keep_order(
         [
@@ -76,7 +82,7 @@ def _get_manifest_discovery_targets() -> list[str]:
     )
     targets.extend(f"https://{host}:5085" for host in https_hosts)
 
-    http_hosts = _dedupe_keep_order(["medswarmhub", "app"])
+    http_hosts = _dedupe_keep_order(["swarmmedhub", "app"])
     targets.extend(f"http://{host}:8000" for host in http_hosts)
 
     return _dedupe_keep_order(targets)
@@ -86,7 +92,7 @@ def _get_manifest_verify_value(url: str):
     """Return the SSL verification setting for a manifest request."""
     if urlparse(url).scheme == "https":
         return os.getenv(
-            "MEDSWARMHUB_CA_CERT",
+            "SWARMMEDHUB_CA_CERT",
             "/usr/local/share/ca-certificates/internal-ca.crt",
         )
     return False
@@ -114,14 +120,14 @@ class FlareDataFileSystem:
             project_uuid (str): The unique identifier for the project.
         """
         self.project_uuid = (
-            os.getenv("MEDSWARMHUB_PROJECT_ID", "").strip() or project_uuid
+            os.getenv("SWARMMEDHUB_PROJECT_ID", "").strip() or project_uuid
         )
         self.use_local_data = (
-            os.getenv("MEDSWARMHUB_USE_LOCAL_DATA", "1").strip().lower()
+            os.getenv("SWARMMEDHUB_USE_LOCAL_DATA", "1").strip().lower()
             in {"1", "true", "yes", "on"}
         )
         self.http_timeout_sec = float(
-            os.getenv("MEDSWARMHUB_DATA_HTTP_TIMEOUT_SEC", "30").strip() or "30"
+            os.getenv("SWARMMEDHUB_DATA_HTTP_TIMEOUT_SEC", "30").strip() or "30"
         )
         # Keep per-file fallback URL candidates (first item is preferred).
         self._manifest_candidates = {}

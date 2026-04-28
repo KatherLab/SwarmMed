@@ -556,7 +556,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
 
     try:
         submit_connect_timeout = 20.0
-        env_timeout = os.getenv("MEDSWARMHUB_FLARE_CONNECT_TIMEOUT", "").strip()
+        env_timeout = os.getenv("SWARMMEDHUB_FLARE_CONNECT_TIMEOUT", "").strip()
         if env_timeout:
             with contextlib.suppress(ValueError):
                 submit_connect_timeout = float(env_timeout)
@@ -564,7 +564,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
         log.training.info(
             "FLARE submit timeout config: "
             f"requested_timeout={submit_connect_timeout}, "
-            f"env_MEDSWARMHUB_FLARE_CONNECT_TIMEOUT={env_timeout or 'unset'}"
+            f"env_SWARMMEDHUB_FLARE_CONNECT_TIMEOUT={env_timeout or 'unset'}"
         )
 
         from nvflare.apis.dxo import DataKind
@@ -628,7 +628,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
                 pass
         elif framework == "pt":
             use_pt_executor = (
-                os.getenv("MEDSWARMHUB_ENABLE_PT_EXECUTOR", "")
+                os.getenv("SWARMMEDHUB_ENABLE_PT_EXECUTOR", "")
                 .strip()
                 .lower()
                 in {"1", "true", "yes", "on"}
@@ -695,7 +695,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
 
         job_definition = FedJob(name=f"{project_name}_job")
         private_p2p = (
-            os.getenv("MEDSWARMHUB_PRIVATE_P2P", "")
+            os.getenv("SWARMMEDHUB_PRIVATE_P2P", "")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -704,7 +704,13 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
 
         swarm_rounds = 10
         try:
-            if os.path.exists(training_py_path):
+            env_swarm_rounds = os.getenv("SWARMMEDHUB_SWARM_ROUNDS", "").strip()
+            if env_swarm_rounds:
+                swarm_rounds = int(env_swarm_rounds)
+                log.training.info(
+                    f"Using SWARMMEDHUB_SWARM_ROUNDS={swarm_rounds} from environment"
+                )
+            elif os.path.exists(training_py_path):
                 with open(training_py_path) as handle:
                     content = handle.read()
                 match = re.search(r"SWARM_ROUNDS\s*=\s*(\d+)", content)

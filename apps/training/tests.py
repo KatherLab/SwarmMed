@@ -26,12 +26,12 @@ class FlareAdapterManifestTests(SimpleTestCase):
 
     def test_manifest_request_url_appends_project_id(self):
         url = _build_manifest_request_url(
-            "http://medswarmhub:8000", "project-123"
+            "http://swarmmedhub:8000", "project-123"
         )
 
         self.assertEqual(
             url,
-            "http://medswarmhub:8000/data/manifest/?project_id=project-123",
+            "http://swarmmedhub:8000/data/manifest/?project_id=project-123",
         )
 
     def test_manifest_request_url_preserves_existing_manifest_path(self):
@@ -48,21 +48,21 @@ class FlareAdapterManifestTests(SimpleTestCase):
         with patch.dict(
             "os.environ",
             {
-                "MEDSWARMHUB_MANIFEST_URL": "http://medswarmhub:8000",
-                "MEDSWARMHUB_SERVER_HOST": "100.100.101.102",
+                "SWARMMEDHUB_MANIFEST_URL": "http://swarmmedhub:8000",
+                "SWARMMEDHUB_SERVER_HOST": "100.100.101.102",
                 "DOCKER_HOST_IP": "172.17.0.1",
             },
             clear=False,
         ):
             targets = _get_manifest_discovery_targets()
 
-        self.assertEqual(targets[0], "http://medswarmhub:8000")
+        self.assertEqual(targets[0], "http://swarmmedhub:8000")
         self.assertIn("https://100.100.101.102:5085", targets)
         self.assertIn("http://app:8000", targets)
 
     def test_manifest_verify_value_skips_tls_checks_for_http(self):
         self.assertFalse(
-            _get_manifest_verify_value("http://medswarmhub:8000/data/manifest/")
+            _get_manifest_verify_value("http://swarmmedhub:8000/data/manifest/")
         )
 
 

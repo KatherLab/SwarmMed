@@ -79,7 +79,7 @@ def get_local_participant_status(swarm_network):
             conn_close_positions[match.group(1)] = match.start()
 
     try:
-        label_filter = f"medswarmhub.network_id={swarm_network.identifier}"
+        label_filter = f"swarmmedhub.network_id={swarm_network.identifier}"
         running_containers = subprocess.run(
             [
                 "docker",

@@ -171,7 +171,7 @@ def get_internal_s3_download_url(key, expires=3600):
         str: A presigned S3 download URL resolvable within the internal network.
     """
     explicit_local_endpoint = os.getenv(
-        "MEDSWARMHUB_LOCAL_S3_ENDPOINT", ""
+        "SWARMMEDHUB_LOCAL_S3_ENDPOINT", ""
     ).strip()
     if explicit_local_endpoint:
         s3 = boto3.client(
@@ -198,7 +198,7 @@ def get_internal_s3_download_url(key, expires=3600):
 
     # If the URL contains localhost, 127.0.0.1 or 'minio', other containers or
     # remote nodes won't be able to reach it. We try to replace it with reachable candidates.
-    internal_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+    internal_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
     if not internal_host:
         # 1. Try to resolve 'minio' (standard internal name)
         try:

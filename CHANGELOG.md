@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Migrated all repository links to point to the `SwarmCloud` GitHub project.
-- Standardized platform branding to "MedSwarmHub" across all documentation and templates.
+- Standardized platform branding to "SwarmMedHub" across all documentation and templates.
 - Updated internal service mesh to use a private Root CA issued via `make setup`.
 - Refactored `flare_adapter` to support streaming data filesystem with host-side IP auto-discovery.
 

@@ -1,4 +1,4 @@
-site_name: MedSwarm Documentation
+site_name: SwarmMed Documentation
 
 repo_name: pfeifferis/SwarmCloud
 repo_url: https://github.com/pfeifferis/SwarmCloud
@@ -10,6 +10,7 @@ nav:
     - Getting Started: getting-started.md
     - Usage: usage.md
     - CLI: cli.md
+    - DUKE MST CLI Evaluation: duke-mst-cli-evaluation.md
     - Installation: installation.md
     - Developer: developer.md
     - Contribution: contribution.md

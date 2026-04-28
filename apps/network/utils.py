@@ -86,7 +86,7 @@ def is_tailscale_connected():
 def get_hostname():
     """Returns a unique, human-friendly hostname for the current machine.
     
-    1. Checks environment variable MEDSWARMHUB_HOSTNAME.
+    1. Checks environment variable SWARMMEDHUB_HOSTNAME.
     2. Checks for a persisted hostname in a local file.
     3. Generates and persists a new random human-friendly name if none exists.
 
@@ -94,12 +94,12 @@ def get_hostname():
         str: The human-friendly hostname.
     """
     # 1. Environment variable override
-    env_hostname = os.environ.get("MEDSWARMHUB_HOSTNAME")
+    env_hostname = os.environ.get("SWARMMEDHUB_HOSTNAME")
     if env_hostname:
         return env_hostname
 
     # Path to the persisted hostname file
-    hostname_file = Path(settings.BASE_DIR) / ".medswarmhub_hostname"
+    hostname_file = Path(settings.BASE_DIR) / ".swarmmedhub_hostname"
 
     # 2. Check for persisted hostname
     if hostname_file.exists():

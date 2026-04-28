@@ -1,4 +1,4 @@
-"""Main URL configuration for the MedSwarmHub project.
+"""Main URL configuration for the SwarmMedHub project.
 This module maps top-level URL paths to their respective application-specific
 URL configurations. It also handles serving static and media files.
 """

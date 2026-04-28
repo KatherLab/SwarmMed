@@ -1,13 +1,13 @@
-# 🏥 MedSwarm
+# 🏥 SwarmMed
 
 > [!WARNING]
 > **Research Use Only:** This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-MedSwarm is a secure and scalable platform for decentralized learning on medical data. This repository contains the **MedSwarmHub** web interface and the local **`medswarm`** companion CLI. Both interfaces share the same Django backend workflow, storage, task queue, and NVFlare runtime so teams can run the same core project, data, network, training, and results workflow through either interface.
+SwarmMed is a secure and scalable platform for decentralized learning on medical data. This repository contains the **SwarmMedHub** web interface and the local **`swarmed`** companion CLI. Both interfaces share the same Django backend workflow, storage, task queue, and NVFlare runtime so teams can run the same core project, data, network, training, and results workflow through either interface.
 
 ## 🧠 Supported Frameworks
 
-MedSwarmHub is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
+SwarmMedHub is framework-agnostic and provides a built-in adapter for all major machine learning libraries:
 
 - **PyTorch** & **PyTorch Lightning**
 - **TensorFlow** & **Keras**
@@ -21,7 +21,7 @@ MedSwarmHub is framework-agnostic and provides a built-in adapter for all major 
 Ensure you have [Docker](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
 
 ### 🌐 2. VPN Network (Tailscale)
-MedSwarm uses Tailscale for secure peer-to-peer networking.
+SwarmMed uses Tailscale for secure peer-to-peer networking.
 
 ```bash
 # 🌐 Install Tailscale (example for Ubuntu)
@@ -53,7 +53,7 @@ make env        # Create .env file with custom values
 make start      # Build Docker services and bring the stack online
 ```
 
-`make install` also installs the local `medswarm` CLI from this same repository. The CLI runs in the same Django environment as MedSwarmHub and is intended for Linux hosts in the current v1 release.
+`make install` also installs the local `swarmed` CLI from this same repository. The CLI runs in the same Django environment as SwarmMedHub and is intended for Linux hosts in the current v1 release.
 
 ### 👤 4. Initialize Superuser
 Create an admin account to access the web interface:
@@ -69,17 +69,17 @@ make docs-serve
 
 ## 💻 Local CLI
 
-`medswarm` is installed from this same repository as a local companion CLI for MedSwarmHub. It uses the same Django environment, database, object storage, Celery workers, and current-project/current-network context as the web UI.
+`swarmed` is installed from this same repository as a local companion CLI for SwarmMedHub. It uses the same Django environment, database, object storage, Celery workers, and current-project/current-network context as the web UI.
 
 The CLI is intended for Linux hosts in v1. After `make install`, run it through the project environment:
 
 ```bash
-uv run medswarm project create --user alice --title "Demo" --code-dir ./demo-code
-uv run medswarm project use --user alice <PROJECT_UUID>
-uv run medswarm data upload --user alice --project <PROJECT_UUID> --dest incoming ./data.csv
-uv run medswarm network create --user alice --project <PROJECT_UUID> --name "Local Test" --local-test
-uv run medswarm training start --user alice --network <NETWORK_UUID>
-uv run medswarm results sync --user alice --project <PROJECT_UUID>
+uv run swarmed project create --user alice --title "Demo" --code-dir ./demo-code
+uv run swarmed project use --user alice <PROJECT_UUID>
+uv run swarmed data upload --user alice --project <PROJECT_UUID> --dest incoming ./data.csv
+uv run swarmed network create --user alice --project <PROJECT_UUID> --name "Local Test" --local-test
+uv run swarmed training start --user alice --network <NETWORK_UUID>
+uv run swarmed results sync --user alice --project <PROJECT_UUID>
 ```
 
 Use `--json` on any command to get a stable envelope:
@@ -96,7 +96,7 @@ Use `--json` on any command to get a stable envelope:
 
 ## 🔐 Security Architecture Highlights
 
-MedSwarmHub is designed from the ground up for maximum security in decentralized medical environments:
+SwarmMedHub is designed from the ground up for maximum security in decentralized medical environments:
 
 - **🔒 End-to-End TLS Encryption:** All internal and external traffic is secured via TLS, with an internal Certificate Authority (CA) managing service-to-service mutual TLS (mTLS).
 - **🧠 NVFLARE & Swarm Learning:** Leverages NVIDIA FLARE for federated learning, ensuring raw medical data never leaves the local institution's premises.
@@ -139,7 +139,7 @@ make logs
 
 ## 🗑️ Deinstallation
 
-If you wish to remove MedSwarm and its associated local data from your system:
+If you wish to remove SwarmMed and its associated local data from your system:
 
 ### 1. Stop and Cleanup Environment
 This will stop the containers, remove the virtual environment, caches, and generated secrets/certificates:

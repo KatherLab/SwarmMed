@@ -61,17 +61,17 @@ logger = get_logger()
 def _peer_tls_verify_path():
     """Determines the CA certificate path for peer-to-peer TLS verification.
 
-    Can be overridden via MEDSWARMHUB_CA_CERT or disabled via
-    MEDSWARMHUB_SKIP_PEER_SSL_VERIFY. Defaults to skipping verification (False)
+    Can be overridden via SWARMMEDHUB_CA_CERT or disabled via
+    SWARMMEDHUB_SKIP_PEER_SSL_VERIFY. Defaults to skipping verification (False)
     if not explicitly set to 'false'.
 
     Returns:
         str or bool: Path to CA cert or False if verification is skipped.
     """
-    if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
+    if os.getenv("SWARMMEDHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
         return False
     
-    env_ca = os.getenv("MEDSWARMHUB_CA_CERT", "").strip()
+    env_ca = os.getenv("SWARMMEDHUB_CA_CERT", "").strip()
     if env_ca:
         return env_ca
         
@@ -255,7 +255,7 @@ def _resolve_admin_startup_dir(current_network) -> str | None:
     ):
         return current_network.admin_startup_dir
 
-    override = os.environ.get("MEDSWARMHUB_NVFLARE_ADMIN_DIR", "").strip()
+    override = os.environ.get("SWARMMEDHUB_NVFLARE_ADMIN_DIR", "").strip()
     if override and os.path.exists(override):
         return override
 
@@ -411,7 +411,7 @@ def _build_flare_port_candidates(default_port: int = 0):
     Returns:
         list: A list of integers.
     """
-    env_admin_port = os.getenv("MEDSWARMHUB_FLARE_ADMIN_PORT", "").strip()
+    env_admin_port = os.getenv("SWARMMEDHUB_FLARE_ADMIN_PORT", "").strip()
     candidates = []
     if env_admin_port:
         with contextlib.suppress(ValueError):

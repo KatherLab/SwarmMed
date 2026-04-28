@@ -18,7 +18,7 @@ from logs.logger import get_logger
 from project.models import Project
 
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
-from .provision import generate_flare_startup_kit, is_valid_ip
+from .provision import generate_flare_startup_kit, is_valid_ip, safe_participant_name
 from .tasks import start_swarm_network_task, stop_swarm_network_task
 from .utils import create_startup_kits_zip, get_hostname, get_tailscale_ip
 
@@ -87,6 +87,7 @@ def create_network(
     description: str = "",
     participants: list[dict] | None = None,
     server_ip: str | None = None,
+    include_local_client: bool = True,
 ) -> SwarmNetwork:
     """Create and provision a real network startup package."""
     participants = participants or []
@@ -108,19 +109,20 @@ def create_network(
     )
     clients = []
     for participant in participants:
-        safe_name = slugify(participant.get("name", "client"))
+        safe_name = safe_participant_name(participant.get("name", "client"))
         if not safe_name:
             continue
         clients.append({"name": safe_name, "ip": participant.get("ip", "")})
 
-    local_client_name = slugify(get_hostname() or "")
-    local_client_ip = (
-        resolved_server_ip
-        if is_valid_ip(resolved_server_ip)
-        else "host.docker.internal"
-    )
-    if local_client_name:
-        clients.append({"name": local_client_name, "ip": local_client_ip})
+    if include_local_client:
+        local_client_name = safe_participant_name(get_hostname() or "", default="")
+        local_client_ip = (
+            resolved_server_ip
+            if is_valid_ip(resolved_server_ip)
+            else "host.docker.internal"
+        )
+        if local_client_name:
+            clients.append({"name": local_client_name, "ip": local_client_ip})
 
     clients = _dedupe_clients(clients)
 
@@ -321,7 +323,7 @@ def import_network(
 
     resolved_server_host = ""
     try:
-        env_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+        env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
         if env_host:
             resolved_server_host = env_host
 
@@ -576,7 +578,16 @@ def start_network(network: SwarmNetwork, actor: User) -> SwarmNetwork:
     )
     network.status = "STARTING"
     network.save(update_fields=["status"])
-    start_swarm_network_task.delay(str(network.identifier), actor.id)
+    run_inline = os.getenv("SWARMMEDHUB_RUN_TASKS_INLINE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if run_inline:
+        start_swarm_network_task(str(network.identifier), actor.id)
+    else:
+        start_swarm_network_task.delay(str(network.identifier), actor.id)
     return network
 
 
