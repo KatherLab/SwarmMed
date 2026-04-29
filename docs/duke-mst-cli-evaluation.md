@@ -148,3 +148,15 @@ uv run swarmed results download \
 For acceptance, collect `FL_global_model.pt` from each client, verify matching
 `md5sum`, then evaluate one global checkpoint on the held-out DUKE test set on
 dl0. The reference MediSwarm MST swarm AUROC is approximately `0.895`.
+
+The CLI result sync/download path is scoped to `FL_global_model.pt` for this
+global-model evaluation. `last_global_model.ckpt` is a local Lightning
+checkpoint and must not be used for the swarm global AUROC.
+
+```bash
+python experiments/duke_mst_cli/evaluate_global_model.py \
+  --checkpoint ./results/duke_mst_cli/<JOB_UUID>/<site>/FL_global_model.pt \
+  --data-root /mnt/dlhd0/DUKE_iid \
+  --institution test \
+  --output-json ./results/duke_mst_cli/eval.json
+```

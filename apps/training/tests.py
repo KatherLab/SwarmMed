@@ -1,11 +1,13 @@
 """Tests for the training app."""
 
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 from django.contrib.auth.models import User
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from network.models import SwarmNetwork
 from project.models import Project
@@ -91,6 +93,15 @@ class TrainingLogSummaryTests(SimpleTestCase):
         )
 
         self.assertIsNone(summary["terminal_status"])
+
+    def test_nvflare_server_completion_markers_are_terminal(self):
+        log_text = """
+        Workflow controller finished on all clients
+        Workflow controller done
+        Server runner finished
+        """
+
+        self.assertEqual(infer_training_terminal_status(log_text), "COMPLETED")
 
 
 class FlareAdapterReceiveModelTests(SimpleTestCase):
@@ -236,3 +247,64 @@ class TrainingIdentityServiceTests(TestCase):
         self.assertEqual(job.status, "COMPLETED")
         self.assertEqual(job.progress_percent, 100)
         self.assertIsNotNone(job.completed_at)
+
+    def test_log_completion_sets_finished_eta_and_persists_completed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            job = TrainingJob.objects.create(
+                project=self.project,
+                network=self.network,
+                status="RUNNING",
+                flare_job_id="66666666-6666-6666-6666-666666666666",
+                flare_job_uuid="66666666-6666-6666-6666-666666666666",
+                total_rounds=20,
+            )
+            log_dir = (
+                Path(tmpdir)
+                / "workspaces"
+                / str(self.project.identifier)
+                / str(self.network.identifier)
+                / "workspace"
+                / "prod_00"
+                / job.flare_job_uuid
+                / "app_server"
+            )
+            log_dir.mkdir(parents=True)
+            (log_dir / "log.txt").write_text(
+                "Workflow controller finished on all clients\n"
+                "Workflow controller done\n"
+                "Server runner finished\n",
+                encoding="utf-8",
+            )
+
+            with override_settings(BASE_DIR=tmpdir):
+                payload = training_services.get_training_status_payload(
+                    network=self.network, job=job
+                )
+
+            job.refresh_from_db()
+
+        self.assertEqual(payload["status"], "Completed")
+        self.assertEqual(payload["progress"], 100)
+        self.assertEqual(payload["eta"], "Finished")
+        self.assertEqual(job.status, "COMPLETED")
+        self.assertEqual(job.progress_percent, 100)
+
+    def test_completed_job_does_not_revert_to_running(self):
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="COMPLETED",
+            progress_percent=100,
+            flare_job_id="77777777-7777-7777-7777-777777777777",
+            flare_job_uuid="77777777-7777-7777-7777-777777777777",
+        )
+
+        training_services.persist_training_job_state(
+            job,
+            status="RUNNING",
+            progress_percent=45,
+        )
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, "COMPLETED")
+        self.assertEqual(job.progress_percent, 100)

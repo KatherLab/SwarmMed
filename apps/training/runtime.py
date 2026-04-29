@@ -6,8 +6,10 @@ import contextlib
 import json
 import os
 import re
+import shutil
 import socket
 import ssl
+import subprocess
 import threading
 import time
 
@@ -21,8 +23,8 @@ from logs.logger import get_logger
 from .utils import (
     clamp_progress_percent,
     extract_flare_job_uuid,
-    summarize_training_log,
     should_update_terminal_status,
+    summarize_training_log,
 )
 
 logger = get_logger()
@@ -751,6 +753,64 @@ def tail_text(file_path: str, max_bytes: int = 2048 * 1024) -> str:
         return ""
 
 
+def summarize_runtime_container_logs(current_network, job_uuid: str) -> dict | None:
+    """Extract job progress from local NVFlare container logs."""
+    if not current_network or not job_uuid:
+        return None
+
+    docker_path = shutil.which("docker") or "docker"
+    network_key = str(current_network.identifier)[:12]
+    if not network_key:
+        return None
+
+    try:
+        ps_result = subprocess.run(  # nosec B603
+            [docker_path, "ps", "-a", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        return None
+
+    if ps_result.returncode != 0:
+        return None
+
+    names = [
+        name.strip()
+        for name in (ps_result.stdout or "").splitlines()
+        if network_key in name
+    ]
+    if not names:
+        return None
+
+    matched_lines = []
+    for name in names:
+        try:
+            log_result = subprocess.run(  # nosec B603
+                [docker_path, "logs", "--tail", "5000", name],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+        except Exception:
+            continue
+
+        logs = (log_result.stdout or "") + (log_result.stderr or "")
+        if job_uuid not in logs:
+            continue
+        matched_lines.extend(
+            line for line in logs.splitlines() if job_uuid in line
+        )
+
+    if not matched_lines:
+        return None
+
+    return summarize_training_log("\n".join(matched_lines))
+
+
 def find_latest_training_log(
     project_id: str,
     network_id: str,
@@ -763,13 +823,19 @@ def find_latest_training_log(
     if cached_path and os.path.exists(cached_path):
         return cached_path
 
-    workspace_root = os.path.join("workspaces", project_id, network_id, "workspace")
+    workspace_root = os.path.join(
+        settings.BASE_DIR, "workspaces", project_id, network_id, "workspace"
+    )
     if not os.path.exists(workspace_root):
         return None
 
     latest_log = None
     for root, dirs, files in os.walk(workspace_root):
-        dirs[:] = [directory for directory in dirs if not directory.startswith(".") and directory != "__pycache__"]
+        dirs[:] = [
+            directory
+            for directory in dirs
+            if not directory.startswith(".") and directory != "__pycache__"
+        ]
         if job_uuid in root:
             for candidate in ("log_fl.txt", "log.txt"):
                 if candidate in files:
@@ -835,6 +901,7 @@ def get_training_progress_info(training_job, current_network):
         try:
             total_rounds = training_job.total_rounds or 10
             workspace_dir = os.path.join(
+                settings.BASE_DIR,
                 "workspaces",
                 str(training_job.project.identifier),
                 str(current_network.identifier),
@@ -875,17 +942,28 @@ def get_training_progress_info(training_job, current_network):
                 ):
                     terminal_status = summary["terminal_status"]
 
-            if not have_cached_progress:
-                for root, _dirs, files in os.walk(workspace_dir):
-                    if job_uuid not in root:
-                        continue
-                    for file_name in files:
-                        if file_name.startswith("log") and file_name.endswith(".txt"):
-                            scan_log_tail(os.path.join(root, file_name))
-                            if terminal_status:
-                                break
-                    if terminal_status:
-                        break
+            for root, _dirs, files in os.walk(workspace_dir):
+                if job_uuid not in root:
+                    continue
+                for file_name in files:
+                    if file_name.startswith("log") and file_name.endswith(".txt"):
+                        scan_log_tail(os.path.join(root, file_name))
+                        if terminal_status:
+                            break
+                if terminal_status:
+                    break
+
+            if not terminal_status:
+                runtime_summary = summarize_runtime_container_logs(
+                    current_network, job_uuid
+                )
+                if runtime_summary:
+                    if runtime_summary["rounds_finished"] > rounds_finished:
+                        rounds_finished = runtime_summary["rounds_finished"]
+                    if should_update_terminal_status(
+                        terminal_status, runtime_summary["terminal_status"]
+                    ):
+                        terminal_status = runtime_summary["terminal_status"]
 
             if terminal_status:
                 if not have_cached_progress and total_rounds > 0:
@@ -917,7 +995,8 @@ def get_training_progress_info(training_job, current_network):
 
     now = timezone.now()
     start_time = training_job.created_at
-    if training_job.status == "RUNNING":
+    effective_status = str(training_status or training_job.status or "").upper()
+    if effective_status == "RUNNING":
         elapsed = (now - start_time).total_seconds()
         duration_str = format_duration(elapsed)
         if training_progress > 0:
@@ -926,10 +1005,11 @@ def get_training_progress_info(training_job, current_network):
             eta_str = format_duration(remaining)
         else:
             eta_str = "Calculating..."
-    elif training_job.completed_at:
-        elapsed = (training_job.completed_at - start_time).total_seconds()
+    elif effective_status in {"COMPLETED", "FAILED", "STOPPED"}:
+        completed_at = training_job.completed_at or now
+        elapsed = (completed_at - start_time).total_seconds()
         duration_str = format_duration(elapsed)
-        eta_str = "Finished"
+        eta_str = "Finished" if effective_status == "COMPLETED" else "-"
 
     result = {
         "status": training_status,

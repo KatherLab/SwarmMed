@@ -215,7 +215,7 @@ services:
       -c work_mem=16MB
       -c maintenance_work_mem=128MB
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${POSTGRES_BIND_ADDR:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     env_file:
       - .env
     networks:

@@ -388,6 +388,10 @@ def _read_local_hostname_candidates():
     normalized = set()
     for name in names:
         normalized.add(name)
+        hyphenated_name = name.replace("_", "-")
+        if hyphenated_name:
+            normalized.add(hyphenated_name)
+            normalized.add(hyphenated_name.lower())
         safe_name = slugify(name)
         if safe_name:
             normalized.add(safe_name)

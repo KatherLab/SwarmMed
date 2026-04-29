@@ -7,6 +7,8 @@ nvflare_swarm_learning
 .secrets
 node_modules
 tmp
+/results/
+/.swarmmedhub_hostname
 .vscode
 .python-version
 

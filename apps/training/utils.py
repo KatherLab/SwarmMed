@@ -12,7 +12,6 @@ import subprocess
 
 from common.utils import get_s3_client
 
-
 FLARE_JOB_UUID_RE = re.compile(
     r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
@@ -32,6 +31,9 @@ TRAINING_COMPLETION_MARKERS = (
     "mpm: good bye!",
     "training finished or aborted",
     "swarm learning done",
+    "workflow controller finished on all clients",
+    "workflow controller done",
+    "server runner finished",
 )
 
 TRAINING_FAILURE_MARKERS = (

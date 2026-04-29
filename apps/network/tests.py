@@ -1,10 +1,14 @@
 """Tests for the network app."""
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
+from .provision import safe_participant_name
 from .tasks import (
     _client_runtime_env_pairs,
     _get_runtime_manifest_base_url,
+    _read_local_hostname_candidates,
     _split_runtime_entrypoint,
 )
 
@@ -56,8 +60,31 @@ class RuntimeLaunchTests(SimpleTestCase):
         self.assertIn(("INSTITUTION", "node_A"), pairs)
         self.assertIn(("DATA_DIR", "/mnt/dlhd0/DUKE_iid"), pairs)
         self.assertIn(("DATADIR", "/mnt/dlhd0/DUKE_iid"), pairs)
-        self.assertIn(("SCRATCH_DIR", "/mnt/dlhd0/deploy_test_duke_iid/swarmed_cli_mst"), pairs)
-        self.assertIn(("SCRATCHDIR", "/mnt/dlhd0/deploy_test_duke_iid/swarmed_cli_mst"), pairs)
+        self.assertIn(
+            ("SCRATCH_DIR", "/mnt/dlhd0/deploy_test_duke_iid/swarmed_cli_mst"),
+            pairs,
+        )
+        self.assertIn(
+            ("SCRATCHDIR", "/mnt/dlhd0/deploy_test_duke_iid/swarmed_cli_mst"),
+            pairs,
+        )
         self.assertIn(("MODEL_NAME", "MST"), pairs)
         self.assertIn(("CONFIG", "unilateral"), pairs)
         self.assertIn(("TRAINING_MODE", "swarm"), pairs)
+
+    def test_safe_participant_name_converts_underscore_for_nvflare(self):
+        self.assertEqual(safe_participant_name("node_A"), "node-A")
+
+    def test_local_participant_candidate_matches_hyphenated_flare_name(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SWARMMEDHUB_LOCAL_PARTICIPANT": "node_A",
+                "SWARMMEDHUB_HOSTNAME": "",
+            },
+            clear=False,
+        ):
+            candidates = _read_local_hostname_candidates()
+
+        self.assertIn("node_A", candidates)
+        self.assertIn("node-A", candidates)

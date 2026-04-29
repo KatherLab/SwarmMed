@@ -280,6 +280,54 @@ def import_network(
         provision_dir, "workspace", project_name, "prod_00"
     )
 
+    client_archives = [
+        path
+        for path in Path(provision_dir).glob("*.zip")
+        if path.name not in {"startup-kits.zip", "startup_kits.zip"}
+    ]
+    if client_archives:
+        os.makedirs(prod_00_dir, exist_ok=True)
+        for archive_path in client_archives:
+            participant_name = archive_path.stem
+            participant_dir = os.path.join(prod_00_dir, participant_name)
+            os.makedirs(participant_dir, exist_ok=True)
+            with zipfile.ZipFile(archive_path, "r") as participant_zip:
+                abs_participant_dir = os.path.abspath(participant_dir)
+                for nested_member in participant_zip.infolist():
+                    nested_path = os.path.normpath(nested_member.filename)
+                    if nested_path.startswith("/") or nested_path.startswith(".."):
+                        continue
+
+                    target_path = os.path.abspath(
+                        os.path.join(abs_participant_dir, nested_path)
+                    )
+                    if not target_path.startswith(
+                        os.path.join(abs_participant_dir, "")
+                    ):
+                        continue
+
+                    participant_zip.extract(nested_member, participant_dir)
+
+            server_startup = os.path.join(participant_dir, "server_startup")
+            if os.path.isdir(server_startup):
+                shutil.copytree(
+                    server_startup,
+                    os.path.join(prod_00_dir, "server", "startup"),
+                    dirs_exist_ok=True,
+                )
+
+            admin_startup = os.path.join(participant_dir, "admin_startup")
+            if os.path.isdir(admin_startup):
+                shutil.copytree(
+                    admin_startup,
+                    os.path.join(
+                        prod_00_dir,
+                        f"admin-{participant_name}@nvidia.com",
+                        "startup",
+                    ),
+                    dirs_exist_ok=True,
+                )
+
     if os.path.exists(os.path.join(provision_dir, "startup")):
         os.makedirs(prod_00_dir, exist_ok=True)
         for item in os.listdir(provision_dir):

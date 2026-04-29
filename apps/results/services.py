@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
-from celery import current_app
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from celery import current_app
 from common.utils import get_s3_client
 from logs import logger
 from project.models import Project
@@ -18,6 +19,25 @@ from training.utils import extract_flare_job_uuid
 
 from .models import ResultsVisualizationPlot, ResultsVisualizationRun, TrainingResult
 from .tasks import run_results_visualization_task, sync_project_results
+
+GLOBAL_MODEL_FILENAME = "FL_global_model.pt"
+
+
+def _etag_md5(obj: dict) -> str | None:
+    """Return an S3 ETag when it is a plain MD5 digest."""
+    etag = str(obj.get("ETag") or "").strip().strip('"')
+    if len(etag) == 32 and "-" not in etag:
+        return etag.lower()
+    return None
+
+
+def _file_md5(path: Path) -> str:
+    """Return the hex MD5 digest for a local file."""
+    digest = hashlib.md5()  # nosec B324 - checksum reporting, not security.
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _resolve_job_and_flare_id(project: Project, job_identifier: str):
@@ -34,7 +54,11 @@ def _resolve_job_and_flare_id(project: Project, job_identifier: str):
     )
     flare_id = normalized_identifier
     if job:
-        flare_id = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id) or normalized_identifier
+        flare_id = (
+            job.flare_job_uuid
+            or extract_flare_job_uuid(job.flare_job_id)
+            or normalized_identifier
+        )
     return job, flare_id
 
 
@@ -72,6 +96,9 @@ def list_results(project: Project, *, job_identifier: str | None = None) -> list
             parts = key.split("/")
             if len(parts) < 4:
                 continue
+            filename = os.path.basename(key)
+            if filename != GLOBAL_MODEL_FILENAME:
+                continue
             flare_id = parts[2]
             if selected_flare_id and flare_id != selected_flare_id:
                 continue
@@ -86,6 +113,7 @@ def list_results(project: Project, *, job_identifier: str | None = None) -> list
                     "file_path": key,
                     "relative_path": key[len(prefix) :],
                     "file_size": obj.get("Size", 0),
+                    "md5": _etag_md5(obj),
                     "client_name": parts[3] if len(parts) > 3 else "unknown",
                     "created_at": (
                         db_result.created_at.isoformat()
@@ -119,6 +147,7 @@ def download_results_to_directory(
 
     prefix = f"{project.identifier}/results/"
     downloaded_files: list[str] = []
+    checksums: dict[str, str] = {}
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
@@ -128,6 +157,9 @@ def download_results_to_directory(
             parts = key.split("/")
             if len(parts) < 4:
                 continue
+            filename = os.path.basename(key)
+            if filename != GLOBAL_MODEL_FILENAME:
+                continue
             flare_id = parts[2]
             if selected_flare_id and flare_id != selected_flare_id:
                 continue
@@ -136,6 +168,7 @@ def download_results_to_directory(
             target.parent.mkdir(parents=True, exist_ok=True)
             s3.download_file(bucket, key, str(target))
             downloaded_files.append(str(target))
+            checksums[str(target)] = _file_md5(target)
 
     if not downloaded_files:
         raise LookupError("No result files were found for the requested scope.")
@@ -145,6 +178,8 @@ def download_results_to_directory(
         "job_identifier": job_identifier,
         "output_dir": str(output_path),
         "downloaded_files": downloaded_files,
+        "checksums": checksums,
+        "global_model_md5s": sorted(set(checksums.values())),
     }
 
 
@@ -167,7 +202,8 @@ def start_results_visualization(
     ]
     if not py_scripts:
         raise ValueError(
-            f"No visualization scripts found at {script_prefix}. Upload one on the project page first."
+            f"No visualization scripts found at {script_prefix}. "
+            "Upload one on the project page first."
         )
 
     running_query = ResultsVisualizationRun.objects.filter(

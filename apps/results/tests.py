@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,7 +80,7 @@ class ResultsOwnershipTests(TestCase):
             flare_job_uuid=self.flare_uuid,
         )
         self.result_key = (
-            f"{self.project.identifier}/results/{self.flare_uuid}/site-a/model.npy"
+            f"{self.project.identifier}/results/{self.flare_uuid}/site-a/FL_global_model.pt"
         )
         self.script_key = (
             f"{self.project.identifier}/code/results_visualization/summary.py"
@@ -90,6 +91,7 @@ class ResultsOwnershipTests(TestCase):
             {
                 "Key": self.result_key,
                 "Size": 123,
+                "ETag": '"0123456789abcdef0123456789abcdef"',
             }
         ]
         if include_script:
@@ -124,6 +126,7 @@ class ResultsOwnershipTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["job_identifier"], str(self.job.identifier))
         self.assertEqual(rows[0]["flare_job_id"], self.flare_uuid)
+        self.assertEqual(rows[0]["md5"], "0123456789abcdef0123456789abcdef")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("results.services.get_s3_client", return_value=s3):
@@ -136,6 +139,38 @@ class ResultsOwnershipTests(TestCase):
             downloaded = Path(payload["downloaded_files"][0])
             self.assertTrue(downloaded.exists())
             self.assertEqual(downloaded.read_text(encoding="utf-8"), "weights")
+            self.assertEqual(
+                payload["checksums"][str(downloaded)],
+                hashlib.md5(b"weights").hexdigest(),  # nosec B324
+            )
+            self.assertEqual(
+                payload["global_model_md5s"],
+                [hashlib.md5(b"weights").hexdigest()],  # nosec B324
+            )
+
+    def test_result_services_ignore_non_global_checkpoints(self):
+        s3 = _FakeS3Client(
+            [
+                {
+                    "Contents": [
+                        {"Key": self.result_key, "Size": 123},
+                        {
+                            "Key": (
+                                f"{self.project.identifier}/results/"
+                                f"{self.flare_uuid}/site-a/last_global_model.ckpt"
+                            ),
+                            "Size": 456,
+                        },
+                    ]
+                }
+            ]
+        )
+
+        with patch("results.services.get_s3_client", return_value=s3):
+            rows = list_results(self.project, job_identifier=self.flare_uuid)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["file_path"], self.result_key)
 
     def test_results_visualization_uses_canonical_job_scope(self):
         prior_run = ResultsVisualizationRun.objects.create(

@@ -38,8 +38,14 @@ def is_valid_ip(ip):
 
 
 def safe_participant_name(name: str, default: str = "client") -> str:
-    """Return an NVFlare-safe participant name while preserving case/underscores."""
-    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", str(name or "").strip()).strip("-_")
+    """Return an NVFlare-safe participant name.
+
+    NVFlare certificate provisioning rejects underscores in participant names,
+    while existing DUKE site names use values such as ``node_A``. Convert those
+    to hyphenated FLARE names and keep the original site name in runtime env.
+    """
+    raw_name = str(name or "").strip().replace("_", "-")
+    cleaned = re.sub(r"[^A-Za-z0-9.-]+", "-", raw_name).strip("-.")
     return cleaned or default
 
 
