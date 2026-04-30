@@ -24,7 +24,7 @@ METADATA_DIR_NAME = "metadata_unilateral"
 DATA_DIR_NAME = "data_unilateral"
 
 # Required files in each patient folder
-REQUIRED_FILES = ["Pre.nii.gz", "Post_1.nii.gz", "Sub_1.nii.gz", "T2.nii.gz"]
+REQUIRED_FILES = ["Pre.nii.gz", "Post_1.nii.gz", "Sub_1.nii.gz"]
 
 metadata_folder = None
 data_folder = None
