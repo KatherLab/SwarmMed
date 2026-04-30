@@ -10,7 +10,7 @@ SECRETS_DIRS := .secrets/certs .secrets/docker .secrets/pgbouncer
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-uv install-python install deinstall deinstall-docker env env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-celery migrate shell test superuser tailscale
+.PHONY: help check-uv install-python install deinstall deinstall-docker env env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-debug migrate shell test superuser tailscale
 
 MAIN_TARGETS := start stop restart logs  migrate shell test superuser docs-serve docs-build venv deinstall env
 
@@ -127,15 +127,16 @@ compose-down: ## Stop the Docker services
 
 logs: ## Follow the MedSwarmHub application logs
 	@echo "📜 Streaming medswarmhub logs"
-	@docker compose logs -f medswarmhub
-
+	@docker logs celery_worker
+	@docker logs medswarmhub
+	
 compose-down-v: ## Stop services and remove the attached volumes
 	@echo "🧼 Removing services and attached volumes"
 	@docker compose down -v
 
-restart-celery: ## Restart the Celery worker service
-	@echo "⚡ Restarting Celery worker"
-	@docker compose restart celery_worker
+restart-debug: ## Restart the Celery worker service
+	@echo "⚡ Restarting Celery worker and MedSwarmHub for debug purposes"
+	@docker restart celery_worker medswarmhub
 
 migrate: ## Run Django migrations inside the app container
 	@echo "🧱 Applying Django migrations"
@@ -146,22 +147,6 @@ shell: ## Open a Django shell inside the app container
 	@echo "🐚 Opening a Django shell session"
 	@docker compose run --rm app python manage.py shell
 
-test: ## Run Django tests inside the app container
-	@echo "🧪 Running Django test suite"
-	@docker compose run --rm app python manage.py test
-
 superuser: ## Create a Django superuser inside the app container
 	@echo "👑 Starting Django superuser flow"
 	@docker compose run --rm app python manage.py createsuperuser
-
-sandbox-build: ## Build only the sandbox-dind service
-	@echo "🧪 Building the sandbox workload service"
-	@docker compose build sandbox-dind
-
-sandbox-up: ## Start only the sandbox-dind service
-	@echo "⚡ Starting the sandbox-dind helper"
-	@docker compose up -d sandbox-dind
-
-sandbox-down: ## Stop the sandbox-dind service
-	@echo "🛡️ Shutting down sandbox-dind"
-	@docker compose down sandbox-dind

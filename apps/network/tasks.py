@@ -23,7 +23,11 @@ from django.contrib.auth.models import User
 from django.utils.text import slugify
 
 from celery import shared_task
-from common.utils import get_s3_client
+from common.utils import (
+    collect_project_runtime_requirements,
+    get_s3_client,
+    parse_safe_requirement_lines,
+)
 from logs.logger import get_logger
 from logs.models import LogCategory, LogEntry
 from project.models import Project
@@ -639,6 +643,7 @@ def _build_local_fallback_image(
     image_name,
     provision_dir,
     base_prod_path,
+    project,
 ):
     """Builds a project-specific Docker runtime image if no pre-built image is provided.
 
@@ -649,28 +654,20 @@ def _build_local_fallback_image(
         image_name (str): The name to assign to the built image.
         provision_dir (str): The directory where the network is provisioned.
         base_prod_path (str): The path to the 'prod_00' directory.
+        project (Project): The project instance.
     """
     build_dir = os.path.join(base_prod_path, ".medswarmhub_runtime_build")
     os.makedirs(build_dir, exist_ok=True)
 
-    requirements_src = _resolve_runtime_requirements_path(
-        provision_dir=provision_dir,
-        base_prod_path=base_prod_path,
-    )
     requirements_dst = os.path.join(build_dir, "requirements.txt")
 
-    if requirements_src and os.path.exists(requirements_src):
-        shutil.copyfile(requirements_src, requirements_dst)
-    else:
-        with open(requirements_dst, "w") as rf:
-            rf.write("nvflare==2.7.1\n")
-            rf.write("gunicorn\n")
-            rf.write("boto3\n")
-            rf.write("python-dotenv\n")
-            rf.write("pandas\n")
-            rf.write("numpy\n")
-            rf.write("torch\n")
-            rf.write("scikit-learn\n")
+    # Collect all requirements (baseline + project-specific from S3)
+    final_requirements = collect_project_runtime_requirements(
+        project=project,
+        logger=logger
+    )
+    with open(requirements_dst, "w") as rf:
+        rf.write("\n".join(final_requirements) + "\n")
 
     dockerfile_path = os.path.join(build_dir, "Dockerfile")
     with open(dockerfile_path, "w") as df:
@@ -716,144 +713,6 @@ def _resolve_runtime_requirements_path(provision_dir, base_prod_path):
     return ""
 
 
-def _parse_safe_requirement_lines(requirements_text):
-    """Parses and sanitizes a requirements file content.
-
-    Args:
-        requirements_text (str): The raw text of the requirements file.
-
-    Returns:
-        list: A list of sanitized and unique requirement strings.
-    """
-    safe_lines = []
-    seen = set()
-    for raw_line in (requirements_text or "").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if re.match(
-            r"^[a-zA-Z0-9_\-\[\]]+([=<>!~]+[a-zA-Z0-9\._\-\*\,]+)?$",
-            line,
-        ):
-            normalized = line.lower()
-            if normalized not in seen:
-                safe_lines.append(line)
-                seen.add(normalized)
-    return safe_lines
-
-
-def _collect_project_runtime_requirements(project, logger):
-    """Collects all runtime requirements for a project from local and remote sources.
-
-    Args:
-        project (Project): The project instance.
-        logger (Logger): The logger instance for status updates.
-
-    Returns:
-        list: A consolidated list of requirement strings.
-    """
-    baseline = [
-        "nvflare==2.7.1",
-        "gunicorn",
-        "boto3",
-        "python-dotenv",
-        "pandas",
-        "numpy<2.0.0",
-        "torch==2.10.0",
-        "scikit-learn==1.8.0",
-        "fsspec==2025.2.0",
-        "aiohttp==3.13.3",
-    ]
-
-    merged = []
-    seen = set()
-
-    def _add_lines(lines):
-        for line in lines:
-            key = line.strip().lower()
-            if key and key not in seen:
-                merged.append(line)
-                seen.add(key)
-
-    _add_lines(baseline)
-
-    requirement_sources = []
-    if getattr(project, "requirements_file", None):
-        try:
-            if project.requirements_file.name:
-                requirement_sources.append(project.requirements_file.name)
-        except Exception:
-            pass
-
-    requirement_sources.append(
-        f"{project.identifier}/code/training/requirements.txt"
-    )
-    requirement_sources.append(
-        f"{project.identifier}/code/requirements/requirements.txt"
-    )
-
-    bucket = settings.AWS_STORAGE_BUCKET_NAME
-    s3_client = get_s3_client()
-
-    try:
-        prefixes = [
-            f"{project.identifier}/code/requirements/",
-            f"{project.identifier}/code/training/",
-        ]
-        for prefix in prefixes:
-            continuation_token = None
-            while True:
-                kwargs = {
-                    "Bucket": bucket,
-                    "Prefix": prefix,
-                    "MaxKeys": 100,
-                }
-                if continuation_token:
-                    kwargs["ContinuationToken"] = continuation_token
-
-                response = s3_client.list_objects_v2(**kwargs)
-                for obj in response.get("Contents", []):
-                    key = str(obj.get("Key", "")).strip()
-                    lower_key = key.lower()
-                    if not key:
-                        continue
-                    if lower_key.endswith(".txt") and "requirements" in lower_key:
-                        requirement_sources.append(key)
-
-                if not response.get("IsTruncated"):
-                    break
-                continuation_token = response.get("NextContinuationToken")
-    except Exception as e:
-        logger.network.info(
-            f"Could not enumerate requirement files in project storage: {e}"
-        )
-
-    # Preserve order while removing duplicates
-    seen_keys = set()
-    deduped_sources = []
-    for key in requirement_sources:
-        if key and key not in seen_keys:
-            deduped_sources.append(key)
-            seen_keys.add(key)
-
-    for key in deduped_sources:
-        try:
-            response = s3_client.get_object(Bucket=bucket, Key=key)
-            text = response["Body"].read().decode("utf-8")
-            lines = _parse_safe_requirement_lines(text)
-            if lines:
-                logger.network.info(
-                    f"Loaded runtime requirements from storage key: {key}"
-                )
-                _add_lines(lines)
-        except Exception as e:
-            logger.network.info(
-                f"No readable requirements found at {key}: {e}"
-            )
-
-    return merged
-
-
 def _ensure_runtime_requirements_file(
     swarm_network,
     provision_dir,
@@ -871,52 +730,20 @@ def _ensure_runtime_requirements_file(
     Returns:
         str: The path to the created or existing requirements file.
     """
-    existing_path = _resolve_runtime_requirements_path(
-        provision_dir=provision_dir,
-        base_prod_path=base_prod_path,
+    # Collect all requirements (baseline + project-specific from S3)
+    final_requirements = collect_project_runtime_requirements(
+        project=swarm_network.project,
+        logger=logger
     )
 
-    merged = []
-    seen = set()
-
-    def _add_lines(lines):
-        for line in lines:
-            key = line.strip().lower()
-            if key and key not in seen:
-                merged.append(line)
-                seen.add(key)
-
-    if existing_path:
-        try:
-            with open(existing_path) as rf:
-                _add_lines(_parse_safe_requirement_lines(rf.read()))
-            logger.network.info(
-                f"Using existing runtime requirements file: {existing_path}"
-            )
-        except Exception as e:
-            logger.network.warning(
-                f"Failed reading existing runtime requirements file {existing_path}: {e}"
-            )
-
-    try:
-        s3_lines = _collect_project_runtime_requirements(
-            project=swarm_network.project,
-            logger=logger,
-        )
-        _add_lines(s3_lines)
-    except Exception as e:
-        logger.network.warning(
-            f"Failed collecting runtime requirements from project storage: {e}"
-        )
-
-    if not merged:
+    if not final_requirements:
         return ""
 
     os.makedirs(provision_dir, exist_ok=True)
     out_path = os.path.join(provision_dir, "runtime_requirements.txt")
     try:
         with open(out_path, "w") as wf:
-            wf.write("\n".join(merged) + "\n")
+            wf.write("\n".join(final_requirements) + "\n")
         logger.network.info(
             f"Materialized runtime requirements file at: {out_path}"
         )
@@ -925,7 +752,7 @@ def _ensure_runtime_requirements_file(
         logger.network.warning(
             f"Failed writing runtime requirements file {out_path}: {e}"
         )
-        return existing_path
+        return ""
 
 
 def _has_custom_runtime_requirements(provision_dir, base_prod_path):
@@ -1462,6 +1289,7 @@ def start_swarm_network_task(network_id, user_id):
                     image_name=image_name,
                     provision_dir=provision_dir,
                     base_prod_path=base_prod_path,
+                    project=swarm_network.project,
                 )
 
         network_name = _docker_network_name(swarm_network.identifier)

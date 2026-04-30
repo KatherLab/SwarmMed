@@ -1,0 +1,16 @@
+# Requirements for Breast MRI Example (matched with pyproject.toml)
+pandas==2.3.3
+numpy==2.4.3
+scikit-learn==1.8.0
+torch==2.10.0
+pytorch-lightning==2.4.0
+monai==1.5.2
+torchio==0.20.23
+nibabel==5.2.1
+torchmetrics==1.4.2
+matplotlib==3.10.0
+seaborn==0.13.2
+huggingface-hub
+transformers==5.3.0
+x-transformers==2.1.2
+einops==0.8.0

@@ -225,9 +225,9 @@ def upload_files(request):
             full_destination += "/"
 
         for idx, file in enumerate(files):
-            # Basic security check: Validate file extension
-            _, ext = os.path.splitext(file.name)
-            if ext.lower() not in settings.ALLOWED_EXTENSIONS:
+            # Validate against configured suffixes, including multi-part ones like .nii.gz.
+            filename_lower = file.name.lower()
+            if not any(filename_lower.endswith(ext) for ext in settings.ALLOWED_EXTENSIONS):
                 log.data.warning(
                     f"Blocked upload of disallowed file type: {file.name}"
                 )

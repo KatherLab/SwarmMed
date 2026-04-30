@@ -278,69 +278,17 @@ def generate_flare_startup_kit(
     req_file_path = os.path.join(
         provision_dir, "runtime_requirements.txt"
     )
+    
+    from common.utils import collect_project_runtime_requirements
+    
+    # Collect all requirements (baseline + project-specific from S3)
+    final_requirements = collect_project_runtime_requirements(
+        project=network.project,
+        logger=logger
+    )
+    
     with open(req_file_path, "w") as rf:
-        # Basic requirements for all participants
-        rf.write("nvflare==2.7.1\n")
-        rf.write("gunicorn==23.0.0\n")
-        rf.write("boto3==1.34.100\n")
-        rf.write("python-dotenv==1.0.1\n")
-        rf.write("pandas==2.3.3\n")
-        rf.write("numpy<2.0.0\n")
-        rf.write("torch==2.10.0\n")
-        rf.write("scikit-learn==1.8.0\n")
-        rf.write("fsspec==2025.2.0\n")
-        rf.write("aiohttp==3.13.3\n")
-
-        # Collect additional requirements from supported sources in S3.
-        # Source 1: project.requirements_file (explicit upload in Project settings)
-        # Source 2: <project_id>/code/training/requirements.txt (training code bundle)
-        s3_client = get_s3_client()
-        bucket = settings.AWS_STORAGE_BUCKET_NAME
-        requirement_sources = []
-
-        if network.project.requirements_file:
-            requirement_sources.append(network.project.requirements_file.name)
-
-        training_requirements_key = (
-            f"{network.project.identifier}/code/training/requirements.txt"
-        )
-        if training_requirements_key not in requirement_sources:
-            requirement_sources.append(training_requirements_key)
-
-        safe_lines = []
-        seen_requirements = set()
-        for key in requirement_sources:
-            try:
-                logger.network.info(
-                    f"Downloading custom requirements from {key}"
-                )
-                response = s3_client.get_object(Bucket=bucket, Key=key)
-                custom_reqs = response["Body"].read().decode("utf-8")
-
-                for line in custom_reqs.splitlines():
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    if re.match(
-                        r"^[a-zA-Z0-9_\-\[\]]+([=<>!~]+[a-zA-Z0-9\._\-\*\,]+)?$",
-                        line,
-                    ):
-                        normalized = line.lower()
-                        if normalized not in seen_requirements:
-                            safe_lines.append(line)
-                            seen_requirements.add(normalized)
-                    else:
-                        logger.network.warning(
-                            f"Skipping potentially unsafe requirement line: {line}"
-                        )
-            except Exception as e:
-                logger.network.info(
-                    f"No readable requirements at {key}: {e}"
-                )
-
-        if safe_lines:
-            rf.write("\n# Project specific requirements (sanitized)\n")
-            rf.write("\n".join(safe_lines) + "\n")
+        rf.write("\n".join(final_requirements) + "\n")
 
     # 5. Run NVFlare Provisioning
     try:
