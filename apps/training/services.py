@@ -8,14 +8,21 @@ import json
 import os
 import re
 import shutil
+from pathlib import Path
 
 from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import models
 from django.utils import timezone
 
 from common.utils import get_safe_slug
 from logs.logger import get_logger
 from network.models import SwarmNetwork
+from results.artifacts import (
+    GLOBAL_MODEL_FILENAME_CANDIDATES,
+    is_model_artifact,
+)
 
 from .models import TrainingJob
 from .runtime import (
@@ -320,6 +327,161 @@ def serialize_training_job(job: TrainingJob) -> dict:
         "created_at": job.created_at.isoformat(),
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
     }
+
+
+def serialize_training_job_state(job: TrainingJob) -> dict:
+    """Compact serialisation used by the inter-node training-state endpoint.
+
+    Kept narrower than :func:`serialize_training_job` because the gossip
+    protocol consumers only need the canonical identity + progress fields.
+    """
+    return {
+        "flare_job_id": job.flare_job_id,
+        "flare_job_uuid": job.flare_job_uuid,
+        "status": job.status,
+        "total_rounds": job.total_rounds,
+        "rounds_finished": job.rounds_finished,
+        "progress_percent": job.progress_percent,
+        "created_at": job.created_at.isoformat(),
+    }
+
+
+# Filenames the workspace walker accepts as a "global model" artifact, in
+# preference order. Matches what training_api_results historically returned;
+# the canonical FL_global_model.pt is checked first, then the legacy
+# alternatives so existing client nodes continue to download something useful.
+_GLOBAL_MODEL_FILENAME_CANDIDATES = GLOBAL_MODEL_FILENAME_CANDIDATES
+
+
+def find_local_global_model_file(job: TrainingJob) -> str | None:
+    """Locate the most recent global-model file on the local filesystem.
+
+    The lookup walks ``<BASE_DIR>/workspaces/<project>/<network>/workspace`` for
+    a directory whose name contains the FLARE job UUID, then prefers filenames
+    in :data:`_GLOBAL_MODEL_FILENAME_CANDIDATES`. Both Hub views and CLI
+    helpers can call this so they agree on what counts as the latest model.
+    Returns an absolute path, or ``None`` if nothing matches.
+    """
+    flare_id = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id) or str(
+        job.flare_job_id or ""
+    )
+    if not flare_id:
+        return None
+
+    workspace_root = Path(settings.BASE_DIR) / "workspaces" / str(
+        job.project.identifier
+    ) / str(job.network.identifier) / "workspace"
+    if not workspace_root.exists():
+        return None
+
+    matched: list[Path] = []
+    for root, _dirs, files in os.walk(workspace_root):
+        if flare_id not in root:
+            continue
+        for filename in _GLOBAL_MODEL_FILENAME_CANDIDATES:
+            candidate = Path(root) / filename
+            if candidate.exists():
+                matched.append(candidate)
+        # Collect any other supported model artifact as a last-resort fallback.
+        for name in files:
+            if (
+                is_model_artifact(name)
+                and name not in _GLOBAL_MODEL_FILENAME_CANDIDATES
+            ):
+                matched.append(Path(root) / name)
+
+    if not matched:
+        return None
+
+    # Preserve the candidate-list ordering so FL_global_model.pt wins over the
+    # legacy alternatives even when both exist in the same directory tree.
+    def _rank(path: Path) -> tuple[int, float]:
+        try:
+            preferred = _GLOBAL_MODEL_FILENAME_CANDIDATES.index(path.name)
+        except ValueError:
+            preferred = len(_GLOBAL_MODEL_FILENAME_CANDIDATES)
+        # Newer mtime wins within the same preference bucket.
+        return (preferred, -path.stat().st_mtime)
+
+    matched.sort(key=_rank)
+    return str(matched[0])
+
+
+def _participant_for_artifact_path(path: Path, network: SwarmNetwork) -> str:
+    """Infer a normalized participant id from a workspace artifact path."""
+    parts = set(path.parts)
+    for participant in network.participants.all():
+        participant_id = participant.participant_id
+        if participant_id in parts or f"app_{participant_id}" in parts:
+            return participant_id
+    return "local"
+
+
+def _relative_artifact_path(
+    path: Path, *, flare_id: str, participant_id: str
+) -> str:
+    """Return artifact path below the FLARE job folder, stripping app wrappers."""
+    parts = list(path.parts)
+    try:
+        job_index = parts.index(flare_id)
+    except ValueError:
+        return path.name
+
+    relative_parts = parts[job_index + 1 :]
+    if relative_parts and relative_parts[0] == f"app_{participant_id}":
+        relative_parts = relative_parts[1:]
+    if relative_parts and relative_parts[0] == participant_id:
+        relative_parts = relative_parts[1:]
+    return "/".join(relative_parts) if relative_parts else path.name
+
+
+def sync_completed_job_local_results(
+    job: TrainingJob, *, network: SwarmNetwork | None = None
+) -> list[str]:
+    """Register local completed-job model artifacts in object storage.
+
+    Returns the S3/storage keys that were found or saved. The canonical key
+    layout is ``<project>/results/<flare_job_uuid>/<participant>/<artifact>``.
+    Legacy callers can still read older non-participant keys through the
+    results service parser.
+    """
+    network = network or job.network
+    flare_id = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id) or str(
+        job.flare_job_id or ""
+    )
+    if not flare_id:
+        return []
+
+    workspace_root = Path(settings.BASE_DIR) / "workspaces" / str(
+        job.project.identifier
+    ) / str(network.identifier) / "workspace"
+    if not workspace_root.exists():
+        return []
+
+    synced_keys: list[str] = []
+    for root, _dirs, files in os.walk(workspace_root):
+        if flare_id not in root:
+            continue
+        root_path = Path(root)
+        participant_id = _participant_for_artifact_path(root_path, network)
+        for filename in files:
+            if not is_model_artifact(filename):
+                continue
+            local_path = root_path / filename
+            relative_path = _relative_artifact_path(
+                local_path,
+                flare_id=flare_id,
+                participant_id=participant_id,
+            )
+            s3_key = (
+                f"{job.project.identifier}/results/{flare_id}/"
+                f"{participant_id}/{relative_path}"
+            )
+            if not default_storage.exists(s3_key):
+                with local_path.open("rb") as handle:
+                    default_storage.save(s3_key, ContentFile(handle.read()))
+            synced_keys.append(s3_key)
+    return synced_keys
 
 
 def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:

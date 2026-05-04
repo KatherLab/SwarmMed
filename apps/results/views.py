@@ -11,7 +11,6 @@ import zipfile
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.db import models
 from django.http import (
     HttpResponse,
     JsonResponse,
@@ -19,7 +18,6 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
-from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
@@ -30,15 +28,9 @@ from project.decorators import (
     project_membership_required,
 )
 from project.models import Project, UserCurrentProject
-from training.models import TrainingJob
-from training.utils import extract_flare_job_uuid
 
 from . import services as results_services
-from .models import (
-    ResultsVisualizationPlot,
-    TrainingResult,
-)
-from .tasks import sync_project_results
+from .models import TrainingResult
 
 # Standard Python logger for this module.
 _logger = logging.getLogger(__name__)
@@ -69,175 +61,12 @@ def results(request):
     Synchronizes results from S3, lists available jobs, and displays result files.
     """
     current_project_uuid, _ = get_user_project(request)
-
     project = get_object_or_404(Project, identifier=current_project_uuid)
-    log = logger.get_logger(user=request.user, project=project)
-
-    # Trigger a background sync task to ensure the database matches S3.
-    sync_project_results.delay(current_project_uuid)
-    log.results.debug(
-        f"Triggered results sync for project {current_project_uuid}"
+    context = results_services.build_results_dashboard_context(
+        project,
+        selected_job_id=request.GET.get("job"),
+        default_to_latest="job" not in request.GET,
     )
-
-    # Initialize S3 client to list objects (source of truth for existence).
-    s3 = get_s3_client()
-    prefix = f"{project.identifier}/results/"
-    paginator = s3.get_paginator("list_objects_v2")
-
-    job_ids_in_s3 = set()
-    job_last_modified = {}
-    s3_items = []
-
-    # Paginate through S3 objects.
-    try:
-        for page in paginator.paginate(
-            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix
-        ):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if key.endswith("/"):
-                    continue
-
-                parts = key.split("/")
-                if len(parts) < 4:
-                    continue
-
-                job_id = parts[2]
-                job_ids_in_s3.add(job_id)
-
-                last_modified = obj.get("LastModified")
-                if last_modified:
-                    prev = job_last_modified.get(job_id)
-                    job_last_modified[job_id] = (
-                        max(prev, last_modified) if prev else last_modified
-                    )
-
-                s3_items.append(
-                    {
-                        "key": key,
-                        "size": obj.get("Size", 0),
-                        "last_modified": last_modified,
-                    }
-                )
-    except Exception as e:
-        log.results.error(f"Error listing S3 objects: {e}")
-
-    # Fetch all jobs for this project to build the dropdown options.
-    all_project_jobs = TrainingJob.objects.filter(project=project).order_by(
-        "-created_at"
-    )
-
-    # Match database results by file_path for efficient lookup
-    db_results = {
-        r.file_path: r
-        for r in TrainingResult.objects.filter(job__project=project)
-    }
-
-    # Build a list of job options for the dropdown selector.
-    job_options = []
-    for job_id_s3 in list(job_ids_in_s3):
-        normalized_job_id_s3 = extract_flare_job_uuid(job_id_s3) or job_id_s3
-        # Match S3 job_id against flare_job_id in DB
-        db_job = all_project_jobs.filter(
-            models.Q(flare_job_uuid=normalized_job_id_s3)
-            | models.Q(flare_job_id__icontains=normalized_job_id_s3)
-        ).first()
-        lm = job_last_modified.get(job_id_s3)
-
-        if db_job:
-            label = f"{db_job.created_at.strftime('%Y-%m-%d %H:%M:%S')} ({job_id_s3[:8]})"
-            sort_time = db_job.created_at
-        else:
-            label = lm.strftime("%Y-%m-%d %H:%M:%S") if lm else job_id_s3
-            sort_time = lm if lm else timezone.now()
-
-        job_options.append(
-            {"value": job_id_s3, "label": label, "last_modified": sort_time}
-        )
-
-    # Sort options: newest first.
-    job_options.sort(key=lambda x: x["last_modified"], reverse=True)
-
-    # User selection.
-    selected_job_id = request.GET.get("job")
-    if "job" not in request.GET and job_options:
-        selected_job_id = job_options[0]["value"]
-
-    # Filter items for selected job.
-    if selected_job_id:
-        s3_items = [
-            it
-            for it in s3_items
-            if f"/results/{selected_job_id}/" in it["key"]
-        ]
-
-    # Prepare results for display, matching S3 items with DB records where possible.
-    prepared_results = []
-    for item in s3_items:
-        key = item["key"]
-        parts = key.split("/")
-        db_rec = db_results.get(key)
-
-        prepared_results.append(
-            {
-                "id": db_rec.id if db_rec else None,
-                "file_path": key,
-                "file_size": item["size"],
-                "file_type": os.path.splitext(key)[1].lstrip(".").lower()
-                or "unknown",
-                "cleaned_filename": os.path.basename(key),
-                "uploaded_at": (
-                    db_rec.created_at if db_rec else item.get("last_modified")
-                ),
-                "client_name": parts[3] if len(parts) > 3 else "unknown",
-            }
-        )
-
-    # Sort results by time (newest first).
-    prepared_results.sort(
-        key=lambda x: x["uploaded_at"] or timezone.now(), reverse=True
-    )
-
-    # Selected job details for header and visualization.
-    selected_job_details = None
-    if selected_job_id:
-        normalized_selected_job_id = (
-            extract_flare_job_uuid(selected_job_id) or selected_job_id
-        )
-        # Try to find the exact job first
-        selected_job_details = all_project_jobs.filter(
-            models.Q(flare_job_uuid=normalized_selected_job_id)
-            | models.Q(flare_job_id__icontains=normalized_selected_job_id)
-        ).first()
-
-    # Fallback: if no job selected explicitly (first visit), but jobs exist,
-    # default to the latest job so the visualization box can be rendered.
-    # But if user explicitly selected "All jobs" (job=""), selected_job_id will be empty string.
-    if (
-        "job" not in request.GET
-        and not selected_job_details
-        and all_project_jobs.exists()
-    ):
-        selected_job_details = all_project_jobs.first()
-        if selected_job_details:
-            selected_job_id = (
-                selected_job_details.flare_job_uuid
-                or extract_flare_job_uuid(selected_job_details.flare_job_id)
-                or selected_job_details.flare_job_id
-            )
-
-    context = {
-        "segment": "results",
-        "project": project,
-        "results": prepared_results,
-        "project_identifier": current_project_uuid,
-        "job_options": job_options,
-        "selected_job_id": selected_job_id,
-        "selected_job_details": selected_job_details,
-        "has_jobs": bool(
-            job_options
-        ),  # Check job_options which includes S3-only jobs
-    }
     return render(request, "apps/results/results.html", context)
 
 
@@ -274,7 +103,7 @@ def stop_results_visualization(request):
     """Stops a currently running visualization task."""
     run_id = request.POST.get("run_id")
     try:
-        visualization_run = results_services.stop_results_visualization(
+        results_services.stop_results_visualization(
             user=request.user, run_id=run_id
         )
 
@@ -617,11 +446,10 @@ def get_visualization_plot(request, plot_id, plot_type):
     if not current_project_uuid:
         return HttpResponse("Plot data not found", status=404)
 
-    plot = get_object_or_404(
-        ResultsVisualizationPlot,
-        id=plot_id,
-        visualization_run__project__identifier=current_project_uuid,
-    )
+    project = get_object_or_404(Project, identifier=current_project_uuid)
+    plot = results_services.resolve_results_visualization_plot(project, plot_id)
+    if plot is None:
+        return HttpResponse("Plot data not found", status=404)
 
     key = None
     filename = f"plot_{plot.plot_number}"

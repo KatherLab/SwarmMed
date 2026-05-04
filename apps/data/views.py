@@ -834,15 +834,19 @@ def _proxy_s3_download_file(key, filename, inline=False):
 def get_visualization_plot(request, plot_id, plot_type):
     """Proxies a visualization plot image from S3 through Django.
 
-    Args:
-        request (HttpRequest): The incoming HTTP request.
-        plot_id (str): The ID of the visualization plot.
-        plot_type (str): The type of plot ('image' or 'svg').
-
-    Returns:
-        HttpResponse: The file content or error.
+    The plot identifier is resolved via :func:`data.services.resolve_visualization_plot`,
+    which accepts the canonical UUID identifier (what ``serialize_visualization_run``
+    emits) and falls back to the numeric primary key for legacy callers.
+    Resolution is always scoped to the user's active project.
     """
-    plot = get_object_or_404(VisualizationPlot, id=plot_id)
+    current_project_uuid, is_valid = get_user_project(request)
+    if not is_valid:
+        return HttpResponse("Plot data not found", status=404)
+
+    project = get_object_or_404(Project, identifier=current_project_uuid)
+    plot = data_services.resolve_visualization_plot(project, plot_id)
+    if plot is None:
+        return HttpResponse("Plot data not found", status=404)
 
     key = None
     filename = f"plot_{plot.plot_number}"

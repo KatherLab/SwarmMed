@@ -4,8 +4,8 @@ deployment (start/stop), status monitoring, and startup kit distribution.
 """
 
 import json
-import os
 import secrets
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
@@ -19,9 +19,10 @@ from project.decorators import (
 )
 from project.models import UserCurrentProject
 
-from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
-from .runtime import get_local_participant_status
 from . import services as network_services
+from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
+from .provision import safe_participant_name
+from .runtime import get_local_participant_status
 from .utils import (
     get_hostname,
     get_tailscale_ip,
@@ -83,10 +84,15 @@ def _authenticate_participant_request(request, network):
     Returns:
         SwarmParticipant: The authenticated participant instance, or None if failed.
     """
-    participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
+    raw_participant_id = (request.headers.get("X-Gossip-Participant") or "").strip()
     provided_token = request.headers.get("X-Gossip-Token")
-    if not participant_id or not provided_token:
+    if not raw_participant_id or not provided_token:
         return None
+
+    # The DB stores FLARE-safe participant IDs (e.g. "node-A"); some peer
+    # configs still send the original site name with underscores. Normalise
+    # before lookup so both forms authenticate the same row.
+    participant_id = safe_participant_name(raw_participant_id)
 
     # DEBUG: Log the provided token vs the expected token
     logger.network.debug(f"[AUTH DEBUG] Participant: {participant_id}, Provided: {provided_token[:8]}..., Expected: {network.gossip_token[:8] if network.gossip_token else 'NONE'}...")
@@ -143,8 +149,22 @@ def network_api_gossip(request, network_id):
 
     try:
         data = json.loads(request.body)
-        participant_id = data.get("participant_id")
-        source_participant_id = data.get("source_participant_id") or participant_id
+        # Normalise every incoming participant identifier through
+        # ``safe_participant_name`` before comparing against the DB. A peer
+        # that still uses the original underscore-bearing site name (e.g.
+        # ``node_A``) sends that raw value in the JSON body; the DB stores
+        # the FLARE-safe form (``node-A``). Without normalisation the equality
+        # checks below silently reject every shout from such peers.
+        raw_participant_id = data.get("participant_id")
+        raw_source_participant_id = data.get("source_participant_id") or raw_participant_id
+        participant_id = (
+            safe_participant_name(raw_participant_id) if raw_participant_id else None
+        )
+        source_participant_id = (
+            safe_participant_name(raw_source_participant_id)
+            if raw_source_participant_id
+            else None
+        )
         status = data.get("status")
 
         if source_participant_id != source_participant.participant_id:
@@ -157,10 +177,10 @@ def network_api_gossip(request, network_id):
 
         # 2. Verify Sender IP from trusted remote address (not X-Forwarded-For)
         participant = SwarmParticipant.objects.filter(
-            network=network, 
-            participant_id=source_participant_id
+            network=network,
+            participant_id=source_participant_id,
         ).first()
-        
+
         if not participant:
              logger.network.error(f"[GOSSIP REJECT] Unknown participant {source_participant_id} (Network: {network.name})")
              # Log existing participants for debugging
@@ -428,7 +448,6 @@ def new_network(request):
             user=request.user
         )
         project = current_project_relation.project
-        log = get_logger(user=request.user, project=project)
 
         if creation_method == "create":
             clients_json = request.POST.getlist("clients")

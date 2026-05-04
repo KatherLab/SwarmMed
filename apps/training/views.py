@@ -4,16 +4,13 @@ Handles training job management, progress monitoring, and decentralized
 communication between NVFlare nodes.
 """
 
-import ast
 import contextlib
-import json
 import os
 import re
 import secrets
 import socket
 import ssl
 import threading
-import time
 
 import requests
 from django.conf import settings
@@ -22,7 +19,6 @@ from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 
 from common.utils import get_safe_slug
 from logs.logger import get_logger
@@ -37,22 +33,39 @@ from . import services as training_services
 from .models import TrainingJob
 from .runtime import (
     build_training_status_payload as runtime_build_training_status_payload,
+)
+from .runtime import (
     dedupe_keep_order as runtime_dedupe_keep_order,
+)
+from .runtime import (
     find_latest_training_log as runtime_find_latest_training_log,
+)
+from .runtime import (
     format_duration as runtime_format_duration,
+)
+from .runtime import (
     get_training_progress_info as runtime_get_training_progress_info,
-    log_flare_pre_submit_diagnostics as runtime_log_flare_pre_submit_diagnostics,
+)
+from .runtime import (
     new_secure_session_with_host as runtime_new_secure_session_with_host,
+)
+from .runtime import (
     nvflare_status_payload as runtime_nvflare_status_payload,
+)
+from .runtime import (
     parse_nvflare_clients as runtime_parse_nvflare_clients,
+)
+from .runtime import (
     parse_nvflare_jobs as runtime_parse_nvflare_jobs,
+)
+from .runtime import (
     resolve_admin_session_target as runtime_resolve_admin_session_target,
+)
+from .runtime import (
     tail_text as runtime_tail_text,
 )
 from .utils import (
     extract_flare_job_uuid,
-    summarize_training_log,
-    should_update_terminal_status,
 )
 
 logger = get_logger()
@@ -133,22 +146,10 @@ def training_api_state(request, network_id):
     if not is_authenticated:
         return JsonResponse({"error": "Unauthorized"}, status=401)
 
-    job = TrainingJob.objects.filter(network=network).order_by("-created_at").first()
-    
+    job = training_services.get_latest_training_job(network)
     if not job:
         return JsonResponse({"job": None})
-        
-    return JsonResponse({
-        "job": {
-            "flare_job_id": job.flare_job_id,
-            "flare_job_uuid": job.flare_job_uuid,
-            "status": job.status,
-            "total_rounds": job.total_rounds,
-            "rounds_finished": job.rounds_finished,
-            "progress_percent": job.progress_percent,
-            "created_at": job.created_at.isoformat(),
-        }
-    })
+    return JsonResponse({"job": training_services.serialize_training_job_state(job)})
 
 
 def training_api_results(request, network_id):
@@ -178,36 +179,23 @@ def training_api_results(request, network_id):
     if not is_authenticated:
         return JsonResponse({"error": "Unauthorized"}, status=401)
 
-    job = TrainingJob.objects.filter(network=network, status="COMPLETED").order_by("-created_at").first()
-    
+    job = (
+        TrainingJob.objects.filter(network=network, status="COMPLETED")
+        .order_by("-created_at")
+        .first()
+    )
     if not job:
         return JsonResponse({"error": "No completed job found"}, status=404)
-        
-    # Logic to find the aggregated model file in the workspace
-    job_uuid = (
-        job.flare_job_uuid
-        or extract_flare_job_uuid(job.flare_job_id)
-        or str(job.flare_job_id)
-    )
-    
-    workspace_root = os.path.join(settings.BASE_DIR, "workspaces", str(job.project.identifier), str(network.identifier), "workspace")
-    model_path = None
-    
-    # Heuristic to find the best model file
-    for root, _dirs, files in os.walk(workspace_root):
-        if job_uuid in root:
-            for f in files:
-                if f in ["best_FL_model.pt", "model_weights.npz", "global_model.pt"]:
-                    model_path = os.path.join(root, f)
-                    break
-        if model_path: break
-        
-    if not model_path or not os.path.exists(model_path):
+
+    model_path = training_services.find_local_global_model_file(job)
+    if not model_path:
         return JsonResponse({"error": "Model file not found"}, status=404)
-        
+
     with open(model_path, "rb") as f:
         response = HttpResponse(f.read(), content_type="application/octet-stream")
-        response["Content-Disposition"] = f'attachment; filename="{os.path.basename(model_path)}"'
+        response["Content-Disposition"] = (
+            f'attachment; filename="{os.path.basename(model_path)}"'
+        )
         return response
 
 
@@ -898,38 +886,15 @@ def training_status_api(request):
         results_synced_key = f"results_synced_local_{job.identifier}"
         if not cache.get(results_synced_key):
             try:
-                job_uuid = (
-                    job.flare_job_uuid
-                    or extract_flare_job_uuid(job.flare_job_id)
-                    or str(job.flare_job_id)
+                synced_keys = training_services.sync_completed_job_local_results(
+                    job, network=current_network
                 )
-                
-                # Path to local workspace where NVFlare produces results
-                workspace_root = os.path.join(settings.BASE_DIR, "workspaces", str(job.project.identifier), str(current_network.identifier), "workspace")
-                
-                # List of possible result filenames produced by training
-                possible_files = ["best_FL_model.pt", "model_weights.npz", "global_model.pt", "FL_model.pt"]
-                
-                found_and_synced = False
-                from django.core.files.base import ContentFile
-                from django.core.files.storage import default_storage
-
-                for root, _dirs, files in os.walk(workspace_root):
-                    if job_uuid in root:
-                        for filename in files:
-                            if filename in possible_files:
-                                local_path = os.path.join(root, filename)
-                                # Target key in local MinIO
-                                s3_key = f"{job.project.identifier}/results/{job_uuid}/{filename}"
-                                
-                                if not default_storage.exists(s3_key):
-                                    with open(local_path, "rb") as f:
-                                        default_storage.save(s3_key, ContentFile(f.read()))
-                                        logger.training.info(f"Registered local result to local MinIO: {s3_key}")
-                                found_and_synced = True
-                
-                if found_and_synced:
+                if synced_keys:
                     cache.set(results_synced_key, True, 3600)
+                    logger.training.info(
+                        "Registered local results to local MinIO: "
+                        f"{', '.join(synced_keys)}"
+                    )
             except Exception as sync_err:
                 logger.training.error(f"Failed to register local results to local MinIO: {sync_err}")
 

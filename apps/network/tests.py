@@ -1,9 +1,15 @@
 """Tests for the network app."""
 
+import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.contrib.auth.models import User
+from django.test import Client, SimpleTestCase, TestCase
 
+from project.models import Project
+
+from .models import SwarmNetwork, SwarmParticipant
 from .provision import safe_participant_name
 from .tasks import (
     _client_runtime_env_pairs,
@@ -88,3 +94,85 @@ class RuntimeLaunchTests(SimpleTestCase):
 
         self.assertIn("node_A", candidates)
         self.assertIn("node-A", candidates)
+
+
+class GossipParticipantNormalizationTests(TestCase):
+    """The gossip endpoint receives the original site name (e.g. ``node_A``)
+    in the X-Gossip-Participant header and request body, but the DB stores
+    the FLARE-safe form (``node-A``). The endpoint must normalise both forms
+    so peers using either spelling are accepted as the same identity.
+    """
+
+    @staticmethod
+    def _fake_logger():
+        def no_op(*_args, **_kwargs):
+            return None
+
+        return SimpleNamespace(
+            network=SimpleNamespace(
+                debug=no_op,
+                error=no_op,
+                info=no_op,
+                warning=no_op,
+            ),
+            log=no_op,
+        )
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="gossip-user", password="test-password"
+        )  # nosec B106
+        with patch("logs.signals.get_logger", return_value=self._fake_logger()):
+            self.project = Project.objects.create(
+                title="Gossip Project", author=self.user
+            )
+            self.network = SwarmNetwork.objects.create(
+                name="Gossip Network",
+                project=self.project,
+                author=self.user,
+                status="RUNNING",
+                gossip_token="t0ken123456",
+            )
+        self.participant = SwarmParticipant.objects.create(
+            network=self.network,
+            user=self.user,
+            participant_id="node-A",  # FLARE-safe form, the canonical DB value
+            role="CLIENT",
+            ip="127.0.0.1",
+        )
+
+    def _post(self, *, header_value: str, body_value: str, status: str = "RUNNING"):
+        client = Client()
+        with patch("network.views.logger", self._fake_logger()):
+            return client.post(
+                f"/network/api/gossip/{self.network.identifier}/",
+                data=json.dumps(
+                    {
+                        "participant_id": body_value,
+                        "source_participant_id": body_value,
+                        "status": status,
+                    }
+                ),
+                content_type="application/json",
+                HTTP_X_GOSSIP_PARTICIPANT=header_value,
+                HTTP_X_GOSSIP_TOKEN="t0ken123456",
+            )
+
+    def test_safe_form_round_trip(self):
+        response = self._post(header_value="node-A", body_value="node-A")
+        self.assertEqual(response.status_code, 200)
+        self.participant.refresh_from_db()
+        self.assertEqual(self.participant.status, "RUNNING")
+
+    def test_underscore_form_is_normalized_and_accepted(self):
+        # Peer config still uses node_A; normalisation must let it through.
+        response = self._post(header_value="node_A", body_value="node_A")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.participant.refresh_from_db()
+        self.assertEqual(self.participant.status, "RUNNING")
+
+    def test_mixed_forms_still_authenticate(self):
+        # Some peers write the safe name in the header but the original site
+        # name in the body (or vice-versa). Both must reach the same row.
+        response = self._post(header_value="node_A", body_value="node-A")
+        self.assertEqual(response.status_code, 200, response.content)

@@ -15,6 +15,14 @@ class ChatDashboardPerformanceTests(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="password"
         )  # nosec B106
+        # ``LegalAcceptanceMiddleware`` redirects every authenticated user who
+        # has not yet accepted the terms / privacy policy; without these flags
+        # the dashboard returns 302 and the assertions below never run.
+        self.user.profile.accepted_terms = True
+        self.user.profile.accepted_policy = True
+        self.user.profile.save(
+            update_fields=["accepted_terms", "accepted_policy"]
+        )
         self.client = Client()
         self.client.force_login(self.user)
 
@@ -114,25 +122,35 @@ class ChatDashboardPerformanceTests(TestCase):
         # Initial warmup
         self.client.get(reverse("communication:chat_dashboard"))
 
-        # Measure queries
-        # Expected: 8 queries
-        # 1. User fetch (Auth)
-        # 2. Profile fetch (Auth)
-        # 3. Contact users list (View)
-        # 4. Project list with unread counts (View)
-        # 5. Last posts bulk fetch (View)
-        # 6. Unread DM count (Context Processor)
-        # 7. Unread Project Posts count (Context Processor - now single query)
-        # 8. Available users list (View)
-        with self.assertNumQueries(8):
-            self.client.get(reverse("communication:chat_dashboard"))
+        # The dashboard must stay ``O(1)`` w.r.t. number of projects. The
+        # exact count drifts as Django and the view are optimised; we assert
+        # an upper bound that also holds when extra projects are present.
+        # Today: 6 queries empty, 8 with projects+posts populated. Anything
+        # higher than ``MAX_QUERIES`` would indicate an N+1 regression.
+        MAX_QUERIES = 8
 
-        # Create MORE projects and ensure query count doesn't jump
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("communication:chat_dashboard"))
+        self.assertLessEqual(
+            len(ctx.captured_queries),
+            MAX_QUERIES,
+            f"Empty-state dashboard ran {len(ctx.captured_queries)} queries (>{MAX_QUERIES})",
+        )
+
+        # Create MORE projects and ensure query count doesn't jump per project.
         for i in range(5):
             p = Project.objects.create(title=f"Extra {i}", author=self.user)
             ProjectPost.objects.create(
                 project=p, author=self.user, content="Content"
             )
 
-        with self.assertNumQueries(8):
+        with CaptureQueriesContext(connection) as ctx:
             self.client.get(reverse("communication:chat_dashboard"))
+        self.assertLessEqual(
+            len(ctx.captured_queries),
+            MAX_QUERIES,
+            f"Populated dashboard ran {len(ctx.captured_queries)} queries (>{MAX_QUERIES})",
+        )

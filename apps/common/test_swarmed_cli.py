@@ -320,7 +320,11 @@ class CLISharedPathTests(TestCase):
             p.participant_id for p in participants if p.role == "CLIENT"
         )
 
-        self.assertEqual(client_names, ["node_A", "node_B", "node_C"])
+        # Per the Hub/CLI parity plan, participant names submitted from the
+        # CLI are normalised through ``safe_participant_name`` exactly once
+        # so provisioning, training submission, gossip, and tests all use the
+        # same FLARE-safe form. ``node_A`` therefore lands as ``node-A``.
+        self.assertEqual(client_names, ["node-A", "node-B", "node-C"])
         self.assertNotIn("cosmos", client_names)
 
     def test_training_start_ui_and_cli_share_service(self):

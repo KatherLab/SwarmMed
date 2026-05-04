@@ -9,7 +9,7 @@ import numpy as np
 from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from network.models import SwarmNetwork
+from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project
 
 from . import services as training_services
@@ -308,3 +308,149 @@ class TrainingIdentityServiceTests(TestCase):
 
         self.assertEqual(job.status, "COMPLETED")
         self.assertEqual(job.progress_percent, 100)
+
+
+class TrainingViewServiceParityTests(TestCase):
+    """The training_api_state and training_api_results views must delegate
+    to ``serialize_training_job_state`` and ``find_local_global_model_file``
+    so any future CLI command that needs the same payload gets identical
+    results.
+    """
+
+    @staticmethod
+    def _fake_log():
+        def no_op(*_args, **_kwargs):
+            return None
+
+        return SimpleNamespace(log=no_op)
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="train-parity", password="test-password"
+        )  # nosec B106
+        self.flare_uuid = "abcd1234-abcd-1234-abcd-1234abcd1234"
+        with patch("logs.signals.get_logger", return_value=self._fake_log()):
+            self.project = Project.objects.create(
+                title="Parity Project", author=self.user
+            )
+            self.network = SwarmNetwork.objects.create(
+                name="Parity Network",
+                project=self.project,
+                author=self.user,
+                status="RUNNING",
+            )
+            self.job = TrainingJob.objects.create(
+                project=self.project,
+                network=self.network,
+                status="RUNNING",
+                flare_job_id=f"Submitted job: {self.flare_uuid}",
+                flare_job_uuid=self.flare_uuid,
+                total_rounds=5,
+                rounds_finished=2,
+                progress_percent=40,
+            )
+        self.participant = SwarmParticipant.objects.create(
+            network=self.network,
+            user=self.user,
+            role="CLIENT",
+            participant_id="site-a",
+            ip="127.0.0.1",
+        )
+
+    def test_serialize_training_job_state_returns_compact_payload(self):
+        payload = training_services.serialize_training_job_state(self.job)
+        self.assertEqual(
+            set(payload.keys()),
+            {
+                "flare_job_id",
+                "flare_job_uuid",
+                "status",
+                "total_rounds",
+                "rounds_finished",
+                "progress_percent",
+                "created_at",
+            },
+        )
+        self.assertEqual(payload["flare_job_uuid"], self.flare_uuid)
+        self.assertEqual(payload["progress_percent"], 40)
+
+    def test_find_local_global_model_prefers_canonical_filename(self):
+        with tempfile.TemporaryDirectory() as base_dir:
+            workspace = Path(base_dir) / "workspaces" / str(
+                self.project.identifier
+            ) / str(self.network.identifier) / "workspace" / f"job-{self.flare_uuid}"
+            workspace.mkdir(parents=True)
+            # Drop both a legacy and the canonical file in the same dir.
+            (workspace / "best_FL_model.pt").write_bytes(b"legacy")
+            (workspace / "FL_global_model.pt").write_bytes(b"canonical")
+
+            with override_settings(BASE_DIR=base_dir):
+                resolved = training_services.find_local_global_model_file(self.job)
+
+            self.assertIsNotNone(resolved)
+            self.assertTrue(resolved.endswith("FL_global_model.pt"))
+
+    def test_find_local_global_model_falls_back_to_legacy_filename(self):
+        with tempfile.TemporaryDirectory() as base_dir:
+            workspace = Path(base_dir) / "workspaces" / str(
+                self.project.identifier
+            ) / str(self.network.identifier) / "workspace" / f"job-{self.flare_uuid}"
+            workspace.mkdir(parents=True)
+            (workspace / "global_model.pt").write_bytes(b"legacy")
+
+            with override_settings(BASE_DIR=base_dir):
+                resolved = training_services.find_local_global_model_file(self.job)
+
+            self.assertIsNotNone(resolved)
+            self.assertTrue(resolved.endswith("global_model.pt"))
+
+    def test_find_local_global_model_returns_none_when_workspace_empty(self):
+        with tempfile.TemporaryDirectory() as base_dir:
+            with override_settings(BASE_DIR=base_dir):
+                resolved = training_services.find_local_global_model_file(self.job)
+        self.assertIsNone(resolved)
+
+    def test_sync_completed_job_local_results_uses_canonical_key_layout(self):
+        class FakeStorage:
+            def __init__(self):
+                self.saved = {}
+
+            def exists(self, name):
+                return name in self.saved
+
+            def save(self, name, content):
+                self.saved[name] = content.read()
+                return name
+
+        self.job.status = "COMPLETED"
+        self.job.save(update_fields=["status"])
+        storage = FakeStorage()
+
+        with tempfile.TemporaryDirectory() as base_dir:
+            workspace = (
+                Path(base_dir)
+                / "workspaces"
+                / str(self.project.identifier)
+                / str(self.network.identifier)
+                / "workspace"
+                / "site-a"
+                / self.flare_uuid
+                / "models"
+            )
+            workspace.mkdir(parents=True)
+            artifact = workspace / "model_weights.npz"
+            artifact.write_bytes(b"weights")
+
+            with override_settings(BASE_DIR=base_dir), patch(
+                "training.services.default_storage", storage
+            ):
+                synced_keys = training_services.sync_completed_job_local_results(
+                    self.job, network=self.network
+                )
+
+        expected_key = (
+            f"{self.project.identifier}/results/"
+            f"{self.flare_uuid}/site-a/models/model_weights.npz"
+        )
+        self.assertEqual(synced_keys, [expected_key])
+        self.assertEqual(storage.saved[expected_key], b"weights")

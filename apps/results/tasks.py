@@ -20,14 +20,17 @@ from project.models import Project
 from training.models import TrainingJob
 from training.utils import extract_flare_job_uuid, upload_file_to_s3
 
+from .artifacts import (
+    GLOBAL_MODEL_FILENAME,
+    is_model_artifact,
+    parse_result_key,
+)
 from .models import (
     ResultsVisualizationPlot,
     ResultsVisualizationRun,
     TrainingResult,
 )
 from .visualization import ResultsVisualizationContext
-
-GLOBAL_MODEL_FILENAME = "FL_global_model.pt"
 
 
 def _file_md5(path: str) -> str:
@@ -131,7 +134,7 @@ def _iter_job_result_folders(job: TrainingJob):
 
 
 def _sync_local_workspace_results(project: Project, log) -> None:
-    """Upload final NVFlare global models into object storage."""
+    """Upload local NVFlare model artifacts into canonical object storage."""
     for job in (
         TrainingJob.objects.filter(project=project, status="COMPLETED")
         .select_related("project", "network")
@@ -140,26 +143,37 @@ def _sync_local_workspace_results(project: Project, log) -> None:
         for flare_job_uuid, participant, local_path in _iter_job_result_folders(
             job
         ):
-            global_model_path = os.path.join(local_path, GLOBAL_MODEL_FILENAME)
-            if not os.path.exists(global_model_path):
+            uploaded_any = False
+            for root, _dirs, files in os.walk(local_path):
+                for filename in files:
+                    if not is_model_artifact(filename):
+                        continue
+                    local_artifact_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(
+                        local_artifact_path, local_path
+                    ).replace(os.sep, "/")
+                    s3_key = (
+                        f"{project.identifier}/results/{flare_job_uuid}/"
+                        f"{participant}/{rel_path}"
+                    )
+                    upload_file_to_s3(
+                        settings.AWS_STORAGE_BUCKET_NAME,
+                        s3_key,
+                        local_artifact_path,
+                    )
+                    md5 = _file_md5(local_artifact_path)
+                    uploaded_any = True
+                    log.results.info(
+                        "Uploaded model artifact for "
+                        f"job {job.identifier} participant {participant}: "
+                        f"{rel_path} md5={md5}"
+                    )
+
+            if not uploaded_any:
                 log.results.warning(
-                    "No FL_global_model.pt found for "
+                    "No model artifacts found for "
                     f"job {job.identifier} participant {participant}: {local_path}"
                 )
-                continue
-
-            s3_key = (
-                f"{project.identifier}/results/{flare_job_uuid}/{participant}/"
-                f"{GLOBAL_MODEL_FILENAME}"
-            )
-            upload_file_to_s3(
-                settings.AWS_STORAGE_BUCKET_NAME, s3_key, global_model_path
-            )
-            md5 = _file_md5(global_model_path)
-            log.results.info(
-                "Uploaded final global model for "
-                f"job {job.identifier} participant {participant}: md5={md5}"
-            )
 
 
 @shared_task
@@ -198,15 +212,14 @@ def sync_project_results(project_uuid):
                 filename = os.path.basename(key)
                 if filename.startswith(".") or filename.endswith((".py", ".pyc")):
                     continue
-                if filename != GLOBAL_MODEL_FILENAME:
+                if not is_model_artifact(filename):
                     continue
 
-                parts = key.split("/")
-                if len(parts) < 4:
+                parsed = parse_result_key(key, str(project.identifier))
+                if not parsed:
                     continue
 
-                job_id_from_s3_key = parts[2]
-                obj.get("LastModified")
+                job_id_from_s3_key = parsed.flare_job_id
                 normalized_s3_uuid = (
                     extract_flare_job_uuid(job_id_from_s3_key)
                     or job_id_from_s3_key

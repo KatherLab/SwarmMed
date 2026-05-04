@@ -11,7 +11,6 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import models
 from django.http import (
     HttpResponseForbidden,
     HttpResponseRedirect,
@@ -45,46 +44,27 @@ def project_list(request):
     user_id = request.user.id
     cache_key = f"project_list_{user_id}"
 
-    # Try to get cached data
     cached_data = cache.get(cache_key)
     if cached_data is not None:
         return render(request, "apps/project/project.html", cached_data)
 
-    # Fetch active projects where the user is the author OR is in the members list.
-    # Optimization: select_related for author (FK) and prefetch_related for members (M2M)
-    active_projects = (
-        Project.objects.filter(
-            models.Q(author=request.user) | models.Q(members=request.user)
-        )
-        .exclude(status="ARCHIVED")
-        .distinct()
-        .select_related("author")
-        .prefetch_related("members")
-        .order_by("-created_at")
+    # Active projects (author OR member, excluding archived) come from the
+    # shared service so Hub and CLI agree on access scope. Archived projects
+    # remain a Hub-only UX slice (only author-owned), so we keep that filter
+    # local rather than widening the service contract.
+    active_projects = project_services.list_user_projects(
+        request.user, include_archived=False
     )
-
-    # Archived projects: Only show projects where the user is the AUTHOR and status is ARCHIVED.
-    # Optimization: select_related for author
     archived_projects = (
         Project.objects.filter(author=request.user, status="ARCHIVED")
         .select_related("author")
         .order_by("-created_at")
     )
+    current_project = project_services.get_current_project(request.user)
 
-    # Try to find which project the user has set as their 'current' project.
-    try:
-        # Optimization: select_related for the project relation
-        current_project_relation = UserCurrentProject.objects.select_related(
-            "project"
-        ).get(user=request.user)
-        current_project = current_project_relation.project
-    except UserCurrentProject.DoesNotExist:
-        current_project = None
-
-    # Calculate some basic statistics for the dashboard UI.
     total_active = active_projects.count()
     finished_projects_count = archived_projects.count()
-    projects_to_do_count = total_active  # Assuming 'to do' means active
+    projects_to_do_count = total_active
 
     context = {
         "segment": "project",
@@ -96,7 +76,6 @@ def project_list(request):
         "total_projects": total_active + finished_projects_count,
     }
 
-    # Cache for 2 minutes (120 seconds)
     cache.set(cache_key, context, 120)
 
     return render(request, "apps/project/project.html", context)

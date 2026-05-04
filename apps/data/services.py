@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 
-from celery import current_app
 from django.conf import settings
 from django.core.files import File
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
+from celery import current_app
 from common.utils import get_s3_client
 from logs import logger
 from project.models import Project
@@ -382,6 +383,35 @@ def stop_visualization(project: Project) -> VisualizationRun:
 def get_latest_visualization_run(project: Project) -> VisualizationRun | None:
     """Return the latest data visualization run for a project."""
     return VisualizationRun.objects.filter(project=project).first()
+
+
+def resolve_visualization_plot(
+    project: Project, plot_id: str
+) -> VisualizationPlot | None:
+    """Resolve a visualization plot by UUID identifier or numeric id.
+
+    Returns ``None`` when no plot matches; callers (Hub view or CLI) decide
+    whether to 404 or surface a structured error.
+    """
+    base = VisualizationPlot.objects.filter(visualization_run__project=project)
+    plot_id = (plot_id or "").strip()
+    if not plot_id:
+        return None
+    try:
+        plot_uuid = uuid.UUID(plot_id)
+    except ValueError:
+        plot_uuid = None
+    if plot_uuid:
+        plot = base.filter(identifier=plot_uuid).first()
+        if plot is not None:
+            return plot
+    # Legacy fallback: older serialized payloads referenced the numeric primary
+    # key. Accept it but only if it parses as an integer.
+    try:
+        legacy_id = int(plot_id)
+    except ValueError:
+        return None
+    return base.filter(id=legacy_id).first()
 
 
 def serialize_visualization_run(
