@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import fsspec
 import numpy as np
 import nvflare.client as flare
+import nvflare.client.lightning # Ensure lightning is accessible through flare.lightning
 import requests
 
 try:
@@ -127,7 +128,7 @@ class FlareDataFileSystem:
             in {"1", "true", "yes", "on"}
         )
         self.http_timeout_sec = float(
-            os.getenv("SWARMMEDHUB_DATA_HTTP_TIMEOUT_SEC", "30").strip() or "30"
+            os.getenv("SWARMMEDHUB_DATA_HTTP_TIMEOUT_SEC", "100").strip() or "100"
         )
         # Keep per-file fallback URL candidates (first item is preferred).
         self._manifest_candidates = {}
@@ -170,7 +171,7 @@ class FlareDataFileSystem:
                         resp = requests.get(
                             request_url,
                             headers={"X-Manifest-Secret": manifest_secret},
-                            timeout=3,
+                            timeout=10,
                             verify=_get_manifest_verify_value(request_url),
                         )
                         if resp.status_code == 200:
@@ -410,7 +411,7 @@ class FlareDataFileSystem:
         last_error = None
         # Use a short timeout for probing to avoid hanging
         probe_timeout = (
-            3.0 if not self._working_host_prefix else self.http_timeout_sec
+            10.0 if not self._working_host_prefix else self.http_timeout_sec
         )
 
         for url in ordered_candidates:
@@ -585,7 +586,7 @@ def send_model(params, metrics: dict = None, meta: dict = None):
     """Sends model updates and metrics back to the server.
 
     Args:
-        params: The model parameters to send.
+        params: The model parameters to send. Could be a dictionary, list/tuple, or FLModel.
         metrics (dict, optional): Optional dictionary of metrics.
         meta (dict, optional): Optional dictionary of metadata.
 
@@ -594,6 +595,13 @@ def send_model(params, metrics: dict = None, meta: dict = None):
     """
     if params is None:
         raise ValueError("flare_adapter: send_model received params=None.")
+
+    # If an FLModel is passed, extract its components
+    if isinstance(params, flare.FLModel):
+        metrics = metrics or params.metrics
+        meta = meta or params.meta
+        params = params.params
+
     if isinstance(params, (list, tuple)):
         params = {str(i): v for i, v in enumerate(params)}
     params = _ensure_transportable(params)
@@ -657,3 +665,18 @@ def _ensure_transportable(params: dict):
         else:
             converted[k] = np.array(v)
     return converted
+
+
+# =================================================================================
+# Public Client API Aliases
+# =================================================================================
+# These aliases allow 'import flare_adapter as flare' for a unified experience,
+# providing the best of both the original NVFlare client and our adapter.
+
+init = init_flare
+receive = receive_model
+send = send_model
+is_running = flare.is_running
+FLModel = flare.FLModel
+lightning = nvflare.client.lightning
+flare = flare

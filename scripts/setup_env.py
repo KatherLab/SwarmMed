@@ -18,18 +18,18 @@ from cryptography.fernet import Fernet
 ENV_HELP = {
     "SECRET_KEY": {
         "desc": "Django's secret key used for cryptographic signing.",
-        "example": "django-insecure-xyz123...",
+        "example": "s3cr3t_k3y_f0r_dj4ng0",
     },
     "DEBUG": {
         "desc": "Enable or disable Django's debug mode with True (False for production).",
         "example": "False",
     },
     "DJANGO_ALLOWED_HOSTS": {
-        "desc": "A comma-separated list of host/domain names this site can serve.",
+        "desc": "A comma-separated list of host/domain names this site can serve. Please include all hostnames and IPs you will use to access the platform, including tailscale ip.",
         "example": "localhost,127.0.0.1,192.168.33.107,100.127.11.1",
     },
     "DJANGO_CSRF_TRUSTED_ORIGINS": {
-        "desc": "A list of trusted origins for Unsafe requests (e.g. POST).",
+        "desc": "A list of trusted origins for Unsafe requests. Include all URLs (with scheme) that will be used to access the platform, especially if using HTTPS or accessing via IP.",
         "example": "http://localhost:8000,http://localhost:5085,https://localhost:5085,https://100.127.11.1:5085",
     },
     "POSTGRES_PASSWORD": {
@@ -46,7 +46,7 @@ ENV_HELP = {
     },
     "MINIO_KMS_SECRET_KEY": {
         "desc": "Key Management Service secret key for MinIO encryption.",
-        "example": "swarmmedhub:base64_encoded_key",
+        "example": "swarmmedhub:base64_encoded_random_key",
     },
     "AWS_S3_REGION_NAME": {
         "desc": "The region name for S3 storage (often us-east-1 for MinIO).",
@@ -56,25 +56,65 @@ ENV_HELP = {
         "desc": "The public-facing URL for accessing stored files.",
         "example": "https://100.127.11.1:9000",
     },
+    "ORGANIZATION_NAME": {
+        "desc": "Legal name of the organization operating this platform instance.",
+        "example": "Dresden University of Technology",
+    },
+    "ORGANIZATION_STREET": {
+        "desc": "Street and house number of the organization.",
+        "example": "Nöthnitzer Strasse 69",
+    },
+    "ORGANIZATION_ZIP_CITY": {
+        "desc": "ZIP code and city of the organization.",
+        "example": "01187 Dresden",
+    },
+    "ORGANIZATION_COUNTRY": {
+        "desc": "Country of the organization.",
+        "example": "Germany",
+    },
+    "ORGANIZATION_WEBSITE": {
+        "desc": "Primary website URL of the organization.",
+        "example": "https://tu-dresden.de",
+    },
+    "REPRESENTATIVE_NAME": {
+        "desc": "Name of the legal representative of the organization.",
+        "example": "Prof. Dr. Ursula M. Staudinger",
+    },
+    "CONTACT_EMAIL": {
+        "desc": "General contact email address for inquiries.",
+        "example": "rektorin@tu-dresden.de",
+    },
+    "CONTACT_PHONE": {
+        "desc": "General contact phone number.",
+        "example": "+49 (0) 351 463-0",
+    },
+    "EDITORIAL_RESPONSIBLE_NAME": {
+        "desc": "Name of the person responsible for the content according to § 18 MStV.",
+        "example": "Prof. Dr. Ursula M. Staudinger",
+    },
+    "EDITORIAL_RESPONSIBLE_ADDRESS": {
+        "desc": "Physical address of the person responsible for the content.",
+        "example": "Nöthnitzer Strasse 69, 01187 Dresden, Germany",
+    },
     "PRIVACY_CONTROLLER_NAME": {
         "desc": "Legal name of the organization controlling the data.",
-        "example": "KatherLab",
+        "example": "Dresden University of Technology",
     },
     "PRIVACY_CONTROLLER_ADDRESS": {
         "desc": "Physical address of the organization.",
-        "example": "123 Tech Lane, San Francisco, CA",
+        "example": "Nöthnitzer Strasse 69, 01187 Dresden, Germany",
     },
     "PRIVACY_CONTACT_EMAIL": {
         "desc": "Primary email for privacy-related inquiries.",
-        "example": "privacy@swarmmedhub.org",
+        "example": "privacy@swarmcloud.example.com",
     },
     "PRIVACY_DPO_EMAIL": {
         "desc": "Email address for the Data Protection Officer.",
-        "example": "dpo@swarmmedhub.org",
+        "example": "dpo@swarmcloud.example.com",
     },
     "PRIVACY_DPO_ADDRESS": {
         "desc": "Physical address for the Data Protection Officer.",
-        "example": "456 Compliance Ave, Berlin, Germany",
+        "example": "Nöthnitzer Strasse 69, 01187 Dresden, Germany",
     },
     "PRIVACY_HOSTING_PROVIDER": {
         "desc": "Description of where the platform is hosted.",
@@ -85,10 +125,6 @@ ENV_HELP = {
         "example": "EU (Germany)",
     },
     "EMAIL_HOST": {
-        "desc": "SMTP server hostname for sending emails.",
-        "example": "smtp.gmail.com",
-    },
-    "EMAIL_PORT": {
         "desc": "SMTP server port (usually 587 for TLS).",
         "example": "587",
     },
@@ -233,6 +269,7 @@ def setup_env():
             and not current_value.startswith("same-as-")
         ):
             val = current_value
+            print(f"✅ Kept {key}")
         elif template_value.startswith("same-as-"):
             target_key = template_value.replace("same-as-", "").strip()
             val = resolved_env.get(target_key)

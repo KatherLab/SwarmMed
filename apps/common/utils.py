@@ -5,6 +5,7 @@ API response formatting, and general utility tasks used across different apps.
 """
 
 import os
+import re
 import socket
 from urllib.parse import urlparse
 
@@ -14,6 +15,144 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
+
+
+def parse_safe_requirement_lines(requirements_text):
+    """Parses and sanitizes a requirements file content.
+
+    Args:
+        requirements_text (str): The raw text of the requirements file.
+
+    Returns:
+        list: A list of sanitized and unique requirement strings.
+    """
+    safe_lines = []
+    seen = set()
+    for raw_line in (requirements_text or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if re.match(
+            r"^[a-zA-Z0-9_\-\[\]]+([=<>!~]+[a-zA-Z0-9\._\-\*\,]+)?$",
+            line,
+        ):
+            normalized = line.lower()
+            if normalized not in seen:
+                safe_lines.append(line)
+                seen.add(normalized)
+    return safe_lines
+
+
+def collect_project_runtime_requirements(project, logger):
+    """Collects all runtime requirements for a project from local and remote sources.
+
+    Args:
+        project (Project): The project instance.
+        logger (Logger): The logger instance for status updates.
+
+    Returns:
+        list: A consolidated list of requirement strings.
+    """
+    baseline = [
+        "nvflare==2.7.1",
+        "gunicorn==23.0.0",
+        "boto3==1.34.100",
+        "python-dotenv==1.0.1",
+        "pandas==2.3.3",
+        "numpy==2.4.3",
+        "torch==2.10.0",
+        "scikit-learn==1.8.0",
+        "fsspec==2025.2.0",
+        "aiohttp==3.13.3",
+    ]
+
+    merged = []
+    seen = set()
+
+    def _add_lines(lines):
+        for line in lines:
+            key = line.strip().lower()
+            if key and key not in seen:
+                merged.append(line)
+                seen.add(key)
+
+    _add_lines(baseline)
+
+    requirement_sources = []
+    if getattr(project, "requirements_file", None):
+        try:
+            if project.requirements_file.name:
+                requirement_sources.append(project.requirements_file.name)
+        except Exception:
+            pass
+
+    requirement_sources.append(
+        f"{project.identifier}/code/training/requirements.txt"
+    )
+    requirement_sources.append(
+        f"{project.identifier}/code/requirements/requirements.txt"
+    )
+
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    s3_client = get_s3_client()
+
+    try:
+        prefixes = [
+            f"{project.identifier}/code/requirements/",
+            f"{project.identifier}/code/training/",
+        ]
+        for prefix in prefixes:
+            continuation_token = None
+            while True:
+                kwargs = {
+                    "Bucket": bucket,
+                    "Prefix": prefix,
+                    "MaxKeys": 100,
+                }
+                if continuation_token:
+                    kwargs["ContinuationToken"] = continuation_token
+
+                response = s3_client.list_objects_v2(**kwargs)
+                for obj in response.get("Contents", []):
+                    key = str(obj.get("Key", "")).strip()
+                    lower_key = key.lower()
+                    if not key:
+                        continue
+                    if lower_key.endswith(".txt") and "requirements" in lower_key:
+                        requirement_sources.append(key)
+
+                if not response.get("IsTruncated"):
+                    break
+                continuation_token = response.get("NextContinuationToken")
+    except Exception as e:
+        logger.network.info(
+            f"Could not enumerate requirement files in project storage: {e}"
+        )
+
+    # Preserve order while removing duplicates
+    seen_keys = set()
+    deduped_sources = []
+    for key in requirement_sources:
+        if key and key not in seen_keys:
+            deduped_sources.append(key)
+            seen_keys.add(key)
+
+    for key in deduped_sources:
+        try:
+            response = s3_client.get_object(Bucket=bucket, Key=key)
+            text = response["Body"].read().decode("utf-8")
+            lines = parse_safe_requirement_lines(text)
+            if lines:
+                logger.network.info(
+                    f"Loaded runtime requirements from storage key: {key}"
+                )
+                _add_lines(lines)
+        except Exception as e:
+            logger.network.info(
+                f"No readable requirements found at {key}: {e}"
+            )
+
+    return merged
 
 
 def get_docker_client(target="host"):

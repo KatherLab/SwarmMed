@@ -21,19 +21,7 @@ def privacy_policy(request):
     return render(
         request,
         "apps/common/privacy.html",
-        {
-            "segment": "privacy",
-            "privacy_controller_name": settings.PRIVACY_CONTROLLER_NAME,
-            "privacy_controller_address": settings.PRIVACY_CONTROLLER_ADDRESS,
-            "privacy_contact_email": settings.PRIVACY_CONTACT_EMAIL,
-            "privacy_dpo_email": settings.PRIVACY_DPO_EMAIL,
-            "privacy_dpo_address": settings.PRIVACY_DPO_ADDRESS,
-            "privacy_hosting_provider": settings.PRIVACY_HOSTING_PROVIDER,
-            "privacy_data_region": settings.PRIVACY_DATA_REGION,
-            "account_erasure_grace_days": settings.ACCOUNT_ERASURE_GRACE_DAYS,
-            "security_log_retention_days": settings.SECURITY_LOG_RETENTION_DAYS,
-            "ip_anonymization_days": settings.IP_ANONYMIZATION_DAYS,
-        },
+        {"segment": "privacy"},
     )
 
 

@@ -12,26 +12,26 @@
                 <h2 class="text-xl font-bold text-gray-900 dark:text-white">General Inquiries</h2>
                 <div class="p-4 bg-gray-50 rounded-lg dark:bg-gray-700">
                     <p class="font-medium text-gray-900 dark:text-white">
-                        Email: <a href="mailto:[INSERT CONTACT EMAIL]" class="text-blue-600 hover:underline dark:text-blue-500">[INSERT CONTACT EMAIL]</a>
+                        Email: <a href="mailto:{{ contact_email }}" class="text-blue-600 hover:underline dark:text-blue-500">{{ contact_email }}</a>
                     </p>
                 </div>
 
                 <h2 class="text-xl font-bold text-gray-900 dark:text-white">Scientific Collaboration</h2>
-                <p>For research-related inquiries and collaborations, please contact the KatherLab directly.</p>
+                <p>For research-related inquiries and collaborations, please contact the {{ organization_name }} directly.</p>
                 <div class="p-4 bg-gray-50 rounded-lg dark:bg-gray-700">
                     <p class="font-medium text-gray-900 dark:text-white">
-                        KatherLab<br>
-                        Website: <a href="http://kather.ai/" class="text-blue-600 hover:underline dark:text-blue-500">kather.ai</a>
+                        {{ organization_name }}<br>
+                        Website: <a href="{{ organization_website }}" class="text-blue-600 hover:underline dark:text-blue-500">{{ organization_website|cut:"http://"|cut:"https://"}}</a>
                     </p>
                 </div>
 
                 <h2 class="text-xl font-bold text-gray-900 dark:text-white">Address</h2>
                 <div class="p-4 bg-gray-50 rounded-lg dark:bg-gray-700">
                     <p class="font-medium text-gray-900 dark:text-white">
-                        [INSERT ORGANIZATION NAME]<br>
-                        [INSERT STREET AND NUMBER]<br>
-                        [INSERT ZIP CODE AND CITY]<br>
-                        [INSERT COUNTRY]
+                        {{ organization_name }}<br>
+                        {{ organization_street }}<br>
+                        {{ organization_zip_city }}<br>
+                        {{ organization_country }}
                     </p>
                 </div>
             </div>
