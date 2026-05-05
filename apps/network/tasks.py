@@ -118,7 +118,11 @@ def _get_runtime_manifest_base_url(
         if cleaned_remote_host:
             return f"https://{cleaned_remote_host}:5085"
         return "https://127.0.0.1:5085"
-    return "http://swarmmedhub:8000"
+
+    # For bridge networks, we hit the host gateway. We use 'swarmmedhub' as the
+    # alias because it's a standard internal name that usually resolves via 
+    # the bridge gateway IP, and we'll ensure it's in /etc/hosts.
+    return "https://swarmmedhub:5085"
 
 
 def _runtime_ulimit_args(env=None) -> list[str]:
@@ -1949,11 +1953,25 @@ def start_swarm_network_task(network_id, user_id):
                         network_name,
                         "--network-alias",
                         participant_name,
+                        "--add-host",
+                        "swarmmedhub:host-gateway",
                     ]
                 )
 
             if mount_mode == "bind":
                 run_cmd.extend(["-v", f"{host_workspace_path}:/workspace"])
+                # Ensure the internal CA certificate is available for secure manifest fetching
+                host_project_path = os.getenv("HOST_PROJECT_PATH", "").strip()
+                if host_project_path:
+                    ca_cert_host_path = os.path.join(
+                        host_project_path, ".secrets/certs/internal/ca.crt"
+                    )
+                    run_cmd.extend(
+                        [
+                            "-v",
+                            f"{ca_cert_host_path}:/usr/local/share/ca-certificates/internal-ca.crt:ro",
+                        ]
+                    )
             else:
                 run_cmd.extend(["--volumes-from", shared_container_name])
 
