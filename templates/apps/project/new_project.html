@@ -103,7 +103,7 @@
                   <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Upload files or folders</p>
                 </div>
-                <input id="id_training_code" name="training_code" type="file" class="hidden" multiple accept=".py" />
+                <input id="id_training_code" name="training_code" type="file" class="hidden" multiple webkitdirectory directory accept=".py" />
               </label>
               {% if form.training_code.errors %}
               <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.training_code.errors.0 }}</p>

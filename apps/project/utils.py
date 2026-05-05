@@ -170,8 +170,8 @@ def handle_training_code_upload(project, request):
     files = request.FILES.getlist("training_code")
 
     if directories and files:
-        # We handle storage manually for these files, so we clear the field on
-        # the model.
+        # We clear the training_code field initially. If we find a suitable
+        # main entry point (like training.py), we will restore it later.
         project.training_code = None
 
         # If we are updating an existing project, remove old training files
@@ -209,7 +209,16 @@ def handle_training_code_upload(project, request):
             )
 
             # Save the file to the configured storage (Local or S3).
-            default_storage.save(save_path, file_obj)
+            actual_path = default_storage.save(save_path, file_obj)
+
+            # If this is the main training script, update the project model to
+            # point to it. This ensures the UI can display and link to the code.
+            if clean_rel_path == "training.py":
+                project.training_code.name = actual_path
+            # If it's a single file and we haven't found a training.py yet,
+            # use this as the entry point.
+            elif len(files) == 1 and not project.training_code:
+                project.training_code.name = actual_path
 
         return True
 
