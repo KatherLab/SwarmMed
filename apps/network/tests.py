@@ -1,11 +1,13 @@
 """Tests for the network app."""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from project.models import Project
 
@@ -15,6 +17,8 @@ from .tasks import (
     _client_runtime_env_pairs,
     _get_runtime_manifest_base_url,
     _read_local_hostname_candidates,
+    _resolve_bind_source_path,
+    _runtime_ulimit_args,
     _split_runtime_entrypoint,
 )
 
@@ -49,6 +53,33 @@ class RuntimeLaunchTests(SimpleTestCase):
         )
 
         self.assertEqual(manifest_url, "https://100.100.101.102:5085")
+
+    def test_runtime_ulimit_args_defaults_to_higher_nofile_limit(self):
+        self.assertEqual(
+            _runtime_ulimit_args({}),
+            ["--ulimit", "nofile=65536:65536"],
+        )
+
+    def test_runtime_ulimit_args_can_be_disabled(self):
+        self.assertEqual(
+            _runtime_ulimit_args({"SWARMMEDHUB_RUNTIME_NOFILE_LIMIT": "0"}),
+            [],
+        )
+
+    def test_resolve_bind_source_path_keeps_existing_local_path_when_remap_missing(self):
+        existing_path = Path(settings.BASE_DIR) / "apps" / "network" / "tasks.py"
+
+        with patch.dict("os.environ", {"HOST_PROJECT_PATH": "/definitely/missing"}):
+            resolved = _resolve_bind_source_path(str(existing_path))
+
+        self.assertEqual(resolved, str(existing_path.resolve()))
+
+    @override_settings(BASE_DIR="/app")
+    def test_resolve_bind_source_path_remaps_container_app_path(self):
+        with patch.dict("os.environ", {"HOST_PROJECT_PATH": "/host/repo"}):
+            resolved = _resolve_bind_source_path("/app/workspaces/demo")
+
+        self.assertEqual(resolved, "/host/repo/workspaces/demo")
 
     def test_client_runtime_env_pairs_pass_site_local_training_config(self):
         pairs = _client_runtime_env_pairs(

@@ -21,6 +21,14 @@ class DatabaseLogHandler(logging.Handler):
         for asynchronous database storage.
         """
         try:
+            if os.environ.get("SWARMMEDHUB_DISABLE_ASYNC_LOGGING", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }:
+                return
+
             # 1. Extract context from record and thread-locals
             user_id = getattr(record, "user_id", None)
             project_id = getattr(record, "project_id", None)

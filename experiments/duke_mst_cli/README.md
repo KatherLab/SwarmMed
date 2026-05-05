@@ -30,6 +30,7 @@ MODEL_NAME=MST
 CONFIG=unilateral
 EPOCHS_PER_ROUND=5
 EPOCHS_MAX_CAP=10
+SWARMMEDHUB_MST_EXPORT_PREDICTIONS=false
 ```
 
 The CLI runtime also accepts the older MediSwarm aliases `DATADIR` and
@@ -41,6 +42,11 @@ set this on the server/admin host before `training start`:
 ```bash
 SWARMMEDHUB_SWARM_ROUNDS=2 uv run swarmed training start --network <NETWORK_UUID>
 ```
+
+The POC evaluates the NVFlare `FL_global_model.pt` checkpoint. Per-round
+prediction CSV export is disabled by default because it is much slower than the
+training loop on Duke MRI volumes. Set
+`SWARMMEDHUB_MST_EXPORT_PREDICTIONS=true` if those intermediate CSVs are needed.
 
 Evaluate only the NVFlare global model artifact:
 

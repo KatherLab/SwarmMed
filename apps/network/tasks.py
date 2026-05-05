@@ -121,6 +121,21 @@ def _get_runtime_manifest_base_url(
     return "http://swarmmedhub:8000"
 
 
+def _runtime_ulimit_args(env=None) -> list[str]:
+    """Return Docker ulimit args for long-running FLARE runtime containers."""
+    env = env or os.environ
+    raw_limit = str(env.get("SWARMMEDHUB_RUNTIME_NOFILE_LIMIT", "65536")).strip()
+    if not raw_limit:
+        return []
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        limit = 65536
+    if limit <= 0:
+        return []
+    return ["--ulimit", f"nofile={limit}:{limit}"]
+
+
 CLIENT_RUNTIME_ENV_KEYS = (
     "SITE_NAME",
     "INSTITUTION",
@@ -141,6 +156,7 @@ CLIENT_RUNTIME_ENV_KEYS = (
     "MAX_PEERS",
     "MEDISWARM_VERSION",
     "LOG_DATASET_DETAILS",
+    "SWARMMEDHUB_MST_EXPORT_PREDICTIONS",
 )
 
 
@@ -655,6 +671,44 @@ def _ensure_docker_network(docker_path, network_name, env, logger):
 
         raise RuntimeError(
             f"Failed to create Docker network '{network_name}' after subnet fallback attempts: {last_error}"
+        )
+
+
+def _connect_control_containers_to_network(docker_path, network_name, env, logger):
+    """Connect Hub-side containers that need to reach the FLARE runtime."""
+    container_names = [
+        os.getenv("SWARMMEDHUB_APP_CONTAINER", "swarmmedhub").strip()
+        or "swarmmedhub",
+        os.getenv("SWARMMEDHUB_CELERY_CONTAINER", "celery_worker").strip()
+        or "celery_worker",
+        os.getenv("SWARMMEDHUB_STORAGE_CONTAINER", "minio").strip()
+        or "minio",
+    ]
+
+    seen = set()
+    for container_name in container_names:
+        if container_name in seen:
+            continue
+        seen.add(container_name)
+
+        result = subprocess.run(  # nosec B603
+            [docker_path, "network", "connect", network_name, container_name],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        if result.returncode == 0:
+            logger.network.info(
+                f"Connected {container_name} to FLARE network {network_name}."
+            )
+            continue
+
+        stderr = (result.stderr or "").strip()
+        if "already exists" in stderr.lower():
+            continue
+        logger.network.warning(
+            f"Could not connect {container_name} to FLARE network {network_name}: {stderr}"
         )
 
 
@@ -1334,7 +1388,12 @@ def _resolve_bind_source_path(source_path):
     if relative.startswith(".."):
         return abs_source
 
-    return os.path.abspath(os.path.join(host_project_path, relative))
+    remapped = os.path.abspath(os.path.join(host_project_path, relative))
+    if os.path.abspath(str(settings.BASE_DIR)) == "/app" or os.path.exists("/.dockerenv"):
+        return remapped
+    if os.path.exists(abs_source) and not os.path.exists(remapped):
+        return abs_source
+    return remapped
 
 
 def _docker_container_exists(docker_path, container_name, env):
@@ -1492,6 +1551,8 @@ def start_swarm_network_task(network_id, user_id):
             raise FileNotFoundError(
                 f"No NVFlare startup kits found under: {base_prod_path}"
             )
+
+        local_test_network = swarm_network.creation_method == "LOCAL_TEST"
 
         _ensure_runtime_requirements_file(
             swarm_network=swarm_network,
@@ -1776,7 +1837,10 @@ def start_swarm_network_task(network_id, user_id):
             )
 
             client_host_network_enabled = (
-                os.getenv("SWARMMEDHUB_CLIENT_HOST_NETWORK", "true")
+                os.getenv(
+                    "SWARMMEDHUB_CLIENT_HOST_NETWORK",
+                    "false" if local_test_network and has_server_target else "true",
+                )
                 .strip()
                 .lower()
                 in {"1", "true", "yes", "on"}
@@ -1853,6 +1917,7 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 "SWARMMEDHUB_USE_LOCAL_DATA=1",
             ]
+            run_cmd.extend(_runtime_ulimit_args(env))
             manifest_base_url = _get_runtime_manifest_base_url(
                 use_host_network=use_host_network,
                 remote_host=remote_host,
@@ -1896,6 +1961,8 @@ def start_swarm_network_task(network_id, user_id):
                 data_dir = str(env.get("DATA_DIR") or env.get("DATADIR") or "").strip()
                 if data_dir:
                     run_cmd.extend(["-v", f"{data_dir}:/data:ro"])
+                    if os.path.isabs(data_dir) and os.path.normpath(data_dir) != "/data":
+                        run_cmd.extend(["-v", f"{data_dir}:{data_dir}:ro"])
 
                 scratch_dir = str(
                     env.get("SCRATCH_DIR") or env.get("SCRATCHDIR") or ""
@@ -1931,18 +1998,30 @@ def start_swarm_network_task(network_id, user_id):
                             f"{host_persist_dir}:/tmp/nvflare",
                         ]
                     )
-                _add_required_port_mapping(
-                    run_cmd=run_cmd,
-                    container_port=fed_learn_port,
-                    logger=logger,
-                    participant_name=participant_name,
+                publish_local_test_ports = (
+                    os.getenv("SWARMMEDHUB_LOCAL_TEST_PUBLISH_PORTS", "")
+                    .strip()
+                    .lower()
+                    in {"1", "true", "yes", "on"}
                 )
-                _add_required_port_mapping(
-                    run_cmd=run_cmd,
-                    container_port=admin_port,
-                    logger=logger,
-                    participant_name=participant_name,
-                )
+                if local_test_network and not publish_local_test_ports:
+                    logger.network.info(
+                        "Local test network uses Docker bridge networking; "
+                        "not publishing FLARE server/admin ports on the host."
+                    )
+                else:
+                    _add_required_port_mapping(
+                        run_cmd=run_cmd,
+                        container_port=fed_learn_port,
+                        logger=logger,
+                        participant_name=participant_name,
+                    )
+                    _add_required_port_mapping(
+                        run_cmd=run_cmd,
+                        container_port=admin_port,
+                        logger=logger,
+                        participant_name=participant_name,
+                    )
 
             if role == "client":
                 # Determine which host the 'server' (and its aliases) should map to.
@@ -2008,26 +2087,12 @@ def start_swarm_network_task(network_id, user_id):
                     f"Container {container_name} exited during startup. Logs:\n{container_logs}"
                 )
 
-        try:
-            logger.network.info(
-                f"Connecting app and storage to network: {network_name}"
-            )
-            subprocess.run(  # nosec B603
-                [docker_path, "network", "connect", network_name, "swarmmedhub"],
-                capture_output=True,
-                env=env,
-                check=False,
-            )
-            subprocess.run(  # nosec B603
-                [docker_path, "network", "connect", network_name, "minio"],
-                capture_output=True,
-                env=env,
-                check=False,
-            )
-        except Exception as e:
-            logger.network.warning(
-                f"Could not connect containers to FLARE network: {e}"
-            )
+        _connect_control_containers_to_network(
+            docker_path=docker_path,
+            network_name=network_name,
+            env=env,
+            logger=logger,
+        )
 
         running_count = _count_running_labeled_containers(
             network_id=swarm_network.identifier,
@@ -2042,7 +2107,10 @@ def start_swarm_network_task(network_id, user_id):
         # Mark as running only after verifying at least one runtime container is alive.
         swarm_network.status = "RUNNING"
         swarm_network.save()
-        run_nvflare_preflight_check.delay(network_id, user_id)
+        if client_only_mode:
+            logger.network.info("Client-only mode: skipping Hub-side FLARE preflight enqueue.")
+        else:
+            run_nvflare_preflight_check.delay(network_id, user_id)
 
     except Exception as e:
         if "swarm_network" in locals():

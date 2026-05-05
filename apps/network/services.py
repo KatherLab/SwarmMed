@@ -169,6 +169,23 @@ def create_local_test_network(
         author=actor,
         creation_method="LOCAL_TEST",
     )
+    SwarmParticipant.objects.create(
+        network=swarm_network,
+        user=actor,
+        role="SERVER",
+        participant_id="server",
+        org="swarm_control_plane",
+        ip="127.0.0.1",
+    )
+    for client_name in ("fl-client-1", "fl-client-2"):
+        SwarmParticipant.objects.create(
+            network=swarm_network,
+            user=actor,
+            role="CLIENT",
+            participant_id=client_name,
+            org="nvidia",
+            ip="127.0.0.1",
+        )
     log.network.info(f"Provisioning local testing network '{name}'.")
     generate_flare_startup_kit(
         network_id=swarm_network.identifier,

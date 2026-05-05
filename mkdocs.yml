@@ -9,8 +9,10 @@ nav:
     - Security: security.md
     - Getting Started: getting-started.md
     - Usage: usage.md
+    - Hub Server Test Guide: hub-server-test-guide.md
     - CLI: cli.md
     - DUKE MST CLI Evaluation: duke-mst-cli-evaluation.md
+    - DUKE MST Hub POC: duke-mst-hub-poc.md
     - Installation: installation.md
     - Developer: developer.md
     - Contribution: contribution.md
