@@ -20,7 +20,12 @@ from .flare_adapter import (
     receive_model,
 )
 from .models import TrainingJob
-from .utils import infer_training_terminal_status, summarize_training_log
+from .utils import (
+    extract_total_rounds_from_flare_config,
+    infer_training_terminal_status,
+    scrape_docker_progress,
+    summarize_training_log,
+)
 
 
 class FlareAdapterManifestTests(SimpleTestCase):
@@ -87,6 +92,16 @@ class TrainingLogSummaryTests(SimpleTestCase):
         self.assertEqual(summary["rounds_finished"], 3)
         self.assertEqual(summary["terminal_status"], "COMPLETED")
 
+    def test_summarize_training_log_extracts_server_finished_round_status(self):
+        summary = summarize_training_log(
+            "updated status of client node-A on round 1: "
+            "timestamp=2026-05-04 15:48:49, action=finished_learn_task, "
+            "all_done=False"
+        )
+
+        self.assertEqual(summary["rounds_finished"], 1)
+        self.assertIsNone(summary["terminal_status"])
+
     def test_per_round_training_log_is_not_treated_as_terminal(self):
         summary = summarize_training_log(
             "Training finished for round. Sending updates to server...\n"
@@ -102,6 +117,56 @@ class TrainingLogSummaryTests(SimpleTestCase):
         """
 
         self.assertEqual(infer_training_terminal_status(log_text), "COMPLETED")
+
+    def test_extract_total_rounds_accepts_generated_controller_id(self):
+        config = {
+            "workflows": [
+                {
+                    "id": "controller",
+                    "path": "nvflare.app_common.ccwf.swarm_server_ctl.SwarmServerController",
+                    "args": {"num_rounds": 2},
+                }
+            ]
+        }
+
+        self.assertEqual(extract_total_rounds_from_flare_config(config), 2)
+
+    @patch("training.utils.shutil.which", return_value="docker")
+    @patch("training.utils.subprocess.run")
+    def test_docker_scrape_scopes_terminal_status_to_latest_job(
+        self, mock_run, _mock_which
+    ):
+        old_job = "11111111-1111-1111-1111-111111111111"
+        new_job = "22222222-2222-2222-2222-222222222222"
+
+        def fake_run(args, **_kwargs):
+            if args[1] == "ps":
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout="swarm-test-server\n",
+                    stderr="",
+                )
+            if args[1] == "logs":
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=(
+                        f"Job: {old_job} started to run\n"
+                        "Aborting current RUN due to FATAL_SYSTEM_ERROR\n"
+                        f"Job: {new_job} started to run\n"
+                        f"[identity=server, run={new_job}] Waiting for clients\n"
+                    ),
+                    stderr="",
+                )
+            raise AssertionError(args)
+
+        mock_run.side_effect = fake_run
+
+        results = scrape_docker_progress(participant_ids=["server"])
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["job_id"], new_job)
+        self.assertIsNone(results[0]["terminal_status"])
+        self.assertFalse(results[0]["ended"])
 
 
 class FlareAdapterReceiveModelTests(SimpleTestCase):

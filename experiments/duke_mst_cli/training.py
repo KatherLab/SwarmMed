@@ -19,6 +19,13 @@ import torch  # lets SwarmCloud select the PyTorch FLARE persistor.
 SWARM_ROUNDS = 20
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _add_mediswarm_paths() -> None:
     """Expose MediSwarm's shared custom modules when using the ODELIA image."""
     candidates = [
@@ -64,6 +71,7 @@ def _normalize_env() -> str:
     os.environ.setdefault("TRAINING_MODE", "swarm")
     os.environ.setdefault("EPOCHS_PER_ROUND", "5")
     os.environ.setdefault("EPOCHS_MAX_CAP", "10")
+    os.environ.setdefault("SWARMMEDHUB_MST_EXPORT_PREDICTIONS", "false")
     return site_name
 
 
@@ -104,6 +112,8 @@ def main(project_id: str = "default_project") -> None:
 
     flare.patch(trainer, load_state_dict_strict=False)
     torch.autograd.set_detect_anomaly(True)
+    export_predictions = _env_flag("SWARMMEDHUB_MST_EXPORT_PREDICTIONS")
+    logger.info("Per-round prediction CSV export enabled: %s", export_predictions)
 
     while flare.is_running():
         input_model = flare.receive()
@@ -112,7 +122,12 @@ def main(project_id: str = "default_project") -> None:
             getattr(input_model, "current_round", "?"),
         )
         threedcnn_ptl.validate_and_train(
-            logger, data_module, model, trainer, path_run_dir
+            logger,
+            data_module,
+            model,
+            trainer,
+            path_run_dir,
+            output_GT_and_classprob=export_predictions,
         )
 
     threedcnn_ptl.finalize_training(

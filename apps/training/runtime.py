@@ -23,6 +23,7 @@ from logs.logger import get_logger
 from .utils import (
     clamp_progress_percent,
     extract_flare_job_uuid,
+    extract_total_rounds_from_config_file,
     should_update_terminal_status,
     summarize_training_log,
 )
@@ -910,17 +911,10 @@ def get_training_progress_info(training_job, current_network):
             for root, _dirs, files in os.walk(workspace_dir):
                 if "config_fed_server.json" not in files:
                     continue
-                try:
-                    with open(os.path.join(root, "config_fed_server.json")) as handle:
-                        cfg = json.load(handle)
-                    for workflow in cfg.get("workflows", []):
-                        if workflow.get("id") == "swarm_controller":
-                            total_rounds = int(
-                                workflow.get("args", {}).get("num_rounds", total_rounds)
-                            )
-                            break
-                except Exception:
-                    pass
+                total_rounds = extract_total_rounds_from_config_file(
+                    os.path.join(root, "config_fed_server.json"),
+                    default=total_rounds,
+                )
                 if total_rounds != 10:
                     break
 

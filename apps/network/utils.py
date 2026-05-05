@@ -23,6 +23,20 @@ from django.utils.text import slugify
 TAILSCALE_STATUS_FILE = Path(settings.BASE_DIR) / "tmp" / "tailscale_status.json"
 
 
+def _safe_cache_get(key):
+    try:
+        return cache.get(key)
+    except Exception:
+        return None
+
+
+def _safe_cache_set(key, value, timeout):
+    try:
+        cache.set(key, value, timeout)
+    except Exception:
+        pass
+
+
 def _read_tailscale_file():
     """Reads Tailscale status from the shared JSON file.
 
@@ -46,7 +60,7 @@ def get_tailscale_ip():
     Returns:
         str: The Tailscale IP address, or 'Not Available' if failed.
     """
-    cached_ip = cache.get("tailscale_ip")
+    cached_ip = _safe_cache_get("tailscale_ip")
     if cached_ip:
         return cached_ip
 
@@ -54,7 +68,7 @@ def get_tailscale_ip():
     payload = _read_tailscale_file()
     if payload and payload.get("ipv4"):
         ip = payload["ipv4"]
-        cache.set("tailscale_ip", ip, 300)
+        _safe_cache_set("tailscale_ip", ip, 300)
         return ip
 
     return "Not Available"
@@ -66,7 +80,7 @@ def is_tailscale_connected():
     Returns:
         str: "connected", "disconnected", or "Not Available".
     """
-    cached_state = cache.get("tailscale_connected")
+    cached_state = _safe_cache_get("tailscale_connected")
     if cached_state is not None:
         return cached_state
 
@@ -77,7 +91,7 @@ def is_tailscale_connected():
         # Handle both boolean and string "true" from the watcher
         is_connected = str(connected).lower() == "true"
         status = "connected" if is_connected else "disconnected"
-        cache.set("tailscale_connected", status, 30)
+        _safe_cache_set("tailscale_connected", status, 30)
         return status
 
     return "Not Available"

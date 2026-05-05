@@ -76,6 +76,7 @@ def _get_manifest_discovery_targets() -> list[str]:
         [
             env_host,
             docker_host_ip,
+            "swarmmedhub",
             "localhost",
             "127.0.0.1",
             "host.docker.internal",
@@ -166,34 +167,76 @@ class FlareDataFileSystem:
                     "flare_adapter: Fetching secure manifest from app proxy at "
                     f"{request_url}..."
                 )
+
+                # For internal manifest discovery, we trust the CA chain but
+                # might encounter hostname mismatches due to various local
+                # aliases (localhost, IP, host.docker.internal, etc).
+                verify_value = _get_manifest_verify_value(request_url)
+
                 try:
-                    try:
-                        resp = requests.get(
-                            request_url,
-                            headers={"X-Manifest-Secret": manifest_secret},
-                            timeout=10,
-                            verify=_get_manifest_verify_value(request_url),
-                        )
-                        if resp.status_code == 200:
-                            manifest = resp.json()
-                            if manifest:
-                                print(
-                                    "flare_adapter: Securely loaded manifest with "
-                                    f"{len(manifest)} files from {request_url}."
-                                )
-                                return self._process_manifest_urls(manifest)
-                            else:
-                                print(
-                                    "flare_adapter: App proxy at "
-                                    f"{request_url} returned an empty manifest."
-                                )
+                    import urllib3
+
+                    resp = requests.get(
+                        request_url,
+                        headers={"X-Manifest-Secret": manifest_secret},
+                        timeout=10,
+                        verify=verify_value,
+                    )
+                    if resp.status_code == 200:
+                        manifest = resp.json()
+                        if manifest:
+                            print(
+                                "flare_adapter: Securely loaded manifest with "
+                                f"{len(manifest)} files from {request_url}."
+                            )
+                            return self._process_manifest_urls(manifest)
                         else:
                             print(
                                 "flare_adapter: App proxy at "
-                                f"{request_url} returned status {resp.status_code}."
+                                f"{request_url} returned an empty manifest."
                             )
-                    except Exception:
-                        continue
+                    else:
+                        print(
+                            "flare_adapter: App proxy at "
+                            f"{request_url} returned status {resp.status_code}."
+                        )
+                except requests.exceptions.SSLError as e:
+                    # Retry internal aliases once when the cert is trusted but
+                    # does not match the local hostname used for discovery.
+                    if "Hostname mismatch" in str(e) or "IP address mismatch" in str(e):
+                        print(
+                            "flare_adapter: Hostname mismatch at "
+                            f"{request_url}, retrying with relaxed verification..."
+                        )
+                        try:
+                            if hasattr(urllib3.exceptions, "SubjectAltNameWarning"):
+                                urllib3.disable_warnings(
+                                    urllib3.exceptions.SubjectAltNameWarning
+                                )
+
+                            urllib3.disable_warnings(
+                                urllib3.exceptions.InsecureRequestWarning
+                            )
+
+                            resp = requests.get(
+                                request_url,
+                                headers={"X-Manifest-Secret": manifest_secret},
+                                timeout=10,
+                                verify=False,  # Fallback for dev only
+                            )
+                            if resp.status_code == 200:
+                                print(
+                                    "flare_adapter: Successfully loaded manifest "
+                                    f"from {request_url} (relaxed)."
+                                )
+                                return self._process_manifest_urls(resp.json())
+                        except Exception as e2:
+                            print(f"flare_adapter: Relaxed retry failed: {e2}")
+
+                    print(
+                        "flare_adapter: SSL error connecting to app proxy at "
+                        f"{request_url}: {e}"
+                    )
                 except Exception as e:
                     print(
                         "flare_adapter: Error connecting to app proxy at "

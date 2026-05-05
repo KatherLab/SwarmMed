@@ -25,6 +25,7 @@ from .runtime import (
 )
 from .utils import (
     extract_flare_job_uuid,
+    extract_total_rounds_from_config_file,
     progress_from_rounds,
     summarize_training_log,
     should_update_terminal_status,
@@ -47,22 +48,9 @@ def _get_total_rounds(workspace_base):
     for root, _dirs, files in os.walk(workspace_base):
         if "config_fed_server.json" in files:
             cfg_path = os.path.join(root, "config_fed_server.json")
-            try:
-                with open(cfg_path) as f:
-                    cfg = json.load(f)
-                for workflow in cfg.get("workflows", []):
-                    if workflow.get("id") == "swarm_controller":
-                        return int(
-                            workflow.get("args", {}).get("num_rounds", 10)
-                        )
-            except (
-                OSError,
-                ValueError,
-                TypeError,
-                KeyError,
-                json.JSONDecodeError,
-            ):
-                continue
+            rounds = extract_total_rounds_from_config_file(cfg_path, default=10)
+            if rounds != 10:
+                return rounds
     return 10
 
 

@@ -966,6 +966,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
             training_job,
             flare_job_id=job_id,
             status="RUNNING",
+            total_rounds=swarm_rounds,
         )
     except Exception as exc:
         log.training.error(f"Submit job via FLARE API failed: {exc}")

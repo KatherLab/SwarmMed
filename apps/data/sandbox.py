@@ -73,6 +73,7 @@ def ensure_sandbox_image():
                 dockerfile="Dockerfile.sandbox",
                 tag="swarmmedhub-sandbox",
                 rm=True,
+                network_mode=os.getenv("SANDBOX_BUILD_NETWORK", "host"),
                 decode=True,
             )
 

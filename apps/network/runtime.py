@@ -7,12 +7,10 @@ import re
 import shutil
 import subprocess
 
-from django.core.cache import cache
-
 from logs.logger import get_logger
 
 from .tasks import _container_name_for, _is_container_running
-from .utils import get_tailscale_ip
+from .utils import _safe_cache_get, _safe_cache_set, get_tailscale_ip
 
 logger = get_logger()
 
@@ -20,7 +18,7 @@ logger = get_logger()
 def get_local_participant_status(swarm_network):
     """Heuristically determine local participant status from containers and logs."""
     cache_key = f"network_status_{swarm_network.identifier}"
-    cached_status = cache.get(cache_key)
+    cached_status = _safe_cache_get(cache_key)
     if cached_status:
         return cached_status
 
@@ -257,5 +255,5 @@ def get_local_participant_status(swarm_network):
                 f"container for {name}: {exc}"
             )
 
-    cache.set(cache_key, status_map, 10)
+    _safe_cache_set(cache_key, status_map, 10)
     return status_map

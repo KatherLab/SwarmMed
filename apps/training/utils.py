@@ -5,6 +5,7 @@ with object storage for training code and result uploads.
 """
 
 import ast
+import json
 import os
 import re
 import shutil
@@ -17,6 +18,7 @@ FLARE_JOB_UUID_RE = re.compile(
 )
 
 TRAINING_ROUND_PATTERNS = (
+    re.compile(r"on round\s+(\d+):.*action=finished_learn_task", re.I),
     re.compile(r"Finished round\s+(\d+)", re.I),
     re.compile(r"Round\s+(\d+)\s+\|", re.I),
     re.compile(r"Round:\s+(\d+)", re.I),
@@ -146,6 +148,64 @@ def summarize_training_log(log_text: str) -> dict:
     }
 
 
+def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> int:
+    """Extract the Swarm controller round count from an NVFLARE server config."""
+    for workflow in config.get("workflows", []):
+        if not isinstance(workflow, dict):
+            continue
+        args = workflow.get("args") or {}
+        if "num_rounds" not in args:
+            continue
+
+        workflow_id = str(workflow.get("id") or "").lower()
+        workflow_path = str(workflow.get("path") or "").lower()
+        is_swarm_controller = (
+            workflow_id in {"controller", "swarm_controller"}
+            or "swarmservercontroller" in workflow_path
+            or "swarm_server_ctl" in workflow_path
+        )
+        if not is_swarm_controller:
+            continue
+
+        try:
+            rounds = int(args.get("num_rounds"))
+        except (TypeError, ValueError):
+            continue
+        if rounds > 0:
+            return rounds
+    return default
+
+
+def extract_total_rounds_from_config_file(path: str, default: int = 10) -> int:
+    """Read an NVFLARE config file and return its Swarm round count."""
+    try:
+        with open(path) as handle:
+            return extract_total_rounds_from_flare_config(json.load(handle), default)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return default
+
+
+def _scope_logs_to_latest_job(logs: str, job_id_pattern: re.Pattern) -> tuple[str | None, str]:
+    """Return the latest job id and only the log segment for that job.
+
+    Runtime containers are reused across jobs. Looking for failure markers in
+    the entire Docker log tail can make a previous failed job poison the status
+    of a newer running job.
+    """
+    matches = list(job_id_pattern.finditer(logs or ""))
+    if not matches:
+        return None, logs
+
+    job_id = matches[-1].group(1)
+    segment_start = matches[-1].start()
+    for match in reversed(matches[:-1]):
+        if match.group(1) == job_id:
+            segment_start = match.start()
+        else:
+            break
+    return job_id, logs[segment_start:]
+
+
 def should_update_terminal_status(
     current_status: str | None, new_status: str | None
 ) -> bool:
@@ -233,16 +293,13 @@ def scrape_docker_progress(participant_ids=None):
                 log.training.debug(f"Scrape: No logs found for {container}")
                 continue
             
-            job_id = None
-            summary = summarize_training_log(logs)
+            job_id, scoped_logs = _scope_logs_to_latest_job(logs, job_id_pattern)
+            summary = summarize_training_log(scoped_logs)
             rounds_finished = summary["rounds_finished"]
             terminal_status = summary["terminal_status"]
             ended = terminal_status is not None
-            
-            # Find Job ID (search from the end)
-            job_matches = job_id_pattern.findall(logs)
-            if job_matches:
-                job_id = job_matches[-1]
+
+            if job_id:
                 log.training.debug(f"Scrape: Found job_id {job_id} in {container} logs")
                 
             if rounds_finished >= 0:
