@@ -101,10 +101,17 @@
                     <path fill-rule="evenodd" d="M5 4a2 2 0 0 0-2 2v1h10.968l-1.9-2.28A2 2 0 0 0 10.532 4H5ZM3 19V9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm9-8.5a1 1 0 0 1 1 1V13h1.5a1 1 0 1 1 0 2H13v1.5a1 1 0 1 1-2 0V15H9.5a1 1 0 1 1 0-2H11v-1.5a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
                   <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
-                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Upload files or folders</p>
+                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Upload Python files</p>
                 </div>
                 <input id="id_training_code" name="training_code" type="file" class="hidden" multiple webkitdirectory directory accept=".py" />
               </label>
+              <div class="mt-2 flex flex-wrap items-center gap-3">
+                <button type="button" id="training_code_folder_button" class="inline-flex items-center px-3 py-2 text-xs font-medium text-purple-700 bg-purple-50 rounded-lg border border-purple-200 hover:bg-purple-100 focus:ring-4 focus:ring-purple-100 dark:bg-gray-700 dark:text-purple-300 dark:border-gray-600 dark:hover:bg-gray-600">
+                  Choose folder
+                </button>
+                <span class="text-xs text-gray-500 dark:text-gray-400">Use the folder picker to preserve package subfolders.</span>
+              </div>
+              <input id="id_training_code_folder" name="training_code" type="file" class="hidden" multiple webkitdirectory directory accept=".py" />
               {% if form.training_code.errors %}
               <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.training_code.errors.0 }}</p>
               {% endif %}
@@ -308,25 +315,33 @@
 
   function setupTrainingCodeUploadDisplay() {
     const filesInput = document.getElementById("id_training_code");
+    const folderInput = document.getElementById("id_training_code_folder");
+    const folderButton = document.getElementById("training_code_folder_button");
     const container = document.getElementById("training_code_files_container");
     const list = document.getElementById("training_code_files_list");
     const dirInput = document.getElementById("training_code_directories");
 
     if (!filesInput) return;
+    const inputs = [filesInput, folderInput].filter(Boolean);
     
-    function updateDisplay() {
-      const files = filesInput.files;
+    function updateDisplay(sourceInput) {
+      inputs.forEach(input => {
+        if (input !== sourceInput) {
+          input.value = "";
+        }
+      });
+      const files = sourceInput.files;
       list.innerHTML = '';
       let filesByDirectory = {};
       let directoriesMap = {};
-      let globalIdx = 0;
+      let pythonFileCount = 0;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (file.name.endsWith('.py')) {
           const relPath = file.webkitRelativePath || file.name;
-          directoriesMap[file.name + '_' + globalIdx] = relPath;
-          globalIdx++;
+          directoriesMap[file.name + '_' + i] = relPath;
+          pythonFileCount++;
 
           let dirPath = '';
           if (relPath.includes('/')) {
@@ -337,13 +352,13 @@
         }
       }
 
-      if (globalIdx > 0) {
+      if (pythonFileCount > 0) {
         container.classList.remove("hidden");
         
         // Add summary
         const summary = document.createElement('div');
         summary.className = 'font-medium text-gray-800 dark:text-white mb-2';
-        summary.textContent = `${globalIdx} .py file(s) selected`;
+        summary.textContent = `${pythonFileCount} .py file(s) selected`;
         list.appendChild(summary);
 
         for (const [dirPath, dirFiles] of Object.entries(filesByDirectory)) {
@@ -367,7 +382,19 @@
       dirInput.value = JSON.stringify(directoriesMap);
     }
 
-    filesInput.addEventListener("change", updateDisplay);
+    filesInput.addEventListener("change", function() {
+      updateDisplay(filesInput);
+    });
+    if (folderInput) {
+      folderInput.addEventListener("change", function() {
+        updateDisplay(folderInput);
+      });
+    }
+    if (folderButton && folderInput) {
+      folderButton.addEventListener("click", function() {
+        folderInput.click();
+      });
+    }
   }
 
   function setupMemberEmailsDisplay() {

@@ -169,9 +169,21 @@ def handle_training_code_upload(project, request):
     # Get the list of all files uploaded via the 'training_code' input field.
     files = request.FILES.getlist("training_code")
 
-    if directories and files:
-        # We clear the training_code field initially. If we find a suitable
-        # main entry point (like training.py), we will restore it later.
+    if files and (directories or len(files) > 1):
+        python_files = [
+            (idx, file_obj)
+            for idx, file_obj in enumerate(files)
+            if file_obj.name.lower().endswith(".py")
+        ]
+        if not python_files:
+            return True
+
+        if project.training_code:
+            project.training_code.delete(save=False)
+        # We handle storage manually for these files, but the model field still
+        # needs to point at a representative file so the Hub can detect that
+        # training code exists. Prefer a training.py file, falling back to the
+        # first saved Python file for legacy projects.
         project.training_code = None
 
         # If we are updating an existing project, remove old training files
@@ -181,8 +193,10 @@ def handle_training_code_upload(project, request):
 
         # Define the base storage path for this project's training code.
         root_path = f"{project.identifier}/code/training/"
+        first_saved_path = None
+        preferred_training_path = None
 
-        for idx, file_obj in enumerate(files):
+        for idx, file_obj in python_files:
             # The frontend generates a key using the filename and index.
             key = f"{file_obj.name}_{idx}"
 
@@ -210,17 +224,18 @@ def handle_training_code_upload(project, request):
 
             # Save the file to the configured storage (Local or S3).
             actual_path = default_storage.save(save_path, file_obj)
+            if first_saved_path is None:
+                first_saved_path = actual_path
+            if os.path.basename(clean_rel_path) == "training.py":
+                if clean_rel_path == "training.py":
+                    preferred_training_path = actual_path
+                elif preferred_training_path is None:
+                    preferred_training_path = actual_path
 
-            # If this is the main training script, update the project model to
-            # point to it. This ensures the UI can display and link to the code.
-            if clean_rel_path == "training.py":
-                project.training_code.name = actual_path
-            # If it's a single file and we haven't found a training.py yet,
-            # use this as the entry point.
-            elif len(files) == 1 and not project.training_code:
-                project.training_code.name = actual_path
-
-        return True
+        marker_path = preferred_training_path or first_saved_path
+        if marker_path:
+            project.training_code.name = marker_path
+            return True
 
     return False
 

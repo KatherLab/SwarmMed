@@ -337,9 +337,13 @@ def run(args: argparse.Namespace):
     )
 
     command_name = getattr(args, "command_name", "swarmed")
+    json_stdout = None
     try:
         user = resolve_actor(getattr(args, "user", None))
         state = CLIState(user=user, json_output=getattr(args, "json", False))
+        if state.json_output:
+            json_stdout = sys.stdout
+            sys.stdout = sys.stderr
 
         handler_name = getattr(args, "handler", None)
         if not handler_name:
@@ -733,6 +737,9 @@ def run(args: argparse.Namespace):
         else:
             raise ValueError(f"Unsupported command handler '{handler_name}'.")
 
+        if json_stdout is not None:
+            sys.stdout = json_stdout
+            json_stdout = None
         render_output(
             ok=True,
             command=command_name,
@@ -742,6 +749,9 @@ def run(args: argparse.Namespace):
         )
         return 0
     except (ValueError, LookupError, PermissionError) as exc:
+        if json_stdout is not None:
+            sys.stdout = json_stdout
+            json_stdout = None
         render_output(
             ok=False,
             command=command_name,
@@ -751,6 +761,9 @@ def run(args: argparse.Namespace):
         )
         return 2
     except KeyboardInterrupt:
+        if json_stdout is not None:
+            sys.stdout = json_stdout
+            json_stdout = None
         render_output(
             ok=False,
             command=command_name,
@@ -759,6 +772,9 @@ def run(args: argparse.Namespace):
         )
         return 1
     except Exception as exc:  # pragma: no cover - defensive boundary
+        if json_stdout is not None:
+            sys.stdout = json_stdout
+            json_stdout = None
         render_output(
             ok=False,
             command=command_name,

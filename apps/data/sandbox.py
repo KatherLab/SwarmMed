@@ -129,6 +129,50 @@ def ensure_sandbox_network():
             raise
 
 
+def _shared_network_sort_key(network_name):
+    """Prefer stable compose networks shared by sandbox-dind and MinIO."""
+    lowered = str(network_name).lower()
+    if "db_network" in lowered:
+        return (0, lowered)
+    if "sandbox_internal" in lowered:
+        return (1, lowered)
+    return (2, lowered)
+
+
+def _resolve_minio_host_for_sandbox():
+    """Resolve a MinIO address reachable from containers inside sandbox-dind."""
+    override = os.getenv("SWARMMEDHUB_SANDBOX_MINIO_HOST", "").strip()
+    if override:
+        return override
+
+    log = logger.get_logger()
+    try:
+        host_client = get_docker_client(target="host")
+        minio_container = host_client.containers.get(
+            os.getenv("SWARMMEDHUB_MINIO_CONTAINER", "minio")
+        )
+        sandbox_container = host_client.containers.get(
+            os.getenv("SWARMMEDHUB_SANDBOX_DIND_CONTAINER", "sandbox-dind")
+        )
+        minio_networks = minio_container.attrs["NetworkSettings"]["Networks"]
+        sandbox_networks = sandbox_container.attrs["NetworkSettings"]["Networks"]
+        shared_networks = sorted(
+            set(minio_networks).intersection(sandbox_networks),
+            key=_shared_network_sort_key,
+        )
+        for network_name in shared_networks:
+            ip_address = minio_networks[network_name].get("IPAddress")
+            if ip_address:
+                return ip_address
+    except Exception as exc:
+        log.data.warning(
+            "Could not inspect shared MinIO/sandbox Docker networks: "
+            f"{exc}"
+        )
+
+    return socket.gethostbyname("minio")
+
+
 def run_script_in_sandbox(
     script_content, data_dir, project_uuid, run_type="validation"
 ):
@@ -180,10 +224,12 @@ def run_script_in_sandbox(
             host_run_path: {"bind": "/home/sandboxuser/run", "mode": "rw"},
         }
 
-        # Resolve 'minio' IP to pass to the sandbox container
+        # Resolve 'minio' IP to pass to the sandbox container. This must be an
+        # address reachable from inside sandbox-dind, which can differ from the
+        # app/celery container's DNS answer when extra swarm networks exist.
         try:
-            minio_ip = socket.gethostbyname("minio")
-            extra_hosts = {"minio": minio_ip}
+            minio_host = _resolve_minio_host_for_sandbox()
+            extra_hosts = {"minio": minio_host}
         except Exception as e:
             log.data.warning(f"Could not resolve 'minio' IP for sandbox: {e}")
             extra_hosts = {}

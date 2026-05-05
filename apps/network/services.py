@@ -20,7 +20,12 @@ from project.models import Project
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .provision import generate_flare_startup_kit, is_valid_ip, safe_participant_name
 from .tasks import start_swarm_network_task, stop_swarm_network_task
-from .utils import create_startup_kits_zip, get_hostname, get_tailscale_ip
+from .utils import (
+    create_startup_kits_zip,
+    ensure_worker_writable,
+    get_hostname,
+    get_tailscale_ip,
+)
 
 
 def list_project_networks(project: Project):
@@ -154,6 +159,13 @@ def create_network(
         clients=clients,
         server_ip=resolved_server_ip,
     )
+    ensure_worker_writable(
+        Path(settings.BASE_DIR)
+        / "workspaces"
+        / str(project.identifier)
+        / str(swarm_network.identifier),
+        logger=log,
+    )
     return swarm_network
 
 
@@ -191,6 +203,13 @@ def create_local_test_network(
         network_id=swarm_network.identifier,
         local_test=True,
         clients=[],
+    )
+    ensure_worker_writable(
+        Path(settings.BASE_DIR)
+        / "workspaces"
+        / str(project.identifier)
+        / str(swarm_network.identifier),
+        logger=log,
     )
     return swarm_network
 

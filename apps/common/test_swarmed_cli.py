@@ -152,6 +152,50 @@ class CLIStateResolutionTests(TestCase):
         self.assertEqual(payload["command"], "data ls")
         self.assertTrue(payload["errors"])
 
+    def test_json_mode_keeps_handler_stdout_out_of_payload(self):
+        network = SwarmNetwork.objects.create(
+            name="Noisy Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=network,
+            status="RUNNING",
+            flare_job_id="noisy-job",
+        )
+
+        def noisy_submit(*_args, **_kwargs):
+            print("handler noise")
+            return job
+
+        stdout = StringIO()
+        stderr = StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr), patch(
+            "training.services.submit_training_job", side_effect=noisy_submit
+        ), patch(
+            "training.services.serialize_training_job",
+            return_value={"identifier": str(job.identifier)},
+        ):
+            code = main(
+                [
+                    "training",
+                    "start",
+                    "--user",
+                    self.user.username,
+                    "--network",
+                    str(network.identifier),
+                    "--json",
+                ]
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertNotIn("handler noise", stdout.getvalue())
+        self.assertIn("handler noise", stderr.getvalue())
+
 
 class CLISharedPathTests(TestCase):
     """Tests that the UI and CLI route through the same service functions."""

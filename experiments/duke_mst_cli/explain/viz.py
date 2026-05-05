@@ -3,7 +3,10 @@
 - ``render_grid``: 4x4 sampled-slice grid for one (D, H, W) volume + optional heatmap overlay.
 - ``render_composite``: composite figure mirroring the user's reference layout —
   rows for True/False positive cases, two cohorts each, with three columns
-  (Raw / GradCAM++ / OCA) and a single shared 0–1 jet colorbar at the bottom.
+  (Raw / GradCAM++ / OCA) and a single shared 0–1 attention colorbar at the bottom.
+
+The composite + extended figures are saved as **both** PNG (for previews) and
+SVG (so the user can tune layout/text in Inkscape/Illustrator).
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import gridspec
+from matplotlib.colors import LinearSegmentedColormap
 
 
 GRID_ROWS = 4
@@ -24,9 +28,23 @@ GRID_COLS = 4
 NUM_TILES = GRID_ROWS * GRID_COLS
 
 # Gamma applied to all heatmap panels at display time. >1 darkens mid-tones
-# (more blue) while preserving peak intensities (red) — keeps the lesion
-# localisation crisp.
+# while preserving peak intensities — keeps the lesion localisation crisp.
 HEATMAP_GAMMA = 3.0
+
+# Single-hue orange palette (the user's reference swatches). Low = pale peach,
+# high = dark roasted brown. Used as the continuous attention colormap, replacing
+# the noisy jet rainbow.
+ATTENTION_PALETTE = [
+    "#FBDEC5",  # palest peach
+    "#F8C690",  # light orange
+    "#F4A867",  # medium orange
+    "#E97928",  # bright pumpkin
+    "#B45A1C",  # burnt sienna
+    "#702A0A",  # dark roasted brown
+]
+ATTENTION_CMAP = LinearSegmentedColormap.from_list(
+    "odelia_attention", ATTENTION_PALETTE, N=256
+)
 
 
 @dataclass
@@ -53,6 +71,19 @@ def _window(volume: np.ndarray, low_pct: float = 0.5, high_pct: float = 99.5) ->
 
 def _sample_slices(depth: int) -> list[int]:
     return [int(round(i * (depth - 1) / (NUM_TILES - 1))) for i in range(NUM_TILES)]
+
+
+def _savefig_with_svg(fig, output_path: Path) -> None:
+    """Write ``fig`` to ``output_path`` and to a sibling ``.svg`` next to it.
+
+    The SVG version is the editable one: text labels, colorbar position, and
+    panel placement can be adjusted in Inkscape/Illustrator without re-rendering
+    the underlying heatmaps.
+    """
+    output_path = Path(output_path)
+    fig.savefig(output_path, bbox_inches="tight", facecolor="white")
+    svg_path = output_path.with_suffix(".svg")
+    fig.savefig(svg_path, bbox_inches="tight", facecolor="white", format="svg")
 
 
 def _draw_grid(ax: plt.Axes, volume_disp: np.ndarray, heatmap: np.ndarray | None) -> None:
@@ -85,7 +116,7 @@ def _draw_grid(ax: plt.Axes, volume_disp: np.ndarray, heatmap: np.ndarray | None
         # blob with clear localisation.
         gamma = HEATMAP_GAMMA
         overlay_g = np.clip(overlay, 0.0, 1.0) ** gamma
-        cmap = plt.get_cmap("jet")
+        cmap = ATTENTION_CMAP
         rgba = cmap(overlay_g)[:, :, :3]
         ax.imshow(np.clip(rgba, 0, 1), interpolation="bilinear")
     ax.set_xticks([])
@@ -199,13 +230,13 @@ def _render_layout(
     inner = cbar_ax.inset_axes([0.2, 0.35, 0.6, 0.35])
     norm = matplotlib.colors.Normalize(vmin=0.0, vmax=1.0)
     cb = matplotlib.colorbar.ColorbarBase(
-        inner, cmap=plt.get_cmap("jet"), norm=norm, orientation="horizontal",
+        inner, cmap=ATTENTION_CMAP, norm=norm, orientation="horizontal",
     )
     cb.set_ticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
     cbar_ax.text(0.21, 0.05, "Low\nattention", ha="center", va="top", fontsize=10)
     cbar_ax.text(0.79, 0.05, "High\nattention", ha="center", va="top", fontsize=10)
 
-    fig.savefig(output_path, bbox_inches="tight", facecolor="white")
+    _savefig_with_svg(fig, output_path)
     plt.close(fig)
 
 
@@ -284,7 +315,7 @@ def render_case_strip(
     inner = cbar_ax.inset_axes([0.25, 0.4, 0.5, 0.35])
     norm = matplotlib.colors.Normalize(vmin=0.0, vmax=1.0)
     cb = matplotlib.colorbar.ColorbarBase(
-        inner, cmap=plt.get_cmap("jet"), norm=norm, orientation="horizontal",
+        inner, cmap=ATTENTION_CMAP, norm=norm, orientation="horizontal",
     )
     cb.set_ticks([0.0, 0.25, 0.5, 0.75, 1.0])
     cbar_ax.text(0.245, 0.05, "Low\nattention", ha="center", va="top", fontsize=9)

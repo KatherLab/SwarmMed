@@ -1,6 +1,8 @@
 """Tests for the network app."""
 
 import json
+import stat
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,6 +23,7 @@ from .tasks import (
     _runtime_ulimit_args,
     _split_runtime_entrypoint,
 )
+from .utils import ensure_worker_writable
 
 
 class RuntimeLaunchTests(SimpleTestCase):
@@ -45,7 +48,7 @@ class RuntimeLaunchTests(SimpleTestCase):
     def test_runtime_manifest_base_url_uses_internal_app_on_bridge_network(self):
         manifest_url = _get_runtime_manifest_base_url(use_host_network=False)
 
-        self.assertEqual(manifest_url, "http://swarmmedhub:8000")
+        self.assertEqual(manifest_url, "https://swarmmedhub:5085")
 
     def test_runtime_manifest_base_url_uses_public_proxy_on_host_network(self):
         manifest_url = _get_runtime_manifest_base_url(
@@ -125,6 +128,20 @@ class RuntimeLaunchTests(SimpleTestCase):
 
         self.assertIn("node_A", candidates)
         self.assertIn("node-A", candidates)
+
+    def test_ensure_worker_writable_adds_owner_write_permission(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir) / "workspace"
+            workspace.mkdir()
+            runtime_file = workspace / "runtime_requirements.txt"
+            runtime_file.write_text("nvflare==2.7.1\n")
+            workspace.chmod(0o500)
+            runtime_file.chmod(0o400)
+
+            ensure_worker_writable(workspace)
+
+            self.assertTrue(workspace.stat().st_mode & stat.S_IWUSR)
+            self.assertTrue(runtime_file.stat().st_mode & stat.S_IWUSR)
 
 
 class GossipParticipantNormalizationTests(TestCase):

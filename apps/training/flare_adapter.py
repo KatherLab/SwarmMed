@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import fsspec
 import numpy as np
 import nvflare.client as flare
-import nvflare.client.lightning # Ensure lightning is accessible through flare.lightning
+import nvflare.client.lightning  # Ensure lightning is accessible through flare.lightning
 import requests
 
 try:

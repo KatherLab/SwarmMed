@@ -121,12 +121,15 @@ def upload_data_entries(
             skipped.append({"path": relative_path, "reason": str(exc)})
             continue
 
-        _, extension = os.path.splitext(clean_rel_path)
-        if extension.lower() not in settings.ALLOWED_EXTENSIONS:
+        filename_lower = clean_rel_path.lower()
+        if not any(
+            filename_lower.endswith(extension)
+            for extension in settings.ALLOWED_EXTENSIONS
+        ):
             skipped.append(
                 {
                     "path": relative_path,
-                    "reason": f"Disallowed file extension '{extension}'.",
+                    "reason": "Disallowed file extension.",
                 }
             )
             continue

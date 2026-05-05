@@ -33,7 +33,7 @@ from logs.models import LogCategory, LogEntry
 from project.models import Project
 
 from .models import SwarmNetwork
-from .utils import get_hostname, get_tailscale_ip
+from .utils import ensure_worker_writable, get_hostname, get_tailscale_ip
 
 
 def run_and_log_subprocess(command, cwd, env, logger):
@@ -124,7 +124,7 @@ def _get_runtime_manifest_base_url(
         return "https://127.0.0.1:5085"
 
     # For bridge networks, we hit the host gateway. We use 'swarmmedhub' as the
-    # alias because it's a standard internal name that usually resolves via 
+    # alias because it's a standard internal name that usually resolves via
     # the bridge gateway IP, and we'll ensure it's in /etc/hosts.
     return "https://swarmmedhub:5085"
 
@@ -1384,6 +1384,8 @@ def start_swarm_network_task(network_id, user_id):
             )
 
         local_test_network = swarm_network.creation_method == "LOCAL_TEST"
+
+        ensure_worker_writable(provision_dir, logger=logger)
 
         _ensure_runtime_requirements_file(
             swarm_network=swarm_network,
