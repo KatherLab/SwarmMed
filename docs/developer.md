@@ -15,7 +15,7 @@ SwarmMed supports four script types:
 *   **Results Visualization Scripts:** Analyze and visualize the models and metrics produced by training.
 
 !!! tip "Example Code"
-    You can find example scripts in the [examples/](https://github.com/pfeifferis/SwarmCloud/tree/main/examples) directory of the repository.
+    You can find example scripts in the [examples/](https://github.com/KatherLab/SwarmMed/tree/main/examples) directory of the repository.
 
 !!! tip "Testing Locally"
     You can test your validation and visualization scripts locally either by selecting `Test in local environment` as the creation method in the network settings or by creating a CLI local-test network with `swarmed network create --local-test` and reviewing the output on the logs page.

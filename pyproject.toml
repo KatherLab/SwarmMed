@@ -32,7 +32,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Security",
 ]
-urls = { Homepage = "https://github.com/pfeifferis/SwarmCloud", Repository = "https://github.com/pfeifferis/SwarmCloud", Documentation = "https://github.com/pfeifferis/SwarmCloud/tree/main/docs", Issues = "https://github.com/pfeifferis/SwarmCloud/issues" }
+urls = { Homepage = "https://github.com/KatherLab/SwarmMed", Repository = "https://github.com/KatherLab/SwarmMed", Documentation = "https://swarmmed.readthedocs.io", Issues = "https://github.com/KatherLab/SwarmMed/issues" }
 dependencies = [
     "django==6.0.0",
     "django-axes==6.4.0",

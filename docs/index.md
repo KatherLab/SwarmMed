@@ -50,7 +50,7 @@ SwarmMed is a **secure** and **scalable** platform for **decentralized learning*
 
     SwarmMedHub is licensed under PolyForm Noncommercial 1.0.0 and available on GitHub.
 
-    [:octicons-arrow-right-24: Github](https://github.com/pfeifferis/SwarmCloud)
+    [:octicons-arrow-right-24: Github](https://github.com/KatherLab/SwarmMed)
     
     [:octicons-arrow-right-24: Contribution](contribution.md)
 

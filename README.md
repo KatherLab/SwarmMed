@@ -41,8 +41,8 @@ An installation guide for other platforms can be found in the [Tailscale documen
 ### 🚢 3. Deploy Application
 Clone the repository and navigate to the project directory:
 ```bash
-git clone https://github.com/pfeifferis/SwarmCloud.git
-cd SwarmCloud
+git clone https://github.com/KatherLab/SwarmMed.git
+cd SwarmMed
 ```
 
 Then rely on the Makefile to bootstrap the environment and start the services:

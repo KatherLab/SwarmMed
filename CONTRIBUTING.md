@@ -9,8 +9,8 @@ This guide will help you get onboarded and explain how to contribute effectively
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/pfeifferis/SwarmCloud.git
-    cd SwarmCloud
+    git clone https://github.com/KatherLab/SwarmMed.git
+    cd SwarmMed
     ```
 3.  **Set up your environment**:
     - Run `make install` to install uv (if needed) and synchronize the Python dependencies into `.venv`.

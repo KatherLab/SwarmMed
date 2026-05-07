@@ -1,7 +1,7 @@
 site_name: SwarmMed Documentation
 
-repo_name: pfeifferis/SwarmCloud
-repo_url: https://github.com/pfeifferis/SwarmCloud
+repo_name: KatherLab/SwarmMed
+repo_url: https://github.com/KatherLab/SwarmMed
 
 nav:
     - Home: index.md

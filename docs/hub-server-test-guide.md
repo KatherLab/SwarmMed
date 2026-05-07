@@ -105,9 +105,8 @@ For a full UI smoke test, clone the repository on your laptop so you can import 
 example files through the browser:
 
 ```bash
-git clone https://github.com/pfeifferis/SwarmCloud.git
-cd SwarmCloud
-git checkout feature/medswarm-cli
+git clone https://github.com/KatherLab/SwarmMed.git
+cd SwarmMed
 ```
 
 Use these files during project creation:

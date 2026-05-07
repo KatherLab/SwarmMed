@@ -95,8 +95,8 @@ systemctl restart tailscaled
 ### Clone the Repository
 
 ``` bash
-git clone https://github.com/pfeifferis/SwarmCloud.git
-cd SwarmCloud
+git clone https://github.com/KatherLab/SwarmMed.git
+cd SwarmMed
 ```
 
 ### Install Python Dependencies
