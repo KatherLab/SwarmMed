@@ -11,6 +11,7 @@ tmp
 /.swarmmedhub_hostname
 .vscode
 .python-version
+.DS_Store
 
 # Certificate/private key material (must not be committed)
 infrastructure/certs/

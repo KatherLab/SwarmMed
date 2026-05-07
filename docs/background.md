@@ -5,12 +5,89 @@ description: Background information about SwarmMedHub and Swarm Learning.
 
 # Background
 
-SwarmMedHub was developed to address the challenges of applying **secure machine learning** to **large scale sensitive medical data** with **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in the medical field due to privacy concerns and data governance regulations.
+SwarmMed was developed to address the challenges of applying **secure machine learning** to **large scale sensitive medical data** with **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in the medical field due to privacy concerns and data governance regulations.
 
 ## 🏗️ System Architecture
 
-SwarmMedHub is composed of several integrated components that work together to provide a secure and scalable decentralized learning environment.
+SwarmMed is composed of several integrated components that work together to provide a secure and scalable decentralized learning environment.
 
+### Key Components
+
+*   **Django Web Interface:** The central hub for project management, data import, and training orchestration.
+*   **Celery Worker:** Handles long-running background tasks such as data synchronization, script execution, and training job monitoring.
+*   **MinIO:** Provides S3-compatible object storage for all datasets, models, and scripts.
+*   **Sandbox-dind:** An isolated Docker-in-Docker environment used to execute user-provided Python scripts securely.
+*   **NVIDIA FLARE:** The core engine for federated and swarm learning. It handles model aggregation and decentralized training workflows.
+*   **Tailscale:** Creates a secure, encrypted peer-to-peer overlay network (VPN) between all participants, enabling direct communication even behind restrictive firewalls.
+
+### SwarmMed Hub/CLI Orchestration
+``` mermaid
+flowchart LR
+
+    subgraph A["User-Facing Entry Points"]
+        HUB["SwarmMedHub<br/>Graphical user interface<br/><br/>Project setup, data management,<br/>network provisioning, training control,<br/>and results review"]
+        CLI["swarmed CLI<br/>Local companion command-line interface<br/><br/>Scriptable local workflow for advanced users,<br/>reproducible automation, and batch-friendly<br/>project, network, and training operations"]
+    end
+
+    subgraph B["Shared Orchestration Layer"]
+        BOOT["Django bootstrap and context resolution<br/><br/>user resolution<br/>current project/current network<br/>JSON output envelope<br/>wait helpers"]
+        PROJ["Project service"]
+        DATA["Data service"]
+        NET["Network service"]
+        TRAIN["Training service"]
+        RES["Results service"]
+    end
+
+    subgraph C["Shared State and Local Execution"]
+        DB["PostgreSQL<br/>projects, jobs, current context"]
+        S3["MinIO / S3<br/>training code, datasets, synced artifacts"]
+        CEL["Celery<br/>validation, visualization, sync tasks"]
+        FLARE["NVFlare runtime and local workspaces<br/>startup packages, training runs, local artifacts"]
+        LOCAL["Local node data and sandbox execution<br/>data remain on-site throughout training"]
+    end
+
+    HUB --> BOOT
+    CLI --> BOOT
+
+    BOOT --> PROJ
+    BOOT --> DATA
+    BOOT --> NET
+    BOOT --> TRAIN
+    BOOT --> RES
+
+    PROJ --> DB
+    DATA --> DB
+    NET --> DB
+    TRAIN --> DB
+    RES --> DB
+
+    PROJ --> S3
+    DATA --> S3
+    RES --> S3
+
+    DATA --> CEL
+    NET --> CEL
+    TRAIN --> CEL
+    RES --> CEL
+
+    NET --> FLARE
+    TRAIN --> FLARE
+    RES --> FLARE
+    DATA --> LOCAL
+    TRAIN --> LOCAL
+    RES --> LOCAL
+
+    classDef hub fill:#e8f0ff,stroke:#6d8fcf,stroke-width:2px,color:#1f2d3d;
+    classDef cli fill:#e7f6eb,stroke:#6fa27a,stroke-width:2px,color:#1f2d3d;
+    classDef service fill:#fff7e8,stroke:#c99a3d,stroke-width:2px,color:#1f2d3d;
+    classDef state fill:#f3f4f6,stroke:#8b96a8,stroke-width:2px,color:#1f2d3d;
+
+    class HUB hub;
+    class CLI cli;
+    class BOOT,PROJ,DATA,NET,TRAIN,RES service;
+    class DB,S3,CEL,FLARE,LOCAL state;
+```
+### SwarmMedHub System Architecture
 ``` mermaid
 graph TD
     User((User)) -->|HTTPS| Web[Django Web Interface]
@@ -35,15 +112,6 @@ graph TD
         Web & Worker & FlareClient <-->|VPN Overlay| Tailscale[Tailscale / WireGuard]
     end
 ```
-
-### Key Components
-
-*   **Django Web Interface:** The central hub for project management, data import, and training orchestration.
-*   **Celery Worker:** Handles long-running background tasks such as data synchronization, script execution, and training job monitoring.
-*   **MinIO:** Provides S3-compatible object storage for all datasets, models, and scripts.
-*   **Sandbox-dind:** An isolated Docker-in-Docker environment used to execute user-provided Python scripts securely.
-*   **NVIDIA FLARE:** The core engine for federated and swarm learning. It handles model aggregation and decentralized training workflows.
-*   **Tailscale:** Creates a secure, encrypted peer-to-peer overlay network (VPN) between all participants, enabling direct communication even behind restrictive firewalls.
 
 ---
 
