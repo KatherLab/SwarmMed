@@ -150,7 +150,7 @@ make deinstall
 ### 2. Remove Docker Images (Optional)
 To also remove code to free up disk space:
 ```bash
-sudo rm -r SwarmCloud
+sudo rm -r SwarmMed
 ```
 
 ### 3. Remove Tailscale (Optional)

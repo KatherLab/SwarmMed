@@ -285,3 +285,7 @@ You can send messages to other project members.
 
 !!! info "Messages only with project members of same institution"
     You can only send messages to project members of the same institution, not with other network participants. This is to ensure data privacy and security.
+
+### 🏴 CLI
+
+Most of the above steps can also be performed via the local `swarmed` CLI. The CLI provides a command-line interface to interact with the SwarmMed platform, allowing you to manage your projects, data, networks, and training jobs directly from your terminal. Please refer to the dedicated [CLI guide](cli.md) for detailed instructions on how to use the CLI for each of the steps mentioned above.

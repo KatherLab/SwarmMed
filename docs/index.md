@@ -8,7 +8,7 @@ description: Installation and setup instructions for SwarmMedHub and the swarmed
 !!! warning "Research Use Only"
     This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-SwarmMed is a **secure** and **scalable** platform for **decentralized learning** on medical data. The repository contains the **SwarmMedHub** web interface and the local **`swarmed`** companion CLI, which share the same backend workflow for project setup, data handling, network management, training, and results processing.
+MedSwarmHub is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
 
 ## ✨ Key Features
 <div class="grid cards" markdown>

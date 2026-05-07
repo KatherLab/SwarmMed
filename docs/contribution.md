@@ -108,6 +108,7 @@ bandit -r apps core manage.py -f json -o bandit_report.json
 - `static/`: Source assets (CSS, JS) before bundling.
 - `scripts/`: Utility scripts for setup, maintenance, and deployment.
 - `infrastructure/`: Certbot, PGBouncer, nginx and postgres configurations.
+- `swarmed_cli/`: Local CLI tool for interacting with SwarmMed.
 
 ## 🤝 Contribution Process
 

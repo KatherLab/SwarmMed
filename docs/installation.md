@@ -20,7 +20,7 @@ Before you begin, ensure that your system meets the following requirements.
 
 ### Hardware Resources
 
-These specifications are for the **SwarmMedHub platform** services only.
+These specifications are for the **SwarmMed platform** services only.
 
 *   **Minimum:**
     *   **CPU:** 2 Cores
@@ -198,7 +198,7 @@ make deinstall
 ### 2. Remove Docker Images (Optional)
 To also remove the code to free up disk space:
 ```bash
-rm -r SwarmCloud
+rm -r SwarmMed
 ```
 
 ### 3. Remove Tailscale (Optional)
