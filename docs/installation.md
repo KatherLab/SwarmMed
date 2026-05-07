@@ -1,11 +1,11 @@
 ---
 title: Installation
-description: Installation instructions for MedSwarmHub.
+description: Installation instructions for SwarmMedHub and the local swarmed CLI.
 ---
 
 # Installation
 
-This page provides detailed instructions for installing the MedSwarmHub platform.
+This page provides detailed instructions for installing the SwarmMed repository, which contains the SwarmMedHub web interface and the local `swarmed` companion CLI.
 
 ## 📋 System Requirements
 
@@ -16,11 +16,11 @@ Before you begin, ensure that your system meets the following requirements.
 *   **Recommended:** Linux (Ubuntu 22.04 LTS or newer)
     *   The installation guide uses `apt` commands typical for Debian/Ubuntu environments.
 *   **Supported:** macOS, Windows 10/11 (via Docker Desktop)
-    *   *Note: Windows users are recommended to use WSL2 (Windows Subsystem for Linux) to ensure compatibility with helper scripts.*
+    *   *Note: Windows users are recommended to use WSL2 (Windows Subsystem for Linux) to ensure compatibility with helper scripts. The `swarmed` CLI is currently a Linux-first workflow and is primarily validated on Linux hosts.*
 
 ### Hardware Resources
 
-These specifications are for the **MedSwarmHub platform** services only.
+These specifications are for the **SwarmMed platform** services only.
 
 *   **Minimum:**
     *   **CPU:** 2 Cores
@@ -90,13 +90,13 @@ tailscale set --accept-dns=false
 systemctl restart tailscaled
 ```
 
-## 3. 🧩 MedSwarmHub
+## 3. 🧩 SwarmMed Repository
 
 ### Clone the Repository
 
 ``` bash
-git clone https://github.com/KatherLab/MedSwarmHub.git
-cd MedSwarmHub
+git clone https://github.com/KatherLab/SwarmMed.git
+cd SwarmMed
 ```
 
 ### Install Python Dependencies
@@ -105,9 +105,11 @@ cd MedSwarmHub
 make install
 ```
 
+This installs the shared Python environment for both SwarmMedHub and the local `swarmed` CLI. The CLI is not a separate product install; it runs from the same repository and uses the same Django environment as the web interface.
+
 ### Environment Variables
 
-MedSwarmHub uses environment variables for configuration and sensitive information. The platform uses an automated setup script to manage these.
+SwarmMedHub uses environment variables for configuration and sensitive information. The platform uses an automated setup script to manage these.
 
 Run the following command to bootstrap your environment:
 
@@ -126,7 +128,7 @@ The `env` target performs several key actions:
 *   **Privacy Configuration:** Prompts for `PRIVACY_CONTROLLER_*` and `PRIVACY_CONTACT_*` variables used to populate the platform's Privacy Policy and Terms of Service.
 
 !!! tip "Custom Hostname"
-    During setup, you can provide a `MEDSWARMHUB_HOSTNAME`. This name identifies your node on the **Network** page.
+    During setup, you can provide a `SWARMMEDHUB_HOSTNAME`. This name identifies your node on the **Network** page.
 
 ### Build and Run
 
@@ -136,22 +138,28 @@ After the env is generated, start the platform with:
 make start
 ```
 
-`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `medswarmhub` logs with `make logs`.
+`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `swarmmedhub` logs with `make logs`.
+
+You can verify the CLI entrypoint from the same repository with:
+
+```bash
+uv run swarmed --help
+```
 
 ## 4. 👤 Create Superuser
 
-To access the MedSwarmHub dashboard, you need to create a superuser account:
+To access the SwarmMedHub dashboard, you need to create a superuser account:
 
 ``` bash
 make superuser
 ```
 
 !!! info "Superuser"
-    The `superuser` has full access to all features and settings in the MedSwarmHub platform like an `admin`.
+    The `superuser` has full access to all features and settings in the SwarmMedHub platform like an `admin`.
 
 ## 5. 🔐 Trusting the Internal Root CA
 
-When accessing MedSwarmHub via `https://<your-hostname>:5085`, your browser will show a security warning because the SSL certificate is issued by your local, internal Root CA.
+When accessing SwarmMedHub via `https://<your-hostname>:5085`, your browser will show a security warning because the SSL certificate is issued by your local, internal Root CA.
 
 ### macOS
 ```bash
@@ -179,7 +187,7 @@ make logs
 
 ## 🗑️ Deinstallation
 
-If you wish to remove MedSwarmHub and its associated data from your system:
+If you wish to remove SwarmMed and its associated local data from your system:
 
 ### 1. Stop and Cleanup Environment
 This will stop the containers, remove the virtual environment, caches, and generated secrets/certificates:
@@ -190,7 +198,7 @@ make deinstall
 ### 2. Remove Docker Images (Optional)
 To also remove the code to free up disk space:
 ```bash
-rm -r MedSwarmHub
+rm -r SwarmMed
 ```
 
 ### 3. Remove Tailscale (Optional)

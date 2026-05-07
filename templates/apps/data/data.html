@@ -49,20 +49,20 @@
       <!-- Title & Description -->
       <div>
         <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Data management</h3>
-        <span class="text-base font-normal text-gray-500 dark:text-gray-400">Upload and manage your datasets</span>
+        <span class="text-base font-normal text-gray-500 dark:text-gray-400">Import and manage your datasets</span>
       </div>
     </div>
 
     <!-- Right: Upload Button -->
     <div class="flex items-center">
     <div class="flex items-center">
-      <a href="/data/upload"
+      <a href="/data/import"
         class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
         <svg class="w-6 h-6 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M12 5v9m-5 0H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1h-2M8 9l4-5 4 5m1 8h.01" />
         </svg>
-        Upload Data
+        Import Data
       </a>
     </div>
  
@@ -161,7 +161,7 @@
       </svg>
       <span class="sr-only">Info</span>
       <div>
-        <span class="font-medium">No validation script!</span> To validate your data, please <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a validation script</a> in the project settings.
+        <span class="font-medium">No validation script!</span> To validate your data, please <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline hover:no-underline">import a validation script</a> in the project settings.
       </div>
     </div>
   </div>
@@ -217,7 +217,7 @@
         </svg>
         <span class="sr-only">Info</span>
         <div>
-          <span class="font-medium">No visualization script!</span> To visualize your data, please <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline hover:no-underline">upload a visualization script</a> in the project settings.
+          <span class="font-medium">No visualization script!</span> To visualize your data, please <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline hover:no-underline">import a visualization script</a> in the project settings.
         </div>
       </div>
     </div>
@@ -240,11 +240,11 @@
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 1" />
       <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
       <div class="plot-actions hidden absolute top-2 right-2 flex space-x-2">
-        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download PNG">
+        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export PNG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">PNG</span>
         </button>
-        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download SVG">
+        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export SVG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">SVG</span>
         </button>
@@ -260,11 +260,11 @@
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 2" />
       <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
       <div class="plot-actions hidden absolute top-2 right-2 flex space-x-2">
-        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download PNG">
+        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export PNG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">PNG</span>
         </button>
-        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download SVG">
+        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export SVG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">SVG</span>
         </button>
@@ -280,11 +280,11 @@
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 3" />
       <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
       <div class="plot-actions hidden absolute top-2 right-2 flex space-x-2">
-        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download PNG">
+        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export PNG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">PNG</span>
         </button>
-        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download SVG">
+        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export SVG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">SVG</span>
         </button>
@@ -300,11 +300,11 @@
       <img class="plot-image hidden w-full h-full object-contain rounded-lg" alt="Plot 4" />
       <div class="plot-title hidden absolute top-2 left-2 bg-gray-600 bg-opacity-75 text-white px-2 py-1 rounded text-sm"></div>
       <div class="plot-actions hidden absolute top-2 right-2 flex space-x-2">
-        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download PNG">
+        <button class="download-png p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export PNG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">PNG</span>
         </button>
-        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Download SVG">
+        <button class="download-svg p-1.5 bg-white/80 dark:bg-gray-800/80 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors" title="Export SVG">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
           <span class="text-[10px] font-bold">SVG</span>
         </button>
@@ -356,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </svg>
                         <span class="sr-only">Info</span>
                         <div>
-                            <span class="font-medium">No validation script!</span> To validate your data, please <a href="/project/edit/${data.project_id || ''}" class="font-semibold underline hover:no-underline">upload a validation script</a> in the project settings.
+                            <span class="font-medium">No validation script!</span> To validate your data, please <a href="/project/edit/${data.project_id || ''}" class="font-semibold underline hover:no-underline">import a validation script</a> in the project settings.
                         </div>
                     </div>
                 </div>
@@ -534,7 +534,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </svg>
                         <span class="sr-only">Info</span>
                         <div>
-                            <span class="font-medium">No visualization script!</span> To visualize your data, please <a href="/project/edit/${data.project_id || ''}" class="font-semibold underline hover:no-underline">upload a visualization script</a> in the project settings.
+                            <span class="font-medium">No visualization script!</span> To visualize your data, please <a href="/project/edit/${data.project_id || ''}" class="font-semibold underline hover:no-underline">import a visualization script</a> in the project settings.
                         </div>
                     </div>
                 </div>
@@ -676,7 +676,7 @@ document.addEventListener('DOMContentLoaded', function() {
       try {
         const response = await fetch(url, { credentials: 'same-origin' });
         if (!response.ok) {
-          throw new Error(`Download failed (${response.status})`);
+          throw new Error(`Export failed (${response.status})`);
         }
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -690,8 +690,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         URL.revokeObjectURL(objectUrl);
       } catch (e) {
-        console.error('Plot download failed:', e);
-        alert('Download failed. Please try again.');
+        console.error('Plot Export failed:', e);
+        alert('Export failed. Please try again.');
       }
     }
     

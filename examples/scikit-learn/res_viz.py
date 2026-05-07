@@ -9,6 +9,33 @@ from sklearn.metrics import auc, confusion_matrix, roc_curve
 from sklearn.preprocessing import StandardScaler
 
 
+def unpack_linear_model(payload):
+    """Decode packed sklearn linear weights from NVFlare."""
+    if payload is None:
+        return None
+
+    packed = np.asarray(payload, dtype=np.float32).reshape(-1)
+    if packed.size < 3:
+        return None
+
+    coef_rows = int(packed[0])
+    coef_cols = int(packed[1])
+    intercept_size = int(packed[2])
+    if coef_rows <= 0 or coef_cols <= 0 or intercept_size <= 0:
+        return None
+
+    coef_size = coef_rows * coef_cols
+    expected_size = 3 + coef_size + intercept_size
+    if packed.size != expected_size:
+        return None
+
+    coef_start = 3
+    coef_end = coef_start + coef_size
+    coef = packed[coef_start:coef_end].reshape(coef_rows, coef_cols)
+    intercept = packed[coef_end:].reshape(intercept_size)
+    return {"coef": coef, "intercept": intercept}
+
+
 def main():
     print("--- Starting Scikit-learn Model Performance Visualization ---")
 
@@ -42,9 +69,18 @@ def main():
     # --- 3. Load Model Weights ---
     print("Loading trained model coefficients...")
     weights = visualization.get_model()
-    if weights and "coef" in weights and "intercept" in weights:
-        model.coef_ = weights["coef"]
-        model.intercept_ = weights["intercept"]
+    if isinstance(weights, dict):
+        decoded_weights = weights
+    else:
+        decoded_weights = unpack_linear_model(weights)
+
+    if (
+        decoded_weights
+        and "coef" in decoded_weights
+        and "intercept" in decoded_weights
+    ):
+        model.coef_ = decoded_weights["coef"]
+        model.intercept_ = decoded_weights["intercept"]
         # Required for some sklearn methods after manual attribute setting
         model.classes_ = np.unique(y_true)
         print("Model coefficients loaded successfully.")

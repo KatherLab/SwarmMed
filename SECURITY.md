@@ -5,7 +5,7 @@
 
 ## 🚀 Supported Versions
 
-The following versions of MedSwarmHub are currently being supported with security updates.
+The following versions of SwarmMedHub are currently being supported with security updates.
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -13,7 +13,7 @@ The following versions of MedSwarmHub are currently being supported with securit
 
 ## 📧 Reporting a Vulnerability
 
-We take the security of MedSwarmHub seriously. If you find a security vulnerability, please report it to us responsibly.
+We take the security of SwarmMedHub seriously. If you find a security vulnerability, please report it to us responsibly.
 
 **⚠️ Please do not open a public issue for security vulnerabilities.**
 
@@ -27,7 +27,7 @@ Instead, please send an email to [mediswarmcloud@gmail.com](mailto:mediswarmclou
 
 ## 🏗️ Security Architecture
 
-MedSwarmHub is built on five core security pillars, providing a defense-in-depth strategy for decentralized medical AI.
+SwarmMedHub is built on five core security pillars, providing a defense-in-depth strategy for decentralized medical AI.
 
 ### 1. 🔐 Confidentiality & Data Protection
 We ensure that sensitive data remains private whether it is at rest or in transit.
@@ -61,14 +61,14 @@ Decentralized training relies on secure peer-to-peer communication across instit
 - **Internal Service Mesh:** A private, internal **Root CA** issues short-lived certificates to all backend services (Nginx, MinIO, Postgres, Redis), ensuring zero-trust networking within the Docker stack.
 
 ### 5. 📜 Tamper-Evident Audit Logging
-MedSwarmHub maintains a high-integrity audit trail for HIPAA and GDPR compliance.
+SwarmMedHub maintains a high-integrity audit trail for HIPAA and GDPR compliance.
 - **Cryptographic Signing:** Every log entry is signed using **HMAC-SHA256**, combining a database-stored signing key with the environment's `SECRET_KEY`.
 - **Log Chaining:** Logs are cryptographically chained (each entry contains the hash of the previous one), making retroactive log tampering or deletion mathematically detectable.
 - **Data Retention:** PHI-related logs are retained for **6 years** by default, with automated daily purging of expired data.
 
 ## ⚙️ Secure Configuration
 
-MedSwarmHub handles sensitive bio data. Always ensure the following:
+SwarmMedHub handles sensitive bio data. Always ensure the following:
 - **🛠️ Environment Setup:** Always use `make env` to initialize your environment. This generates secure, unique random passwords for all services.
 - **🚫 Production Mode:** `DEBUG` must be set to `False` in production environments.
 - **🌐 Encryption:** Use TLS/SSL (HTTPS) for all public-facing endpoints.
@@ -76,14 +76,14 @@ MedSwarmHub handles sensitive bio data. Always ensure the following:
 
 ## ⚖️ Compliance
 
-MedSwarmHub is designed with data protection as a core principle and is **HIPAA Capable**.
+SwarmMedHub is designed with data protection as a core principle and is **HIPAA Capable**.
 
 - **🇪🇺 GDPR (General Data Protection Regulation):** The platform's decentralized architecture supports data minimization by keeping raw data local and supports general GDPR requirements.
 - **🏥 HIPAA (Health Insurance Portability and Accountability Act):** Technical safeguards (encryption at rest/transit, MFA, brute-force protection, audit logs) are implemented to support PHI handling.
 
 ### 🏁 HIPAA Readiness & Remaining Gaps
 
-While MedSwarmHub provides the technical foundation for HIPAA compliance, achieving full compliance requires operational and administrative measures:
+While SwarmMedHub provides the technical foundation for HIPAA compliance, achieving full compliance requires operational and administrative measures:
 
 1. **📦 Infrastructure Encryption:** To ensure encryption at rest, Docker volumes should be configured with an encrypted volume driver (e.g., LUKS-backed local driver or cloud-provider encrypted storage).
 2. **🔑 Secrets Management:** For production readiness, use a dedicated secrets manager (e.g., HashiCorp Vault) and rotate secrets regularly.
@@ -106,4 +106,4 @@ bandit -r apps core home manage.py -f json -o bandit_report.json
 
 ## 🧪 Security Testing & Audit
 
-We are committed to maintaining a secure codebase. MedSwarmHub is regularly scanned and tested to identify and mitigate known vulnerabilities. 
+We are committed to maintaining a secure codebase. SwarmMedHub is regularly scanned and tested to identify and mitigate known vulnerabilities. 

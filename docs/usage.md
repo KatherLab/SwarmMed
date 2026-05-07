@@ -1,11 +1,11 @@
 ---
 title: Usage
-description: How to use the MedSwarmHub platform.
+description: How to use the SwarmMedHub platform.
 ---
 
 # Usage
 
-This page explains how to use the MedSwarmHub platform in more detail.
+This page explains how to use the SwarmMedHub platform in more detail.
 
 ## 👮 For Admins
 
@@ -48,10 +48,10 @@ As an admin, you can manage existing users, including editing their details or d
 ## 💻 For Developers
 
 ??? info "Developer Rights"
-    As a developer, you can create and manage swarm learning experiments on the MedSwarmHub platform and see logs.
+    As a developer, you can create and manage swarm learning experiments on the SwarmMedHub platform and see logs.
 
 !!! info "Developer Guide"
-    A more detailed developer guide can be found [here](/developer).
+    A more detailed developer guide can be found [here](developer.md).
 
 ### 📜 View Logs
 
@@ -68,7 +68,13 @@ As a developer, you can view the logs of the training jobs to monitor their prog
 ## 👥 For All Users
 
 ??? info "User Rights"
-    As a user, you can create projects, upload data, set up networks, and start training jobs.
+    As a user, you can create projects, import data, set up networks, and start training jobs.
+
+!!! info "CLI workflow"
+    The same workflow is also available through the local `swarmed` CLI. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
+
+!!! info "Shared Project Bundle"
+    SwarmMedHub and `swarmed` use the same project code bundle. The required root entrypoint is `training.py`, with optional `requirements.txt`, `validation.py`, `visualization.py`, and `results_visualization.py`.
 
 ### 1. 📁 Create a Project
 
@@ -83,11 +89,11 @@ A project is a workspace for your decentralized learning experiment. It contains
     *   **Title:** A descriptive name for your project.
     *   **Members:** Add members via the user uuid (the user can find their uuid on the Profile page).
     *   **Description:** A brief description of your project.
-4.  Upload your training code. Select only the files you need containing your Python scripts including main script `training.py`.
-5.  Upload your requirements file as `requirements.txt`.
-6.  Upload your data validation script as `validation.py` (optional).
-7.  Upload your data visualization script as `visualization.py` (optional).
-8.  Upload your results visualization script as `results_visualization.py` (optional).
+4.  Import your training code. Select only the files you need containing your Python scripts including main script `training.py`.
+5.  Import your requirements file as `requirements.txt`.
+6.  Import your data validation script as `validation.py` (optional).
+7.  Import your data visualization script as `visualization.py` (optional).
+8.  Import your results visualization script as `results_visualization.py` (optional).
 9.  Click on the **Save Project** button to save your project.
 
 !!! warning "All network participants need the same project code"
@@ -106,40 +112,40 @@ A project is a workspace for your decentralized learning experiment. It contains
 
 ### 2. ✅ Select your current project
 
-Before you can upload data or create a network, you need to select your current project.
+Before you can import data or create a network, you need to select your current project.
 
 1.  Navigate to the **Projects** page from the sidebar.
 2.  Find the project you want to work on in the list.
 3.  Click on the **Set** button next to the project's name.
 
-### 3. 📤 Upload Data
+### 3. 📤 Import Data
 
-After creating a project, you need to upload the data that will be used for training.
+After creating a project, you need to import the data that will be used for training.
 
 1.  Navigate to the **Data** page from the sidebar.
-2.  Click on the **Upload Data** button.
+2.  Click on the **Import Data** button.
 3.  Select your **Destination folder** where the data will be stored.
 4.  Select the data files from your local machine. The data should be in a format and structure that is compatible with your training code.
-5.  Click on the **Upload** button to start the upload process.
+5.  Click on the **Import** button to start the import process.
 
 ??? example "Image of data page"
     ![Data Page](assets/usage/data_dark.png#only-dark)
     ![Data Page](assets/usage/data_light.png#only-light)
 
-??? example "Image of data upload page"
-    ![Data Upload](assets/usage/data_new_dark.png#only-dark)
-    ![Data Upload](assets/usage/data_new_light.png#only-light)
+??? example "Image of data import page"
+    ![Data Import](assets/usage/data_new_dark.png#only-dark)
+    ![Data Import](assets/usage/data_new_light.png#only-light)
 
 ### 4. 📂 View Files
 
-You can view the files you have uploaded to your project.
+You can view the files you have imported to your project.
 
 1.  Navigate to the **Data** page from the sidebar.
 2.  Click on the **View Files** button.
-3.  you can **Download**, **Rename**, or **Delete** files you have uploaded.
+3.  you can **Export**, **Rename**, or **Delete** files you have imported.
 
-!!! info "Folder download"
-    In the current version only single file download is supported.
+!!! info "Folder export"
+    In the current version only single file export is supported.
 
 ??? example "Image of Files page"
     ![Files Page](assets/usage/files_dark.png#only-dark)
@@ -147,7 +153,7 @@ You can view the files you have uploaded to your project.
 
 ### 5. 🧪 Start Data Validation (optional)
 
-If you have uploaded a data validation script, you can run it to ensure that your data is suitable for training.
+If you have imported a data validation script, you can run it to ensure that your data is suitable for training.
 
 1.  Navigate to the **Data** page from the sidebar.
 2.  Click on the **Start Validation** button.
@@ -160,7 +166,7 @@ If you have uploaded a data validation script, you can run it to ensure that you
 
 ### 6. 📊 View Data Visualization (optional)
 
-If you have uploaded a data visualization script, you can run it to visualize your data.
+If you have imported a data visualization script, you can run it to visualize your data.
 
 1.  Navigate to the **Data** page from the sidebar.
 2.  Click on the **Generate Plots** button.
@@ -182,17 +188,17 @@ A network defines the participants in your decentralized learning experiment.
     *   **Description:** A brief description of your network.
 4. Select the **Creation Method**:
     *   **Create New Startup Package:** You will provide the necessary configurations, and the platform will create and configure the network for you.
-    *   **Upload Startup Package:** You will need to upload a startup package provided by another network partner, who created the startup package.
+    *   **Import Startup Package:** You will need to import a startup package provided by another network partner, who created the startup package.
     *   **Test in local environment:** This option is for testing purposes only. It allows you to run the training locally without setting up a real network.
 
 !!! warning "Only create `New Startup Package` ones for a network"
-    Only one startup package can be created for a network. And the startup packages can be downloaded to provided it to other network members for `Upload Startup Package`.
+    Only one startup package can be created for a network. And the startup packages can be exported to provided it to other network members for `Import Startup Package`.
         
 5.  If `Create New Startup Package` was selected: Add participants to the network. For each participant, you need to provide:
     *   **Hostname:** A unique name for the participant, displayed on the Network page of the participant.
     *   **IP Address:** The IP address of the participant's machine, displayed on the Network page of the participant.
 
-6. If `Upload Startup Package` was selected: Upload the startup package file provided by another network partner.
+6. If `Import Startup Package` was selected: Import the startup package file provided by another network partner.
 7. Click on the **Create Network** button to save your network.
 
 !!! info "Network editing"
@@ -235,14 +241,14 @@ Once you have set up your project, data, and network, you can start the training
     ![Training Page](assets/usage/training_dark.png#only-dark)
     ![Training Page](assets/usage/training_light.png#only-light)
 
-### 11. 📥 Download Results
+### 11. 📥 Export Results
 
 After the training job is complete, you can view the results.
 
 1.  Navigate to the **Results** page from the sidebar.
 2.  Click on the **Sync Results** button, to sync the results.
-3.  Click on the **Download All** button, to download all results from all training jobs.
-4.  Or select individual result files to download.
+3.  Click on the **Export All** button, to export all results from all training jobs.
+4.  Or select individual result files to export.
 
 ??? example "Image of results page"
     ![Results Page](assets/usage/results_dark.png#only-dark)
@@ -250,7 +256,7 @@ After the training job is complete, you can view the results.
 
 ### 12. 📊 View Results Visualization (optional)
 
-If you have uploaded a results visualization script, you can run it to visualize your results.
+If you have imported a results visualization script, you can run it to visualize your results.
 
 1.  Navigate to the **Results** page from the sidebar.
 2.  Click on the **Run Visualization** button.
@@ -279,3 +285,7 @@ You can send messages to other project members.
 
 !!! info "Messages only with project members of same institution"
     You can only send messages to project members of the same institution, not with other network participants. This is to ensure data privacy and security.
+
+### 🏴 CLI
+
+Most of the above steps can also be performed via the local `swarmed` CLI. The CLI provides a command-line interface to interact with the SwarmMed platform, allowing you to manage your projects, data, networks, and training jobs directly from your terminal. Please refer to the dedicated [CLI guide](cli.md) for detailed instructions on how to use the CLI for each of the steps mentioned above.

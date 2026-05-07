@@ -14,6 +14,7 @@ import torch
 from data.filesystem import DataFileSystem
 from logs import logger
 from training.models import TrainingJob
+from training.utils import extract_flare_job_uuid
 
 # Use a non-interactive backend for Matplotlib to work in background tasks.
 matplotlib.use("Agg")
@@ -41,9 +42,19 @@ class ResultsVisualizationContext:
         try:
             self.job = TrainingJob.objects.get(identifier=job_identifier)
         except (TrainingJob.DoesNotExist, ValueError):
-            self.job = TrainingJob.objects.filter(
-                flare_job_id__icontains=job_identifier
-            ).first()
+            self.job = (
+                TrainingJob.objects.filter(
+                    flare_job_uuid=extract_flare_job_uuid(job_identifier)
+                    or job_identifier
+                )
+                .order_by("-created_at")
+                .first()
+                or TrainingJob.objects.filter(
+                    flare_job_id__icontains=job_identifier
+                )
+                .order_by("-created_at")
+                .first()
+            )
 
     def __enter__(self):
         self.log.results.info(f"Entering ResultsVisualizationContext for project={self.project_uuid}")
@@ -63,7 +74,7 @@ class ResultsVisualizationContext:
         from django.conf import settings
         import os
 
-        internal_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+        internal_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
         if not internal_host:
             # 1. Try to resolve 'minio' (standard internal name)
             try:
@@ -105,9 +116,13 @@ class ResultsVisualizationContext:
 
     def get_model(self, client_name="fl-client-1", model_filename="model.pt"):
         """Loads and returns model weights using streaming fsspec."""
-        flare_id = self.job_identifier
+        flare_id = extract_flare_job_uuid(self.job_identifier) or self.job_identifier
         if self.job:
-            flare_id = self.job.flare_job_id # Use raw ID for prefix matching
+            flare_id = (
+                self.job.flare_job_uuid
+                or extract_flare_job_uuid(self.job.flare_job_id)
+                or self.job_identifier
+            )
             
         # Try to find the model in the manifest
         # The manifest is built by filesystem.build_manifest()

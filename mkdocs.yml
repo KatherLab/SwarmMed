@@ -1,7 +1,7 @@
-site_name: MedSwarmHub Documentation
+site_name: SwarmMed Documentation
 
-repo_name: MedSwarmHub
-repo_url: https://github.com/pfeifferis/MedSwarmHub
+repo_name: KatherLab/SwarmMed
+repo_url: https://github.com/KatherLab/SwarmMed
 
 nav:
     - Home: index.md
@@ -11,6 +11,7 @@ nav:
     - Usage: usage.md
     - Installation: installation.md
     - Developer: developer.md
+    - CLI: cli.md
     - Contribution: contribution.md
 
 extra:

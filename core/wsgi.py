@@ -1,4 +1,4 @@
-"""WSGI configuration for the MedSwarmHub project.
+"""WSGI configuration for the SwarmMedHub project.
 It exposes the WSGI callable as a module-level variable named ``application``.
 This is used by standard web servers like Gunicorn or uWSGI to serve the app.
 """

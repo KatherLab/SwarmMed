@@ -6,8 +6,10 @@ and packaging startup kits into zip files.
 import io
 import json
 import os
+import pwd
 import random
 import shutil
+import stat
 
 # Bandit B404: subprocess is required for tailscale CLI integration; no shell=True usage.
 import subprocess  # nosec B404
@@ -21,6 +23,72 @@ from django.core.cache import cache
 from django.utils.text import slugify
 
 TAILSCALE_STATUS_FILE = Path(settings.BASE_DIR) / "tmp" / "tailscale_status.json"
+
+
+def _runtime_service_identity() -> tuple[int, int]:
+    """Return the UID/GID that long-running app workers use."""
+    user_name = os.getenv("SWARMMEDHUB_RUNTIME_USER", "appuser")
+    try:
+        user = pwd.getpwnam(user_name)
+        return user.pw_uid, user.pw_gid
+    except KeyError:
+        return os.getuid(), os.getgid()
+
+
+def ensure_worker_writable(path: str | os.PathLike, logger=None) -> None:
+    """Make a generated workspace writable by the app worker process.
+
+    CLI invocations run through ``docker compose exec`` often start as root,
+    while gunicorn/celery run as ``appuser``. Provisioned startup kits must be
+    handed back to that worker identity before asynchronous start tasks run.
+    """
+    root = Path(path)
+    if not root.exists():
+        return
+
+    uid, gid = _runtime_service_identity()
+    failures: list[str] = []
+
+    def _adjust(item: Path) -> None:
+        try:
+            if os.geteuid() == 0:
+                os.chown(item, uid, gid, follow_symlinks=False)
+            if item.is_symlink():
+                return
+            current_mode = item.stat().st_mode
+            desired_mode = current_mode | stat.S_IRUSR | stat.S_IWUSR
+            if item.is_dir():
+                desired_mode |= stat.S_IXUSR
+            os.chmod(item, stat.S_IMODE(desired_mode))
+        except OSError as exc:
+            failures.append(f"{item}: {exc}")
+
+    _adjust(root)
+    for current_root, dirs, files in os.walk(root):
+        for name in dirs:
+            _adjust(Path(current_root) / name)
+        for name in files:
+            _adjust(Path(current_root) / name)
+
+    if failures and logger:
+        logger.network.warning(
+            f"Could not normalize workspace permissions for {root}: "
+            f"{'; '.join(failures[:5])}"
+        )
+
+
+def _safe_cache_get(key):
+    try:
+        return cache.get(key)
+    except Exception:
+        return None
+
+
+def _safe_cache_set(key, value, timeout):
+    try:
+        cache.set(key, value, timeout)
+    except Exception:
+        pass
 
 
 def _read_tailscale_file():
@@ -46,7 +114,7 @@ def get_tailscale_ip():
     Returns:
         str: The Tailscale IP address, or 'Not Available' if failed.
     """
-    cached_ip = cache.get("tailscale_ip")
+    cached_ip = _safe_cache_get("tailscale_ip")
     if cached_ip:
         return cached_ip
 
@@ -54,7 +122,7 @@ def get_tailscale_ip():
     payload = _read_tailscale_file()
     if payload and payload.get("ipv4"):
         ip = payload["ipv4"]
-        cache.set("tailscale_ip", ip, 300)
+        _safe_cache_set("tailscale_ip", ip, 300)
         return ip
 
     return "Not Available"
@@ -66,7 +134,7 @@ def is_tailscale_connected():
     Returns:
         str: "connected", "disconnected", or "Not Available".
     """
-    cached_state = cache.get("tailscale_connected")
+    cached_state = _safe_cache_get("tailscale_connected")
     if cached_state is not None:
         return cached_state
 
@@ -77,7 +145,7 @@ def is_tailscale_connected():
         # Handle both boolean and string "true" from the watcher
         is_connected = str(connected).lower() == "true"
         status = "connected" if is_connected else "disconnected"
-        cache.set("tailscale_connected", status, 30)
+        _safe_cache_set("tailscale_connected", status, 30)
         return status
 
     return "Not Available"
@@ -86,7 +154,7 @@ def is_tailscale_connected():
 def get_hostname():
     """Returns a unique, human-friendly hostname for the current machine.
     
-    1. Checks environment variable MEDSWARMHUB_HOSTNAME.
+    1. Checks environment variable SWARMMEDHUB_HOSTNAME.
     2. Checks for a persisted hostname in a local file.
     3. Generates and persists a new random human-friendly name if none exists.
 
@@ -94,12 +162,12 @@ def get_hostname():
         str: The human-friendly hostname.
     """
     # 1. Environment variable override
-    env_hostname = os.environ.get("MEDSWARMHUB_HOSTNAME")
+    env_hostname = os.environ.get("SWARMMEDHUB_HOSTNAME")
     if env_hostname:
         return env_hostname
 
     # Path to the persisted hostname file
-    hostname_file = Path(settings.BASE_DIR) / ".medswarmhub_hostname"
+    hostname_file = Path(settings.BASE_DIR) / ".swarmmedhub_hostname"
 
     # 2. Check for persisted hostname
     if hostname_file.exists():

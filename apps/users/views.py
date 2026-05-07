@@ -160,7 +160,7 @@ def settings(request):
     # Get the email of the first superuser as the DPO/Admin contact.
     admin_user = User.objects.filter(is_superuser=True).order_by("id").first()
     admin_email = (
-        admin_user.email if admin_user else "admin@medswarmhub.example.com"
+        admin_user.email if admin_user else "admin@swarmmedhub.example.com"
     )
 
     context = {

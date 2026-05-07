@@ -1,13 +1,9 @@
-"""Celery background tasks for the results application.
-Handles synchronization of results from S3 and the execution of user-submitted
-visualization scripts in an isolated environment using fsspec streaming.
-"""
+"""Celery background tasks for the results application."""
 
-import ast
 import base64
+import hashlib
 import json
 import os
-import re
 import textwrap
 
 from django.conf import settings
@@ -22,7 +18,13 @@ from logs.context import set_context
 from logs.utils import format_exception
 from project.models import Project
 from training.models import TrainingJob
+from training.utils import extract_flare_job_uuid, upload_file_to_s3
 
+from .artifacts import (
+    GLOBAL_MODEL_FILENAME,
+    is_model_artifact,
+    parse_result_key,
+)
 from .models import (
     ResultsVisualizationPlot,
     ResultsVisualizationRun,
@@ -30,52 +32,169 @@ from .models import (
 )
 from .visualization import ResultsVisualizationContext
 
-_UUID_RE = re.compile(
-    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
-)
+
+def _file_md5(path: str) -> str:
+    """Return the hex MD5 digest for a local file."""
+    digest = hashlib.md5()  # nosec B324 - checksum reporting, not security.
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
-def _extract_flare_job_uuid(flare_job_id_raw: str) -> str | None:
-    """Best-effort extraction of the NVFlare job UUID from stored flare_job_id."""
-    if not flare_job_id_raw:
+def _find_workspace_base(project_uuid: str, network_uuid: str) -> str | None:
+    """Locate the NVFlare prod workspace for a project/network pair."""
+    workspace_root = os.path.join(
+        settings.BASE_DIR, "workspaces", project_uuid, network_uuid
+    )
+    if not os.path.exists(workspace_root):
         return None
-    m = _UUID_RE.search(str(flare_job_id_raw))
-    if m:
-        return m.group(1)
-    try:
-        parsed = ast.literal_eval(flare_job_id_raw)
-        if isinstance(parsed, list):
-            for item in parsed:
-                if isinstance(item, dict):
-                    data = item.get("data", "")
-                    if isinstance(data, str) and "Submitted job:" in data:
-                        m2 = _UUID_RE.search(data)
-                        if m2:
-                            return m2.group(1)
-    except (ValueError, SyntaxError, TypeError):
-        return None
+
+    for root, dirs, _ in os.walk(workspace_root):
+        if "prod_00" in dirs:
+            return os.path.join(root, "prod_00")
     return None
+
+
+def _select_result_root(target: str, app_subdir: str) -> str:
+    """Prefer the participant job root when it contains result artifacts."""
+    app_global_model = os.path.join(app_subdir, GLOBAL_MODEL_FILENAME)
+    if os.path.exists(app_global_model):
+        return app_subdir
+    target_global_model = os.path.join(target, GLOBAL_MODEL_FILENAME)
+    if os.path.exists(target_global_model):
+        return target
+
+    artifact_markers = {
+        "audit.log",
+        "fl_app.txt",
+        "log.json",
+        "log.txt",
+        "log_error.txt",
+        "log_fl.txt",
+        "meta.json",
+        "stats_pool_summary.json",
+    }
+    if os.path.isdir(os.path.join(target, "models")):
+        return target
+    if os.path.exists(target):
+        try:
+            if artifact_markers.intersection(os.listdir(target)):
+                return target
+        except OSError:
+            pass
+    if os.path.exists(app_subdir):
+        return app_subdir
+    return target
+
+
+def _iter_job_result_folders(job: TrainingJob):
+    """Yield participant result folders for a completed training job."""
+    flare_job_uuid = job.flare_job_uuid or extract_flare_job_uuid(
+        job.flare_job_id or ""
+    )
+    if not flare_job_uuid:
+        return
+
+    workspace_base = _find_workspace_base(
+        str(job.project.identifier), str(job.network.identifier)
+    )
+    if not workspace_base:
+        return
+
+    found_folders = []
+    job_root = os.path.join(workspace_base, flare_job_uuid)
+    if os.path.exists(job_root):
+        for item in os.listdir(job_root):
+            if item.startswith("app_"):
+                participant = item[4:]
+                found_folders.append((participant, os.path.join(job_root, item)))
+
+    if not found_folders:
+        for participant in os.listdir(workspace_base):
+            participant_path = os.path.join(workspace_base, participant)
+            if (
+                not os.path.isdir(participant_path)
+                or participant.lower()
+                in {"admin", "startup", "logs", "local", "transfer", "custom"}
+            ):
+                continue
+
+            target = os.path.join(participant_path, flare_job_uuid)
+            if not os.path.exists(target):
+                continue
+
+            app_subdir = os.path.join(target, f"app_{participant}")
+            found_folders.append(
+                (participant, _select_result_root(target, app_subdir))
+            )
+
+    for participant, local_path in found_folders:
+        yield flare_job_uuid, participant, local_path
+
+
+def _sync_local_workspace_results(project: Project, log) -> None:
+    """Upload local NVFlare model artifacts into canonical object storage."""
+    for job in (
+        TrainingJob.objects.filter(project=project, status="COMPLETED")
+        .select_related("project", "network")
+        .order_by("-created_at")
+    ):
+        for flare_job_uuid, participant, local_path in _iter_job_result_folders(
+            job
+        ):
+            uploaded_any = False
+            for root, _dirs, files in os.walk(local_path):
+                for filename in files:
+                    if not is_model_artifact(filename):
+                        continue
+                    local_artifact_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(
+                        local_artifact_path, local_path
+                    ).replace(os.sep, "/")
+                    s3_key = (
+                        f"{project.identifier}/results/{flare_job_uuid}/"
+                        f"{participant}/{rel_path}"
+                    )
+                    upload_file_to_s3(
+                        settings.AWS_STORAGE_BUCKET_NAME,
+                        s3_key,
+                        local_artifact_path,
+                    )
+                    md5 = _file_md5(local_artifact_path)
+                    uploaded_any = True
+                    log.results.info(
+                        "Uploaded model artifact for "
+                        f"job {job.identifier} participant {participant}: "
+                        f"{rel_path} md5={md5}"
+                    )
+
+            if not uploaded_any:
+                log.results.warning(
+                    "No model artifacts found for "
+                    f"job {job.identifier} participant {participant}: {local_path}"
+                )
 
 
 @shared_task
 def sync_project_results(project_uuid):
     """Scans the S3 results folder for a project and updates our database.
+
     Ensures that files generated by training are visible in the UI.
     """
-    from training.tasks import monitor_training_jobs
     log = logger.get_logger()
     try:
-        try:
-            monitor_training_jobs()
-        except Exception as e:
-            log.results.warning(f"monitor_training_jobs failed during results sync: {e}")
-
         project = Project.objects.get(identifier=project_uuid)
         log.results.info(f"Starting results sync for project {project_uuid}")
+        _sync_local_workspace_results(project, log)
 
         job_lookup = {}
-        for job in TrainingJob.objects.filter(project=project).only("id", "flare_job_id", "project"):
-            job_uuid = _extract_flare_job_uuid(job.flare_job_id or "")
+        for job in TrainingJob.objects.filter(project=project).only(
+            "id", "project", "flare_job_id", "flare_job_uuid"
+        ):
+            job_uuid = job.flare_job_uuid or extract_flare_job_uuid(
+                job.flare_job_id or ""
+            )
             if job_uuid:
                 job_lookup[job_uuid] = job
 
@@ -83,25 +202,49 @@ def sync_project_results(project_uuid):
         prefix = f"{project.identifier}/results/"
         paginator = s3.get_paginator("list_objects_v2")
 
-        for page in paginator.paginate(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix):
+        for page in paginator.paginate(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=prefix
+        ):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
-                if key.endswith("/"): continue
+                if key.endswith("/"):
+                    continue
                 filename = os.path.basename(key)
-                if filename.startswith(".") or filename.endswith((".py", ".pyc")): continue
+                if filename.startswith(".") or filename.endswith((".py", ".pyc")):
+                    continue
+                if not is_model_artifact(filename):
+                    continue
 
-                parts = key.split("/")
-                if len(parts) < 4: continue
+                parsed = parse_result_key(key, str(project.identifier))
+                if not parsed:
+                    continue
 
-                job_id_from_s3_key = parts[2]
-                obj.get("LastModified")
-                m_s3 = _UUID_RE.search(job_id_from_s3_key)
-                normalized_s3_uuid = m_s3.group(1) if m_s3 else job_id_from_s3_key
+                job_id_from_s3_key = parsed.flare_job_id
+                normalized_s3_uuid = (
+                    extract_flare_job_uuid(job_id_from_s3_key)
+                    or job_id_from_s3_key
+                )
 
                 job = job_lookup.get(normalized_s3_uuid)
                 if not job:
-                    job = TrainingJob.objects.filter(project=project, flare_job_id__icontains=normalized_s3_uuid).first()
-                    if not job: continue
+                    job = (
+                        TrainingJob.objects.filter(
+                            project=project, flare_job_uuid=normalized_s3_uuid
+                        )
+                        .order_by("created_at", "id")
+                        .first()
+                    )
+                    if not job:
+                        job = (
+                            TrainingJob.objects.filter(
+                                project=project,
+                                flare_job_id__icontains=normalized_s3_uuid,
+                            )
+                            .order_by("created_at", "id")
+                            .first()
+                        )
+                    if not job:
+                        continue
 
                 res_obj, created = TrainingResult.objects.get_or_create(
                     job=job,

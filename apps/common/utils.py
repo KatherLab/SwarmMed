@@ -309,16 +309,35 @@ def get_internal_s3_download_url(key, expires=3600):
     Returns:
         str: A presigned S3 download URL resolvable within the internal network.
     """
-    s3 = get_s3_client()
+    explicit_local_endpoint = os.getenv(
+        "SWARMMEDHUB_LOCAL_S3_ENDPOINT", ""
+    ).strip()
+    if explicit_local_endpoint:
+        s3 = boto3.client(
+            "s3",
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+            endpoint_url=explicit_local_endpoint,
+        )
+    else:
+        s3 = get_s3_client()
+
     url = s3.generate_presigned_url(
         "get_object",
         Params={"Bucket": settings.AWS_STORAGE_BUCKET_NAME, "Key": key},
         ExpiresIn=expires,
     )
 
+    # If a local runtime endpoint is configured explicitly, we already signed
+    # the URL against the correct scheme/host/port, so no hostname rewrite is
+    # needed afterwards.
+    if explicit_local_endpoint:
+        return url
+
     # If the URL contains localhost, 127.0.0.1 or 'minio', other containers or
     # remote nodes won't be able to reach it. We try to replace it with reachable candidates.
-    internal_host = os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+    internal_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
     if not internal_host:
         # 1. Try to resolve 'minio' (standard internal name)
         try:

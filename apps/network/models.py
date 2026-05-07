@@ -90,7 +90,7 @@ class SwarmNetwork(AbstractBaseModel):
     # NEW: Track how the network was created
     CREATION_METHOD_CHOICES = [
         ("CREATED", "Created (locally provisioned)"),
-        ("UPLOADED", "Uploaded (imported)"),
+        ("IMPORTED", "Imported (from existing config)"),
         ("LOCAL_TEST", "Local Test"),
     ]
     creation_method = models.CharField(

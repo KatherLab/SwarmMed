@@ -5,7 +5,7 @@
     log = logger.get_logger()
     # Log different levels with categories
     log.project.info("User accessed dashboard")
-    log.data.info("File uploaded", filename="data.csv", size="1.5MB")
+    log.data.info("File imported", filename="data.csv", size="1.5MB")
     log.network.warning("Slow network detected", latency="500ms")
     log.training.error("Model training failed", error="Out of memory")
     log.results.info("Analysis complete", accuracy="95%")

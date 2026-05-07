@@ -86,25 +86,47 @@
           
           <!-- Drag and Drop Upload Areas -->
           <div class="space-y-6">
-            <!-- Training Code (Multiple Files Upload) -->
+            <!-- Training Code (Multiple Files or Folder Upload) -->
             <div>
-              <label for="id_training_code" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Training Code</label>
+              <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Training Code</label>
               {% if form.instance.training_code %}
                 <div class="flex items-center mb-2 gap-2">
                   <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.training_code.name }}</span>
                   <a href="{% url 'project:download_file' form.instance.id 'training_code' %}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
                 </div>
               {% endif %}
-              <label for="id_training_code" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.training_code.errors %}border-red-500{% endif %}">
-                <div class="flex flex-col items-center justify-center pt-5 pb-5">
-                  <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
-                    <path fill-rule="evenodd" d="M5 4a2 2 0 0 0-2 2v1h10.968l-1.9-2.28A2 2 0 0 0 10.532 4H5ZM3 19V9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm9-8.5a1 1 0 0 1 1 1V13h1.5a1 1 0 1 1 0 2H13v1.5a1 1 0 1 1-2 0V15H9.5a1 1 0 1 1 0-2H11v-1.5a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
-                  </svg>
-                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
-                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Upload files or folders</p>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Option 1: File Upload -->
+                <div>
+                  <label for="id_training_code" class="flex flex-col items-center justify-center w-full h-40 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.training_code.errors %}border-red-500{% endif %}">
+                    <div class="flex flex-col items-center justify-center pt-5 pb-5 px-4 text-center">
+                      <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                          <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
+                          <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
+                      </svg>
+                      <p class="mb-1 text-sm text-gray-500 dark:text-gray-400 font-semibold">Select individual files</p>
+                      <p class="text-xs text-gray-400 dark:text-gray-500">Best for simple projects or single scripts.</p>
+                    </div>
+                    <input id="id_training_code" name="training_code" type="file" class="hidden" multiple accept=".py" />
+                  </label>
                 </div>
-                <input id="id_training_code" name="training_code" type="file" class="hidden" multiple accept=".py" />
-              </label>
+
+                <!-- Option 2: Folder Upload -->
+                <div>
+                  <label for="id_training_code_folder" class="flex flex-col items-center justify-center w-full h-40 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.training_code.errors %}border-red-500{% endif %}">
+                    <div class="flex flex-col items-center justify-center pt-5 pb-5 px-4 text-center">
+                      <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                          <path fill-rule="evenodd" d="M5 4a2 2 0 0 0-2 2v1h10.968l-1.9-2.28A2 2 0 0 0 10.532 4H5ZM3 19V9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm9-8.5a1 1 0 0 1 1 1V13h1.5a1 1 0 1 1 0 2H13v1.5a1 1 0 1 1-2 0V15H9.5a1 1 0 1 1 0-2H11v-1.5a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
+                      </svg>
+                      <p class="mb-1 text-sm text-gray-500 dark:text-gray-400 font-semibold">Select project folder</p>
+                      <p class="text-xs text-gray-400 dark:text-gray-500">Best for projects with subfolders or packages.</p>
+                    </div>
+                    <input id="id_training_code_folder" name="training_code" type="file" class="hidden" multiple webkitdirectory directory accept=".py" />
+                  </label>
+                </div>
+              </div>
+
               {% if form.training_code.errors %}
               <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.training_code.errors.0 }}</p>
               {% endif %}
@@ -134,7 +156,7 @@
                     <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
                     <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
-                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to import</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">requirements.txt only</p>
                 </div>
                 <input id="id_requirements_file" name="requirements_file" type="file" accept=".txt" class="hidden" />
@@ -167,7 +189,7 @@
                     <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
                     <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
-                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to import</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">.py file only</p>
                 </div>
                 <input id="id_data_validation_script" name="data_validation_script" type="file" accept=".py" class="hidden" />
@@ -200,7 +222,7 @@
                     <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
                     <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
-                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to import</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">.py file only</p>
                 </div>
                 <input id="id_data_visualization_script" name="data_visualization_script" type="file" accept=".py" class="hidden" />
@@ -233,7 +255,7 @@
                     <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
                     <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
-                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to import</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">.py file only</p>
                 </div>
                 <input id="id_results_visualization_script" name="results_visualization_script" type="file" accept=".py" class="hidden" />
@@ -308,25 +330,32 @@
 
   function setupTrainingCodeUploadDisplay() {
     const filesInput = document.getElementById("id_training_code");
+    const folderInput = document.getElementById("id_training_code_folder");
     const container = document.getElementById("training_code_files_container");
     const list = document.getElementById("training_code_files_list");
     const dirInput = document.getElementById("training_code_directories");
 
     if (!filesInput) return;
+    const inputs = [filesInput, folderInput].filter(Boolean);
     
-    function updateDisplay() {
-      const files = filesInput.files;
+    function updateDisplay(sourceInput) {
+      inputs.forEach(input => {
+        if (input !== sourceInput) {
+          input.value = "";
+        }
+      });
+      const files = sourceInput.files;
       list.innerHTML = '';
       let filesByDirectory = {};
       let directoriesMap = {};
-      let globalIdx = 0;
+      let pythonFileCount = 0;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (file.name.endsWith('.py')) {
           const relPath = file.webkitRelativePath || file.name;
-          directoriesMap[file.name + '_' + globalIdx] = relPath;
-          globalIdx++;
+          directoriesMap[file.name + '_' + i] = relPath;
+          pythonFileCount++;
 
           let dirPath = '';
           if (relPath.includes('/')) {
@@ -337,13 +366,13 @@
         }
       }
 
-      if (globalIdx > 0) {
+      if (pythonFileCount > 0) {
         container.classList.remove("hidden");
         
         // Add summary
         const summary = document.createElement('div');
         summary.className = 'font-medium text-gray-800 dark:text-white mb-2';
-        summary.textContent = `${globalIdx} .py file(s) selected`;
+        summary.textContent = `${pythonFileCount} .py file(s) selected`;
         list.appendChild(summary);
 
         for (const [dirPath, dirFiles] of Object.entries(filesByDirectory)) {
@@ -367,7 +396,14 @@
       dirInput.value = JSON.stringify(directoriesMap);
     }
 
-    filesInput.addEventListener("change", updateDisplay);
+    filesInput.addEventListener("change", function() {
+      updateDisplay(filesInput);
+    });
+    if (folderInput) {
+      folderInput.addEventListener("change", function() {
+        updateDisplay(folderInput);
+      });
+    }
   }
 
   function setupMemberEmailsDisplay() {

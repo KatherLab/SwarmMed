@@ -1,4 +1,4 @@
-"""Django settings for the MedSwarmHub project.
+"""Django settings for the SwarmMedHub project.
 This file contains the configuration for the entire web application, including
 database connections, security keys, installed apps, and middleware.
 """
@@ -13,6 +13,15 @@ from celery.schedules import crontab
 from django.contrib import messages
 from dotenv import load_dotenv
 from str2bool import str2bool
+
+
+def _split_csv_env(name, default):
+    """Split a comma-separated environment variable into cleaned values."""
+    return [
+        item.strip()
+        for item in os.environ.get(name, default).split(",")
+        if item.strip()
+    ]
 
 # Load environment variables from a .env file into os.environ.
 # This is used for sensitive information like passwords and API keys.
@@ -74,16 +83,19 @@ elif not DEBUG and BACKUP_ENCRYPTION_KEY == SECRET_KEY:
 
 # ALLOWED_HOSTS defines which domain names can access this server.
 # It should be restricted to your production domains.
-ALLOWED_HOSTS = os.environ.get(
+ALLOWED_HOSTS = _split_csv_env(
     "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"
-).split(",")
+)
+for internal_host in ("localhost", "127.0.0.1", "swarmmedhub", "app"):
+    if internal_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(internal_host)
 
 # CSRF_TRUSTED_ORIGINS is required for cross-site request forgery protection
 # when running on specific domains or ports.
-CSRF_TRUSTED_ORIGINS = os.environ.get(
+CSRF_TRUSTED_ORIGINS = _split_csv_env(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     "http://localhost:8000,http://localhost:5085,http://127.0.0.1:8000,http://127.0.0.1:5085",
-).split(",")
+)
 
 # IPs allowed to see the Django Debug Toolbar.
 INTERNAL_IPS = ["127.0.0.1"]
@@ -191,10 +203,21 @@ WSGI_APPLICATION = "core.wsgi.application"
 
 # --- Database Configuration ---
 
+DB_ENGINE = os.getenv("DB_ENGINE")
+DB_OPTIONS = {}
+if DB_ENGINE and "postgres" in DB_ENGINE:
+    DB_OPTIONS["sslmode"] = os.getenv("DB_SSLMODE", "require")
+    db_sslrootcert = os.getenv(
+        "DB_SSLROOTCERT",
+        os.getenv("CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt"),
+    )
+    if db_sslrootcert:
+        DB_OPTIONS["sslrootcert"] = db_sslrootcert
+
 # Uses environment variables to securely connect to the database.
 DATABASES = {
     "default": {
-        "ENGINE": os.getenv("DB_ENGINE"),
+        "ENGINE": DB_ENGINE,
         "NAME": os.getenv("DB_NAME"),
         "USER": os.getenv("DB_USER"),
         "PASSWORD": os.getenv("DB_PASS"),
@@ -202,10 +225,7 @@ DATABASES = {
         "PORT": os.getenv("DB_PORT"),
         "CONN_MAX_AGE": 600,  # Persistent connections (10 mins)
         "CONN_HEALTH_CHECKS": True,  # Validate connections before reuse
-        "OPTIONS": {
-            "sslmode": "require",
-            "sslrootcert": "/usr/local/share/ca-certificates/internal-ca.crt",
-        },
+        "OPTIONS": DB_OPTIONS,
     },
 }
 
@@ -223,9 +243,11 @@ if not REDIS_PASSWORD and not DEBUG:
 if DEBUG:
     REDIS_PASSWORD = REDIS_PASSWORD or ""
 
-REDIS_HOST = "redis"
-REDIS_PORT = 6379
-CA_CERT_PATH = "/usr/local/share/ca-certificates/internal-ca.crt"
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+CA_CERT_PATH = os.environ.get(
+    "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt"
+)
 
 # Configures Django to use Redis for caching.
 # This improves performance for frequently accessed data and sessions.
@@ -382,10 +404,13 @@ if DEBUG:
     AWS_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID or "minioadmin"
     AWS_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY or "minioadmin"
 AWS_STORAGE_BUCKET_NAME = os.environ.get(
-    "AWS_STORAGE_BUCKET_NAME", "medswarmhub"
+    "AWS_STORAGE_BUCKET_NAME", "swarmmedhub"
 )
 AWS_S3_ENDPOINT_URL = os.environ.get(
     "AWS_S3_ENDPOINT_URL", "https://minio:9000"
+)
+SWARMMEDHUB_LOCAL_S3_ENDPOINT = os.environ.get(
+    "SWARMMEDHUB_LOCAL_S3_ENDPOINT", AWS_S3_ENDPOINT_URL
 )
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://localhost:9000")
 AWS_S3_CUSTOM_DOMAIN = (
@@ -497,9 +522,11 @@ if not REDIS_PASSWORD and not DEBUG:
 if DEBUG:
     REDIS_PASSWORD = REDIS_PASSWORD or ""
 
-REDIS_HOST = "redis"
-REDIS_PORT = 6379
-CA_CERT_PATH = "/usr/local/share/ca-certificates/internal-ca.crt"
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+CA_CERT_PATH = os.environ.get(
+    "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt"
+)
 
 CELERY_BROKER_URL = f"rediss://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0?ssl_cert_reqs=required&ssl_ca_certs={CA_CERT_PATH}"
 CELERY_RESULT_BACKEND = f"rediss://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0?ssl_cert_reqs=required&ssl_ca_certs={CA_CERT_PATH}"
@@ -597,8 +624,8 @@ LOGGING = {
 # --- Unfold Admin Configuration ---
 
 UNFOLD = {
-    "SITE_TITLE": "MedSwarmHub Admin",
-    "SITE_HEADER": "MedSwarmHub Admin",
+    "SITE_TITLE": "SwarmMedHub Admin",
+    "SITE_HEADER": "SwarmMedHub Admin",
     "SITE_SYMBOL": "cloud",  # icon from Material Symbols
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": True,

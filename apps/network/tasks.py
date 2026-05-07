@@ -33,7 +33,7 @@ from logs.models import LogCategory, LogEntry
 from project.models import Project
 
 from .models import SwarmNetwork
-from .utils import get_hostname, get_tailscale_ip
+from .utils import ensure_worker_writable, get_hostname, get_tailscale_ip
 
 
 def run_and_log_subprocess(command, cwd, env, logger):
@@ -97,6 +97,108 @@ def _container_name_for(network_identifier, participant_name):
     return f"swarm-{str(network_identifier)[:12]}-{safe_participant}"[:63]
 
 
+def _split_runtime_entrypoint(command: list[str]) -> tuple[str | None, list[str]]:
+    """Split a runtime command into a Docker entrypoint override and args.
+
+    FLARE runtime containers can reuse the main application image. That image's
+    default entrypoint waits for database, cache, and object-store services,
+    which are not needed for isolated FLARE server/client containers and can
+    block the actual runtime command. If the runtime launcher already provides
+    an explicit shell command, promote that shell to the Docker entrypoint so
+    the app bootstrap is bypassed.
+    """
+
+    if command and command[0] == "/bin/bash":
+        return "/bin/bash", list(command[1:])
+    return None, list(command)
+
+
+def _get_runtime_manifest_base_url(
+    *, use_host_network: bool, remote_host: str = ""
+) -> str:
+    """Choose the most direct app URL for manifest requests from runtime containers."""
+    cleaned_remote_host = str(remote_host or "").strip()
+    if use_host_network:
+        if cleaned_remote_host:
+            return f"https://{cleaned_remote_host}:5085"
+        return "https://127.0.0.1:5085"
+
+    # For bridge networks, we hit the host gateway. We use 'swarmmedhub' as the
+    # alias because it's a standard internal name that usually resolves via
+    # the bridge gateway IP, and we'll ensure it's in /etc/hosts.
+    return "https://swarmmedhub:5085"
+
+
+def _runtime_ulimit_args(env=None) -> list[str]:
+    """Return Docker ulimit args for long-running FLARE runtime containers."""
+    env = env or os.environ
+    raw_limit = str(env.get("SWARMMEDHUB_RUNTIME_NOFILE_LIMIT", "65536")).strip()
+    if not raw_limit:
+        return []
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        limit = 65536
+    if limit <= 0:
+        return []
+    return ["--ulimit", f"nofile={limit}:{limit}"]
+
+
+CLIENT_RUNTIME_ENV_KEYS = (
+    "SITE_NAME",
+    "INSTITUTION",
+    "DATA_DIR",
+    "DATADIR",
+    "SCRATCH_DIR",
+    "SCRATCHDIR",
+    "MODEL_NAME",
+    "CONFIG",
+    "TRAINING_MODE",
+    "NUM_EPOCHS",
+    "MAX_EPOCHS",
+    "EPOCHS_PER_ROUND",
+    "EPOCHS_REFERENCE_DATASET_SIZE",
+    "EPOCHS_MAX_CAP",
+    "FEDPROX_MU",
+    "MIN_PEERS",
+    "MAX_PEERS",
+    "MEDISWARM_VERSION",
+    "LOG_DATASET_DETAILS",
+    "SWARMMEDHUB_MST_EXPORT_PREDICTIONS",
+)
+
+
+def _client_runtime_env_pairs(env=None) -> list[tuple[str, str]]:
+    """Return site-local training env vars that should be passed to FL clients."""
+    env = env or os.environ
+    pairs: list[tuple[str, str]] = []
+    for key in CLIENT_RUNTIME_ENV_KEYS:
+        value = str(env.get(key, "")).strip()
+        if value:
+            pairs.append((key, value))
+
+    # MediSwarm's older deploy scripts used DATADIR/SCRATCHDIR while the
+    # current training stack reads DATA_DIR/SCRATCH_DIR. Accept either spelling.
+    aliases = {
+        "DATA_DIR": "DATADIR",
+        "SCRATCH_DIR": "SCRATCHDIR",
+    }
+    present = {key for key, _value in pairs}
+    for canonical, legacy in aliases.items():
+        if canonical not in present and legacy in env and str(env[legacy]).strip():
+            pairs.append((canonical, str(env[legacy]).strip()))
+            present.add(canonical)
+        if legacy not in present and canonical in env and str(env[canonical]).strip():
+            pairs.append((legacy, str(env[canonical]).strip()))
+            present.add(legacy)
+
+    if "TRAINING_MODE" not in present:
+        pairs.append(("TRAINING_MODE", "swarm"))
+    if "CONFIG" not in present:
+        pairs.append(("CONFIG", "unilateral"))
+    return pairs
+
+
 def _load_json_file(path):
     """Loads a JSON file from the given path.
 
@@ -121,8 +223,15 @@ def _ensure_executable(path):
     """
     if not os.path.exists(path):
         return
+    if os.access(path, os.X_OK):
+        return
     current_mode = os.stat(path).st_mode
-    os.chmod(path, current_mode | stat.S_IXUSR)
+    try:
+        os.chmod(path, current_mode | stat.S_IXUSR)
+    except PermissionError:
+        if os.access(path, os.X_OK):
+            return
+        raise
 
 
 def _extract_host_from_server_endpoint(startup_dir):
@@ -276,7 +385,7 @@ def _read_local_hostname_candidates():
     """
     names = set()
 
-    env_hostname = os.getenv("MEDSWARMHUB_HOSTNAME", "").strip()
+    env_hostname = os.getenv("SWARMMEDHUB_HOSTNAME", "").strip()
     if env_hostname:
         names.add(env_hostname)
 
@@ -287,11 +396,11 @@ def _read_local_hostname_candidates():
     except Exception:
         pass
 
-    explicit_participant = os.getenv("MEDSWARMHUB_LOCAL_PARTICIPANT", "").strip()
+    explicit_participant = os.getenv("SWARMMEDHUB_LOCAL_PARTICIPANT", "").strip()
     if explicit_participant:
         names.add(explicit_participant)
 
-    hostname_file = Path(settings.BASE_DIR) / ".medswarmhub_hostname"
+    hostname_file = Path(settings.BASE_DIR) / ".swarmmedhub_hostname"
     if hostname_file.exists():
         try:
             file_hostname = hostname_file.read_text().strip()
@@ -303,6 +412,10 @@ def _read_local_hostname_candidates():
     normalized = set()
     for name in names:
         normalized.add(name)
+        hyphenated_name = name.replace("_", "-")
+        if hyphenated_name:
+            normalized.add(hyphenated_name)
+            normalized.add(hyphenated_name.lower())
         safe_name = slugify(name)
         if safe_name:
             normalized.add(safe_name)
@@ -569,6 +682,44 @@ def _ensure_docker_network(docker_path, network_name, env, logger):
         )
 
 
+def _connect_control_containers_to_network(docker_path, network_name, env, logger):
+    """Connect Hub-side containers that need to reach the FLARE runtime."""
+    container_names = [
+        os.getenv("SWARMMEDHUB_APP_CONTAINER", "swarmmedhub").strip()
+        or "swarmmedhub",
+        os.getenv("SWARMMEDHUB_CELERY_CONTAINER", "celery_worker").strip()
+        or "celery_worker",
+        os.getenv("SWARMMEDHUB_STORAGE_CONTAINER", "minio").strip()
+        or "minio",
+    ]
+
+    seen = set()
+    for container_name in container_names:
+        if container_name in seen:
+            continue
+        seen.add(container_name)
+
+        result = subprocess.run(  # nosec B603
+            [docker_path, "network", "connect", network_name, container_name],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        if result.returncode == 0:
+            logger.network.info(
+                f"Connected {container_name} to FLARE network {network_name}."
+            )
+            continue
+
+        stderr = (result.stderr or "").strip()
+        if "already exists" in stderr.lower():
+            continue
+        logger.network.warning(
+            f"Could not connect {container_name} to FLARE network {network_name}: {stderr}"
+        )
+
+
 def _stop_labeled_runtime(network_id, docker_path, env, logger):
     """Stops and removes all Docker containers and networks with a specific network label.
 
@@ -581,7 +732,7 @@ def _stop_labeled_runtime(network_id, docker_path, env, logger):
     Returns:
         int: The number of containers successfully stopped and removed.
     """
-    label = f"medswarmhub.network_id={network_id}"
+    label = f"swarmmedhub.network_id={network_id}"
     result = subprocess.run(  # nosec B603
         [
             docker_path,
@@ -656,7 +807,7 @@ def _build_local_fallback_image(
         base_prod_path (str): The path to the 'prod_00' directory.
         project (Project): The project instance.
     """
-    build_dir = os.path.join(base_prod_path, ".medswarmhub_runtime_build")
+    build_dir = os.path.join(base_prod_path, ".swarmmedhub_runtime_build")
     os.makedirs(build_dir, exist_ok=True)
 
     requirements_dst = os.path.join(build_dir, "requirements.txt")
@@ -820,13 +971,13 @@ def _build_image_with_compat(
     """
     build_cmd = [docker_path, "build", "-t", image_name, "."]
     require_buildkit = (
-        os.getenv("MEDSWARMHUB_REQUIRE_BUILDKIT", "")
+        os.getenv("SWARMMEDHUB_REQUIRE_BUILDKIT", "")
         .strip()
         .lower()
         in {"1", "true", "yes", "on"}
     )
     allow_legacy_builder = (
-        os.getenv("MEDSWARMHUB_ALLOW_LEGACY_DOCKER_BUILDER", "")
+        os.getenv("SWARMMEDHUB_ALLOW_LEGACY_DOCKER_BUILDER", "")
         .strip()
         .lower()
         in {"1", "true", "yes", "on"}
@@ -857,7 +1008,7 @@ def _build_image_with_compat(
         if require_buildkit and not allow_legacy_builder:
             logger.network.error(
                 "Docker image build failed with BuildKit enabled and strict BuildKit mode is active. "
-                "Set MEDSWARMHUB_ALLOW_LEGACY_DOCKER_BUILDER=true to permit DOCKER_BUILDKIT=0 fallback."
+                "Set SWARMMEDHUB_ALLOW_LEGACY_DOCKER_BUILDER=true to permit DOCKER_BUILDKIT=0 fallback."
             )
             raise subprocess.CalledProcessError(ret, error_command)
 
@@ -871,7 +1022,7 @@ def _build_image_with_compat(
         )
         if require_buildkit and not allow_legacy_builder:
             logger.network.error(
-                "BuildKit/buildx is required by MEDSWARMHUB_REQUIRE_BUILDKIT, but buildx is unavailable."
+                "BuildKit/buildx is required by SWARMMEDHUB_REQUIRE_BUILDKIT, but buildx is unavailable."
             )
             raise subprocess.CalledProcessError(1, error_command)
 
@@ -1028,7 +1179,7 @@ def _count_running_labeled_containers(network_id, docker_path, env):
             docker_path,
             "ps",
             "--filter",
-            f"label=medswarmhub.network_id={network_id}",
+            f"label=swarmmedhub.network_id={network_id}",
             "--filter",
             "status=running",
             "-q",
@@ -1068,7 +1219,12 @@ def _resolve_bind_source_path(source_path):
     if relative.startswith(".."):
         return abs_source
 
-    return os.path.abspath(os.path.join(host_project_path, relative))
+    remapped = os.path.abspath(os.path.join(host_project_path, relative))
+    if os.path.abspath(str(settings.BASE_DIR)) == "/app" or os.path.exists("/.dockerenv"):
+        return remapped
+    if os.path.exists(abs_source) and not os.path.exists(remapped):
+        return abs_source
+    return remapped
 
 
 def _docker_container_exists(docker_path, container_name, env):
@@ -1111,10 +1267,10 @@ def shout_to_peer_task(peer_ip, network_id, payload, headers, extra_shouts=None)
         
         # Determine TLS verification strategy
         # Default to True (skipping verification) to support decentralized nodes with self-signed certs.
-        if os.getenv("MEDSWARMHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
+        if os.getenv("SWARMMEDHUB_SKIP_PEER_SSL_VERIFY", "true").lower() in ("true", "1", "yes"):
             verify_path = False
         else:
-            verify_path = os.getenv("MEDSWARMHUB_CA_CERT", "").strip() or \
+            verify_path = os.getenv("SWARMMEDHUB_CA_CERT", "").strip() or \
                           getattr(settings, "CA_CERT_PATH", "/usr/local/share/ca-certificates/internal-ca.crt")
         
         # We use a short timeout to avoid hanging the worker
@@ -1227,6 +1383,10 @@ def start_swarm_network_task(network_id, user_id):
                 f"No NVFlare startup kits found under: {base_prod_path}"
             )
 
+        local_test_network = swarm_network.creation_method == "LOCAL_TEST"
+
+        ensure_worker_writable(provision_dir, logger=logger)
+
         _ensure_runtime_requirements_file(
             swarm_network=swarm_network,
             provision_dir=provision_dir,
@@ -1241,9 +1401,9 @@ def start_swarm_network_task(network_id, user_id):
         docker_path = shutil.which("docker") or "docker"
         env = os.environ.copy()
 
-        configured_image = os.getenv("MEDSWARMHUB_FLARE_IMAGE", "").strip()
+        configured_image = os.getenv("SWARMMEDHUB_FLARE_IMAGE", "").strip()
         force_configured_image = (
-            os.getenv("MEDSWARMHUB_FORCE_CONFIGURED_IMAGE", "")
+            os.getenv("SWARMMEDHUB_FORCE_CONFIGURED_IMAGE", "")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -1256,9 +1416,9 @@ def start_swarm_network_task(network_id, user_id):
         use_configured_image = bool(configured_image)
         if configured_image and has_custom_requirements and not force_configured_image:
             logger.network.warning(
-                "Custom runtime requirements detected; ignoring MEDSWARMHUB_FLARE_IMAGE "
+                "Custom runtime requirements detected; ignoring SWARMMEDHUB_FLARE_IMAGE "
                 "and building a project-specific runtime image. "
-                "Set MEDSWARMHUB_FORCE_CONFIGURED_IMAGE=true to override."
+                "Set SWARMMEDHUB_FORCE_CONFIGURED_IMAGE=true to override."
             )
             use_configured_image = False
 
@@ -1266,7 +1426,7 @@ def start_swarm_network_task(network_id, user_id):
             image_name = configured_image
         else:
             image_name = (
-                f"medswarmhub_nvflare_{str(swarm_network.identifier)[:12]}:2.7.1"
+                f"swarmmedhub_nvflare_{str(swarm_network.identifier)[:12]}:2.7.1"
             )
             docker_build_dir = os.path.join(base_prod_path, "nvflare")
             if os.path.exists(os.path.join(docker_build_dir, "Dockerfile")):
@@ -1296,7 +1456,13 @@ def start_swarm_network_task(network_id, user_id):
         _ensure_docker_network(docker_path, network_name, env, logger)
 
         server_only_mode = (
-            os.getenv("MEDSWARMHUB_SERVER_ONLY_MODE", "")
+            os.getenv("SWARMMEDHUB_SERVER_ONLY_MODE", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        client_only_mode = (
+            os.getenv("SWARMMEDHUB_CLIENT_ONLY_MODE", "")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -1307,9 +1473,45 @@ def start_swarm_network_task(network_id, user_id):
         for target in targets:
             if server_only_mode and target["role"] == "client":
                 continue
+            if client_only_mode and target["role"] == "server":
+                continue
             filtered_targets.append(target)
 
-        if not server_only_mode and has_server_target:
+        if client_only_mode:
+            client_targets = [
+                t for t in filtered_targets if t.get("role") == "client"
+            ]
+            if len(client_targets) > 1:
+                project_yml_path = os.path.join(provision_dir, "project.yml")
+                local_client_names = _resolve_local_client_names(
+                    project_yml_path, base_prod_path
+                )
+                matched_local_clients = [
+                    t for t in client_targets if t.get("name") in local_client_names
+                ]
+                if matched_local_clients:
+                    allowed_local_names = {
+                        t.get("name") for t in matched_local_clients
+                    }
+                    filtered_targets = [
+                        t
+                        for t in filtered_targets
+                        if t.get("role") != "client"
+                        or t.get("name") in allowed_local_names
+                    ]
+                    logger.network.info(
+                        "Client-only mode: limiting startup to local "
+                        f"participant(s): {sorted(allowed_local_names)}"
+                    )
+                else:
+                    raise RuntimeError(
+                        "Client-only mode found multiple client startup kits but "
+                        "could not match SWARMMEDHUB_LOCAL_PARTICIPANT, hostname, "
+                        "or local Tailscale IP. Set SWARMMEDHUB_LOCAL_PARTICIPANT "
+                        "to the intended site name, for example node_A."
+                    )
+
+        if not server_only_mode and not client_only_mode and has_server_target:
             client_targets = [
                 t for t in filtered_targets if t.get("role") == "client"
             ]
@@ -1338,18 +1540,28 @@ def start_swarm_network_task(network_id, user_id):
                     )
 
         logger.network.info(
-            f"Starting containerized runtime (server_only_mode={server_only_mode})"
+            "Starting containerized runtime "
+            f"(server_only_mode={server_only_mode}, client_only_mode={client_only_mode})"
         )
 
         # Check for GPU support once to avoid repeated slow docker-py calls or invalid flags
+        force_gpu_enabled = (
+            os.getenv("SWARMMEDHUB_FORCE_GPU", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
         gpu_request_enabled = (
-            os.getenv("MEDSWARMHUB_ENABLE_GPU", "true")
+            os.getenv("SWARMMEDHUB_ENABLE_GPU", "true")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
         )
         gpu_is_available = False
-        if gpu_request_enabled:
+        if force_gpu_enabled:
+            gpu_is_available = True
+            logger.network.info("GPU support forced by SWARMMEDHUB_FORCE_GPU=true.")
+        elif gpu_request_enabled:
             try:
                 # Use the imported 'docker' library to check runtime support
                 client = docker.from_env()
@@ -1379,12 +1591,19 @@ def start_swarm_network_task(network_id, user_id):
             runtime_startup_dir = "/workspace/startup"
             mount_mode = "bind"
             shared_container_name = (
-                os.getenv("MEDSWARMHUB_APP_CONTAINER", "medswarmhub").strip()
-                or "medswarmhub"
+                os.getenv("SWARMMEDHUB_APP_CONTAINER", "swarmmedhub").strip()
+                or "swarmmedhub"
             )
+            docker_host = str(env.get("DOCKER_HOST", "")).strip().lower()
+            remote_docker_host = docker_host.startswith("ssh://")
 
             if not os.path.isdir(host_startup_dir):
-                if _docker_container_exists(
+                if remote_docker_host:
+                    logger.network.info(
+                        "Skipping local bind-path existence check for remote "
+                        f"Docker daemon {docker_host}: {host_startup_dir}"
+                    )
+                elif _docker_container_exists(
                     docker_path=docker_path,
                     container_name=shared_container_name,
                     env=env,
@@ -1402,7 +1621,7 @@ def start_swarm_network_task(network_id, user_id):
                         "Resolved Docker bind mount path does not contain startup directory: "
                         f"{host_startup_dir}. "
                         "Set HOST_PROJECT_PATH to the host path of this repository, "
-                        "or set MEDSWARMHUB_APP_CONTAINER to a running container "
+                        "or set SWARMMEDHUB_APP_CONTAINER to a running container "
                         "with /app/workspaces mounted."
                     )
 
@@ -1452,7 +1671,10 @@ def start_swarm_network_task(network_id, user_id):
             )
 
             client_host_network_enabled = (
-                os.getenv("MEDSWARMHUB_CLIENT_HOST_NETWORK", "true")
+                os.getenv(
+                    "SWARMMEDHUB_CLIENT_HOST_NETWORK",
+                    "false" if local_test_network and has_server_target else "true",
+                )
                 .strip()
                 .lower()
                 in {"1", "true", "yes", "on"}
@@ -1463,7 +1685,7 @@ def start_swarm_network_task(network_id, user_id):
             # In host network mode, we MUST use 127.0.0.1 because --add-host is ignored by Docker
             # and the host's /etc/hosts typically doesn't contain 'minio'.
             # Containers in bridge mode (like the server) should still use 'minio'.
-            raw_local_s3 = getattr(settings, "MEDSWARMHUB_LOCAL_S3_ENDPOINT", settings.AWS_S3_ENDPOINT_URL)
+            raw_local_s3 = getattr(settings, "SWARMMEDHUB_LOCAL_S3_ENDPOINT", settings.AWS_S3_ENDPOINT_URL)
             raw_s3_endpoint = settings.AWS_S3_ENDPOINT_URL
 
             if use_host_network:
@@ -1490,7 +1712,7 @@ def start_swarm_network_task(network_id, user_id):
                 container_s3_endpoint = raw_s3_endpoint
 
             remote_host = (
-                os.getenv("MEDSWARMHUB_SERVER_HOST", "").strip()
+                os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
                 or (Path(startup_dir) / "server_host.txt").read_text().strip()
                 if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
                 else ""
@@ -1507,15 +1729,15 @@ def start_swarm_network_task(network_id, user_id):
                 "--shm-size",
                 "10.24gb",
                 "--label",
-                f"medswarmhub.network_id={swarm_network.identifier}",
+                f"swarmmedhub.network_id={swarm_network.identifier}",
                 "--label",
-                f"medswarmhub.role={role}",
+                f"swarmmedhub.role={role}",
                 "-e",
                 "GRPC_ENABLE_FORK_SUPPORT=0",
                 "-e",
                 "NVFLARE_START_METHOD=spawn",
                 "-e",
-                f"MEDSWARMHUB_PROJECT_ID={str(swarm_network.project.identifier)}",
+                f"SWARMMEDHUB_PROJECT_ID={str(swarm_network.project.identifier)}",
                 "-e",
                 f"GOSSIP_TOKEN={swarm_network.gossip_token}",
                 "-e",
@@ -1523,14 +1745,26 @@ def start_swarm_network_task(network_id, user_id):
                 "-e",
                 f"AWS_S3_ENDPOINT_URL={container_s3_endpoint}",
                 "-e",
-                f"MEDSWARMHUB_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
+                f"SWARMMEDHUB_LOCAL_S3_ENDPOINT={local_s3_endpoint}",
                 "-e",
                 f"PUBLIC_URL={settings.PUBLIC_URL}",
                 "-e",
-                "MEDSWARMHUB_USE_LOCAL_DATA=1",
+                "SWARMMEDHUB_USE_LOCAL_DATA=1",
             ]
+            run_cmd.extend(_runtime_ulimit_args(env))
+            manifest_base_url = _get_runtime_manifest_base_url(
+                use_host_network=use_host_network,
+                remote_host=remote_host,
+            )
+            if manifest_base_url:
+                run_cmd.extend(
+                    ["-e", f"SWARMMEDHUB_MANIFEST_URL={manifest_base_url}"]
+                )
             if remote_host:
-                run_cmd.extend(["-e", f"MEDSWARMHUB_SERVER_HOST={remote_host}"])
+                run_cmd.extend(["-e", f"SWARMMEDHUB_SERVER_HOST={remote_host}"])
+            if role == "client":
+                for env_key, env_value in _client_runtime_env_pairs(env):
+                    run_cmd.extend(["-e", f"{env_key}={env_value}"])
 
             # Enable GPU access if available
             if gpu_is_available:
@@ -1549,13 +1783,40 @@ def start_swarm_network_task(network_id, user_id):
                         network_name,
                         "--network-alias",
                         participant_name,
+                        "--add-host",
+                        "swarmmedhub:host-gateway",
                     ]
                 )
 
             if mount_mode == "bind":
                 run_cmd.extend(["-v", f"{host_workspace_path}:/workspace"])
+                # Ensure the internal CA certificate is available for secure manifest fetching
+                host_project_path = os.getenv("HOST_PROJECT_PATH", "").strip()
+                if host_project_path:
+                    ca_cert_host_path = os.path.join(
+                        host_project_path, ".secrets/certs/internal/ca.crt"
+                    )
+                    run_cmd.extend(
+                        [
+                            "-v",
+                            f"{ca_cert_host_path}:/usr/local/share/ca-certificates/internal-ca.crt:ro",
+                        ]
+                    )
             else:
                 run_cmd.extend(["--volumes-from", shared_container_name])
+
+            if role == "client":
+                data_dir = str(env.get("DATA_DIR") or env.get("DATADIR") or "").strip()
+                if data_dir:
+                    run_cmd.extend(["-v", f"{data_dir}:/data:ro"])
+                    if os.path.isabs(data_dir) and os.path.normpath(data_dir) != "/data":
+                        run_cmd.extend(["-v", f"{data_dir}:{data_dir}:ro"])
+
+                scratch_dir = str(
+                    env.get("SCRATCH_DIR") or env.get("SCRATCHDIR") or ""
+                ).strip()
+                if scratch_dir:
+                    run_cmd.extend(["-v", f"{scratch_dir}:{scratch_dir}"])
 
             if role == "server":
                 fed_server_json = _load_json_file(
@@ -1585,23 +1846,35 @@ def start_swarm_network_task(network_id, user_id):
                             f"{host_persist_dir}:/tmp/nvflare",
                         ]
                     )
-                _add_required_port_mapping(
-                    run_cmd=run_cmd,
-                    container_port=fed_learn_port,
-                    logger=logger,
-                    participant_name=participant_name,
+                publish_local_test_ports = (
+                    os.getenv("SWARMMEDHUB_LOCAL_TEST_PUBLISH_PORTS", "")
+                    .strip()
+                    .lower()
+                    in {"1", "true", "yes", "on"}
                 )
-                _add_required_port_mapping(
-                    run_cmd=run_cmd,
-                    container_port=admin_port,
-                    logger=logger,
-                    participant_name=participant_name,
-                )
+                if local_test_network and not publish_local_test_ports:
+                    logger.network.info(
+                        "Local test network uses Docker bridge networking; "
+                        "not publishing FLARE server/admin ports on the host."
+                    )
+                else:
+                    _add_required_port_mapping(
+                        run_cmd=run_cmd,
+                        container_port=fed_learn_port,
+                        logger=logger,
+                        participant_name=participant_name,
+                    )
+                    _add_required_port_mapping(
+                        run_cmd=run_cmd,
+                        container_port=admin_port,
+                        logger=logger,
+                        participant_name=participant_name,
+                    )
 
             if role == "client":
                 # Determine which host the 'server' (and its aliases) should map to.
                 server_map_host = None
-                if not has_server_target and remote_host:
+                if (client_only_mode or not has_server_target) and remote_host:
                     server_map_host = remote_host
                 elif use_host_network and has_server_target:
                     server_map_host = "127.0.0.1"
@@ -1626,7 +1899,13 @@ def start_swarm_network_task(network_id, user_id):
                     # Map 'minio' to the Docker bridge gateway where it is listening.
                     run_cmd.extend(["--add-host", f"minio:{target_gateway}"])
 
-            run_cmd.extend([image_name] + command)
+            entrypoint_override, runtime_command = _split_runtime_entrypoint(
+                command
+            )
+            if entrypoint_override:
+                run_cmd.extend(["--entrypoint", entrypoint_override])
+
+            run_cmd.extend([image_name] + runtime_command)
 
             logger.network.info(
                 f"Starting {role} container: {container_name}"
@@ -1656,26 +1935,12 @@ def start_swarm_network_task(network_id, user_id):
                     f"Container {container_name} exited during startup. Logs:\n{container_logs}"
                 )
 
-        try:
-            logger.network.info(
-                f"Connecting app and storage to network: {network_name}"
-            )
-            subprocess.run(  # nosec B603
-                [docker_path, "network", "connect", network_name, "medswarmhub"],
-                capture_output=True,
-                env=env,
-                check=False,
-            )
-            subprocess.run(  # nosec B603
-                [docker_path, "network", "connect", network_name, "minio"],
-                capture_output=True,
-                env=env,
-                check=False,
-            )
-        except Exception as e:
-            logger.network.warning(
-                f"Could not connect containers to FLARE network: {e}"
-            )
+        _connect_control_containers_to_network(
+            docker_path=docker_path,
+            network_name=network_name,
+            env=env,
+            logger=logger,
+        )
 
         running_count = _count_running_labeled_containers(
             network_id=swarm_network.identifier,
@@ -1690,7 +1955,10 @@ def start_swarm_network_task(network_id, user_id):
         # Mark as running only after verifying at least one runtime container is alive.
         swarm_network.status = "RUNNING"
         swarm_network.save()
-        run_nvflare_preflight_check.delay(network_id, user_id)
+        if client_only_mode:
+            logger.network.info("Client-only mode: skipping Hub-side FLARE preflight enqueue.")
+        else:
+            run_nvflare_preflight_check.delay(network_id, user_id)
 
     except Exception as e:
         if "swarm_network" in locals():
@@ -1904,7 +2172,7 @@ def cleanup_network_resources(
             str(network_identifier),
         )
 
-        # 1. Stop Docker containers started by MedSwarmHub runtime
+        # 1. Stop Docker containers started by SwarmMedHub runtime
         docker_bin = shutil.which("docker") or "docker"
         env = os.environ.copy()
         try:

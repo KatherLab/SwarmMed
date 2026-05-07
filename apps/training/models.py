@@ -3,6 +3,7 @@
 Defines the structure for tracking training jobs in the swarm learning network.
 """
 
+from django.db.models import Q
 from django.db import models
 
 from common.models import AbstractBaseModel
@@ -67,6 +68,15 @@ class TrainingJob(AbstractBaseModel):
         help_text="The unique job ID assigned by NVIDIA FLARE.",
     )
 
+    # Canonical UUID extracted from the raw FLARE job identifier payload.
+    flare_job_uuid = models.CharField(
+        max_length=36,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Canonical NVFlare job UUID extracted from flare_job_id.",
+    )
+
     # Set manually when the job is detected as finished (COMPLETED, FAILED, or
     # STOPPED).
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -78,6 +88,15 @@ class TrainingJob(AbstractBaseModel):
     progress_updated_at = models.DateTimeField(
         null=True, blank=True, db_index=True
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["network", "flare_job_uuid"],
+                condition=Q(flare_job_uuid__isnull=False),
+                name="training_unique_flare_uuid_per_network",
+            )
+        ]
 
     def __str__(self):
         """Returns a human-readable string representation of the job.

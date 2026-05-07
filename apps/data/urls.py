@@ -16,8 +16,8 @@ urlpatterns = [
     path("", views.data, name="data"),
     # File and folder management
     path("files/", views.list_files, name="list_files"),
-    path("download/", views.download_file, name="download_file"),
-    path("upload/", views.upload_files, name="upload_files"),
+    path("export/", views.download_file, name="download_file"),
+    path("import/", views.upload_files, name="upload_files"),
     path("delete/", views.delete_file, name="delete_file"),
     path("rename/", views.rename_file, name="rename_file"),
     # JSON helper for folder-selection UI components

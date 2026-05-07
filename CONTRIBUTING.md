@@ -1,6 +1,6 @@
-# Contributing to MedSwarmHub
+# Contributing to SwarmMed
 
-Welcome! We are thrilled that you are interested in contributing to MedSwarmHub. This project is a decentralized bio data storage and collaborative training platform leveraging Swarm Learning (NVIDIA FLARE).
+Welcome! We are thrilled that you are interested in contributing to SwarmMed. This repository contains the SwarmMedHub web interface together with the local `swarmed` CLI for decentralized data management and collaborative training via Swarm Learning (NVIDIA FLARE).
 
 This guide will help you get onboarded and explain how to contribute effectively.
 
@@ -9,8 +9,8 @@ This guide will help you get onboarded and explain how to contribute effectively
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/KatherLab/MedSwarmHub.git
-    cd MedSwarmHub
+    git clone https://github.com/KatherLab/SwarmMed.git
+    cd SwarmMed
     ```
 3.  **Set up your environment**:
     - Run `make install` to install uv (if needed) and synchronize the Python dependencies into `.venv`.
@@ -59,7 +59,7 @@ The project follows a modular Django architecture. Each specific functionality i
 | **`core`** | Project configuration, settings, Celery initialization, and root URLs. |
 | **`home`** | Main dashboard, statistics aggregation, and overview cards. |
 | **`apps.users`** | User authentication, profiles, and role-based access control (Admin, Developer, User). |
-| **`apps.project`** | Collaborative project management and code/requirement script uploads. |
+| **`apps.project`** | Collaborative project management and code/requirement script imports. |
 | **`apps.data`** | Management of datasets, S3 storage integration, and data validation. |
 | **`apps.network`** | Infrastructure provisioning for Swarm networks using Docker. |
 | **`apps.training`** | Job submission to NVIDIA FLARE, status tracking, and real-time log streaming. |
@@ -111,4 +111,4 @@ Proactively add unit tests in the respective `tests.py` files of the app you are
 
 If you have questions or get stuck, feel free to open an Issue on GitHub. We are here to help!
 
-Thank you for helping us make **MedSwarmHub** better!
+Thank you for helping us make **SwarmMed** better!

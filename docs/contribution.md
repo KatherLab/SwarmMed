@@ -1,15 +1,15 @@
 ---
 title: Contribution Guide
-description: Detailed guidelines for contributing to MedSwarmHub.
+description: Detailed guidelines for contributing to SwarmMedHub and the swarmed CLI.
 ---
 
 # Contribution Guide
 
-Welcome to the **MedSwarmHub** developer community! This document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
+Welcome to the **SwarmMed** developer community. This repository contains both SwarmMedHub and the local `swarmed` CLI, and this document provides detailed information on how to set up your environment, follow our coding standards, and successfully contribute to the project.
 
 ## 🏗️ System Overview
 
-MedSwarmHub is a modular Django-based platform designed for decentralized data management and Swarm Learning. 
+SwarmMed is a modular Django-based platform designed for decentralized data management and Swarm Learning.
 
 ### 💻 Core Technology Stack
 - **Backend:** Django 6.0, Celery, Redis.
@@ -46,7 +46,7 @@ make env
 make start
 ```
 
-Use `make stop` to tear the stack down, and `make logs` to follow the `medswarmhub` container logs.
+Use `make stop` to tear the stack down, and `make logs` to follow the `swarmmedhub` container logs.
 
 ### 4. Django Initialization
 ```bash
@@ -63,7 +63,7 @@ The project follows a modular Django architecture. Each specific functionality i
 | **`core`** | Project configuration, settings, Celery initialization, and root URLs. |
 | **`home`** | Main dashboard, statistics aggregation, and overview cards. |
 | **`apps.users`** | User authentication, profiles, and role-based access control (Admin, Developer, User). |
-| **`apps.project`** | Collaborative project management and code/requirement script uploads. |
+| **`apps.project`** | Collaborative project management and code/requirement script import. |
 | **`apps.data`** | Management of datasets, S3 storage integration, and data validation. |
 | **`apps.network`** | Infrastructure provisioning for Swarm networks using Docker. |
 | **`apps.training`** | Job submission to NVIDIA FLARE, status tracking, and real-time log streaming. |
@@ -108,6 +108,7 @@ bandit -r apps core manage.py -f json -o bandit_report.json
 - `static/`: Source assets (CSS, JS) before bundling.
 - `scripts/`: Utility scripts for setup, maintenance, and deployment.
 - `infrastructure/`: Certbot, PGBouncer, nginx and postgres configurations.
+- `swarmed_cli/`: Local CLI tool for interacting with SwarmMed.
 
 ## 🤝 Contribution Process
 

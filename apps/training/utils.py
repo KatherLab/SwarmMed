@@ -1,15 +1,226 @@
 """Utility functions for the training application.
 
-Handles communication with S3 for downloading training code
-and uploading results from the training workspace.
+Handles FLARE job identity parsing, runtime log inspection, and communication
+with object storage for training code and result uploads.
 """
 
+import ast
+import json
 import os
 import re
 import shutil
 import subprocess
 
 from common.utils import get_s3_client
+
+FLARE_JOB_UUID_RE = re.compile(
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
+
+TRAINING_ROUND_PATTERNS = (
+    re.compile(r"on round\s+(\d+):.*action=finished_learn_task", re.I),
+    re.compile(r"Finished round\s+(\d+)", re.I),
+    re.compile(r"Round\s+(\d+)\s+\|", re.I),
+    re.compile(r"Round:\s+(\d+)", re.I),
+    re.compile(r"finished training round\s+(\d+)", re.I),
+    re.compile(r"number of rounds completed\s+(\d+)", re.I),
+    re.compile(r"Start aggregation for round\s+(\d+)", re.I),
+)
+
+TRAINING_COMPLETION_MARKERS = (
+    "ending workflow",
+    "child worker process finished",
+    "mpm: good bye!",
+    "training finished or aborted",
+    "swarm learning done",
+    "workflow controller finished on all clients",
+    "workflow controller done",
+    "server runner finished",
+)
+
+TRAINING_FAILURE_MARKERS = (
+    "execution_exception",
+    "fatal_system_error",
+    "received failure report from client",
+    "data loading error in training script",
+    "traceback (most recent call last)",
+    "exception ending gatherer",
+    "error during model persistence",
+)
+
+TRAINING_STOPPED_MARKERS = (
+    "abort_job",
+    "job aborted",
+    "abort signal received",
+    "abort requested",
+)
+
+TERMINAL_TRAINING_STATUSES = {"COMPLETED", "FAILED", "STOPPED"}
+
+
+def extract_flare_job_uuid(flare_job_id_raw: str | None) -> str | None:
+    """Extract a canonical FLARE job UUID from stored raw job metadata."""
+    if not flare_job_id_raw:
+        return None
+
+    match = FLARE_JOB_UUID_RE.search(str(flare_job_id_raw))
+    if match:
+        return match.group(1)
+
+    try:
+        parsed = ast.literal_eval(str(flare_job_id_raw))
+    except (ValueError, SyntaxError, TypeError):
+        return None
+
+    if isinstance(parsed, list):
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            data = item.get("data", "")
+            if isinstance(data, str):
+                match = FLARE_JOB_UUID_RE.search(data)
+                if match:
+                    return match.group(1)
+    return None
+
+
+def clamp_progress_percent(
+    progress_percent: int | None, *, status: str | None = None
+) -> int | None:
+    """Clamp persisted progress according to runtime status semantics."""
+    if progress_percent is None:
+        return None
+
+    progress = max(0, int(progress_percent))
+    status = str(status or "").upper()
+    if status == "COMPLETED":
+        return 100
+    if status in {"FAILED", "STOPPED"}:
+        return min(99, progress)
+    return min(99, progress)
+
+
+def progress_from_rounds(
+    rounds_finished: int | None, total_rounds: int | None, *, status: str | None = None
+) -> int | None:
+    """Calculate progress percent from completed rounds."""
+    if total_rounds is None or total_rounds <= 0:
+        return None
+    rounds_completed = (
+        rounds_finished + 1 if rounds_finished is not None and rounds_finished >= 0 else 0
+    )
+    return clamp_progress_percent(
+        int(rounds_completed * 100 / total_rounds), status=status
+    )
+
+
+def extract_training_rounds(log_text: str) -> int:
+    """Return the highest completed round found in a log blob."""
+    rounds_finished = -1
+    for pattern in TRAINING_ROUND_PATTERNS:
+        for match in pattern.finditer(log_text):
+            round_number = int(match.group(1))
+            if round_number > rounds_finished:
+                rounds_finished = round_number
+    return rounds_finished
+
+
+def infer_training_terminal_status(log_text: str) -> str | None:
+    """Classify a training log tail into a terminal status when possible."""
+    lowered = str(log_text or "").lower()
+    if not lowered:
+        return None
+
+    if any(marker in lowered for marker in TRAINING_FAILURE_MARKERS):
+        return "FAILED"
+    if any(marker in lowered for marker in TRAINING_STOPPED_MARKERS):
+        return "STOPPED"
+    if any(marker in lowered for marker in TRAINING_COMPLETION_MARKERS):
+        return "COMPLETED"
+    return None
+
+
+def summarize_training_log(log_text: str) -> dict:
+    """Extract progress and terminal state from a training log blob."""
+    return {
+        "rounds_finished": extract_training_rounds(log_text),
+        "terminal_status": infer_training_terminal_status(log_text),
+    }
+
+
+def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> int:
+    """Extract the Swarm controller round count from an NVFLARE server config."""
+    for workflow in config.get("workflows", []):
+        if not isinstance(workflow, dict):
+            continue
+        args = workflow.get("args") or {}
+        if "num_rounds" not in args:
+            continue
+
+        workflow_id = str(workflow.get("id") or "").lower()
+        workflow_path = str(workflow.get("path") or "").lower()
+        is_swarm_controller = (
+            workflow_id in {"controller", "swarm_controller"}
+            or "swarmservercontroller" in workflow_path
+            or "swarm_server_ctl" in workflow_path
+        )
+        if not is_swarm_controller:
+            continue
+
+        try:
+            rounds = int(args.get("num_rounds"))
+        except (TypeError, ValueError):
+            continue
+        if rounds > 0:
+            return rounds
+    return default
+
+
+def extract_total_rounds_from_config_file(path: str, default: int = 10) -> int:
+    """Read an NVFLARE config file and return its Swarm round count."""
+    try:
+        with open(path) as handle:
+            return extract_total_rounds_from_flare_config(json.load(handle), default)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return default
+
+
+def _scope_logs_to_latest_job(logs: str, job_id_pattern: re.Pattern) -> tuple[str | None, str]:
+    """Return the latest job id and only the log segment for that job.
+
+    Runtime containers are reused across jobs. Looking for failure markers in
+    the entire Docker log tail can make a previous failed job poison the status
+    of a newer running job.
+    """
+    matches = list(job_id_pattern.finditer(logs or ""))
+    if not matches:
+        return None, logs
+
+    job_id = matches[-1].group(1)
+    segment_start = matches[-1].start()
+    for match in reversed(matches[:-1]):
+        if match.group(1) == job_id:
+            segment_start = match.start()
+        else:
+            break
+    return job_id, logs[segment_start:]
+
+
+def should_update_terminal_status(
+    current_status: str | None, new_status: str | None
+) -> bool:
+    """Return True when a new terminal status should replace the current one."""
+    if not new_status:
+        return False
+
+    current_status = str(current_status or "").upper()
+    new_status = str(new_status).upper()
+    if current_status not in TERMINAL_TRAINING_STATUSES:
+        return True
+    return current_status == "COMPLETED" and new_status in {
+        "FAILED",
+        "STOPPED",
+    }
 
 
 def scrape_docker_progress(participant_ids=None):
@@ -21,7 +232,7 @@ def scrape_docker_progress(participant_ids=None):
 
     Returns:
         list: A list of dictionaries with extracted progress info (container, job_id,
-            rounds_finished, ended).
+            rounds_finished, ended, terminal_status).
     """
     from logs.logger import get_logger
     log = get_logger()
@@ -64,18 +275,9 @@ def scrape_docker_progress(participant_ids=None):
     log.training.debug(f"Scrape: Filtered candidate containers: {candidates}")
 
     results = []
-    round_patterns = [
-        re.compile(r"Finished round\s+(\d+)", re.I),
-        re.compile(r"Round\s+(\d+)\s+\|", re.I),
-        re.compile(r"Round:\s+(\d+)", re.I),
-        re.compile(r"finished training round\s+(\d+)", re.I),
-        re.compile(r"number of rounds completed\s+(\d+)", re.I),
-        re.compile(r"Start aggregation for round\s+(\d+)", re.I),
-    ]
     # Match UUIDs (36 chars) after common prefixes
     # Added 'run' variants common in SwarmClientController logs
     job_id_pattern = re.compile(r"(?:Got job|Local Job ID|Deploying job|job_id|job|run|run\s*\(|run[:=])\s*[:=]?\s*([0-9a-f-]{36})", re.I)
-    completion_markers = ["ending workflow", "child worker process finished", "MPM: Good Bye!", "training finished", "job finished", "Swarm Learning Done"]
 
     for container in candidates:
         try:
@@ -91,39 +293,30 @@ def scrape_docker_progress(participant_ids=None):
                 log.training.debug(f"Scrape: No logs found for {container}")
                 continue
             
-            job_id = None
-            rounds_finished = -1
-            ended = False
-            
-            # Find Job ID (search from the end)
-            job_matches = job_id_pattern.findall(logs)
-            if job_matches:
-                job_id = job_matches[-1]
+            job_id, scoped_logs = _scope_logs_to_latest_job(logs, job_id_pattern)
+            summary = summarize_training_log(scoped_logs)
+            rounds_finished = summary["rounds_finished"]
+            terminal_status = summary["terminal_status"]
+            ended = terminal_status is not None
+
+            if job_id:
                 log.training.debug(f"Scrape: Found job_id {job_id} in {container} logs")
                 
-            # Find Rounds (search from the end)
-            for pattern in round_patterns:
-                for m in pattern.finditer(logs):
-                    rnum = int(m.group(1))
-                    if rnum > rounds_finished:
-                        rounds_finished = rnum
-            
             if rounds_finished >= 0:
                 log.training.debug(f"Scrape: Found rounds_finished {rounds_finished} in {container} logs")
             
-            # Check completion
-            for marker in completion_markers:
-                if marker.lower() in logs.lower():
-                    ended = True
-                    log.training.debug(f"Scrape: Found completion marker '{marker}' in {container} logs")
-                    break
+            if terminal_status:
+                log.training.debug(
+                    f"Scrape: Found terminal status '{terminal_status}' in {container} logs"
+                )
                 
             if job_id or rounds_finished >= 0:
                 results.append({
                     "container": container,
                     "job_id": job_id,
                     "rounds_finished": rounds_finished,
-                    "ended": ended
+                    "ended": ended,
+                    "terminal_status": terminal_status,
                 })
         except Exception as e:
             log.training.error(f"Scrape: Error processing container {container}: {e}")

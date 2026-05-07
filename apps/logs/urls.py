@@ -20,7 +20,7 @@ urlpatterns = [
     ),
     # Endpoint to download logs for a specific category as a text file
     path(
-        "download/<str:category_key>/",
+        "export/<str:category_key>/",
         views.download_log_category,
         name="download_log_category",
     ),
