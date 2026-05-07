@@ -316,7 +316,7 @@ Copy those files into the central Hub workspace layout:
 /home/jeff/Projects/SwarmCloud-1/workspaces/<PROJECT_UUID>/<NETWORK_UUID>/workspace/<safe-project-name>/prod_00/node-C/<FLARE_JOB_UUID>/app_node-C/FL_global_model.pt
 ```
 
-Then sync and download from the Hub:
+Then sync and export from the Hub:
 
 ```bash
 docker compose exec -T -e PYTHONPATH=/app app \
@@ -326,7 +326,7 @@ docker compose exec -T -e PYTHONPATH=/app app \
     --json
 
 docker compose exec -T -e PYTHONPATH=/app app \
-  swarmed results download \
+  swarmed results export \
     --user admin \
     --project "$PROJECT_UUID" \
     --job "$FULL_HUB_JOB_UUID" \
@@ -334,7 +334,7 @@ docker compose exec -T -e PYTHONPATH=/app app \
     --json
 ```
 
-Evaluate one downloaded `FL_global_model.pt` on `dd-dl0` using the ODELIA image:
+Evaluate one exported `FL_global_model.pt` on `dd-dl0` using the ODELIA image:
 
 ```bash
 docker run --rm --gpus all --ulimit nofile=65536:65536 \
@@ -350,7 +350,7 @@ docker run --rm --gpus all --ulimit nofile=65536:65536 \
   -w /workspace/SwarmCloud \
   jefftud/odelia:1.4.4-dev.260430.64ef7b1 \
   python experiments/duke_mst_cli/evaluate_global_model.py \
-    --checkpoint results/duke_mst_hub_poc/<download-dir>/<FLARE_JOB_UUID>/node-A/FL_global_model.pt \
+    --checkpoint results/duke_mst_hub_poc/<export-dir>/<FLARE_JOB_UUID>/node-A/FL_global_model.pt \
     --data-root /mnt/dlhd0/DUKE_iid \
     --institution test \
     --split test \

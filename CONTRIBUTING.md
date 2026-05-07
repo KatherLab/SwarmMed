@@ -59,7 +59,7 @@ The project follows a modular Django architecture. Each specific functionality i
 | **`core`** | Project configuration, settings, Celery initialization, and root URLs. |
 | **`home`** | Main dashboard, statistics aggregation, and overview cards. |
 | **`apps.users`** | User authentication, profiles, and role-based access control (Admin, Developer, User). |
-| **`apps.project`** | Collaborative project management and code/requirement script uploads. |
+| **`apps.project`** | Collaborative project management and code/requirement script imports. |
 | **`apps.data`** | Management of datasets, S3 storage integration, and data validation. |
 | **`apps.network`** | Infrastructure provisioning for Swarm networks using Docker. |
 | **`apps.training`** | Job submission to NVIDIA FLARE, status tracking, and real-time log streaming. |

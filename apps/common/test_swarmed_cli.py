@@ -512,7 +512,7 @@ class CLIHappyPathTests(TestCase):
 
         code, upload_output = self._run_cli(
             "data",
-            "upload",
+            "import",
             "--user",
             self.user.username,
             "--project",
@@ -591,7 +591,7 @@ class CLIHappyPathTests(TestCase):
         ):
             code, _ = self._run_cli(
                 "results",
-                "download",
+                "export",
                 "--user",
                 self.user.username,
                 "--project",

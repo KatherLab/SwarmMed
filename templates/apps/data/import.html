@@ -32,21 +32,16 @@
                     d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
                     clip-rule="evenodd"></path>
                 </svg>
-                <span class="ml-1 text-gray-400 md:ml-2 dark:text-gray-500" aria-current="page">Upload</span>
+                <span class="ml-1 text-gray-400 md:ml-2 dark:text-gray-500" aria-current="page">Import</span>
               </div>
             </li>
           </ol>
         </nav>
-        <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Upload</h1>
+        <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Import</h1>
       </div>
 
       <section class="p-4 bg-white border mt-4 border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-        <h2 class="mb-4 text-xl font-semibold dark:text-white">Upload Files or Folders</h2>
-        <div class="flex items-start sm:items-center p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 border border-yellow-300 dark:bg-gray-800 dark:text-yellow-300 dark:border-yellow-800" role="alert">
-            <p>
-                <span class="font-medium me-1">Warning!</span> Do not upload unanonymized patient-specific data. Only upload anonymized data or data that does not contain patient-specific values.
-            </p>
-        </div>
+        <h2 class="mb-4 text-xl font-semibold dark:text-white">Import Files or Folders</h2>
         
         <form id="upload_form" method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
@@ -58,7 +53,7 @@
                 <option value="">(root)</option>
               </select>
               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Choose where to upload your files.
+                Choose where to import your files.
               </p>
             </div>
             <div>
@@ -68,7 +63,7 @@
                   <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                     <path fill-rule="evenodd" d="M5 4a2 2 0 0 0-2 2v1h10.968l-1.9-2.28A2 2 0 0 0 10.532 4H5ZM3 19V9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm9-8.5a1 1 0 0 1 1 1V13h1.5a1 1 0 1 1 0 2H13v1.5a1 1 0 1 1-2 0V15H9.5a1 1 0 1 1 0-2H11v-1.5a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
                   </svg>
-                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to upload</span></p>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to import</span></p>
                   <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">files or folders</p>
                 </div>
                 <input class="hidden"
@@ -98,11 +93,11 @@
             
             <!-- Success Message -->
             <div id="success_message" class="hidden mt-4 p-4 bg-green-100 dark:bg-green-900 text-green-500 dark:text-green-300 rounded">
-                Files uploaded successfully!
+                Files imported successfully!
             </div>
             
             <button type="submit" id="submit_btn" class="bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">
-                Upload
+                Import
             </button>
         </form>
       </section>
@@ -224,7 +219,7 @@
                 submitBtn.disabled = false;
                 if (xhr.status === 200) {
                     progressBar.style.width = "100%";
-                    progressBar.textContent = "Upload finished";
+                    progressBar.textContent = "Import finished";
                     successMessage.classList.remove("hidden");
                     form.reset();
                     selectedFilesContainer.classList.add("hidden");
@@ -235,7 +230,7 @@
                 } else {
                     progressBar.style.width = "0%";
                     progressBar.textContent = "0%";
-                    alert("Upload failed. Please try again.");
+                    alert("Import failed. Please try again.");
                 }
             }
         };

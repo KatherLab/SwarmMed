@@ -7,7 +7,7 @@ description: How a new tester can access and smoke-test the Hub running on hd-co
 
 This guide is for a new tester who wants to verify the SwarmMedHub UI on the shared
 `hd-cosmos` Linux server. It focuses on the browser workflow from the `/usage`
-documentation: create/select a project, upload data, run validation and
+documentation: create/select a project, import data, run validation and
 visualization, create/select/start a local test network, and start training.
 
 The screenshots below were captured from a successful GUI smoke test on
@@ -101,7 +101,7 @@ docker compose exec -T -e PYTHONPATH=/app app swarmed project list --user <hub-u
 
 ## 3. Prepare Local Example Files
 
-For a full UI smoke test, clone the repository on your laptop so you can upload the
+For a full UI smoke test, clone the repository on your laptop so you can import the
 example files through the browser:
 
 ```bash
@@ -120,7 +120,7 @@ examples/scikit-learn/res_viz.py
 examples/biomed_data/
 ```
 
-Create a small local `requirements.txt` for the test upload:
+Create a small local `requirements.txt` for the test import:
 
 ```text
 pandas==2.3.3
@@ -151,7 +151,7 @@ accept the terms page if prompted.
    ```
 
 4. Add a short description.
-5. Upload:
+5. Import:
    - Training code: `examples/scikit-learn/training.py`
    - Requirements file: the `requirements.txt` created above
    - Data validation script: `examples/val.py`
@@ -164,16 +164,16 @@ Expected result: the project appears in the list and can be selected as current.
 
 ![Project created](assets/hub-server-test/project-created.png)
 
-## 6. Upload Data
+## 6. Import Data
 
 1. Open **Data** from the sidebar.
-2. Click **Upload Data**.
+2. Click **Import Data**.
 3. Select the `examples/biomed_data/` folder from your local clone.
-4. Click **Upload**.
+4. Click **Import**.
 
-Expected result: the upload page reports success.
+Expected result: the import page reports success.
 
-![Data uploaded](assets/hub-server-test/data-uploaded.png)
+![Data imported](assets/hub-server-test/data-imported.png)
 
 ## 7. Run Data Validation
 
@@ -258,7 +258,7 @@ After training completes:
 2. Click **Sync Results**.
 3. Confirm that result artifacts are listed.
 4. Optionally click **Run Visualization** if a results visualization script was
-   uploaded with the project.
+   imported with the project.
 
 ## 13. What Was Verified on May 4, 2026
 
@@ -268,7 +268,7 @@ The latest GUI smoke test on `hd-cosmos` verified:
 | --- | --- |
 | Project creation | Passed |
 | Current project selection | Passed |
-| Data upload | Passed |
+| Data import | Passed |
 | Data validation | Passed |
 | Data visualization | Passed |
 | Local test network creation | Passed |

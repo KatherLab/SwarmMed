@@ -74,7 +74,7 @@ Optional root-level files are picked up automatically:
 - `visualization.py`
 - `results_visualization.py`
 
-Any other files under the directory are uploaded under the existing training code layout.
+Any other files under the directory are imported under the existing training code layout.
 
 ```bash
 uv run swarmed project create \
@@ -90,10 +90,10 @@ uv run swarmed project create \
 uv run swarmed project use --user alice <PROJECT_UUID>
 ```
 
-### 3. Upload data
+### 3. Import data
 
 ```bash
-uv run swarmed data upload \
+uv run swarmed data import \
   --user alice \
   --project <PROJECT_UUID> \
   --dest incoming \
@@ -168,12 +168,12 @@ uv run swarmed training start --user alice --network <NETWORK_UUID>
 uv run swarmed training watch --user alice <JOB_UUID>
 ```
 
-### 8. Sync and download results
+### 8. Sync and export results
 
 ```bash
 uv run swarmed results sync --user alice --project <PROJECT_UUID>
 uv run swarmed results list --user alice --project <PROJECT_UUID>
-uv run swarmed results download \
+uv run swarmed results export \
   --user alice \
   --project <PROJECT_UUID> \
   --job <JOB_UUID> \
@@ -194,8 +194,8 @@ uv run swarmed results visualize \
 
 ```text
 project create|list|show|use|update
-data upload|ls|download|mv|rm|validate|visualize
+data import|ls|export|mv|rm|validate|visualize
 network create|import|list|show|use|export-package|start|stop|status
 training start|list|status|watch|stop
-results sync|list|download|visualize
+results sync|list|export|visualize
 ```

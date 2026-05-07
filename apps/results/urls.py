@@ -16,19 +16,19 @@ urlpatterns = [
     path("", views.results, name="results"),
     # Download a specific result file by its database ID.
     path(
-        "download/result/<int:result_id>/",
+        "export/result/<int:result_id>/",
         views.download_result,
         name="download_result",
     ),
     # Download all results for a project (optionally filtered by job) as a ZIP.
     path(
-        "download/all/<str:project_id>/",
+        "export/all/<str:project_id>/",
         views.download_all_results,
         name="download_all_results",
     ),
     # Download a result using its S3 key.
     path(
-        "download/by-key/",
+        "export/by-key/",
         views.download_result_by_key,
         name="download_result_by_key",
     ),

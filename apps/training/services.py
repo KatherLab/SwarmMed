@@ -506,7 +506,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
     admin_target = resolve_admin_session_target(network)
     if not admin_target:
         raise LookupError(
-            "No admin startup kit found for this center. Re-provision or upload a complete startup package."
+            "No admin startup kit found for this center. Re-provision or import a complete startup package."
         )
 
     admin_username, admin_session_dir, server_ip = admin_target

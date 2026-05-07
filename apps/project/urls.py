@@ -33,7 +33,7 @@ urlpatterns = [
     path("get-user-emails/", views.get_user_emails, name="get_user_emails"),
     # Endpoint for downloading project files via presigned URLs.
     path(
-        "download/<int:pk>/<str:file_type>/",
+        "export/<int:pk>/<str:file_type>/",
         views.download_project_file,
         name="download_file",
     ),

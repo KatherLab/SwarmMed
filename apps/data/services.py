@@ -142,11 +142,11 @@ def upload_data_entries(
     log = logger.get_logger(project=project)
     if saved:
         log.data.info(
-            f"Uploaded {len(saved)} data file(s) into {destination or '(root)'}."
+            f"Imported {len(saved)} data file(s) into {destination or '(root)'}."
         )
     for warning in skipped:
         log.data.warning(
-            f"Skipped uploading '{warning['path']}': {warning['reason']}"
+            f"Skipped importing '{warning['path']}': {warning['reason']}"
         )
 
     return {"saved": saved, "skipped": skipped}

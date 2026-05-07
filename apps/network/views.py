@@ -430,7 +430,7 @@ def new_network(request):
 
     Supports three methods:
     1. 'create': Provision a new network from a list of client names and IPs.
-    2. 'upload': Import an existing FLARE startup kit zip file.
+    2. 'import': Import an existing FLARE startup kit zip file.
     3. 'local_test': Auto-generate a local-only testing network.
 
     Args:
@@ -472,7 +472,7 @@ def new_network(request):
                 server_ip=get_tailscale_ip(),
             )
 
-        elif creation_method == "upload":
+        elif creation_method == "import":
             startup_package = request.FILES.get("startup_package")
             if startup_package:
                 network_services.import_network(
@@ -539,7 +539,7 @@ def download_startup_kits(request, network_id):
     log = get_logger(user=request.user, project=swarm_network.project)
 
     log.network.info(
-        f"User downloaded startup kits for network '{swarm_network.name}' (ID: {swarm_network.identifier})"
+        f"User exported startup kits for network '{swarm_network.name}' (ID: {swarm_network.identifier})"
     )
 
     zip_buffer = network_services.export_startup_package(swarm_network)

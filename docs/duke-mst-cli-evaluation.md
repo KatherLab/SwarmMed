@@ -138,7 +138,7 @@ uv run swarmed training watch --user jeff <JOB_UUID> --network <NETWORK_UUID> --
 
 ```bash
 uv run swarmed results sync --user jeff --project <PROJECT_UUID>
-uv run swarmed results download \
+uv run swarmed results export \
   --user jeff \
   --project <PROJECT_UUID> \
   --job <JOB_UUID> \
@@ -149,7 +149,7 @@ For acceptance, collect `FL_global_model.pt` from each client, verify matching
 `md5sum`, then evaluate one global checkpoint on the held-out DUKE test set on
 dl0. The reference MediSwarm MST swarm AUROC is approximately `0.895`.
 
-The CLI result sync/download path is scoped to `FL_global_model.pt` for this
+The CLI result sync/export path is scoped to `FL_global_model.pt` for this
 global-model evaluation. `last_global_model.ckpt` is a local Lightning
 checkpoint and must not be used for the swarm global AUROC.
 

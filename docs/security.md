@@ -56,7 +56,7 @@ SwarmMedHub leverages [Tailscale](https://tailscale.com/security/) to create a s
 SwarmMedHub implements a robust Role-Based Access Control (RBAC) system:
 
 - **Admin:** Full control over the platform, users, projects, and system settings.
-- **Developer:** Can create and manage projects, upload data, run training jobs, and view logs.
+- **Developer:** Can create and manage projects, import data, run training jobs, and view logs.
 - **User:** Can view and interact with projects they are members of.
 
 ### Multi-Factor Authentication (MFA)

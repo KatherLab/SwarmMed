@@ -107,11 +107,11 @@ def build_parser() -> argparse.ArgumentParser:
     data_parser = subparsers.add_parser("data", parents=[common_parent])
     data_subparsers = data_parser.add_subparsers(dest="action")
 
-    data_upload = data_subparsers.add_parser("upload", parents=[common_parent])
+    data_upload = data_subparsers.add_parser("import", parents=[common_parent])
     data_upload.add_argument("sources", nargs="+")
     data_upload.add_argument("--project")
     data_upload.add_argument("--dest", default="")
-    data_upload.set_defaults(handler="data_upload", command_name="data upload")
+    data_upload.set_defaults(handler="data_upload", command_name="data import")
 
     data_ls = data_subparsers.add_parser("ls", parents=[common_parent])
     data_ls.add_argument("prefix", nargs="?", default="")
@@ -119,12 +119,12 @@ def build_parser() -> argparse.ArgumentParser:
     data_ls.set_defaults(handler="data_ls", command_name="data ls")
 
     data_download = data_subparsers.add_parser(
-        "download", parents=[common_parent]
+        "export", parents=[common_parent]
     )
     data_download.add_argument("path")
     data_download.add_argument("--project")
     data_download.add_argument("--out", required=True)
-    data_download.set_defaults(handler="data_download", command_name="data download")
+    data_download.set_defaults(handler="data_download", command_name="data export")
 
     data_mv = data_subparsers.add_parser("mv", parents=[common_parent])
     data_mv.add_argument("source")
@@ -277,13 +277,13 @@ def build_parser() -> argparse.ArgumentParser:
     results_list.set_defaults(handler="results_list", command_name="results list")
 
     results_download = results_subparsers.add_parser(
-        "download", parents=[common_parent]
+        "export", parents=[common_parent]
     )
     results_download.add_argument("--project")
     results_download.add_argument("--job", required=True)
     results_download.add_argument("--out", required=True)
     results_download.set_defaults(
-        handler="results_download", command_name="results download"
+        handler="results_download", command_name="results export"
     )
 
     results_visualize = results_subparsers.add_parser(
@@ -406,7 +406,7 @@ def run(args: argparse.Namespace):
                 for warning in upload_result["skipped"]
             )
             if not upload_result["saved"]:
-                raise ValueError("No files were uploaded.")
+                raise ValueError("No files were imported.")
             result = {
                 "project_identifier": str(project.identifier),
                 "saved": upload_result["saved"],

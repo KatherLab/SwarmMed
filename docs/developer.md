@@ -5,7 +5,7 @@ description: A guide for developers to write shared project scripts for SwarmMed
 
 # Developer Guide
 
-This guide describes the shared project script contract used by both SwarmMedHub and the local `swarmed` CLI. The same project code bundle can be uploaded through the web UI or ingested locally with `swarmed project create --code-dir PATH` or `swarmed project update --code-dir PATH`.
+This guide describes the shared project script contract used by both SwarmMedHub and the local `swarmed` CLI. The same project code bundle can be imported through the web UI or ingested locally with `swarmed project create --code-dir PATH` or `swarmed project update --code-dir PATH`.
 
 SwarmMed supports four script types:
 
@@ -26,7 +26,7 @@ Both interfaces use the same project bundle layout:
 
 *   **Required:** `training.py`
 *   **Optional:** `requirements.txt`, `validation.py`, `visualization.py`, `results_visualization.py`
-*   **Additional support files:** Preserved relative to the project root and uploaded under the training code layout
+*   **Additional support files:** Preserved relative to the project root and imported under the training code layout
 
 This shared bundle is what lets the same project be created and executed through either SwarmMedHub or the local `swarmed` workflow.
 
@@ -43,7 +43,7 @@ Your validation script has access to a global `validation` object:
     *   **`status`** (str): The outcome, which can be `"ok"`, `"info"`, `"warning"` or `"error"`.
     *   **`message`** (str): A descriptive message about the outcome.
     *   **`details`** (dict): A dictionary for any additional information.
-*   **`get_data_path(relative_path="")`**: Gets the local path to a file or directory from your project's data folder. Files are downloaded from the cloud storage on demand.
+*   **`get_data_path(relative_path="")`**: Gets the local path to a file or directory from your project's data folder. Files are accessed from the object storage storage on demand.
 *   **`open(relative_path, mode='r', **kwargs)`**: Opens a file from your project's data folder.
 *   **`exists(relative_path)`**: Checks if a file or directory exists.
 *   **`listdir(relative_path="")`**: Lists the contents of a directory.

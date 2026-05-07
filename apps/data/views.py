@@ -200,7 +200,7 @@ def upload_files(request):
             destination_folder = ""
         elif destination_folder.startswith(".."):
             log.data.warning(
-                f"Blocked upload with malicious destination folder: {destination_folder}"
+                f"Blocked import with malicious destination folder: {destination_folder}"
             )
             return HttpResponse("Invalid destination folder", status=400)
 
@@ -214,11 +214,11 @@ def upload_files(request):
         if result["skipped"]:
             for warning in result["skipped"]:
                 log.data.warning(
-                    f"Skipped upload of {warning['path']}: {warning['reason']}"
+                    f"Skipped import of {warning['path']}: {warning['reason']}"
                 )
-        return HttpResponse("Files uploaded with folder structure preserved!")
+        return HttpResponse("Files imported with folder structure preserved!")
 
-    return render(request, "apps/data/upload.html", {"segment": "data"})
+    return render(request, "apps/data/import.html", {"segment": "data"})
 
 
 @login_required

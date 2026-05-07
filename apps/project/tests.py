@@ -56,7 +56,7 @@ class TrainingCodeUploadTests(TestCase):
             username="project-user", password="test-password"
         )  # nosec B106
         self.project = Project.objects.create(
-            title="Upload Project", author=self.user
+            title="Import Project", author=self.user
         )
 
     def tearDown(self):

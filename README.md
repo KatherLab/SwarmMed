@@ -76,7 +76,7 @@ The CLI is intended for Linux hosts in v1. After `make install`, run it through 
 ```bash
 uv run swarmed project create --user alice --title "Demo" --code-dir ./demo-code
 uv run swarmed project use --user alice <PROJECT_UUID>
-uv run swarmed data upload --user alice --project <PROJECT_UUID> --dest incoming ./data.csv
+uv run swarmed data import --user alice --project <PROJECT_UUID> --dest incoming ./data.csv
 uv run swarmed network create --user alice --project <PROJECT_UUID> --name "Local Test" --local-test
 uv run swarmed training start --user alice --network <NETWORK_UUID>
 uv run swarmed results sync --user alice --project <PROJECT_UUID>

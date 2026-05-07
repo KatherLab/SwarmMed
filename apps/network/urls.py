@@ -40,7 +40,7 @@ urlpatterns = [
     ),
     # Action: Download the generated FLARE startup kits for clients
     path(
-        "<uuid:network_id>/download/",
+        "<uuid:network_id>/export/",
         views.download_startup_kits,
         name="download_startup_kits",
     ),

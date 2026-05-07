@@ -38,7 +38,7 @@ graph TD
 
 ### Key Components
 
-*   **Django Web Interface:** The central hub for project management, data upload, and training orchestration.
+*   **Django Web Interface:** The central hub for project management, data import, and training orchestration.
 *   **Celery Worker:** Handles long-running background tasks such as data synchronization, script execution, and training job monitoring.
 *   **MinIO:** Provides S3-compatible object storage for all datasets, models, and scripts.
 *   **Sandbox-dind:** An isolated Docker-in-Docker environment used to execute user-provided Python scripts securely.

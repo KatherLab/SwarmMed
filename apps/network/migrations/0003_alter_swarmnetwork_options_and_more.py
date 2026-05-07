@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='swarmnetwork',
             name='creation_method',
-            field=models.CharField(choices=[('CREATED', 'Created (locally provisioned)'), ('UPLOADED', 'Uploaded (imported)'), ('LOCAL_TEST', 'Local Test')], default='CREATED', help_text='How this network configuration was initialized.', max_length=20),
+            field=models.CharField(choices=[('CREATED', 'Created (locally provisioned)'), ('IMPORTED', 'Imported (from existing config)'), ('LOCAL_TEST', 'Local Test')], default='CREATED', help_text='How this network configuration was initialized.', max_length=20),
         ),
         migrations.AddField(
             model_name='swarmnetwork',

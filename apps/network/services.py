@@ -263,7 +263,7 @@ def import_network(
         "project": project,
         "description": description,
         "author": actor,
-        "creation_method": "UPLOADED",
+        "creation_method": "IMPORTED",
     }
     if original_network_id:
         try:
@@ -279,7 +279,7 @@ def import_network(
 
     swarm_network = SwarmNetwork.objects.create(**create_args)
     log.network.info(
-        f"Initialized uploaded network record: {name} (ID: {swarm_network.identifier})"
+        f"Initialized imported network record: {name} (ID: {swarm_network.identifier})"
     )
 
     provision_dir = os.path.abspath(
@@ -486,11 +486,11 @@ def import_network(
                     handle.write(resolved_server_host)
 
             log.network.info(
-                f"Resolved uploaded startup kit server host: {resolved_server_host}"
+                f"Resolved imported startup kit server host: {resolved_server_host}"
             )
     except Exception as exc:
         log.network.warning(
-            f"Could not derive server host from uploaded startup kit: {exc}"
+            f"Could not derive server host from imported startup kit: {exc}"
         )
 
     swarm_network.status = "PROVISIONED"
@@ -507,7 +507,7 @@ def import_network(
                 if recovered_token:
                     swarm_network.gossip_token = recovered_token
                     log.network.info(
-                        "Recovered shared gossip token from upload."
+                        "Recovered shared gossip token from import."
                     )
 
             if ".participants.json" in file_list:
@@ -635,7 +635,7 @@ def import_network(
             )
     except Exception as participant_error:
         log.network.warning(
-            f"Could not populate participants from uploaded kit: {participant_error}"
+            f"Could not populate participants from imported kit: {participant_error}"
         )
 
     log.network.info(

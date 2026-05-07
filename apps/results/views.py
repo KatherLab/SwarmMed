@@ -332,7 +332,7 @@ def download_result(request, result_id):
 
         log = logger.get_logger()
         log.access.info(
-            f"User downloading training result: {result.file_path}",
+            f"User exported training result: {result.file_path}",
             file_key=result.file_path,
         )
 
@@ -377,7 +377,7 @@ def download_all_results(request, project_id):
 
         log = logger.get_logger()
         log.access.info(
-            f"User downloaded all results for project {project.identifier} (Job: {job_filter})",
+            f"User exported all results for project {project.identifier} (Job: {job_filter})",
             project_id=project.identifier,
         )
 
@@ -431,7 +431,7 @@ def download_result_by_key(request):
 
     log = logger.get_logger()
     log.access.info(
-        f"User downloading result file by key: {key}", file_key=key
+        f"User exported result file by key: {key}", file_key=key
     )
 
     # Direct proxying is more reliable for local/self-hosted setups

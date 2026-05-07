@@ -369,7 +369,7 @@ def start_results_visualization(
     if not py_scripts:
         raise ValueError(
             f"No visualization scripts found at {script_prefix}. "
-            "Upload one on the project page first."
+            "Import one on the project page first."
         )
 
     running_query = ResultsVisualizationRun.objects.filter(
