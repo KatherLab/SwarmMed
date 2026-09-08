@@ -48,7 +48,7 @@ MedSwarmHub is a **secure** and **scalable** platform for **decentralized learni
 
     ---
 
-    SwarmMedHub is licensed under PolyForm Noncommercial 1.0.0 and available on GitHub.
+    SwarmMedHub is open source, licensed under the Apache License 2.0 and available on GitHub.
 
     [:octicons-arrow-right-24: Github](https://github.com/KatherLab/SwarmMed)
     
