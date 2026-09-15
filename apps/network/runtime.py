@@ -9,6 +9,7 @@ import subprocess
 
 from logs.logger import get_logger
 
+from .provision import FED_LEARN_PORT
 from .tasks import _container_name_for, _is_container_running
 from .utils import _safe_cache_get, _safe_cache_set, get_tailscale_ip
 
@@ -65,7 +66,7 @@ def get_local_participant_status(swarm_network):
         creation_pattern = r"connection \[(cn\d+) ([^\]]*?) ssl ([^\]\s]+)\] is created"
         for match in re.finditer(creation_pattern, server_logs):
             cn_id, conn_details, principal = match.groups()
-            if ":8002" not in conn_details:
+            if f":{FED_LEARN_PORT}" not in conn_details:
                 continue
             participant_id = principal.split("@", 1)[0].strip().lower()
             if participant_id.startswith("admin-"):

@@ -570,6 +570,9 @@ def new_secure_session_with_host(
         pass
 
     canonical_host = canonical_host or "server"
+    if admin_port <= 0:
+        with contextlib.suppress(ValueError):
+            admin_port = int(os.getenv("SWARMMEDHUB_ADMIN_PORT", "") or 0)
     admin_port = admin_port if admin_port > 0 else 8003
 
     requested_host = (host or "").strip()

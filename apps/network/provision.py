@@ -21,6 +21,24 @@ from logs.logger import get_logger
 from .models import SwarmNetwork
 
 
+def _env_port(name: str, default: int) -> int:
+    """Read a TCP port from the environment, falling back to ``default``."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        port = int(raw)
+    except ValueError:
+        return default
+    return port if 0 < port < 65536 else default
+
+
+# NVFlare server ports written into every provisioned startup kit. Override when
+# the host already runs another FLARE server on the defaults (8002/8003).
+FED_LEARN_PORT = _env_port("SWARMMEDHUB_FED_LEARN_PORT", 8002)
+ADMIN_PORT = _env_port("SWARMMEDHUB_ADMIN_PORT", 8003)
+
+
 def is_valid_ip(ip):
     """Basic validation for IPv4 addresses or 'host.docker.internal'.
 
@@ -159,8 +177,8 @@ def generate_flare_startup_kit(
                 "name": "server",
                 "type": "server",
                 "org": control_plane_org,
-                "fed_learn_port": 8002,
-                "admin_port": 8003,
+                "fed_learn_port": FED_LEARN_PORT,
+                "admin_port": ADMIN_PORT,
                 "listening_host": "server",
             }
         )
@@ -205,8 +223,8 @@ def generate_flare_startup_kit(
                 "name": "server",
                 "type": "server",
                 "org": control_plane_org,
-                "fed_learn_port": 8002,
-                "admin_port": 8003,
+                "fed_learn_port": FED_LEARN_PORT,
+                "admin_port": ADMIN_PORT,
                 "listening_host": "server",
             }
         )
