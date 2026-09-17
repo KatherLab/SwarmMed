@@ -123,7 +123,6 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--model-family", default="swarm")
-    parser.add_argument("--generated-model", action="store_true")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--institution", required=True)
@@ -206,7 +205,6 @@ def main() -> None:
                     {
                         "model_id": args.model_id,
                         "model_family": args.model_family,
-                        "generated_model": "true" if args.generated_model else "false",
                         "dataset": args.dataset,
                         "uid": uid,
                         "y_true": int(target_class == args.positive_class),
@@ -233,7 +231,6 @@ def main() -> None:
                 "checkpoint_md5": checkpoint_md5,
                 "model_id": args.model_id,
                 "model_family": args.model_family,
-                "generated_model": bool(args.generated_model),
                 "dataset": args.dataset,
                 "data_root": str(Path(args.data_root).resolve()),
                 "institution": args.institution,

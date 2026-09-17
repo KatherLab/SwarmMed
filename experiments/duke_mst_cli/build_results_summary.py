@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Paper-level summary of the DUKE MST swarm experiment.
+
+Reads results/duke_mst_cli/stat_tests/all_predictions.csv (written by build_delong_report.py)
+and produces, in the same directory:
+
+  auroc_repetition_summary.csv   per arm x cohort: AUROC per run, mean, SD, 95% t-CI
+  noninferiority_tests.csv       swarm vs centralized: paired DeLong CI per run, run-level CI,
+                                 non-inferiority verdicts for pre-specified margins
+  ensemble_baseline.csv          no-collaboration baseline (mean of the single-node scores)
+  cohort_sizes.csv               exams and patients per cohort, for figure axis labels
+  results_summary.md             the tables above, readable
+
+Arms: local node_A / node_B / node_C, centralized (node_all), swarm, and the no-collaboration
+ensemble. Run k of the ensemble averages run k of the three local models. The external
+five-site cohort is CAM+MHA+RUMC+UKA+UMCU (test splits); RSH is reported per centre only.
+"""
+
+from __future__ import annotations
+
+import csv
+import math
+import re
+from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+
+from build_delong_report import auc_from_rows, paired_delong
+
+EXTERNAL_5SITE = ["CAM", "MHA", "RUMC", "UKA", "UMCU"]
+COHORT_GROUPS = {
+    "DUKE_internal": ["DUKE_test"],
+    "ODELIA_external_5site": EXTERNAL_5SITE,
+    **{name: [name] for name in [*EXTERNAL_5SITE, "RSH"]},
+}
+ARMS = {
+    "node_A": "local_node_A_run{k}",
+    "node_B": "local_node_B_run{k}",
+    "node_C": "local_node_C_run{k}",
+    "centralized": "local_node_all_run{k}",
+    "swarm": "swarm_repetition_{k}",
+}
+RUNS = (1, 2, 3)
+MARGINS = (0.03, 0.05)
+# t_{0.975, df} for df = 1..5
+T975 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571}
+
+
+def mean_sd_ci(values: list[float]) -> tuple[float, float, float, float]:
+    arr = np.asarray(values, dtype=float)
+    mean = float(arr.mean())
+    if len(arr) < 2:
+        return mean, float("nan"), float("nan"), float("nan")
+    sd = float(arr.std(ddof=1))
+    half = T975[len(arr) - 1] * sd / math.sqrt(len(arr))
+    return mean, sd, mean - half, mean + half
+
+
+def load_rows(path: Path) -> dict[str, dict[str, dict[str, dict]]]:
+    """model_id -> dataset -> uid -> row"""
+    out: dict[str, dict[str, dict[str, dict]]] = defaultdict(lambda: defaultdict(dict))
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            out[row["model_id"]][row["dataset"]][row["uid"]] = {
+                "uid": row["uid"],
+                "y_true": int(row["y_true"]),
+                "y_score": float(row["y_score"]),
+            }
+    return out
+
+
+def add_ensemble(rows: dict, k: int) -> None:
+    """Mean of the three single-node models' scores, case by case, for run k."""
+    a, b, c = (rows[f"local_node_{n}_run{k}"] for n in ("A", "B", "C"))
+    model_id = f"ensemble_ABC_run{k}"
+    for dataset in a:
+        for uid, ra in a[dataset].items():
+            rb, rc = b[dataset][uid], c[dataset][uid]
+            assert ra["y_true"] == rb["y_true"] == rc["y_true"]
+            rows[model_id][dataset][uid] = {
+                "uid": uid,
+                "y_true": ra["y_true"],
+                "y_score": (ra["y_score"] + rb["y_score"] + rc["y_score"]) / 3.0,
+            }
+
+
+def group_rows(rows: dict, model_id: str, datasets: list[str]) -> list[dict]:
+    return [row for dataset in datasets for row in rows[model_id][dataset].values()]
+
+
+def main() -> None:
+    stat_dir = Path.cwd() / "results" / "duke_mst_cli" / "stat_tests"
+    rows = load_rows(stat_dir / "all_predictions.csv")
+    for k in RUNS:
+        add_ensemble(rows, k)
+    arms = {**ARMS, "ensemble_ABC": "ensemble_ABC_run{k}"}
+
+    # 1. repetition summary
+    summary_rows = []
+    auroc: dict[tuple[str, str], list[float]] = {}
+    for group, datasets in COHORT_GROUPS.items():
+        for arm, pattern in arms.items():
+            values = [auc_from_rows(group_rows(rows, pattern.format(k=k), datasets)) for k in RUNS]
+            n_cases = len(group_rows(rows, pattern.format(k=1), datasets))
+            mean, sd, lo, hi = mean_sd_ci(values)
+            auroc[(group, arm)] = values
+            summary_rows.append(
+                {
+                    "cohort": group,
+                    "arm": arm,
+                    "n_cases": n_cases,
+                    "runs": len(values),
+                    "auroc_per_run": ";".join(f"{v:.4f}" for v in values),
+                    "mean_auroc": f"{mean:.4f}",
+                    "sd_auroc": f"{sd:.4f}",
+                    "ci95_low": f"{lo:.4f}",
+                    "ci95_high": f"{hi:.4f}",
+                    "ci_method": "t interval across runs",
+                }
+            )
+    write(stat_dir / "auroc_repetition_summary.csv", summary_rows)
+
+    # 2. non-inferiority: swarm vs centralized (and vs ensemble), per run paired DeLong + run level
+    ni_rows = []
+    for group in ("DUKE_internal", "ODELIA_external_5site"):
+        datasets = COHORT_GROUPS[group]
+        for reference in ("centralized", "ensemble_ABC"):
+            deltas = []
+            for k in RUNS:
+                swarm = group_rows(rows, arms["swarm"].format(k=k), datasets)
+                ref = group_rows(rows, arms[reference].format(k=k), datasets)
+                ref_by_uid = {r["uid"]: r for r in ref}
+                labels = np.asarray([r["y_true"] for r in swarm], dtype=int)
+                s_swarm = np.asarray([r["y_score"] for r in swarm], dtype=float)
+                s_ref = np.asarray([ref_by_uid[r["uid"]]["y_score"] for r in swarm], dtype=float)
+                d = paired_delong(labels, s_swarm, s_ref)
+                delta = float(d["auc_a"] - d["auc_b"])
+                # 95% CI of the paired difference from the DeLong z statistic
+                se = abs(delta / d["z"]) if d["z"] not in (0, 0.0) else float("nan")
+                deltas.append(delta)
+                ni_rows.append(
+                    {
+                        "cohort": group,
+                        "comparison": f"swarm_minus_{reference}",
+                        "level": f"run {k} (paired DeLong, n={len(labels)})",
+                        "delta_auroc": f"{delta:.4f}",
+                        "ci95_low": f"{delta - 1.96 * se:.4f}",
+                        "ci95_high": f"{delta + 1.96 * se:.4f}",
+                        "p_value_two_sided": f"{d['p_value']:.4g}",
+                        **{f"non_inferior_margin_{m}": str(delta - 1.96 * se > -m) for m in MARGINS},
+                    }
+                )
+            mean, sd, lo, hi = mean_sd_ci(deltas)
+            ni_rows.append(
+                {
+                    "cohort": group,
+                    "comparison": f"swarm_minus_{reference}",
+                    "level": "across runs (t interval, n=3 runs)",
+                    "delta_auroc": f"{mean:.4f}",
+                    "ci95_low": f"{lo:.4f}",
+                    "ci95_high": f"{hi:.4f}",
+                    "p_value_two_sided": "",
+                    **{f"non_inferior_margin_{m}": str(lo > -m) for m in MARGINS},
+                }
+            )
+    write(stat_dir / "noninferiority_tests.csv", ni_rows)
+
+    # 3. ensemble baseline table (per cohort group, all arms side by side)
+    ens_rows = []
+    for group in COHORT_GROUPS:
+        ens_rows.append(
+            {
+                "cohort": group,
+                **{
+                    f"{arm}_mean_sd": f"{np.mean(auroc[(group, arm)]):.3f} ± {np.std(auroc[(group, arm)], ddof=1):.3f}"
+                    for arm in ("node_A", "node_B", "node_C", "ensemble_ABC", "swarm", "centralized")
+                },
+            }
+        )
+    write(stat_dir / "ensemble_baseline.csv", ens_rows)
+
+    # 4. cohort sizes for figure labels
+    size_rows = []
+    for dataset in ["DUKE_test", *EXTERNAL_5SITE, "RSH"]:
+        uids = list(rows["swarm_repetition_1"][dataset])
+        patients = {re.sub(r"_(left|right)$", "", uid) for uid in uids}
+        positives = sum(r["y_true"] for r in rows["swarm_repetition_1"][dataset].values())
+        size_rows.append(
+            {"cohort": dataset, "exams": len(uids), "patients": len(patients), "positive_exams": positives}
+        )
+    ext = [r for r in size_rows if r["cohort"] in EXTERNAL_5SITE]
+    size_rows.append(
+        {
+            "cohort": "ODELIA_external_5site",
+            "exams": sum(r["exams"] for r in ext),
+            "patients": sum(r["patients"] for r in ext),
+            "positive_exams": sum(r["positive_exams"] for r in ext),
+        }
+    )
+    write(stat_dir / "cohort_sizes.csv", size_rows)
+
+    # 5. readable summary
+    lines = ["# DUKE MST swarm experiment — results summary", ""]
+    lines += ["Generated by experiments/duke_mst_cli/build_results_summary.py from all_predictions.csv.", ""]
+    lines += ["## AUROC, mean ± SD over three runs (95% t-CI)", ""]
+    lines += ["| cohort | arm | n cases | per run | mean ± SD | 95% CI |", "|---|---|---|---|---|---|"]
+    for r in summary_rows:
+        lines.append(
+            f"| {r['cohort']} | {r['arm']} | {r['n_cases']} | {r['auroc_per_run']} | "
+            f"{float(r['mean_auroc']):.3f} ± {float(r['sd_auroc']):.3f} | {float(r['ci95_low']):.3f}–{float(r['ci95_high']):.3f} |"
+        )
+    lines += ["", "## Non-inferiority of swarm vs reference (delta = swarm − reference)", ""]
+    lines += ["| cohort | comparison | level | delta | 95% CI | p (two-sided) | NI at 0.03 | NI at 0.05 |", "|---|---|---|---|---|---|---|---|"]
+    for r in ni_rows:
+        lines.append(
+            f"| {r['cohort']} | {r['comparison']} | {r['level']} | {r['delta_auroc']} | {r['ci95_low']} to {r['ci95_high']} | "
+            f"{r['p_value_two_sided']} | {r['non_inferior_margin_0.03']} | {r['non_inferior_margin_0.05']} |"
+        )
+    lines += ["", "Non-inferior at margin m if the lower 95% bound of delta exceeds −m. The margin must be", "pre-specified in the manuscript; both are shown for transparency.", ""]
+    lines += ["## Cohort sizes", "", "| cohort | exams | patients | positive exams |", "|---|---|---|---|"]
+    for r in size_rows:
+        lines.append(f"| {r['cohort']} | {r['exams']} | {r['patients']} | {r['positive_exams']} |")
+    (stat_dir / "results_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n".join(lines))
+
+
+def write(path: Path, rows: list[dict]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+if __name__ == "__main__":
+    main()

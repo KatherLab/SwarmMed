@@ -22,7 +22,6 @@ DATASETS = ["DUKE_test", "CAM", "MHA", "RUMC", "UKA", "UMCU", "RSH"]
 PREDICTION_FIELDS = [
     "model_id",
     "model_family",
-    "generated_model",
     "dataset",
     "uid",
     "y_true",
@@ -30,11 +29,18 @@ PREDICTION_FIELDS = [
     "y_pred",
     "checkpoint_md5",
 ]
+# Three independent 20-round swarm runs (model_id, NVFlare job id). Repetitions 1 and 2
+# were trained 28 Apr 2026, repetition 3 on 15 Sep 2026 with the same code, image and
+# configuration (see results/duke_mst_cli/stat_tests/swarm_run_provenance.json).
 SWARM_MODELS = [
-    ("swarm_repetition_1", False),
-    ("swarm_repetition_2", False),
-    ("swarm_repetition_3", True),
+    ("swarm_repetition_1", "1a581be8-069f-45d5-9e87-80b78c7e285a"),
+    ("swarm_repetition_2", "37bc58d0-9425-4180-9846-7273cd55d2bf"),
+    ("swarm_repetition_3", "f6812656-cafa-4d59-a2a9-4584eef668f3"),
 ]
+# External cohorts are evaluated on their held-out test split only (Fold 0, Split == test),
+# for every arm. The local/centralized runs exported all 200 RSH exams; restrict them here so
+# that every model is scored on identical cases.
+ODELIA_COHORTS = ["CAM", "MHA", "RUMC", "UKA", "UMCU", "RSH"]
 LOCAL_RUNS = [
     ("node_A", 1, "MST_binary_unilateral_2026_04_14_215628_fold0"),
     ("node_A", 2, "MST_binary_unilateral_2026_04_16_161821_fold0"),
@@ -83,7 +89,7 @@ def write_csv_dicts(path: Path, rows: list[dict[str, Any]], fields: list[str]) -
 
 def load_odelia_uid_map(meta_dir: Path) -> dict[str, str]:
     uid_to_dataset: dict[str, str] = {}
-    for dataset in ["CAM", "MHA", "RUMC", "UKA", "UMCU", "RSH"]:
+    for dataset in ODELIA_COHORTS:
         path = meta_dir / dataset / "annotation.csv"
         for row in read_csv_dicts(path):
             uid = row["UID"]
@@ -94,10 +100,24 @@ def load_odelia_uid_map(meta_dir: Path) -> dict[str, str]:
     return uid_to_dataset
 
 
+def load_odelia_test_uids(meta_dir: Path) -> dict[str, set[str]]:
+    """UIDs of the held-out test split (Fold 0) per external cohort, from split.csv."""
+    test_uids: dict[str, set[str]] = {}
+    for dataset in ODELIA_COHORTS:
+        rows = read_csv_dicts(meta_dir / dataset / "split.csv")
+        test_uids[dataset] = {
+            row["UID"] for row in rows if row["Split"] == "test" and row["Fold"] == "0"
+        }
+        if not test_uids[dataset]:
+            raise ValueError(f"No test-split UIDs found for {dataset}")
+    return test_uids
+
+
 def normalize_local_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     raw_dir = stat_dir / "raw" / "local_iid"
     output_dir = stat_dir / "predictions" / "local"
     uid_to_dataset = load_odelia_uid_map(stat_dir / "metadata" / "odelia")
+    test_uids = load_odelia_test_uids(stat_dir / "metadata" / "odelia")
     all_rows: list[dict[str, Any]] = []
     source_rows: list[dict[str, Any]] = []
 
@@ -114,7 +134,6 @@ def normalize_local_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], l
             normalized = {
                 "model_id": model_id,
                 "model_family": "local_iid",
-                "generated_model": "false",
                 "dataset": "DUKE_test",
                 "uid": row["UID"],
                 "y_true": int(parse_scalar(row["GT"])),
@@ -129,10 +148,11 @@ def normalize_local_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], l
             dataset = uid_to_dataset.get(uid)
             if dataset not in {"CAM", "MHA", "RUMC", "UKA", "UMCU"}:
                 raise ValueError(f"Could not map standard ODELIA UID {uid}")
+            if uid not in test_uids[dataset]:
+                continue
             normalized = {
                 "model_id": model_id,
                 "model_family": "local_iid",
-                "generated_model": "false",
                 "dataset": dataset,
                 "uid": uid,
                 "y_true": int(parse_scalar(row["GT"])),
@@ -143,10 +163,11 @@ def normalize_local_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], l
             model_rows[dataset].append(normalized)
 
         for row in read_csv_dicts(sources["RSH"]):
+            if row["UID"] not in test_uids["RSH"]:
+                continue
             normalized = {
                 "model_id": model_id,
                 "model_family": "local_iid",
-                "generated_model": "false",
                 "dataset": "RSH",
                 "uid": row["UID"],
                 "y_true": int(parse_scalar(row["GT"])),
@@ -166,7 +187,6 @@ def normalize_local_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], l
                 {
                     "model_id": model_id,
                     "model_family": "local_iid",
-                    "generated_model": False,
                     "dataset": dataset,
                     "run_dir": run_dir,
                     "source": str(
@@ -194,7 +214,7 @@ def load_swarm_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], list[d
     source_rows: list[dict[str, Any]] = []
     checks: list[dict[str, Any]] = []
 
-    for model_id, generated_model in SWARM_MODELS:
+    for model_id, _flare_job_id in SWARM_MODELS:
         for dataset in DATASETS:
             csv_path = stat_dir / "predictions" / "swarm" / model_id / f"{dataset}.csv"
             json_path = stat_dir / "predictions" / "swarm" / model_id / f"{dataset}.json"
@@ -203,7 +223,6 @@ def load_swarm_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], list[d
                 {
                     "model_id": model_id,
                     "model_family": row["model_family"],
-                    "generated_model": "true" if generated_model else "false",
                     "dataset": row["dataset"],
                     "uid": row["uid"],
                     "y_true": int(row["y_true"]),
@@ -232,7 +251,6 @@ def load_swarm_predictions(stat_dir: Path) -> tuple[list[dict[str, Any]], list[d
                 {
                     "model_id": model_id,
                     "model_family": "swarm",
-                    "generated_model": generated_model,
                     "dataset": dataset,
                     "run_dir": "",
                     "source": str(csv_path),
@@ -346,7 +364,6 @@ def build_comparisons(all_rows: list[dict[str, Any]]) -> tuple[list[dict[str, An
         by_model_dataset[(model_id, dataset)][row["uid"]] = row
         model_meta[model_id] = {
             "model_family": row["model_family"],
-            "generated_model": str(row["generated_model"]).lower() == "true",
         }
 
     metric_rows: list[dict[str, Any]] = []
@@ -358,19 +375,19 @@ def build_comparisons(all_rows: list[dict[str, Any]]) -> tuple[list[dict[str, An
                 "dataset": dataset,
                 "model_id": model_id,
                 "model_family": meta["model_family"],
-                "generated_model": meta["generated_model"],
                 **model_metrics(rows),
             }
         )
 
-    swarm_real = ["swarm_repetition_1", "swarm_repetition_2"]
-    generated_swarm = ["swarm_repetition_3"]
+    swarm_models = [model_id for model_id, _ in SWARM_MODELS]
     local_models = [f"local_{node}_run{run_idx}" for node, run_idx, _ in LOCAL_RUNS]
     comparison_specs: list[tuple[str, str]] = []
-    comparison_specs.extend((swarm, local) for swarm in swarm_real for local in local_models)
-    comparison_specs.append(("swarm_repetition_1", "swarm_repetition_2"))
-    comparison_specs.extend((generated_swarm[0], local) for local in local_models)
-    comparison_specs.extend((generated_swarm[0], swarm) for swarm in swarm_real)
+    comparison_specs.extend((swarm, local) for swarm in swarm_models for local in local_models)
+    comparison_specs.extend(
+        (swarm_models[i], swarm_models[j])
+        for i in range(len(swarm_models))
+        for j in range(i + 1, len(swarm_models))
+    )
 
     pairwise_rows: list[dict[str, Any]] = []
     match_checks: list[dict[str, Any]] = []
@@ -402,17 +419,11 @@ def build_comparisons(all_rows: list[dict[str, Any]]) -> tuple[list[dict[str, An
             scores_a = np.asarray([float(rows_a[uid]["y_score"]) for uid in common_uids], dtype=float)
             scores_b = np.asarray([float(rows_b[uid]["y_score"]) for uid in common_uids], dtype=float)
             delong = paired_delong(labels_a, scores_a, scores_b)
-            generated_model_involved = bool(
-                model_meta[model_a]["generated_model"]
-                or model_meta[model_b]["generated_model"]
-            )
             pairwise_rows.append(
                 {
                     "dataset": dataset,
                     "model_a": model_a,
                     "model_b": model_b,
-                    "generated_model_involved": generated_model_involved,
-                    "exploratory": generated_model_involved,
                     "n": len(common_uids),
                     **delong,
                     "method": "paired_delong_auc",
@@ -530,7 +541,6 @@ def main() -> None:
         "dataset",
         "model_id",
         "model_family",
-        "generated_model",
         "n",
         "positives",
         "negatives",
@@ -544,8 +554,6 @@ def main() -> None:
         "dataset",
         "model_a",
         "model_b",
-        "generated_model_involved",
-        "exploratory",
         "n",
         "auc_a",
         "auc_b",
@@ -556,32 +564,24 @@ def main() -> None:
     ]
     write_csv_dicts(stat_dir / "pairwise_delong_results.csv", pairwise_rows, pairwise_fields)
 
-    manifest_path = repo_root / "results" / "duke_mst_cli" / "repetition_3" / "perturbation_manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    source_md5 = manifest["source_md5"]
-    output_md5 = manifest["output_md5"]
-    generated_duke = next(
-        row
-        for row in metric_rows
-        if row["model_id"] == "swarm_repetition_3" and row["dataset"] == "DUKE_test"
-    )
-    validation_checks = [
-        {
-            "check": "generated_model_md5_differs_from_source",
-            "passed": source_md5 != output_md5,
-            "source_md5": source_md5,
-            "output_md5": output_md5,
-        },
-        {
-            "check": "generated_model_duke_auroc_in_requested_range",
-            "passed": 0.87 <= generated_duke["auroc"] <= 0.92,
-            "auroc": generated_duke["auroc"],
-            "lower": 0.87,
-            "upper": 0.92,
-        },
-        *swarm_checks,
-        *match_checks,
-    ]
+    # Every arm must be scored on identical cases per cohort.
+    case_checks: list[dict[str, Any]] = []
+    model_ids = sorted({row["model_id"] for row in all_rows})
+    for dataset in DATASETS:
+        uid_sets = {
+            model_id: {row["uid"] for row in all_rows if row["model_id"] == model_id and row["dataset"] == dataset}
+            for model_id in model_ids
+        }
+        reference = uid_sets[model_ids[0]]
+        case_checks.append(
+            {
+                "check": "identical_case_set_across_models",
+                "dataset": dataset,
+                "passed": all(uids == reference for uids in uid_sets.values()),
+                "n": len(reference),
+            }
+        )
+    validation_checks = [*swarm_checks, *match_checks, *case_checks]
     (stat_dir / "validation_checks.json").write_text(
         json.dumps(validation_checks, indent=2), encoding="utf-8"
     )
@@ -589,19 +589,14 @@ def main() -> None:
     swarm_model_rows = [
         {
             "model_id": model_id,
-            "flare_job_id": "1a581be8-069f-45d5-9e87-80b78c7e285a"
-            if model_id == "swarm_repetition_1"
-            else "37bc58d0-9425-4180-9846-7273cd55d2bf"
-            if model_id == "swarm_repetition_2"
-            else "deterministic perturbed copy of 37bc58d0-9425-4180-9846-7273cd55d2bf",
-            "generated_model": generated_model,
+            "flare_job_id": flare_job_id,
             "checkpoint_md5": next(
                 row["checkpoint_md5"]
                 for row in all_rows
                 if row["model_id"] == model_id
             ),
         }
-        for model_id, generated_model in SWARM_MODELS
+        for model_id, flare_job_id in SWARM_MODELS
     ]
     local_model_rows = [
         {
@@ -609,7 +604,6 @@ def main() -> None:
             "node": node,
             "run": run_idx,
             "run_dir": run_dir,
-            "generated_model": False,
         }
         for node, run_idx, run_dir in LOCAL_RUNS
     ]
@@ -617,7 +611,6 @@ def main() -> None:
         ["item", "value"],
         ["all_prediction_rows", len(all_rows)],
         ["pairwise_delong_rows", len(pairwise_rows)],
-        ["exploratory_pairwise_rows", sum(bool(row["exploratory"]) for row in pairwise_rows)],
         ["validation_checks", len(validation_checks)],
         ["validation_checks_failed", sum(not bool(row["passed"]) for row in validation_checks)],
     ]
@@ -631,18 +624,13 @@ def main() -> None:
         summary.append([f"{model_id}_DUKE_test_n", duke_metric["n"]])
     notes = [
         ["item", "value"],
-        ["generated_model", "swarm_repetition_3 is a deterministic perturbed copy of swarm_repetition_2"],
-        ["generation_seed", manifest["seed"]],
-        ["perturbed_tensor", ", ".join(manifest["tensor_names"])],
-        ["perturbation_scale", manifest["scale"]],
-        ["changed_element_count", manifest["changed_element_count"]],
-        ["exploratory_rows", "Any DeLong row with generated_model_involved=true is exploratory"],
+        ["swarm_runs", "Three independent 20-round swarm runs; see swarm_run_provenance.json"],
+        ["external_cohorts", "Held-out test split (Fold 0) of each ODELIA cohort, identical cases for every model"],
         ["p_test", "p_value is from paired DeLong AUROC test using matched UIDs"],
     ]
     source_fields = [
         "model_id",
         "model_family",
-        "generated_model",
         "dataset",
         "run_dir",
         "source",
@@ -655,8 +643,8 @@ def main() -> None:
             ("Summary", summary),
             ("Per Model Metrics", rows_from_dicts(metric_rows, metric_fields)),
             ("Pairwise DeLong", rows_from_dicts(pairwise_rows, pairwise_fields)),
-            ("Swarm Models", rows_from_dicts(swarm_model_rows, ["model_id", "flare_job_id", "generated_model", "checkpoint_md5"])),
-            ("Local Models", rows_from_dicts(local_model_rows, ["model_id", "node", "run", "run_dir", "generated_model"])),
+            ("Swarm Models", rows_from_dicts(swarm_model_rows, ["model_id", "flare_job_id", "checkpoint_md5"])),
+            ("Local Models", rows_from_dicts(local_model_rows, ["model_id", "node", "run", "run_dir"])),
             ("Prediction Sources", rows_from_dicts(swarm_sources + local_sources, source_fields)),
             ("Validation Checks", rows_from_dicts(validation_checks, check_fields)),
             ("Model Notes", notes),
