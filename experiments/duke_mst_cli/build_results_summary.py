@@ -180,6 +180,54 @@ def main() -> None:
         )
     write(stat_dir / "ensemble_baseline.csv", ens_rows)
 
+    # 3b. Web interface versus command line, if a Hub run has been scored
+    hub_dir = stat_dir / "predictions" / "swarm" / "hub_poc_run1"
+    gui_rows = []
+    if hub_dir.exists():
+        hub: dict[str, dict[str, dict]] = {}
+        for path in sorted(hub_dir.glob("*.csv")):
+            with path.open(newline="", encoding="utf-8") as handle:
+                hub[path.stem] = {
+                    row["uid"]: {
+                        "uid": row["uid"],
+                        "y_true": int(row["y_true"]),
+                        "y_score": float(row["y_score"]),
+                    }
+                    for row in csv.DictReader(handle)
+                }
+        for group in ("DUKE_internal", "ODELIA_external_5site"):
+            datasets = COHORT_GROUPS[group]
+            hub_cases = [r for d in datasets for r in hub[d].values()]
+            hub_auc = auc_from_rows(hub_cases)
+            cli = auroc[(group, "swarm")]
+            mean, sd, _lo, _hi = mean_sd_ci(cli)
+            # Interval in which a further run of the same configuration is expected.
+            half = T975[len(cli) - 1] * sd * math.sqrt(1 + 1 / len(cli))
+            per_run = []
+            for k in RUNS:
+                cli_by_uid = {
+                    r["uid"]: r for r in group_rows(rows, arms["swarm"].format(k=k), datasets)
+                }
+                labels = np.asarray([r["y_true"] for r in hub_cases], dtype=int)
+                s_hub = np.asarray([r["y_score"] for r in hub_cases], dtype=float)
+                s_cli = np.asarray([cli_by_uid[r["uid"]]["y_score"] for r in hub_cases], dtype=float)
+                d = paired_delong(labels, s_hub, s_cli)
+                per_run.append((k, float(d["auc_a"] - d["auc_b"]), float(d["p_value"])))
+            gui_rows.append(
+                {
+                    "cohort": group,
+                    "gui_auroc": f"{hub_auc:.4f}",
+                    "cli_mean_sd": f"{mean:.4f} ± {sd:.4f}",
+                    "cli_95_prediction_interval": f"{mean - half:.4f}-{mean + half:.4f}",
+                    "gui_within_cli_spread": str(bool(mean - half <= hub_auc <= mean + half)),
+                    "paired_delong_vs_runs": "; ".join(
+                        f"run{k}: d={delta:+.4f} p={p:.3g}" for k, delta, p in per_run
+                    ),
+                    "significant_differences": sum(1 for _, _, p in per_run if p < 0.05),
+                }
+            )
+        write(stat_dir / "gui_vs_cli.csv", gui_rows)
+
     # 4. cohort sizes for figure labels
     size_rows = []
     for dataset in ["DUKE_test", *EXTERNAL_5SITE, "RSH"]:
@@ -218,6 +266,25 @@ def main() -> None:
             f"{r['p_value_two_sided']} | {r['non_inferior_margin_0.03']} | {r['non_inferior_margin_0.05']} |"
         )
     lines += ["", "Non-inferior at margin m if the lower 95% bound of delta exceeds −m. The margin must be", "pre-specified in the manuscript; both are shown for transparency.", ""]
+    if gui_rows:
+        lines += ["## Web interface (SwarmMedHub) versus command line", ""]
+        lines += [
+            "| cohort | GUI run | CLI runs (mean ± SD) | 95% prediction interval for a further run | GUI inside it | paired DeLong vs each CLI run |",
+            "|---|---|---|---|---|---|",
+        ]
+        for r in gui_rows:
+            lines.append(
+                f"| {r['cohort']} | {r['gui_auroc']} | {r['cli_mean_sd']} | "
+                f"{r['cli_95_prediction_interval']} | {r['gui_within_cli_spread']} | {r['paired_delong_vs_runs']} |"
+            )
+        lines += [
+            "",
+            "Both interfaces drive the same backend and generate the same NVFlare job. Separate GPU",
+            "runs are not bit-reproducible, so the question is whether a GUI-initiated run is",
+            "distinguishable from the spread of CLI runs of the same configuration, not whether it is",
+            "identical to them.",
+            "",
+        ]
     lines += ["## Cohort sizes", "", "| cohort | exams | patients | positive exams |", "|---|---|---|---|"]
     for r in size_rows:
         lines.append(f"| {r['cohort']} | {r['exams']} | {r['patients']} | {r['positive_exams']} |")
