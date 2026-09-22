@@ -99,7 +99,14 @@ Powered by [NVIDIA FLARE](https://nvidia.github.io/NVFlare/security/), the platf
 
 - **No Raw Data Exchange:** Only model updates (gradients/weights) are exchanged; raw medical data never leaves local infrastructure.
 - **Identity Security:** Mutual TLS authentication for all participating sites via a central Root CA.
-- **Privacy Preservation:** Support for Differential Privacy, Homomorphic Encryption, and Secure Aggregation to prevent data leakage from model updates.
+- **Privacy Preservation:** The NVIDIA FLARE ecosystem provides differential-privacy filters, homomorphic encryption and secure aggregation. **SwarmMed does not configure or test any of them**, and none is active in a default deployment. Sharing model parameters alone does not prevent model inversion, membership inference or gradient leakage.
+
+!!! warning "Read the threat model"
+    Model updates are relayed through the FL server and, in the default
+    configuration, are not end-to-end encrypted between clients — the
+    coordinating institution can observe them. See [Threat model](threat-model.md)
+    for what leaves a site, which adversaries are considered, and what is not
+    implemented.
 
 ## 📋 Compliance
 

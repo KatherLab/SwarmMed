@@ -7,6 +7,12 @@ nav:
     - Home: index.md
     - Background: background.md
     - Security: security.md
+    - Threat Model: threat-model.md
+    - Hardware: hardware.md
+    - Networking: networking.md
+    - Operating Systems: os-support.md
+    - SwarmMed and NVFlare: nvflare-comparison.md
+    - Explainability: explainability.md
     - Getting Started: getting-started.md
     - Usage: usage.md
     - Installation: installation.md

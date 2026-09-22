@@ -167,6 +167,16 @@ def build_parser() -> argparse.ArgumentParser:
     network_create.add_argument("--server-ip")
     network_create.add_argument("--local-test", action="store_true")
     network_create.add_argument(
+        "--clients",
+        type=int,
+        default=2,
+        help=(
+            "Number of FL clients to provision for a --local-test network "
+            "(default: 2). Ignored for real networks, where clients come from "
+            "--participant."
+        ),
+    )
+    network_create.add_argument(
         "--no-local-client",
         action="store_true",
         help=(
@@ -470,6 +480,7 @@ def run(args: argparse.Namespace):
                     actor=state.user,
                     name=args.name,
                     description=args.description,
+                    client_count=args.clients,
                 )
             else:
                 network = network_services.create_network(

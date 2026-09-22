@@ -1,0 +1,73 @@
+cff-version: 1.2.0
+title: >-
+  SwarmMed: an open-source platform for decentralized, collaborative and
+  privacy-preserving biomedical data analysis
+message: >-
+  If you use this software, please cite both the software (this file) and the
+  accompanying protocol paper listed under preferred-citation.
+type: software
+authors:
+  - given-names: Kevin
+    family-names: Pfeiffer
+    affiliation: >-
+      Else Kroener Fresenius Center for Digital Health, Faculty of Medicine and
+      University Hospital Carl Gustav Carus, TUD Dresden University of
+      Technology, Dresden, Germany
+  - given-names: Jiefu
+    family-names: Zhu
+    affiliation: >-
+      Else Kroener Fresenius Center for Digital Health, Faculty of Medicine and
+      University Hospital Carl Gustav Carus, TUD Dresden University of
+      Technology, Dresden, Germany
+  - given-names: Lars Ole
+    family-names: Schwen
+    affiliation: Fraunhofer Institute for Digital Medicine MEVIS, Bremen, Germany
+  - given-names: Steffen
+    family-names: Renisch
+    affiliation: Fraunhofer Institute for Digital Medicine MEVIS, Bremen, Germany
+  - given-names: Anna C.
+    family-names: Aschenbrenner
+    affiliation: >-
+      Systems Medicine, German Center for Neurodegenerative Diseases (DZNE),
+      Bonn, Germany
+  - given-names: Joachim L.
+    family-names: Schultze
+    affiliation: >-
+      Systems Medicine, German Center for Neurodegenerative Diseases (DZNE),
+      Bonn, Germany
+  - given-names: Oliver Lester
+    family-names: Saldanha
+    affiliation: >-
+      Else Kroener Fresenius Center for Digital Health, TUD Dresden University of
+      Technology, Dresden, Germany
+  - given-names: Fiona R.
+    family-names: Kolbinger
+    affiliation: >-
+      Weldon School of Biomedical Engineering, Purdue University, West Lafayette,
+      IN, USA
+  - given-names: Jakob Nikolas
+    family-names: Kather
+    affiliation: >-
+      Else Kroener Fresenius Center for Digital Health, TUD Dresden University of
+      Technology, Dresden, Germany
+    email: kather.jn@tu-dresden.de
+repository-code: https://github.com/KatherLab/SwarmMed
+url: https://github.com/KatherLab/SwarmMed
+abstract: >-
+  SwarmMed is an open-source platform for running decentralized (swarm) learning
+  studies on biomedical data across institutions. It provides a web interface
+  (SwarmMedHub) and a command-line interface (SwarmMedCLI) over the NVIDIA FLARE
+  client-controlled swarm workflow, covering project and consortium setup,
+  network provisioning and startup-kit distribution, site-local data registration
+  and sandboxed validation, decentralized training, and results synthesis. Raw
+  patient data never leaves the originating institution.
+keywords:
+  - swarm learning
+  - federated learning
+  - decentralized learning
+  - privacy-preserving machine learning
+  - medical imaging
+  - biomedical data analysis
+license: Apache-2.0
+version: 1.0.0
+date-released: "2026-09-22"

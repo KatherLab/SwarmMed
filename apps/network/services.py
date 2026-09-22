@@ -170,9 +170,20 @@ def create_network(
 
 
 def create_local_test_network(
-    *, project: Project, actor: User, name: str, description: str = ""
+    *,
+    project: Project,
+    actor: User,
+    name: str,
+    description: str = "",
+    client_count: int = 2,
 ) -> SwarmNetwork:
-    """Create and provision a local-test network."""
+    """Create and provision a local-test network.
+
+    All participants run on this host. ``client_count`` sets how many FL clients
+    are provisioned (``fl-client-1`` … ``fl-client-N``); it is used to study how
+    the platform behaves as a consortium grows.
+    """
+    client_count = max(1, int(client_count))
     log = get_logger(user=actor, project=project)
     swarm_network = SwarmNetwork.objects.create(
         name=name,
@@ -189,20 +200,23 @@ def create_local_test_network(
         org="swarm_control_plane",
         ip="127.0.0.1",
     )
-    for client_name in ("fl-client-1", "fl-client-2"):
+    for index in range(1, client_count + 1):
         SwarmParticipant.objects.create(
             network=swarm_network,
             user=actor,
             role="CLIENT",
-            participant_id=client_name,
+            participant_id=f"fl-client-{index}",
             org="nvidia",
             ip="127.0.0.1",
         )
-    log.network.info(f"Provisioning local testing network '{name}'.")
+    log.network.info(
+        f"Provisioning local testing network '{name}' with {client_count} clients."
+    )
     generate_flare_startup_kit(
         network_id=swarm_network.identifier,
         local_test=True,
         clients=[],
+        local_test_clients=client_count,
     )
     ensure_worker_writable(
         Path(settings.BASE_DIR)

@@ -73,6 +73,7 @@ def generate_flare_startup_kit(
     clients=None,
     server_ip=None,
     ha_servers=None,
+    local_test_clients=2,
 ):
     """Generates the startup kits for a given SwarmNetwork using NVFlare.
 
@@ -183,8 +184,8 @@ def generate_flare_startup_kit(
             }
         )
         test_clients = [
-            {"name": "fl-client-1", "type": "client", "org": "nvidia"},
-            {"name": "fl-client-2", "type": "client", "org": "nvidia"},
+            {"name": f"fl-client-{index}", "type": "client", "org": "nvidia"}
+            for index in range(1, max(1, int(local_test_clients)) + 1)
         ]
         participants.extend(test_clients)
         # Initialize prepared_clients for metadata distribution

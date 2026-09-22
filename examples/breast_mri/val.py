@@ -1,182 +1,215 @@
-import pandas as pd
+"""Pre-flight validation for a breast-MRI site (ODELIA/Duke layout).
 
-# Initialize counters for the summary
-validation_results = {"critical_errors": 0, "warnings": 0, "info_checks": 0}
+Runs in the SwarmMed sandbox before a site contributes to a study. It checks that
+this site's local data is complete, consistently labelled and usable by the
+training pipeline — without any of it leaving the site. Only the check results
+(counts, class balance, names of offending cases) are recorded.
+
+Expected layout at the site, relative to the registered data directory:
+
+    data_unilateral/<UID>/{Pre,Post_1..Post_4}.nii.gz
+    metadata_unilateral/annotation.csv   UID,PatientID,Age,Lesion
+    metadata_unilateral/split.csv        UID,Fold,Split
+
+`validation` is injected by the platform: validation.open(), validation.exists(),
+validation.add_check(name, status, message, details).
+
+Adapt the constants below for your own cohort; the structure of the checks is the
+part that transfers.
+"""
+
+import csv
+import io
+import re
+
+DATA_DIR = "data_unilateral"
+META_DIR = "metadata_unilateral"
+REQUIRED_SERIES = ["Pre.nii.gz", "Post_1.nii.gz"]
+OPTIONAL_SERIES = ["Post_2.nii.gz", "Post_3.nii.gz", "Post_4.nii.gz"]
+# Lesion coding in the ODELIA/Duke annotation files.
+POSITIVE_CLASS = 2
+EXPECTED_CLASSES = {0, 1, 2}
+MIN_CASES = 20
+MIN_POSITIVE_FRACTION = 0.05
+DEEP_CHECK_LIMIT = 40  # how many cases to open on disk
 
 
-def add_check_with_count(name, status, message, details=None):
-    """Add a check and update counters."""
-    validation.add_check(name, status, message, details or {})
-    if status == "error":
-        validation_results["critical_errors"] += 1
-    elif status == "warning":
-        validation_results["warnings"] += 1
-    else:
-        validation_results["info_checks"] += 1
+def read_csv(path):
+    with validation.open(path, "r") as handle:  # noqa: F821
+        return list(csv.DictReader(io.StringIO(handle.read())))
 
 
-validation.add_check(
-    "Validation Started", "ok", "Beginning breast MRI data validation"
-)
-
-# Target folder names
-METADATA_DIR_NAME = "metadata_unilateral"
-DATA_DIR_NAME = "data_unilateral"
-
-# Required files in each patient folder
-REQUIRED_FILES = ["Pre.nii.gz", "Post_1.nii.gz", "Sub_1.nii.gz"]
-
-metadata_folder = None
-data_folder = None
-
-try:
-    # 1. DYNAMIC FOLDER DISCOVERY
-    # We look for metadata_unilateral and data_unilateral. 
-    # They might be in the root or inside a parent folder (e.g., 'CAM')
-    
-    # Debug: Print ALL keys in the manifest to see what we actually have
-    all_files = list(validation.manifest.keys())
-    
-    # Try to find the folders from the flat list of files
-    possible_metadata_folders = set()
-    possible_data_folders = set()
-    
-    for file_path in all_files:
-        parts = file_path.split('/')
-        for i, part in enumerate(parts):
-            if part == METADATA_DIR_NAME:
-                possible_metadata_folders.add('/'.join(parts[:i+1]))
-            elif part == DATA_DIR_NAME:
-                possible_data_folders.add('/'.join(parts[:i+1]))
-    
-    # Pick the first match for each
-    if possible_metadata_folders:
-        metadata_folder = sorted(list(possible_metadata_folders))[0]
-    if possible_data_folders:
-        data_folder = sorted(list(possible_data_folders))[0]
-
-    if not metadata_folder or not data_folder:
-        add_check_with_count(
-            "Folder Discovery", 
-            "error", 
-            f"Could not locate required folders. Found metadata: {metadata_folder}, data: {data_folder}. "
-            f"Expected '{METADATA_DIR_NAME}' and '{DATA_DIR_NAME}' folders."
-        )
-    else:
-        add_check_with_count(
-            "Folder Discovery", "ok", f"Found structure at: {metadata_folder} and {data_folder}"
-        )
-
-        # 2. CHECK METADATA FILES
-        annotation_path = f"{metadata_folder}/annotation.csv"
-        
-        # Check split.csv existence
-        split_found = any(f.startswith(metadata_folder + "/split.csv") or f == metadata_folder + "/split.csv" for f in all_files)
-        if split_found:
-            add_check_with_count("Metadata: split.csv", "ok", "Found split.csv")
-        else:
-            add_check_with_count("Metadata: split.csv", "warning", "split.csv not found in metadata folder")
-
-        try:
-            with validation.open(annotation_path, "r") as f:
-                df = pd.read_csv(f)
-            
-            add_check_with_count(
-                "Annotation File", "ok", f"Successfully loaded {annotation_path}"
+def main():
+    # 1. Metadata present and parseable
+    annotation_path = f"{META_DIR}/annotation.csv"
+    split_path = f"{META_DIR}/split.csv"
+    for path in (annotation_path, split_path):
+        if not validation.exists(path):  # noqa: F821
+            validation.add_check(  # noqa: F821
+                "Metadata present", "error", f"Missing {path}. Cannot continue."
             )
-            
-            # Check if UID column exists
-            if "UID" not in df.columns:
-                add_check_with_count(
-                    "Schema: UID", "error", "Missing 'UID' column in annotation.csv"
-                )
-            else:
-                uids = df["UID"].tolist()
-                add_check_with_count(
-                    "Annotation Content", "ok", f"Found {len(uids)} patient UIDs in annotation.csv"
-                )
-                
-                # 3. CHECK DATA FOLDERS
-                missing_folders = []
-                incomplete_folders = {} # maps uid -> list of missing files
-                
-                # Get unique folder prefixes from manifest
-                all_folder_prefixes = set()
-                # Also index all files for fast lookup
-                files_set = set(all_files)
-                for f in all_files:
-                    if '/' in f:
-                        all_folder_prefixes.add(f.rsplit('/', 1)[0])
-
-                for uid in uids:
-                    uid_str = str(uid)
-                    uid_folder_path = f"{data_folder}/{uid_str}"
-                    
-                    if uid_folder_path not in all_folder_prefixes:
-                        missing_folders.append(uid_str)
-                        continue
-                    
-                    # Check for specific required files
-                    missing_required = []
-                    for req_file in REQUIRED_FILES:
-                        full_req_path = f"{uid_folder_path}/{req_file}"
-                        if full_req_path not in files_set:
-                            missing_required.append(req_file)
-                    
-                    if missing_required:
-                        incomplete_folders[uid_str] = missing_required
-                
-                if missing_folders:
-                    missing_str = ", ".join(missing_folders[:15])
-                    if len(missing_folders) > 15:
-                        missing_str += " ..."
-                    add_check_with_count(
-                        "Data Folders", "error", f"Missing {len(missing_folders)} folders for UIDs: {missing_str}",
-                        {"missing_uids": missing_folders}
-                    )
-                else:
-                    add_check_with_count(
-                        "Data Folders", "ok", "All UIDs from annotation.csv have corresponding data folders"
-                    )
-                
-                if incomplete_folders:
-                    count = len(incomplete_folders)
-                    # Get details for a few folders for the message
-                    sample_uids = list(incomplete_folders.keys())[:5]
-                    sample_details = []
-                    for s_uid in sample_uids:
-                        missing = incomplete_folders[s_uid]
-                        sample_details.append(f"{s_uid} (missing: {', '.join(missing)})")
-                    
-                    msg = f"{count} patient folders are missing required files."
-                    if count <= 5:
-                        msg = f"Incomplete folders: {'; '.join(sample_details)}"
-                    else:
-                        msg += f" Examples: {'; '.join(sample_details)} ..."
-                        
-                    add_check_with_count(
-                        "Required Files", "error", msg,
-                        {"incomplete_folders": incomplete_folders}
-                    )
-                else:
-                    add_check_with_count(
-                        "Required Files", "ok", f"All folders contain the required files: {', '.join(REQUIRED_FILES)}"
-                    )
-                    
-        except Exception as e:
-            add_check_with_count(
-                "Annotation Access", "error", f"Could not read '{annotation_path}': {str(e)}"
-            )
-
-except Exception as e:
-    add_check_with_count(
-        "General Error", "error", f"An unexpected error occurred: {str(e)}"
+            return
+    annotation = read_csv(annotation_path)
+    split = read_csv(split_path)
+    validation.add_check(  # noqa: F821
+        "Metadata present",
+        "success",
+        f"annotation.csv: {len(annotation)} rows; split.csv: {len(split)} rows",
     )
 
-# Summary
-validation.add_check(
-    "Validation Summary",
-    "ok",
-    f"Completed: {validation_results['critical_errors']} errors, "
-    + f"{validation_results['warnings']} warnings.",
-)
+    # 2. Required columns
+    missing_cols = {
+        "annotation.csv": {"UID", "PatientID", "Lesion"} - set(annotation[0]),
+        "split.csv": {"UID", "Fold", "Split"} - set(split[0]),
+    }
+    if any(missing_cols.values()):
+        validation.add_check(  # noqa: F821
+            "Required columns", "error", "Missing columns", details=
+            {k: sorted(v) for k, v in missing_cols.items() if v}
+        )
+        return
+    validation.add_check("Required columns", "success", "All required columns present")  # noqa: F821
+
+    # 3. Cohort size and class balance
+    labels = []
+    unexpected = {}
+    for row in annotation:
+        raw = (row.get("Lesion") or "").strip()
+        try:
+            labels.append(int(float(raw)))
+        except ValueError:
+            unexpected[row["UID"]] = raw
+    positives = sum(1 for v in labels if v == POSITIVE_CLASS)
+    fraction = positives / len(labels) if labels else 0.0
+    distribution = {str(v): labels.count(v) for v in sorted(set(labels))}
+
+    validation.add_check(  # noqa: F821
+        "Cohort size",
+        "success" if len(annotation) >= MIN_CASES else "warning",
+        f"{len(annotation)} exams from {len({r['PatientID'] for r in annotation})} patients"
+        + ("" if len(annotation) >= MIN_CASES else f" — below the agreed minimum of {MIN_CASES}"),
+        details={"exams": len(annotation), "patients": len({r["PatientID"] for r in annotation})},
+    )
+    validation.add_check(  # noqa: F821
+        "Class balance",
+        "success" if fraction >= MIN_POSITIVE_FRACTION else "warning",
+        f"{positives} positive exams ({fraction:.1%})"
+        + ("" if fraction >= MIN_POSITIVE_FRACTION else " — very few positives; the site will contribute little signal"),
+        details={"distribution": distribution},
+    )
+    if unexpected:
+        validation.add_check(  # noqa: F821
+            "Label values", "error",
+            f"{len(unexpected)} labels are not integers; training will fail",
+            details={"examples": dict(list(unexpected.items())[:10])},
+        )
+    else:
+        unknown = set(labels) - EXPECTED_CLASSES
+        validation.add_check(  # noqa: F821
+            "Label values",
+            "success" if not unknown else "error",
+            "All labels within the agreed coding" if not unknown
+            else f"Unexpected label values: {sorted(unknown)} (agreed: {sorted(EXPECTED_CLASSES)})",
+        )
+
+    # 4. UID conventions and duplicates
+    uids = [r["UID"] for r in annotation]
+    duplicates = sorted({u for u in uids if uids.count(u) > 1})
+    malformed = [u for u in uids if not re.search(r"_(left|right)$", u)]
+    validation.add_check(  # noqa: F821
+        "Unique exam identifiers",
+        "success" if not duplicates else "error",
+        "No duplicates" if not duplicates else f"{len(duplicates)} duplicated UIDs",
+        details={"duplicates": duplicates[:10]},
+    )
+    validation.add_check(  # noqa: F821
+        "Laterality suffix",
+        "success" if not malformed else "warning",
+        "Every UID ends in _left/_right" if not malformed
+        else f"{len(malformed)} UIDs without a laterality suffix; the unilateral pipeline expects one",
+        details={"examples": malformed[:10]},
+    )
+
+    # 5. Split coverage — every annotated exam must be assigned, and only once
+    split_by_uid = {}
+    split_dupes = []
+    for row in split:
+        if row["UID"] in split_by_uid:
+            split_dupes.append(row["UID"])
+        split_by_uid[row["UID"]] = row["Split"]
+    unassigned = sorted(set(uids) - set(split_by_uid))
+    orphan = sorted(set(split_by_uid) - set(uids))
+    counts = {}
+    for uid in uids:
+        counts[split_by_uid.get(uid, "MISSING")] = counts.get(split_by_uid.get(uid, "MISSING"), 0) + 1
+    validation.add_check(  # noqa: F821
+        "Split assignment",
+        "success" if not (unassigned or orphan or split_dupes) else "error",
+        f"train/val/test counts: {counts}",
+        details={
+            "annotated_but_unassigned": unassigned[:10],
+            "assigned_but_not_annotated": orphan[:10],
+            "duplicated_in_split": split_dupes[:10],
+        },
+    )
+
+    # 6. Patient-level leakage between splits
+    patient_splits = {}
+    for row in annotation:
+        patient_splits.setdefault(row["PatientID"], set()).add(split_by_uid.get(row["UID"], "MISSING"))
+    leaking = sorted(p for p, s in patient_splits.items() if len(s - {"MISSING"}) > 1)
+    validation.add_check(  # noqa: F821
+        "Patient-level split integrity",
+        "success" if not leaking else "error",
+        "No patient appears in more than one split" if not leaking
+        else f"{len(leaking)} patients appear in more than one split — results would be optimistic",
+        details={"examples": leaking[:10]},
+    )
+
+    # 7. Imaging present for each exam (sampled)
+    missing_dir, missing_series = [], {}
+    for uid in uids[:DEEP_CHECK_LIMIT]:
+        if not validation.exists(f"{DATA_DIR}/{uid}"):  # noqa: F821
+            missing_dir.append(uid)
+            continue
+        absent = [s for s in REQUIRED_SERIES if not validation.exists(f"{DATA_DIR}/{uid}/{s}")]  # noqa: F821
+        if absent:
+            missing_series[uid] = absent
+    checked = min(len(uids), DEEP_CHECK_LIMIT)
+    ok = not missing_dir and not missing_series
+    validation.add_check(  # noqa: F821
+        "Imaging files present",
+        "success" if ok else "error",
+        f"Checked {checked} of {len(uids)} exams; "
+        + ("all required series found" if ok
+           else f"{len(missing_dir)} without a folder, {len(missing_series)} missing a required series"),
+        details={
+            "checked": checked,
+            "required_series": REQUIRED_SERIES,
+            "missing_folder": missing_dir[:10],
+            "missing_series": dict(list(missing_series.items())[:10]),
+        },
+    )
+
+    # 8. Optional series availability — affects which model configurations are usable
+    have_optional = {s: 0 for s in OPTIONAL_SERIES}
+    for uid in uids[:DEEP_CHECK_LIMIT]:
+        for s in OPTIONAL_SERIES:
+            if validation.exists(f"{DATA_DIR}/{uid}/{s}"):  # noqa: F821
+                have_optional[s] += 1
+    validation.add_check(  # noqa: F821
+        "Dynamic series coverage",
+        "success",
+        "Post-contrast series available per exam (of "
+        f"{min(len(uids), DEEP_CHECK_LIMIT)} checked): "
+        + ", ".join(f"{k.replace('.nii.gz', '')}={v}" for k, v in have_optional.items()),
+        details=have_optional,
+    )
+
+    validation.add_check(  # noqa: F821
+        "Validation complete", "success",
+        "Review any warnings with the site's data steward before joining the study.",
+    )
+
+
+main()
