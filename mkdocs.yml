@@ -13,6 +13,7 @@ nav:
     - Operating Systems: os-support.md
     - SwarmMed and NVFlare: nvflare-comparison.md
     - Explainability: explainability.md
+    - Scalability: scalability.md
     - Getting Started: getting-started.md
     - Usage: usage.md
     - Installation: installation.md
