@@ -22,8 +22,8 @@ import csv
 import io
 import re
 
-DATA_DIR = "data_unilateral"
-META_DIR = "metadata_unilateral"
+DATA_DIR_NAME = "data_unilateral"
+META_DIR_NAME = "metadata_unilateral"
 REQUIRED_SERIES = ["Pre.nii.gz", "Post_1.nii.gz"]
 OPTIONAL_SERIES = ["Post_2.nii.gz", "Post_3.nii.gz", "Post_4.nii.gz"]
 # Lesion coding in the ODELIA/Duke annotation files.
@@ -34,15 +34,47 @@ MIN_POSITIVE_FRACTION = 0.05
 DEEP_CHECK_LIMIT = 40  # how many cases to open on disk
 
 
+def discover(folder_name, manifest):
+    """Locate a folder in the uploaded tree.
+
+    A site may register the cohort at the top level, or nested inside a parent
+    folder named after the centre (for example ``CAM/metadata_unilateral/...``).
+    Find it wherever it is, rather than assuming the layout.
+    """
+    candidates = set()
+    for file_path in manifest:
+        parts = file_path.split("/")
+        for index, part in enumerate(parts):
+            if part == folder_name:
+                candidates.add("/".join(parts[: index + 1]))
+    return sorted(candidates)[0] if candidates else None
+
+
 def read_csv(path):
     with validation.open(path, "r") as handle:  # noqa: F821
         return list(csv.DictReader(io.StringIO(handle.read())))
 
 
 def main():
+    # 0. Find the cohort folders wherever the site placed them
+    manifest = list(validation.manifest.keys())  # noqa: F821
+    meta_dir = discover(META_DIR_NAME, manifest)
+    data_dir = discover(DATA_DIR_NAME, manifest)
+    if not meta_dir or not data_dir:
+        validation.add_check(  # noqa: F821
+            "Folder discovery", "error",
+            f"Could not locate '{META_DIR_NAME}' and '{DATA_DIR_NAME}' in the registered data "
+            f"(found metadata: {meta_dir}, data: {data_dir}).",
+            details={"files_seen": manifest[:20]},
+        )
+        return
+    validation.add_check(  # noqa: F821
+        "Folder discovery", "success", f"Using {meta_dir} and {data_dir}"
+    )
+
     # 1. Metadata present and parseable
-    annotation_path = f"{META_DIR}/annotation.csv"
-    split_path = f"{META_DIR}/split.csv"
+    annotation_path = f"{meta_dir}/annotation.csv"
+    split_path = f"{meta_dir}/split.csv"
     for path in (annotation_path, split_path):
         if not validation.exists(path):  # noqa: F821
             validation.add_check(  # noqa: F821
@@ -169,10 +201,10 @@ def main():
     # 7. Imaging present for each exam (sampled)
     missing_dir, missing_series = [], {}
     for uid in uids[:DEEP_CHECK_LIMIT]:
-        if not validation.exists(f"{DATA_DIR}/{uid}"):  # noqa: F821
+        if not validation.exists(f"{data_dir}/{uid}"):  # noqa: F821
             missing_dir.append(uid)
             continue
-        absent = [s for s in REQUIRED_SERIES if not validation.exists(f"{DATA_DIR}/{uid}/{s}")]  # noqa: F821
+        absent = [s for s in REQUIRED_SERIES if not validation.exists(f"{data_dir}/{uid}/{s}")]  # noqa: F821
         if absent:
             missing_series[uid] = absent
     checked = min(len(uids), DEEP_CHECK_LIMIT)
@@ -195,7 +227,7 @@ def main():
     have_optional = {s: 0 for s in OPTIONAL_SERIES}
     for uid in uids[:DEEP_CHECK_LIMIT]:
         for s in OPTIONAL_SERIES:
-            if validation.exists(f"{DATA_DIR}/{uid}/{s}"):  # noqa: F821
+            if validation.exists(f"{data_dir}/{uid}/{s}"):  # noqa: F821
                 have_optional[s] += 1
     validation.add_check(  # noqa: F821
         "Dynamic series coverage",

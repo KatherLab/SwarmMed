@@ -17,9 +17,20 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-META_DIR = "metadata_unilateral"
+META_DIR_NAME = "metadata_unilateral"
 POSITIVE_CLASS = 2
 CLASS_LABELS = {0: "no lesion", 1: "benign", 2: "malignant"}
+
+
+def discover(folder_name):
+    """Locate a folder in the uploaded tree, wherever the site nested it."""
+    candidates = set()
+    for file_path in visualization.manifest:  # noqa: F821
+        parts = file_path.split("/")
+        for index, part in enumerate(parts):
+            if part == folder_name:
+                candidates.add("/".join(parts[: index + 1]))
+    return sorted(candidates)[0] if candidates else None
 
 
 def read_csv(path):
@@ -34,8 +45,11 @@ def to_int(value, default=None):
         return default
 
 
-annotation = read_csv(f"{META_DIR}/annotation.csv")
-split_rows = read_csv(f"{META_DIR}/split.csv")
+meta_dir = discover(META_DIR_NAME)
+if not meta_dir:
+    raise SystemExit(f"Could not locate '{META_DIR_NAME}' in the registered data")
+annotation = read_csv(f"{meta_dir}/annotation.csv")
+split_rows = read_csv(f"{meta_dir}/split.csv")
 split_by_uid = {r["UID"]: r["Split"] for r in split_rows}
 
 # 1. Class balance, overall and by split
