@@ -8,6 +8,9 @@ and produces, in the same directory:
   noninferiority_tests.csv       swarm vs centralized: paired DeLong CI per run, run-level CI,
                                  non-inferiority verdicts for pre-specified margins
   ensemble_baseline.csv          no-collaboration baseline (mean of the single-node scores)
+  gui_vs_cli.csv                 web-interface run against the spread of the CLI runs (if scored)
+  scrambled_label_control.csv    swarm trained on permuted labels, against chance and the real
+                                 swarm runs (if scored)
   cohort_sizes.csv               exams and patients per cohort, for figure axis labels
   results_summary.md             the tables above, readable
 
@@ -26,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from build_delong_report import auc_from_rows, paired_delong
+from build_delong_report import auc_from_rows, fast_delong, paired_delong
 
 EXTERNAL_5SITE = ["CAM", "MHA", "RUMC", "UKA", "UMCU"]
 COHORT_GROUPS = {
@@ -87,6 +90,25 @@ def add_ensemble(rows: dict, k: int) -> None:
 
 def group_rows(rows: dict, model_id: str, datasets: list[str]) -> list[dict]:
     return [row for dataset in datasets for row in rows[model_id][dataset].values()]
+
+
+def load_prediction_dir(path: Path) -> dict[str, dict[str, dict]]:
+    """dataset -> uid -> row, from one model's per-cohort prediction CSVs."""
+    out: dict[str, dict[str, dict]] = {}
+    for csv_path in sorted(path.glob("*.csv")):
+        with csv_path.open(newline="", encoding="utf-8") as handle:
+            out[csv_path.stem] = {
+                row["uid"]: {"uid": row["uid"], "y_true": int(row["y_true"]), "y_score": float(row["y_score"])}
+                for row in csv.DictReader(handle)
+            }
+    return out
+
+
+def auc_with_se(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
+    """AUROC of one model and its DeLong standard error."""
+    order = np.argsort(-labels)
+    aucs, covariance = fast_delong(scores[order][None, :], int(labels.sum()))
+    return float(aucs[0]), math.sqrt(float(covariance[0, 0]))
 
 
 def main() -> None:
@@ -184,17 +206,7 @@ def main() -> None:
     hub_dir = stat_dir / "predictions" / "swarm" / "hub_poc_run1"
     gui_rows = []
     if hub_dir.exists():
-        hub: dict[str, dict[str, dict]] = {}
-        for path in sorted(hub_dir.glob("*.csv")):
-            with path.open(newline="", encoding="utf-8") as handle:
-                hub[path.stem] = {
-                    row["uid"]: {
-                        "uid": row["uid"],
-                        "y_true": int(row["y_true"]),
-                        "y_score": float(row["y_score"]),
-                    }
-                    for row in csv.DictReader(handle)
-                }
+        hub = load_prediction_dir(hub_dir)
         for group in ("DUKE_internal", "ODELIA_external_5site"):
             datasets = COHORT_GROUPS[group]
             hub_cases = [r for d in datasets for r in hub[d].values()]
@@ -227,6 +239,44 @@ def main() -> None:
                 }
             )
         write(stat_dir / "gui_vs_cli.csv", gui_rows)
+
+    # 3c. Scrambled-label negative control, if it has been scored: the same three nodes, image,
+    # code and configuration as the swarm runs, with each node's training and validation labels
+    # permuted within split. It is scored against the true labels of the untouched test sets.
+    control_dir = stat_dir / "predictions" / "swarm" / "swarm_scrambled_label_control"
+    control_rows = []
+    if control_dir.exists():
+        control = load_prediction_dir(control_dir)
+        for group, datasets in COHORT_GROUPS.items():
+            control_cases = [r for d in datasets for r in control[d].values()]
+            labels = np.asarray([r["y_true"] for r in control_cases], dtype=int)
+            s_control = np.asarray([r["y_score"] for r in control_cases], dtype=float)
+            auc, se = auc_with_se(labels, s_control)
+            per_run = []
+            for k in RUNS:
+                swarm_by_uid = {
+                    r["uid"]: r for r in group_rows(rows, arms["swarm"].format(k=k), datasets)
+                }
+                assert set(swarm_by_uid) == {r["uid"] for r in control_cases}, (group, k)
+                s_swarm = np.asarray([swarm_by_uid[r["uid"]]["y_score"] for r in control_cases], dtype=float)
+                d = paired_delong(labels, s_control, s_swarm)
+                per_run.append((k, float(d["auc_a"] - d["auc_b"]), float(d["p_value"])))
+            mean, sd, _lo, _hi = mean_sd_ci(auroc[(group, "swarm")])
+            control_rows.append(
+                {
+                    "cohort": group,
+                    "n_cases": len(labels),
+                    "positives": int(labels.sum()),
+                    "control_auroc": f"{auc:.4f}",
+                    "control_ci95": f"{max(0.0, auc - 1.96 * se):.4f}-{min(1.0, auc + 1.96 * se):.4f}",
+                    "p_vs_chance": f"{math.erfc(abs(auc - 0.5) / se / math.sqrt(2.0)):.3g}",
+                    "swarm_mean_sd": f"{mean:.4f} ± {sd:.4f}",
+                    "paired_delong_vs_swarm_runs": "; ".join(
+                        f"run{k}: d={delta:+.4f} p={p:.3g}" for k, delta, p in per_run
+                    ),
+                }
+            )
+        write(stat_dir / "scrambled_label_control.csv", control_rows)
 
     # 4. cohort sizes for figure labels
     size_rows = []
@@ -283,6 +333,25 @@ def main() -> None:
             "runs are not bit-reproducible, so the question is whether a GUI-initiated run is",
             "distinguishable from the spread of CLI runs of the same configuration, not whether it is",
             "identical to them.",
+            "",
+        ]
+    if control_rows:
+        lines += ["## Scrambled-label negative control", ""]
+        lines += [
+            "| cohort | n cases (positive) | control AUROC (95% DeLong CI) | p vs 0.5 | swarm runs (mean ± SD) | paired DeLong, control − each swarm run |",
+            "|---|---|---|---|---|---|",
+        ]
+        for r in control_rows:
+            lines.append(
+                f"| {r['cohort']} | {r['n_cases']} ({r['positives']}) | {r['control_auroc']} ({r['control_ci95']}) | "
+                f"{r['p_vs_chance']} | {r['swarm_mean_sd']} | {r['paired_delong_vs_swarm_runs']} |"
+            )
+        lines += [
+            "",
+            "Same nodes, image, code and configuration as the swarm runs, with each node's training and",
+            "validation labels permuted within split (class balance kept, images unchanged), scored",
+            "against the true labels of the untouched test sets. Single cohorts are small, so their",
+            "intervals are wide; the pooled rows are the informative ones.",
             "",
         ]
     lines += ["## Cohort sizes", "", "| cohort | exams | patients | positive exams |", "|---|---|---|---|"]
