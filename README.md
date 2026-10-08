@@ -53,6 +53,11 @@ make env        # Create .env file with custom values
 make start      # Build Docker services and bring the stack online
 ```
 
+The first `make start` generates the platform's internal certificate authority and asks for a
+passphrase to protect its private key. Keep it: it is needed to issue service certificates again
+later. For an unattended installation, provide it in the environment instead of at the prompt:
+`CA_PASSPHRASE='…' make start`.
+
 `make install` also installs the local `swarmed` CLI from this same repository. The CLI runs in the same Django environment as SwarmMedHub and is intended for Linux hosts in the current v1 release.
 
 ### 👤 4. Initialize Superuser

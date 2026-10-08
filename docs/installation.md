@@ -138,7 +138,7 @@ After the env is generated, start the platform with:
 make start
 ```
 
-`make start` builds the Docker services and brings them up in the background. If you need to stop the stack, run `make stop`. Tail the `swarmmedhub` logs with `make logs`.
+`make start` builds the Docker services and brings them up in the background. On the first run it also generates the platform's internal certificate authority and prompts for a passphrase that protects the CA's private key; keep it, because it is needed to issue service certificates again later. For an unattended installation set it in the environment instead: `CA_PASSPHRASE='…' make start`. The first build also compiles the object store (MinIO) from pinned upstream source, which adds about a minute. If you need to stop the stack, run `make stop`. Tail the `swarmmedhub` logs with `make logs`.
 
 You can verify the CLI entrypoint from the same repository with:
 
