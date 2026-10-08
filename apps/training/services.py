@@ -538,6 +538,14 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
     )
 
     training_py_path = os.path.join(app_client_custom_dir, "training.py")
+    if not os.path.exists(training_py_path):
+        # Every executor below runs custom/training.py. Without it the clients have
+        # nothing to run and the job ends immediately, so refuse to submit.
+        raise ValueError(
+            "No training.py found in the project's stored training code "
+            f"({source_code_prefix}). Check that object storage is reachable and "
+            "re-upload the project's code before starting training."
+        )
     if os.path.exists(training_py_path):
         with open(training_py_path) as handle:
             content = handle.read()

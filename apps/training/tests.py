@@ -519,3 +519,28 @@ class TrainingViewServiceParityTests(TestCase):
         )
         self.assertEqual(synced_keys, [expected_key])
         self.assertEqual(storage.saved[expected_key], b"weights")
+
+
+class SubmitWithoutTrainingCodeTests(SimpleTestCase):
+    """A job must not be submitted when the project's training code is missing."""
+
+    def test_missing_training_script_refuses_to_submit(self):
+        with tempfile.TemporaryDirectory() as base:
+            adapter = Path(base) / "apps" / "training" / "flare_adapter.py"
+            adapter.parent.mkdir(parents=True)
+            adapter.write_text("# adapter\n")
+            project = SimpleNamespace(identifier="11111111-2222-3333-4444-555555555555", title="P")
+            network = SimpleNamespace(
+                status="RUNNING", name="N", project=project,
+                identifier="66666666-7777-8888-9999-000000000000",
+            )
+            with override_settings(BASE_DIR=base, AWS_STORAGE_BUCKET_NAME="bucket"), patch.object(
+                training_services, "get_logger"
+            ), patch.object(
+                training_services, "resolve_admin_session_target",
+                return_value=("admin@nvidia.com", base, "127.0.0.1"),
+            ), patch.object(
+                training_services, "download_s3_folder"  # object storage returns nothing
+            ):
+                with self.assertRaisesRegex(ValueError, "No training.py"):
+                    training_services.submit_training_job(actor=None, network=network)
