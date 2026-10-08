@@ -63,6 +63,7 @@ services:
   certbot:
     image: certbot/certbot
     container_name: certbot
+    restart: always
     volumes:
       - ./infrastructure/certbot/conf:/etc/letsencrypt
       - ./infrastructure/certbot/www:/var/www/certbot
@@ -241,6 +242,7 @@ services:
   minio:
     image: minio/minio
     container_name: minio
+    restart: always
     volumes:
       - minio_data:/data
       - ./.secrets/certs/internal/minio_certs:/root/.minio/certs:ro
