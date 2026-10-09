@@ -127,6 +127,8 @@ def get_local_participant_status(swarm_network):
                 continue
 
             lower_name = name.lower()
+            # server_logs is lower-cased, but several patterns keep NVFlare's
+            # capitalisation, so both lists are matched case-insensitively.
             joined_patterns = [
                 rf"Client: New client {lower_name}@.* joined",
                 rf"Re-activate the client: {lower_name} at .* with token:",
@@ -150,7 +152,7 @@ def get_local_participant_status(swarm_network):
 
             last_join_idx = -1
             for pattern in joined_patterns:
-                for match in re.finditer(pattern, server_logs):
+                for match in re.finditer(pattern, server_logs, re.IGNORECASE):
                     if match.start() > last_join_idx:
                         last_join_idx = match.start()
 
@@ -172,7 +174,7 @@ def get_local_participant_status(swarm_network):
             last_activity_idx = max(last_join_idx, last_cn_created_idx)
             last_leave_idx = -1
             for pattern in leave_patterns:
-                for match in re.finditer(pattern, server_logs):
+                for match in re.finditer(pattern, server_logs, re.IGNORECASE):
                     if match.start() > last_leave_idx:
                         last_leave_idx = match.start()
 

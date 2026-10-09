@@ -430,7 +430,8 @@ def new_network(request):
 
     Supports three methods:
     1. 'create': Provision a new network from a list of client names and IPs.
-    2. 'import': Import an existing FLARE startup kit zip file.
+    2. 'import': Import an existing FLARE startup kit zip file
+       ('upload', its name before the import/export rename, is still accepted).
     3. 'local_test': Auto-generate a local-only testing network.
 
     Args:
@@ -472,7 +473,8 @@ def new_network(request):
                 server_ip=get_tailscale_ip(),
             )
 
-        elif creation_method == "import":
+        elif creation_method in ("import", "upload"):
+            # Forms rendered before the rename still post "upload".
             startup_package = request.FILES.get("startup_package")
             if startup_package:
                 network_services.import_network(

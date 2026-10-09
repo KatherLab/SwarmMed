@@ -234,6 +234,26 @@ def _ensure_executable(path):
         raise
 
 
+def _configured_server_host(startup_dir):
+    """Returns the server host configured for a participant's startup kit.
+
+    SWARMMEDHUB_SERVER_HOST takes precedence over the kit's server_host.txt.
+
+    Args:
+        startup_dir (str): The directory that may contain server_host.txt.
+
+    Returns:
+        str: The configured host, or an empty string if neither is set.
+    """
+    env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
+    if env_host:
+        return env_host
+    host_file = os.path.join(startup_dir, "server_host.txt")
+    if os.path.exists(host_file):
+        return Path(host_file).read_text().strip()
+    return ""
+
+
 def _extract_host_from_server_endpoint(startup_dir):
     """Extracts the host address from the server endpoint in fed_client.json.
 
@@ -1711,12 +1731,7 @@ def start_swarm_network_task(network_id, user_id):
                 local_s3_endpoint = raw_local_s3
                 container_s3_endpoint = raw_s3_endpoint
 
-            remote_host = (
-                os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
-                or (Path(startup_dir) / "server_host.txt").read_text().strip()
-                if os.path.exists(os.path.join(startup_dir, "server_host.txt"))
-                else ""
-            )
+            remote_host = _configured_server_host(startup_dir)
             if not remote_host and role == "client":
                 remote_host = _extract_host_from_server_endpoint(startup_dir)
 
