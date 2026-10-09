@@ -1,6 +1,9 @@
 from functools import wraps
 
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+
+from network.models import SwarmNetwork
 
 from .models import Project, UserCurrentProject
 
@@ -8,10 +11,44 @@ from .models import Project, UserCurrentProject
 def project_membership_required(view_func):
     """Decorator for views that require a user to be either the author or a member
     of a specific project, identified by a 'pk' or 'identifier' in the URL.
+
+    Views that act on a swarm network ('network_id' in the URL) are checked
+    against the project that owns the network; a network of a project the user
+    does not belong to is reported as not found (404). Views with neither in the
+    URL fall back to the user's current project and must scope lookups to it.
     """
 
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
+        if "network_id" in kwargs:
+            # Access follows the network's own project, not the user's current
+            # project, or any logged-in user could act on another project's
+            # network (start it, export its startup kits) by its UUID.
+            network = get_object_or_404(
+                SwarmNetwork.objects.select_related("project"),
+                identifier=kwargs["network_id"],
+            )
+            project = network.project
+
+            # HIPAA: allow access during active emergency (break-glass) access
+            is_emergency = (
+                hasattr(request.user, "profile")
+                and request.user.profile.is_emergency_access
+            )
+            if not (
+                is_emergency
+                or project.author_id == request.user.id
+                or project.members.filter(id=request.user.id).exists()
+            ):
+                # Same 404 as an unknown network, so UUIDs cannot be probed.
+                raise Http404("No SwarmNetwork matches the given query.")
+
+            # These views still expect a selected current project (for example
+            # set_current_network), as they did before this check existed.
+            return project_context_required(view_func)(
+                request, *args, **kwargs
+            )
+
         project_id = (
             kwargs.get("pk")
             or kwargs.get("identifier")
