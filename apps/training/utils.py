@@ -11,6 +11,8 @@ import re
 import shutil
 import subprocess
 
+from django.conf import settings
+
 from common.utils import get_s3_client
 
 FLARE_JOB_UUID_RE = re.compile(
@@ -359,13 +361,22 @@ def download_s3_folder(bucket_name, s3_folder, local_dir):
 def upload_file_to_s3(bucket_name, key, local_path):
     """Uploads a single file to S3.
 
+    The upload requests the same object parameters, including server-side
+    encryption, that django-storages applies (AWS_S3_OBJECT_PARAMETERS).
+
     Args:
         bucket_name (str): The name of the S3 bucket.
         key (str): The key (path) in S3.
         local_path (str): The local path of the file to upload.
     """
     s3 = get_s3_client()
-    s3.upload_file(local_path, bucket_name, key)
+    # Pass a copy: s3transfer adds its own defaults to ExtraArgs in place.
+    s3.upload_file(
+        local_path,
+        bucket_name,
+        key,
+        ExtraArgs=dict(settings.AWS_S3_OBJECT_PARAMETERS),
+    )
 
 
 def upload_folder_to_s3(bucket_name, local_dir, prefix):

@@ -81,6 +81,10 @@ def delete_s3_object(key):
 def copy_s3_object(source_key, target_key):
     """Copies an object from one key to another within the same bucket.
 
+    A copy does not keep the source object's encryption, so it requests the
+    same object parameters, including server-side encryption, that
+    django-storages applies (AWS_S3_OBJECT_PARAMETERS).
+
     Args:
         source_key (str): The source S3 key.
         target_key (str): The target S3 key.
@@ -93,6 +97,7 @@ def copy_s3_object(source_key, target_key):
             "Key": source_key,
         },
         Key=target_key,
+        **settings.AWS_S3_OBJECT_PARAMETERS,
     )
 
 
@@ -103,6 +108,10 @@ def rename_s3_object(old_key, new_key):
         old_key (str): The current S3 key.
         new_key (str): The new S3 key.
     """
+    # S3 accepts copying an object onto itself when the copy requests
+    # encryption, so the delete below would then remove the only copy.
+    if old_key == new_key:
+        return
     copy_s3_object(old_key, new_key)
     delete_s3_object(old_key)
     invalidate_s3_caches(new_key)
@@ -139,6 +148,9 @@ def rename_s3_folder(old_prefix, new_prefix):
         old_prefix (str): The current S3 prefix.
         new_prefix (str): The new S3 prefix.
     """
+    # As in rename_s3_object: a folder renamed to itself would be deleted.
+    if old_prefix == new_prefix:
+        return
     s3 = get_s3_client()
     paginator = s3.get_paginator("list_objects_v2")
 
