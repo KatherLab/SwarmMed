@@ -198,10 +198,12 @@ def main():
         details={"examples": leaking[:10]},
     )
 
-    # 7. Imaging present for each exam (sampled)
+    # 7. Imaging present for each exam (sampled). The manifest lists files only, so
+    # exists() is false for any folder; look for the exam's folder among file parents.
+    folders = {path.rsplit("/", 1)[0] for path in manifest if "/" in path}
     missing_dir, missing_series = [], {}
     for uid in uids[:DEEP_CHECK_LIMIT]:
-        if not validation.exists(f"{data_dir}/{uid}"):  # noqa: F821
+        if f"{data_dir}/{uid}" not in folders:
             missing_dir.append(uid)
             continue
         absent = [s for s in REQUIRED_SERIES if not validation.exists(f"{data_dir}/{uid}/{s}")]  # noqa: F821
