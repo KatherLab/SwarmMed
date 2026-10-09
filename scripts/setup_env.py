@@ -7,9 +7,11 @@ manual configuration values.
 """
 
 import base64
+import ipaddress
 import os
 import secrets
 import string
+import subprocess  # nosec B404
 import sys
 
 from cryptography.fernet import Fernet
@@ -163,6 +165,61 @@ ENV_HELP = {
 }
 
 
+def detect_docker_bridge_gateway(default="172.17.0.1"):
+    """Returns the gateway address of Docker's default bridge network.
+
+    MinIO is published on this address so that training containers can reach it.
+    It is 172.17.0.1 on most hosts, but not where the Docker daemon is configured
+    with another bridge address (bip or default-address-pools); there MinIO cannot
+    bind 172.17.0.1 and the stack does not start.
+
+    Args:
+        default (str): The address used when Docker cannot be queried.
+
+    Returns:
+        str: The bridge gateway as an IPv4 address.
+    """
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            [
+                "docker",
+                "network",
+                "inspect",
+                "bridge",
+                "--format",
+                "{{(index .IPAM.Config 0).Gateway}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return default
+    address = result.stdout.strip()
+    try:
+        ipaddress.IPv4Address(address)
+    except ValueError:
+        return default
+    return address
+
+
+def write_env_file(env_path, lines):
+    """Writes the environment file readable and writable only by its owner.
+
+    The file holds every secret of the deployment. An existing file written with
+    the default mode (often world-readable) is tightened as well.
+
+    Args:
+        env_path (str): Path of the .env file.
+        lines (list[str]): Lines to write, without newlines.
+    """
+    fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def generate_password(length=32):
     """Generates a secure random password.
 
@@ -288,7 +345,7 @@ def setup_env():
             if sys.platform == "darwin":
                 val = "127.0.0.1"
             elif sys.platform.startswith("linux"):
-                val = "172.17.0.1"
+                val = detect_docker_bridge_gateway()
             elif sys.platform == "win32":
                 val = "127.0.0.1"
             else:
@@ -326,8 +383,7 @@ def setup_env():
         resolved_env[key] = val
         new_env_lines.append(f"{key}={val}")
 
-    with open(env_path, "w") as f:
-        f.write("\n".join(new_env_lines) + "\n")
+    write_env_file(env_path, new_env_lines)
 
     print(f"\n✅ Environment file '{env_path}' has been updated.")
 

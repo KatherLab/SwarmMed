@@ -18,8 +18,16 @@ tmp/
 *.log
 bandit_report_final.json
 
-# Ignore sensitive secrets
+# Ignore sensitive secrets; the containers get .env via env_file and the
+# bind-mounted project directory
 .secrets/
+.env
+
+# Ignore deployment state (study startup kits and keys, results, local compose
+# override); the containers bind-mount the project directory
+workspaces/
+results/
+docker-compose.override.yml
 
 # Ignore node modules
 node_modules/

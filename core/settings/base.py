@@ -3,16 +3,18 @@ This file contains the configuration for the entire web application, including
 database connections, security keys, installed apps, and middleware.
 """
 
+import contextlib
 import os
 import secrets
 import string
 from pathlib import Path
 from urllib.parse import urlparse
 
-from celery.schedules import crontab
 from django.contrib import messages
 from dotenv import load_dotenv
 from str2bool import str2bool
+
+from celery.schedules import crontab
 
 
 def _split_csv_env(name, default):
@@ -25,7 +27,10 @@ def _split_csv_env(name, default):
 
 # Load environment variables from a .env file into os.environ.
 # This is used for sensitive information like passwords and API keys.
-load_dotenv()
+# The containers already get these variables through env_file, and .env is readable
+# only by its owner, so a .env the process cannot read is skipped.
+with contextlib.suppress(PermissionError):
+    load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # BASE_DIR points to the root directory of the project.

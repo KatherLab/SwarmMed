@@ -560,6 +560,12 @@ def run(args: argparse.Namespace):
                     interval_seconds=args.interval,
                     timeout_seconds=args.timeout,
                 )
+                if network.status == "ERROR":
+                    raise ValueError(
+                        f"Network '{network.name}' did not start (status ERROR). "
+                        "The cause is in the network's log in the web interface "
+                        "and in the worker log."
+                    )
             result = network_services.serialize_network(
                 network, current_for=state.user, include_participants=True
             )
