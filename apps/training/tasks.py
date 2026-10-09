@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from celery import shared_task
+from common.utils import get_s3_client
 from logs import logger
 from logs.utils import format_exception
 from network.models import SwarmNetwork
@@ -31,6 +32,23 @@ from .utils import (
     should_update_terminal_status,
     upload_folder_to_s3,
 )
+
+
+def _results_already_uploaded(project_id, flare_job_uuid):
+    """Return True when object storage already holds result files for this job."""
+    response = get_s3_client().list_objects_v2(
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+        Prefix=f"{project_id}/results/{flare_job_uuid}/",
+        MaxKeys=1,
+    )
+    return bool(response.get("KeyCount") or response.get("Contents"))
+
+
+def _completion_time(job, terminal_status):
+    """Completion time to record: now on the transition, else keep the stored one."""
+    if job.status == terminal_status and job.completed_at:
+        return job.completed_at
+    return timezone.now()
 
 
 def _get_total_rounds(workspace_base):
@@ -212,7 +230,14 @@ def monitor_training_jobs():
             terminal_status = (
                 job.status if job.status in {"COMPLETED", "FAILED", "STOPPED"} else None
             )
-            admin_target = resolve_admin_session_target(job.network)
+            # Finished jobs are not polled: their server is usually gone, and the
+            # session retries every candidate port, which on a shared host reaches
+            # other servers.
+            admin_target = (
+                resolve_admin_session_target(job.network)
+                if terminal_status is None
+                else None
+            )
             if admin_target:
                 try:
                     admin_name, admin_dir, server_ip = admin_target
@@ -239,8 +264,8 @@ def monitor_training_jobs():
                 except Exception:
                     pass
 
-            # Step 2: Progress from logs
-            if job.status in {"RUNNING", "COMPLETED"}:
+            # Step 2: Progress from logs (a finished job's progress no longer changes)
+            if job.status == "RUNNING":
                 rounds_finished = job.rounds_finished or 0
                 total_rounds = job.total_rounds or _get_total_rounds(
                     workspace_base
@@ -293,8 +318,15 @@ def monitor_training_jobs():
                     progress_updated_at=timezone.now(),
                 )
 
-            # Step 3: Result Sync
-            if terminal_status == "COMPLETED":
+            # Step 3: Result Sync, once: when the job finishes in this pass, or for a
+            # job marked complete elsewhere whose results never reached object
+            # storage. Re-uploading every finished job each minute also overwrote
+            # its completion time.
+            needs_sync = terminal_status == "COMPLETED" and (
+                job.status != "COMPLETED"
+                or not _results_already_uploaded(project_id, flare_job_uuid)
+            )
+            if needs_sync:
                 found_folders = []
                 job_root = os.path.join(workspace_base, flare_job_uuid)
                 if os.path.exists(job_root):
@@ -345,14 +377,14 @@ def monitor_training_jobs():
                     training_services.persist_training_job_state(
                         job,
                         status=terminal_status,
-                        completed_at=timezone.now(),
+                        completed_at=_completion_time(job, terminal_status),
                         progress_percent=100,
                     )
             elif should_update_terminal_status(job.status, terminal_status):
                 training_services.persist_training_job_state(
                     job,
                     status=terminal_status,
-                    completed_at=timezone.now(),
+                    completed_at=_completion_time(job, terminal_status),
                     progress_percent=job.progress_percent,
                 )
         except Exception as e:

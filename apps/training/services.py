@@ -35,6 +35,7 @@ from .runtime import (
     resolve_admin_session_target,
 )
 from .utils import (
+    TERMINAL_TRAINING_STATUSES,
     clamp_progress_percent,
     download_s3_folder,
     extract_flare_job_uuid,
@@ -148,7 +149,9 @@ def persist_training_job_state(
             if job.status != new_status:
                 job.status = new_status
                 update_fields.append("status")
-            if completed_at is None:
+            # Only a finished job has a completion time; a PENDING -> RUNNING update
+            # used to stamp one at submission.
+            if completed_at is None and new_status in TERMINAL_TRAINING_STATUSES:
                 completed_at = timezone.now()
         elif current_status not in {"COMPLETED", "FAILED", "STOPPED"} and job.status != new_status:
             job.status = new_status
