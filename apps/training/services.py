@@ -44,6 +44,45 @@ from .utils import (
 )
 
 
+# Environment overrides for the swarm workflow's server-side time limits. NVFlare's
+# defaults are 90 s without a status report from a site and 3600 s without progress;
+# either one aborts the whole job, which large or slow consortia can hit.
+SWARM_TIME_LIMIT_ENV = {
+    "max_status_report_interval": "SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL",
+    "progress_timeout": "SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT",
+}
+
+
+def swarm_time_limits_from_env(log=None):
+    """Return SwarmServerController time-limit overrides set in the environment.
+
+    Args:
+        log: Optional platform logger for rejected values.
+
+    Returns:
+        dict: Keyword arguments for SwarmServerController; empty when nothing is
+        set, so NVFlare's defaults apply.
+    """
+    limits = {}
+    for argument, env_name in SWARM_TIME_LIMIT_ENV.items():
+        raw = os.getenv(env_name, "").strip()
+        if not raw:
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value <= 0:
+            if log is not None:
+                log.training.warning(
+                    f"Ignoring {env_name}={raw!r}: "
+                    "expected a positive number of seconds"
+                )
+            continue
+        limits[argument] = value
+    return limits
+
+
 def list_training_jobs(*, project=None, network=None):
     """List training jobs with optional project/network filtering."""
     queryset = TrainingJob.objects.select_related("project", "network")
@@ -901,6 +940,7 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
                 f"Failed to extract SWARM_ROUNDS from training script: {exc}"
             )
 
+        time_limits = swarm_time_limits_from_env(log)
         controller = SwarmServerController(
             num_rounds=swarm_rounds,
             participating_clients=client_names,
@@ -909,11 +949,13 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
             private_p2p=private_p2p,
             aggr_clients=client_names,
             train_clients=client_names,
+            **time_limits,
         )
         log.training.info(
             "Swarm controller config: "
             f"private_p2p={private_p2p}, starting_client={starting_client}, "
-            f"participants={client_names}"
+            f"participants={client_names}, "
+            f"time_limits={time_limits or 'NVFlare defaults'}"
         )
         for server_name in server_names:
             job_definition.to(controller, server_name)
