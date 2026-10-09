@@ -273,11 +273,11 @@ class FlareDataFileSystem:
         processed = {}
         self._manifest_candidates = {}
 
-        # Determine local networking candidates
-        # We include the 100.127.11.1 IP as it's the confirmed reachable host.
+        # Determine local networking candidates: this node's MinIO aliases and
+        # the configured Docker gateway. No fixed addresses, since each retry
+        # sends the object path, which can contain exam identifiers.
         gateway_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
         local_ips = [
-            "100.127.11.1",
             "minio",
             "host.docker.internal",
             "localhost",

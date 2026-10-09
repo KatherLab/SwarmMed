@@ -4,7 +4,6 @@ Handles training job management, progress monitoring, and decentralized
 communication between NVFlare nodes.
 """
 
-import contextlib
 import os
 import re
 import secrets
@@ -31,6 +30,9 @@ from project.models import UserCurrentProject
 
 from . import services as training_services
 from .models import TrainingJob
+from .runtime import (
+    _build_flare_port_candidates as runtime_build_flare_port_candidates,
+)
 from .runtime import (
     build_training_status_payload as runtime_build_training_status_payload,
 )
@@ -391,26 +393,8 @@ def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
 
 
 def _build_flare_port_candidates(default_port: int = 0):
-    """Builds a list of potential ports for the FLARE admin API.
-
-    Args:
-        default_port (int, optional): The default port from FLARE session.
-
-    Returns:
-        list: A list of integers.
-    """
-    env_admin_port = os.getenv("SWARMMEDHUB_FLARE_ADMIN_PORT", "").strip()
-    candidates = []
-    if env_admin_port:
-        with contextlib.suppress(ValueError):
-            candidates.append(int(env_admin_port))
-    if default_port and int(default_port) > 0 and int(default_port) not in candidates:
-        candidates.append(int(default_port))
-    if 8003 not in candidates:
-        candidates.append(8003)
-    if 8002 not in candidates:
-        candidates.append(8002)
-    return candidates
+    """Compatibility wrapper for shared FLARE admin port candidates."""
+    return runtime_build_flare_port_candidates(default_port)
 
 
 def _log_flare_pre_submit_diagnostics(log, username: str, startup_kit_location: str, requested_host: str):

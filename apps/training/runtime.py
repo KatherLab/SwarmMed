@@ -356,14 +356,13 @@ def _build_flare_port_candidates(default_port: int = 0):
     candidates = []
     if env_admin_port:
         with contextlib.suppress(ValueError):
-            candidates.append(int(env_admin_port))
+            if int(env_admin_port) > 0:
+                candidates.append(int(env_admin_port))
     if default_port and int(default_port) > 0 and int(default_port) not in candidates:
         candidates.append(int(default_port))
-    if 8003 not in candidates:
-        candidates.append(8003)
-    if 8002 not in candidates:
-        candidates.append(8002)
-    return candidates
+    # Fall back to the stock FLARE ports only when no admin port is configured:
+    # on a shared host they can belong to another deployment's server.
+    return candidates or [8003, 8002]
 
 
 def log_flare_pre_submit_diagnostics(
