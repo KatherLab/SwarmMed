@@ -154,9 +154,9 @@ def main() -> None:
         "  own data to visibly move the aggregate; its reason to join is access, external",
         "  validity for its own population, and being represented in the training distribution.",
         "* A centre whose local model is near chance should check its labels and splits before",
-        "  joining ([pre-flight validation](../../../docs/explainability.md) and the site scripts",
-        "  in `examples/breast_mri/`), since a data problem and a small-cohort problem look the",
-        "  same from the outside.",
+        "  joining (the validation and visualisation scripts in",
+        "  `examples/breast_mri/`), since a data problem and a small-cohort problem",
+        "  look the same from the outside.",
         "",
         "## Caveats",
         "",
@@ -165,6 +165,11 @@ def main() -> None:
         "  setup and should not be read as a general rule.",
         "* Node C's data is an IID split of the same Duke cohort, so this measures the effect of",
         "  *volume*, not of a genuinely different population.",
+        "* The single-site (\"own model\") numbers in part 2 come from the published",
+        "  single-site runs, which used a different model configuration from the",
+        "  swarm (binary output, a DINOv2 backbone with registers, different loss and",
+        "  optimiser settings). Part 2 therefore compares across configurations;",
+        "  part 1, swarm against swarm, does not.",
     ]
     (STAT / "nodec_analysis.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
