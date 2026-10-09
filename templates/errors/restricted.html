@@ -1,0 +1,30 @@
+{% extends "layouts/base.html" %}
+{% load static %}
+
+{% block content %}
+<main>
+    <div class="flex flex-col items-center justify-center px-6 pt-8 mx-auto md:h-screen pt:mt-0 dark:bg-gray-900">
+        <div class="block md:max-w-md mb-6">
+            <svg class="w-32 h-32 text-orange-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path>
+            </svg>
+        </div>
+        <div class="text-center">
+            <h1 class="mb-3 text-2xl font-bold leading-tight text-gray-900 sm:text-4xl lg:text-5xl dark:text-white">Account Restricted</h1>
+            <p class="max-w-xl mx-auto mb-5 text-base font-normal text-gray-500 md:text-lg dark:text-gray-400">Your account is restricted under the GDPR right to restriction of processing, so the platform is unavailable to you until the restriction is lifted. You can still read the privacy policy or sign out. To have the restriction lifted, contact our Data Protection Officer, whose details are in the privacy policy.</p>
+            {# Only the privacy policy and sign-out stay reachable (see GDPRRestrictionMiddleware). #}
+            <div class="flex flex-wrap items-center justify-center gap-3">
+                <a href="{% url 'privacy' %}" class="text-white bg-purple-700 hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center inline-flex items-center dark:bg-purple-600 dark:hover:bg-purple-700 dark:focus:ring-purple-900">
+                    View privacy policy
+                </a>
+                <form action="{% url 'users:signout' %}" method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="inline-flex items-center text-gray-900 bg-white border border-gray-200 hover:bg-gray-100 hover:text-purple-700 focus:z-10 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700">
+                        Sign out
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock content %}
