@@ -8,6 +8,17 @@ from .models import AbstractBaseModel
 # We use a standard logger for the signal itself
 _logger = logging.getLogger(__name__)
 
+# Fields that only track a training job's progress (see audit_log_save).
+PROGRESS_ONLY_FIELDS = frozenset(
+    {
+        "rounds_finished",
+        "total_rounds",
+        "progress_percent",
+        "progress_updated_at",
+        "updated_at",
+    }
+)
+
 
 @receiver(post_save)
 def audit_log_save(sender, instance, created, **kwargs):
@@ -28,13 +39,18 @@ def audit_log_save(sender, instance, created, **kwargs):
     if sender.__name__ in ["LogEntry", "LogSigningKey"]:
         return
 
+    # 3. Skip saves that only record training progress; the monitor makes one per
+    # running job every minute, and they say nothing about who changed what.
+    update_fields = kwargs.get("update_fields")
+    if update_fields and set(update_fields) <= PROGRESS_ONLY_FIELDS:
+        return
+
     try:
-        from logs.context import RequestContextMiddleware
+        from logs.context import get_context
         from logs.logger import get_logger
 
-        # Get the current request context (IP, User, etc.) if available
-        context = RequestContextMiddleware.get_context()
-        user = context.get("user") if context else None
+        # Get the current user from the request or task context, if available
+        user, _project, _network = get_context()
 
         # If no user in context, check if instance has a user/author field
         if not user:
