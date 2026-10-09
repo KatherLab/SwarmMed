@@ -2083,6 +2083,27 @@ def run_nvflare_preflight_check(network_id, user_id):
 
 
 @shared_task
+def _stop_unfinished_training_jobs(network, logger):
+    """Marks the network's unfinished training jobs as stopped.
+
+    Their containers are gone once the network stops. Left RUNNING, the periodic
+    monitor would open an admin session for each of them every minute.
+
+    Args:
+        network (SwarmNetwork): The network that was stopped.
+        logger (Logger): The logger instance for status updates.
+    """
+    from training import services as training_services
+    from training.models import TrainingJob
+
+    unfinished = TrainingJob.objects.filter(
+        network=network, status__in=["PENDING", "STARTING", "RUNNING"]
+    )
+    for job in unfinished:
+        training_services.persist_training_job_state(job, status="STOPPED")
+        logger.network.info(f"Training job {job.identifier} marked as stopped.")
+
+
 def stop_swarm_network_task(network_id, user_id):
     """Stops and removes the containers for a swarm network.
 
@@ -2103,6 +2124,7 @@ def stop_swarm_network_task(network_id, user_id):
 
         network.status = "STOPPED"
         network.save()
+        _stop_unfinished_training_jobs(network, logger)
         logger.network.info("Network stopped successfully.")
 
     except Exception as e:
