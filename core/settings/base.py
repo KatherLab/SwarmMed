@@ -329,10 +329,36 @@ AUTHENTICATION_BACKENDS = [
 AXES_FAILURE_LIMIT = 5
 # Cooloff period: 1 hour
 AXES_COOLOFF_TIME = 1
-# Lock out based on user and IP combination
-AXES_LOCK_OUT_PARAMETERS = ["username", "ip_address"]
+# Lock out based on user and IP combination (a nested list is one combined
+# criterion; a flat list would lock out each parameter on its own)
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
 # Reset failed attempts on success
 AXES_RESET_ON_SUCCESS = True
+
+
+def _axes_client_ip(request):
+    """Return the client address that the bundled nginx appended.
+
+    nginx sends ``$proxy_add_x_forwarded_for``: the X-Forwarded-For the client
+    sent, if any, followed by the address nginx saw. Only that last entry can be
+    trusted, and REMOTE_ADDR is nginx's own address for every client. Without
+    the header (runserver) REMOTE_ADDR is used. Anything that reaches gunicorn
+    without passing through nginx can choose this value.
+    """
+    import ipaddress
+
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    client_ip = forwarded_for.rsplit(",", 1)[-1].strip()
+    try:
+        ipaddress.ip_address(client_ip)
+    except ValueError:
+        return request.META.get("REMOTE_ADDR")
+    return client_ip
+
+
+# django-ipware is not installed, so axes ignores its AXES_IPWARE_* proxy
+# settings and would otherwise read REMOTE_ADDR.
+AXES_CLIENT_IP_CALLABLE = _axes_client_ip
 
 # Enforce MFA Login Flow
 LOGIN_URL = "users:two_factor:login"
