@@ -9,8 +9,8 @@ description: Local companion command-line workflow for SwarmMedHub.
 
 ## Scope
 
-- v1 is a local companion tool, not a remote API client.
-- v1 is Linux-first and validated on Linux hosts.
+- The CLI in SwarmMed 1.0.0 is a local companion tool, not a remote API client.
+- The CLI in SwarmMed 1.0.0 is Linux-first and validated on Linux hosts.
 - The CLI covers the executable workflow only: projects, data, networks, training, and results.
 
 ## Running the CLI

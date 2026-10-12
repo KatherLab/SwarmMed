@@ -12,10 +12,12 @@ nav:
     - Networking: networking.md
     - Operating Systems: os-support.md
     - SwarmMed and NVFlare: nvflare-comparison.md
+    - Runtime Backend and Portability: runtime-backend.md
     - Explainability: explainability.md
     - Scalability: scalability.md
     - Getting Started: getting-started.md
     - Usage: usage.md
+    - Reproducing the Worked Example: reproduce.md
     - Installation: installation.md
     - Developer: developer.md
     - CLI: cli.md

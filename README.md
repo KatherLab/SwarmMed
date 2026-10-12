@@ -3,7 +3,7 @@
 > [!WARNING]
 > **Research Use Only:** This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-SwarmMed is a secure and scalable platform for decentralized learning on medical data. This repository contains the **SwarmMedHub** web interface and the local **`swarmed`** companion CLI. Both interfaces share the same Django backend workflow, storage, task queue, and NVFlare runtime so teams can run the same core project, data, network, training, and results workflow through either interface.
+SwarmMed is a secure and scalable platform for decentralized learning on medical data. This repository contains the **SwarmMedHub** web interface and the local **`swarmed`** companion CLI. Both interfaces share the same Django backend workflow, storage, task queue, and NVFlare runtime so teams can run the same core project, data, network, training, and results workflow through either interface. This README describes SwarmMed 1.0.0; the full documentation is in [`docs/`](docs/index.md).
 
 ## 🧠 Supported Frameworks
 

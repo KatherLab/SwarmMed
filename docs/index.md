@@ -1,6 +1,6 @@
 ---
 title: SwarmMed Documentation
-description: Installation and setup instructions for SwarmMedHub and the swarmed CLI.
+description: Documentation for SwarmMed 1.0.0, the SwarmMedHub web interface and the swarmed CLI.
 ---
 
 # Welcome to SwarmMed Documentation
@@ -9,6 +9,8 @@ description: Installation and setup instructions for SwarmMedHub and the swarmed
     This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
 MedSwarmHub is a **secure** and **scalable** platform for **decentralized learning** on medical data. It allows multiple parties to **collaboratively train machine learning** models **without sharing sensitive data**.
+
+This documentation describes SwarmMed 1.0.0.
 
 ## ✨ Key Features
 <div class="grid cards" markdown>
@@ -44,7 +46,7 @@ MedSwarmHub is a **secure** and **scalable** platform for **decentralized learni
     
     [:octicons-arrow-right-24: Developer](developer.md)
 
--   :material-scale-balance:{ .lg .middle } __Non-Commercial License__
+-   :material-scale-balance:{ .lg .middle } __Apache-2.0 License__
 
     ---
 
