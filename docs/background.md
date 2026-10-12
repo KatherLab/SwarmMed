@@ -1,24 +1,26 @@
 ---
 title: Background
-description: Background information about SwarmMedHub and Swarm Learning.
+description: SwarmMed's components, and swarm learning as NVIDIA FLARE implements it and SwarmMed uses it.
 ---
 
 # Background
 
-SwarmMed was developed to address the challenges of applying **secure machine learning** to **large scale sensitive medical data** with **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in the medical field due to privacy concerns and data governance regulations.
+SwarmMed was developed to make **decentralized machine learning** on **sensitive medical data** usable through a **simple user interface**. Traditional machine learning requires centralizing data, which is often not feasible or desirable in medicine because of privacy concerns and data-governance rules. In decentralized learning, each institution trains on its own data and only model parameters are exchanged. That reduces data movement; it does not by itself make a collaboration private (see the [Threat model](threat-model.md)).
 
 ## 🏗️ System Architecture
 
-SwarmMed is composed of several integrated components that work together to provide a secure and scalable decentralized learning environment.
+SwarmMed consists of several components that each participating site runs on its own host.
 
 ### Key Components
 
-*   **Django Web Interface:** The central hub for project management, data import, and training orchestration.
-*   **Celery Worker:** Handles long-running background tasks such as data synchronization, script execution, and training job monitoring.
-*   **MinIO:** Provides S3-compatible object storage for all datasets, models, and scripts.
-*   **Sandbox-dind:** An isolated Docker-in-Docker environment used to execute user-provided Python scripts securely.
-*   **NVIDIA FLARE:** The core engine for federated and swarm learning. It handles model aggregation and decentralized training workflows.
-*   **Tailscale:** Creates a secure, encrypted peer-to-peer overlay network (VPN) between all participants, enabling direct communication even behind restrictive firewalls.
+*   **Django Web Interface (SwarmMedHub):** Project management, data import, network provisioning, training orchestration and results. nginx serves it over HTTPS on ports 5085 and 443.
+*   **`swarmed` CLI:** The same workflow from the command line, run inside the web interface's application container.
+*   **Celery Worker:** Handles long-running background tasks such as data synchronization, script execution, network start-up and training job monitoring.
+*   **PostgreSQL and Redis:** The database (users, projects, networks, training jobs, audit log), and the task queue and cache.
+*   **MinIO:** S3-compatible object storage for imported datasets, project code and scripts, plots and synchronized training results.
+*   **Sandbox-dind:** A separate Docker daemon on which user-provided validation and visualization scripts run in short-lived containers with CPU, memory and time limits. Their network is not isolated, so the scripts must be trusted ([Security](security.md#script-sandbox)).
+*   **NVIDIA FLARE:** The runtime for decentralized training. It issues each study's certificates, runs the FL server and the FL clients in containers, and carries out the swarm workflow.
+*   **Tailscale (optional):** An overlay network between the sites. Federated training does not need it, but network creation in the web interface and the status exchange between sites' web interfaces use the host's Tailscale address ([Networking](networking.md)).
 
 ### SwarmMed Hub/CLI Orchestration
 ``` mermaid
@@ -26,7 +28,7 @@ flowchart LR
 
     subgraph A["User-Facing Entry Points"]
         HUB["SwarmMedHub<br/>Graphical user interface<br/><br/>Project setup, data management,<br/>network provisioning, training control,<br/>and results review"]
-        CLI["swarmed CLI<br/>Local companion command-line interface<br/><br/>Scriptable local workflow for advanced users,<br/>reproducible automation, and batch-friendly<br/>project, network, and training operations"]
+        CLI["swarmed CLI<br/>Command-line interface<br/><br/>Scriptable workflow for advanced users,<br/>reproducible automation, and batch-friendly<br/>project, network, and training operations"]
     end
 
     subgraph B["Shared Orchestration Layer"]
@@ -43,7 +45,7 @@ flowchart LR
         S3["MinIO / S3<br/>training code, datasets, synced artifacts"]
         CEL["Celery<br/>validation, visualization, sync tasks"]
         FLARE["NVFlare runtime and local workspaces<br/>startup packages, training runs, local artifacts"]
-        LOCAL["Local node data and sandbox execution<br/>data remain on-site throughout training"]
+        LOCAL["Local node data and sandbox execution<br/>raw data stay on-site throughout training"]
     end
 
     HUB --> BOOT
@@ -90,28 +92,28 @@ flowchart LR
 ### SwarmMedHub System Architecture
 ``` mermaid
 graph TD
-    User((User)) -->|HTTPS| Web[Django Web Interface]
+    User((User)) -->|HTTPS 5085 / 443| Nginx[nginx]
+    Nginx -->|HTTP| Web[Django Web Interface]
     Web <-->|ORM| DB[(PostgreSQL)]
     Web <-->|S3 API| Storage[MinIO Object Storage]
     Web -->|Enqueue Task| TaskQueue[Redis]
     TaskQueue <--> Worker[Celery Worker]
-    
-    subgraph "Secure Sandbox"
+
+    subgraph "Script Sandbox"
         Worker -->|mTLS| SandboxDaemon[Sandbox-dind]
         SandboxDaemon -->|Run| SandboxContainer[Ephemeral Container]
-        SandboxContainer -->|Read-only| DataMount[Local Data Files]
+        SandboxContainer -->|Presigned URLs| Storage
     end
-    
-    subgraph "Swarm Learning (NVIDIA FLARE)"
-        Worker -->|Job Submission| FlareServer[FLARE Server]
-        FlareServer <-->|Control| FlareClient[FLARE Client]
-        FlareClient <-->|mTLS / WireGuard| PeerClients[Peer FLARE Clients]
-    end
-    
-    subgraph "Networking"
-        Web & Worker & FlareClient <-->|VPN Overlay| Tailscale[Tailscale / WireGuard]
+
+    subgraph "NVIDIA FLARE, one study"
+        Worker -->|Start container, admin API| FlareServer[FL Server]
+        ClientA[FL Client, site A] <-->|mTLS| FlareServer
+        ClientB[FL Client, site B] <-->|mTLS| FlareServer
+        ClientC[FL Client, site C] <-->|mTLS| FlareServer
     end
 ```
+
+The diagram shows the coordinating site, whose installation runs the FL server. Each site starts its own FL client from its own installation. The clients connect to the FL server, never to each other: messages between clients, model updates included, are relayed by the server.
 
 ---
 
@@ -119,7 +121,13 @@ graph TD
 
 ### What is Swarm Learning?
 
-Swarm learning is decentralized form of **federated learning** solution, wherein the responsibilities of **aggregation and model training control are distributed to all peers** rather than consolidated in a central server. It uses edge computing and blockchain technology to enable **peer-to-peer collaboration**. Multiple collaborators can **share data insights without sharing the data itself**, protecting data privacy and security while allowing all contributors to **benefit from collective learnings and improved performances**.[^1]
+Swarm learning is a decentralized form of **federated learning** in which the responsibilities of **aggregation and model training control are distributed to the participating sites** rather than consolidated in a central server.[^3] The collaborators **share model parameters, not data**, so that each of them can use a model trained on the data of all of them while every dataset stays at its site.
+
+#### HPE Swarm Learning (original paper)
+
+The term comes from Warnat-Herresthal et al., who described Swarm Learning as combining edge computing with blockchain-based peer-to-peer networking and coordination, without a central coordinator, and demonstrated it on clinical data.[^1] In HPE's implementation a blockchain coordinates the peers, and HPE describes the result as a trustless system without a central authority.[^2]
+
+**SwarmMed does not work this way.** It has no blockchain, and its training traffic does not go from peer to peer. It uses NVIDIA FLARE's client-controlled swarm workflow (below), in which an FL server coordinates the run and relays every message between sites, and it assumes a consortium of institutions that have vetted and trust one another. It is not designed for participants that do not ([Threat model](threat-model.md#4-adversaries-considered)).
 
 !!! tip "Original Research Paper"
 
@@ -127,13 +135,19 @@ Swarm learning is decentralized form of **federated learning** solution, wherein
 
 ### Why is Swarm Learning important?
 
-As more data is collected and processed at the intelligent edge, its true value can only be realized by sharing it and turning it into a collective understanding. However, sharing data like this introduces security risks and in some cases is prohibited by government regulations. Because Swarm Learning shares insights rather than source data, the learnings derived from protected data can be **safely shared across locations and even across organizations**.[^1]
+Medical data are often not allowed to leave the institution that holds them, and moving large imaging datasets is costly. Decentralized learning lets institutions build a model on their combined data while each dataset stays where it is: only model parameters are exchanged.
 
 ### What are the benefits of Swarm Learning?
 
-Swarm learning offers several key advantages that address major challenges in traditional machine learning approaches. Organizations can combine their proprietary data with learnings from other organizations, **increasing accuracy** and **reducing bias**, while **keeping sensitive data completely on-site**. All cooperating partners can learn from each other without having to share personal patient data, as swarm learning keeps all research data on site, **exchanging only the algorithms and parameters**.
-The approach preserves data privacy and sovereignty while reducing bandwidth and storage requirements, eliminating the need to move large datasets to central locations. This is particularly valuable as deep learning models have raised privacy and security concerns due to their reliance on large datasets on central servers. Instead of exposing raw data, users can share learnings at the edge, or at distributed sites, without moving or exposing data.
-Swarm learning also enhances the diversity and quality of learning while adapting to dynamic and heterogeneous environments. With no central authority, blockchain is integrated to add control, privacy, and security, creating a trustless system where multiple organizations can collaborate effectively.[^2]
+*   **Data stay at each site.** Raw images, labels and patient identifiers are not part of any message the platform sends between sites, and each site keeps control of its own storage.
+*   **Each site contributes to, and receives, a model trained on all participants' data**, without the data being pooled.
+*   **No permanently privileged aggregator.** The aggregating site is drawn at random each round, and the FL server computes no aggregate.
+
+These benefits have limits, which the [Threat model](threat-model.md) states in full:
+
+*   Model parameters can carry information about the data they were trained on (model inversion, membership inference). SwarmMed configures no differential privacy and no secure aggregation.
+*   The coordinating FL server relays every model update and, in the default configuration, can read it.
+*   The training code runs at every site with access to that site's data, so every participant has to trust it.
 
 [^1]: Warnat-Herresthal, S., Schultze, H., Shastry, K.L. et al. Swarm Learning for decentralized and confidential clinical machine learning. Nature 594, 265–270 (2021). [https://doi.org/10.1038/s41586-021-03583-3](https://doi.org/10.1038/s41586-021-03583-3)
 [^2]: [https://www.hpe.com/us/en/what-is/swarm-learning.html](https://www.hpe.com/us/en/what-is/swarm-learning.html)
@@ -141,6 +155,8 @@ Swarm learning also enhances the diversity and quality of learning while adaptin
 ### How does Swarm Learning work?
 
 With Swarm Learning, training is done in multiple rounds. In each round, an aggregator client is randomly chosen from all clients, and then all training clients perform the training task on the current global model params. Once completed, all clients send their training results to the designated client for aggregation. The aggregated results are then applied to the current global model, which will become the base for the next round training. This process repeats until the configured number of rounds are completed.[^3]
+
+SwarmMed configures every site to train and to be eligible as the aggregator, and the aggregator waits for every site's result in every round ([SwarmMed and NVIDIA FLARE](nvflare-comparison.md)).
 
 #### _NVIDIA FLARE_[^4] Swarm Learning architecture
 
@@ -151,15 +167,19 @@ status reports, and `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT` limits time without a
 change in any client's reported workflow state. Set them in the job-submitting
 CLI or app process; see [Timeout configuration](nvflare-comparison.md#time-limits-and-failure-behaviour).
 
-_NVIDIA FLARE_ implementation of swarm learning leverages the newly added **secure peer-to-peer communication** between clients. The `server` is simply responsible for the job lifecycle management (health of client sites and monitoring of job status), while the `clients` are now responsible for training logic and aggregation management (where tasks are assigned via peer-to-peer communication).
+In NVIDIA FLARE's client-controlled workflow, the `clients` run the training and the aggregation, and the `server` manages the job's life cycle: it deploys the job, starts the workflow, watches the clients' status reports, and aborts the job when a client reports an error or a time limit is exceeded ([What "fully decentralised" means here](nvflare-comparison.md#what-fully-decentralised-means-here)).
 
-Algorithmically, swarm learning is identical to federated averaging with the main differences being that the server will no longer control the aggregation process and will not have access to any sensitive information, such as trained model weights.
+The clients do not connect to each other. Every startup kit sets `allow_adhoc_conns` to `false`, so the clients connect only to the FL server, and **every message between clients, model updates included, is relayed by the server**. NVIDIA FLARE can encrypt such messages end to end with the recipient's certificate (`private_p2p`), but SwarmMed switches this off unless `SWARMMEDHUB_PRIVATE_P2P` is set. In the default configuration the coordinating host can therefore read every model update; [Threat model, section 3](threat-model.md#3-the-coordinating-host-sees-model-updates-default-configuration) explains why setting the variable does not by itself prevent that.
+
+Algorithmically, swarm learning is identical to federated averaging, except that the aggregate is computed by a client drawn at random for each round rather than by the server.
+
+The workflow proceeds as follows:[^3]
 
 - The workflow is started from the `starting_client`. It loads the initial model using the `persistor`, and prepares the initial training params using the `shareable generator`.
 - Randomly selects a `client` as the `aggregator` for the next round.
 - Broadcast the “learn” task with training params to all `training_clients` and the `aggregation_client`. The task header contains the aggregation client name, the current round number, among other things.
 - All `training_clients` do training by invoking the executor configured for the train task.
-- Once completed, all `training_clients` send their results to the `aggregation_client`.
+- Once completed, all `training_clients` send their results to the `aggregation_client`, through the server.
 - When the “learn” task is received, the `aggregation_client`:
     - Calls the `shareable generator` to compute the current global model based.
     - sets up a Gatherer object to wait for results from `training_clients`. Note that the `aggregation_client` could also be a `training_client`.
@@ -173,8 +193,10 @@ Algorithmically, swarm learning is identical to federated averaging with the mai
         - Broadcast the “learn” task to other clients for the new round.
     - If all rounds are completed:
           - Broadcast the last result to all `result_clients`
-          - Check which client has the best result, and ask that client to distribute the best model to all `result_clients`.[^3]
-  
+          - Check which client has the best result, and ask that client to distribute the best model to all `result_clients`.
+
+In SwarmMed's jobs, a best model is selected only if the training script reports an `accuracy` value where the model selector looks for it; in every recorded run the final model was the last-round model ([SwarmMed and NVIDIA FLARE](nvflare-comparison.md#division-of-responsibility)).
+
 ``` mermaid
 sequenceDiagram
     participant SC as Starting Client
@@ -184,6 +206,8 @@ sequenceDiagram
     participant AC as Aggregator Client
     participant RCs as Result Clients
     participant BestClient as Best Result Client
+
+    note over SC,BestClient: Every message between clients is relayed by the FL server (not shown).
 
     %% Initialization
     SC->>Persistor: Load initial model
@@ -240,25 +264,24 @@ sequenceDiagram
     end
 ```
 
-[^3]: [https://nvflare.readthedocs.io/en/2.4/programming_guide/controllers/client_controlled_workflows.html#swarm-learning](https://nvflare.readthedocs.io/en/2.4/programming_guide/controllers/client_controlled_workflows.html#swarm-learning)
+[^3]: NVIDIA FLARE 2.7.1 documentation, client-controlled workflows: [https://nvflare.readthedocs.io/en/2.7.1/programming_guide/controllers/client_controlled_workflows.html#swarm-learning](https://nvflare.readthedocs.io/en/2.7.1/programming_guide/controllers/client_controlled_workflows.html#swarm-learning)
 [^4]: [https://nvflare.readthedocs.io](https://nvflare.readthedocs.io)
 
 ## 📦 _MINIO_[^5] Object Storage
 
 ### What is Minio?
 
-Minio is a high-performance, self-hosted object storage server that is fully compatible with the Amazon S3 API. In the context of SwarmMedHub, it acts as a central repository for all digital assets associated with a decentralized learning project. This includes the training code, datasets, and the resulting models.
+Minio is a self-hosted object storage server that is compatible with the Amazon S3 API. In SwarmMedHub it stores, at each site, the project's training code and scripts, the datasets imported through the web interface or the CLI, plots, and the training results synchronized from the FL workspaces. Training data can instead be read from a local directory that is never copied into MinIO, as in the worked example ([Threat model](threat-model.md#where-training-data-is-read)).
 
 ### Why is Minio important for SwarmMedHub?
 
-Being self-hosted provides complete control over the physical storage of data, which is a critical requirement when dealing with sensitive information. For a platform like SwarmMedHub, which is designed to handle sensitive medical data, using a self-hosted object storage solution like Minio is highly advantageous. It allows for complete data sovereignty, ensuring that the data is stored in a controlled and secure environment.
+Each installation runs its own MinIO, so the data imported at a site stay on that site's storage. MinIO no longer publishes community images, so SwarmMed builds release `RELEASE.2025-09-07T16-13-09Z` from its pinned upstream source.
 
 ### Key Features
 
-*   **S3 Compatibility:** The S3 compatibility is a major plus, as it allows for seamless integration with a wide range of data science tools and libraries.
-*   **Encryption:** It supports both encryption at rest (server-side encryption) and encryption in transit (using TLS).
-*   **Access Control:** It has a fine-grained access control mechanism with policies that can be defined on a per-user or per-group basis.
-*   **Auditing:** All API calls to the Minio server can be logged, providing a detailed audit trail of all data access and modification operations.
+*   **S3 Compatibility:** The platform reads and writes objects through the S3 API.
+*   **Encryption:** SwarmMedHub requests server-side encryption (SSE-S3) with MinIO's built-in key for the objects it writes, and connects to MinIO over TLS ([Security](security.md#encryption-at-rest)).
+*   **Access Control and Auditing:** MinIO supports per-user policies and audit logging. SwarmMed configures neither: the platform accesses MinIO with the root credentials from `.env`.
 
 [^5]: [https://min.io/](https://min.io/)
 
@@ -270,14 +293,14 @@ Django is a high-level Python web framework that follows the "batteries-included
 
 ### Why is Django important for SwarmMedHub?
 
-In SwarmMedHub, Django is the backbone of the web-based user interface, which is the primary way users interact with the platform. The choice of Django for SwarmMedHub is motivated by its robustness, scalability, and strong security features. For a platform that is exposed to the internet and manages sensitive operations, having a framework that is secure by default is crucial.
+Django runs SwarmMedHub's web interface and the services that the web interface and the CLI share: the data model, authentication, the admin pages, and the background tasks handed to Celery.
 
 ### Key Features
 
-*   **Rapid Development:** The "batteries-included" nature of Django also accelerates the development process, allowing the team to focus on the core features of the platform rather than reinventing the wheel for common web development tasks.
-*   **Security:** Django has a strong focus on security and provides built-in protection against many common web vulnerabilities:
+*   **Rapid Development:** The "batteries-included" nature of Django lets the platform rely on standard components for common web development tasks instead of reimplementing them.
+*   **Security:** Django provides built-in protection against many common web vulnerabilities:
     *   **Cross-Site Scripting (XSS):** Django's template engine automatically escapes variables, which prevents most XSS attacks.
-    *   **Cross-Site Request Forgery (CSRF):** Django has built-in CSRF protection that is easy to enable.
+    *   **Cross-Site Request Forgery (CSRF):** Django's CSRF middleware checks every form submission. SwarmMedHub exempts two endpoints used by other sites' web interfaces, which accept the network's shared token instead ([Security](security.md#vulnerability-management)).
     *   **SQL Injection:** Django's ORM uses parameterized queries, which prevents SQL injection vulnerabilities.
 
 [^6]: [https://www.djangoproject.com/](https://www.djangoproject.com/)
@@ -286,17 +309,15 @@ In SwarmMedHub, Django is the backbone of the web-based user interface, which is
 
 ### What is Tailscale?
 
-Tailscale is a modern VPN service that makes it easy to create secure networks between computers, servers, and cloud instances. It is built on top of the WireGuard protocol and creates a flat, private network (a "tailnet") where every device can talk to every other device directly.
+Tailscale is a VPN service built on the WireGuard protocol. It creates a private network (a "tailnet") between the devices enrolled in it, which can then reach each other at their Tailscale addresses.
 
-### Why is Tailscale important for SwarmMedHub?
+### How does SwarmMedHub use Tailscale?
 
-In a federated learning scenario, especially in swarm learning where clients communicate in a peer-to-peer fashion, establishing secure and reliable connections between participants is a major challenge. Participants are often located in different geographical locations and behind different firewalls. Tailscale solves this problem elegantly by creating a secure overlay network. This is particularly important for the NVIDIA FLARE's swarm learning feature, which relies on peer-to-peer communication between the clients.
+Federated training does not need Tailscale: each FL client connects out to the FL server, and clients do not connect to each other. The worked example ran over a Tailscale network, and two features of the web interface use the host's Tailscale address: a network created in the web interface takes it as the FL server's address, and a site's web interface recognises itself among a network's participants by it. Training itself needs only a stable IPv4 address for every participant and a path from the clients to the server, so another overlay network, or none, can take Tailscale's place; only Tailscale has been exercised with SwarmMed so far. [Networking](networking.md) compares the options.
 
 ### Key Features
 
-*   **Secure Connectivity:** By using Tailscale, SwarmMedHub can ensure that the communication between the federated learning participants is always secure and reliable.
-*   **End-to-End Encryption:** All traffic on a Tailscale network is end-to-end encrypted.
-*   **WireGuard:** It uses WireGuard, which is a state-of-the-art VPN protocol known for its simplicity, speed, and security.
-*   **Simplified Firewall Rules:** Tailscale simplifies firewall management. Once a device is on the tailnet, it can communicate with other devices on the same tailnet without the need for complex firewall rules.
+*   **WireGuard:** Traffic between devices on the tailnet is encrypted with WireGuard.
+*   **Coordination Service:** Tailscale operates the coordination service, which cannot be self-hosted. Its clients can be pointed at a compatible third-party control server such as Headscale; that has not been tried with SwarmMed.
 
 [^7]: [https://tailscale.com/](https://tailscale.com/)

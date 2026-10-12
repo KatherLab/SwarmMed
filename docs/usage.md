@@ -5,7 +5,7 @@ description: How to use the SwarmMedHub platform.
 
 # Usage
 
-This page explains how to use the SwarmMedHub platform in more detail.
+This page explains how to use the SwarmMedHub web interface in more detail. Open it at `https://<host>:5085`, where `<host>` is a name or address of the SwarmMedHub host listed in its `DJANGO_ALLOWED_HOSTS` ([Installation](installation.md)).
 
 ## 👮 For Admins
 
@@ -28,6 +28,9 @@ As an admin, you can create new users who can participate in decentralized learn
 4.  Click on the **Add User** button to save the new user.
 5.  Please share the login credentials with the new user securely.
 
+!!! info "What the roles control"
+    Roles control only user management (`admin`) and the **Logs** page (`developer` and `admin`). Everything else, from creating projects to starting training, needs only an account and, inside a project, membership of that project ([Security](security.md#access-control-rbac)).
+
 ??? example "Image of create user form"
     ![Create User](assets/usage/users_new_dark.png#only-dark)
     ![Create User](assets/usage/users_new_light.png#only-light)
@@ -40,6 +43,13 @@ As an admin, you can manage existing users, including editing their details or d
 3.  Click on the **Update** button next to the user's name to modify their details.
 4.  Make the necessary changes and click on the **Update** button.
 5.  To delete a user, click on the **Delete** button next to the user's name and confirm the action.
+
+!!! info "Login lockout"
+    After five failed logins, a username is locked out for one hour from the client address the attempts came from; the same user can still log in from other addresses. To lift a lockout earlier, run on the SwarmMedHub host:
+
+    ```bash
+    docker exec -w /app swarmmedhub python3 manage.py axes_reset_username <username>
+    ```
    
 ??? example "Image of user page"
     ![User Page](assets/usage/users_dark.png#only-dark)
@@ -71,7 +81,7 @@ As a developer, you can view the logs of the training jobs to monitor their prog
     As a user, you can create projects, import data, set up networks, and start training jobs.
 
 !!! info "CLI workflow"
-    The same workflow is also available through the local `swarmed` CLI. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
+    The same workflow is also available through the `swarmed` CLI, which runs inside the application container on the SwarmMedHub host. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
 
 !!! info "Shared Project Bundle"
     SwarmMedHub and `swarmed` use the same project code bundle. The required root entrypoint is `training.py`, with optional `requirements.txt`, `validation.py`, `visualization.py`, and `results_visualization.py`.
@@ -100,7 +110,7 @@ A project is a workspace for your decentralized learning experiment. It contains
     All network participants need to have the same project code. Make sure to share the project code with all participants.
 
 !!! danger "Main training script name"
-    The main training script must be named `training.py`. This is the script that will be executed when you start the training job.
+    The main training script must be named `training.py`. This is the script that will be executed when you start the training job. If the project's stored code has no `training.py` when training is started, for example while the object store is unavailable, SwarmMedHub does not submit the job.
 
 ??? example "Image of project page"
     ![Project Page](assets/usage/project_dark.png#only-dark)
@@ -187,22 +197,28 @@ A network defines the participants in your decentralized learning experiment.
     *   **Title:** A descriptive name for your network.
     *   **Description:** A brief description of your network.
 4. Select the **Creation Method**:
-    *   **Create New Startup Package:** You will provide the necessary configurations, and the platform will create and configure the network for you.
-    *   **Import Startup Package:** You will need to import a startup package provided by another network partner, who created the startup package.
+    *   **Create New Startup Package:** You will provide the necessary configurations, and the platform provisions the network: it generates the study's certificates and keys and a startup kit for every participant.
+    *   **Import Startup Package:** You will need to import the startup package that the network partner who created the network exported.
     *   **Test in local environment:** This option is for testing purposes only. It allows you to run the training locally without setting up a real network.
 
-!!! warning "Only create `New Startup Package` ones for a network"
-    Only one startup package can be created for a network. And the startup packages can be exported to provided it to other network members for `Import Startup Package`.
-        
+!!! warning "One site creates the startup package"
+    Only one site creates the startup package of a network, with `Create New Startup Package`. It exports the package and gives it to the other network members, who choose `Import Startup Package`.
+
+!!! danger "The startup package is the study's master credential"
+    The package contains every participant's private key, the FL server's private key and, for each site, an admin identity with NVFlare's `project_admin` role, which may run code at every site. Every site that imports it holds all of them. Move the package only over an encrypted, authenticated channel to a named person at each site, and delete copies once they are imported ([Key custody](threat-model.md#key-custody-what-the-startup-package-contains)).
+
 5.  If `Create New Startup Package` was selected: Add participants to the network. For each participant, you need to provide:
     *   **Hostname:** A unique name for the participant, displayed on the Network page of the participant.
-    *   **IP Address:** The IP address of the participant's machine, displayed on the Network page of the participant.
+    *   **IP Address:** The IPv4 address of the participant's machine, which must stay assigned to it for the study. The Network page of the participant displays the machine's Tailscale address. A participant without a valid IPv4 address gets no startup kit.
 
 6. If `Import Startup Package` was selected: Import the startup package file provided by another network partner.
 7. Click on the **Create Network** button to save your network.
 
+!!! info "Networks created in the web interface"
+    The web interface uses this host's Tailscale address as the FL server's address and always adds this host as a training site. To give another server address, for example on a network other than Tailscale, or to run the FL server on a host that does not train, create the network with the [CLI](cli.md) (`--server-ip`, `--no-local-client`); see [Networking](networking.md#addressing).
+
 !!! info "Network editing"
-    Networks can't be edited in order to the provision of startup kits.
+    Networks cannot be edited, because the participants and their addresses are written into the startup kits when the network is provisioned. Create a new network instead.
 
 ??? example "Image of network page"
     ![Network Page](assets/usage/network_dark.png#only-dark)
@@ -228,6 +244,9 @@ After creating a network, you need to start it to enable communication between p
 2.  Click on the **Start Network** button.
 3.  Starting the network can take a few minutes. You can monitor the progress on the **Logs** page.
 
+!!! warning "Participating sites start in client-only mode"
+    Every startup package also contains the FL server's kit. At a participating site, set client-only mode for the Hub's Celery worker before starting the network (`SWARMMEDHUB_CLIENT_ONLY_MODE=true` and `SWARMMEDHUB_LOCAL_PARTICIPANT=<the site's name>`). Otherwise the start also launches a copy of the FL server, and the site's client registers with that copy instead of the coordinator. A coordinating host that does not train uses `SWARMMEDHUB_SERVER_ONLY_MODE=true` instead. These are environment variables, not options in the interface; see [Networking](networking.md).
+
 ### 10. 🧠 Start Training
 
 Once you have set up your project, data, and network, you can start the training process.
@@ -236,6 +255,11 @@ Once you have set up your project, data, and network, you can start the training
 2.  Click on the **Start Training** button.
 3.  You can monitor the progress of the training job on the **Logs** section of the page.
 4.  Once the training job is complete, you can view the results on the **Results** page.
+
+Training can only be started while the network is running on this Hub.
+
+!!! warning "The training code runs at every site"
+    The project's training code runs at every participating site, with access to that site's data and network. Every site should review it before taking part ([Threat model](threat-model.md#4-adversaries-considered)).
 
 ??? example "Image of training page"
     ![Training Page](assets/usage/training_dark.png#only-dark)
@@ -288,4 +312,4 @@ You can send messages to other project members.
 
 ### 🏴 CLI
 
-Most of the above steps can also be performed via the local `swarmed` CLI. The CLI provides a command-line interface to interact with the SwarmMed platform, allowing you to manage your projects, data, networks, and training jobs directly from your terminal. Please refer to the dedicated [CLI guide](cli.md) for detailed instructions on how to use the CLI for each of the steps mentioned above.
+Most of the above steps can also be performed via the `swarmed` CLI, which runs inside the application container on the SwarmMedHub host. The CLI provides a command-line interface to interact with the SwarmMed platform, allowing you to manage your projects, data, networks, and training jobs directly from your terminal. Please refer to the dedicated [CLI guide](cli.md) for detailed instructions on how to use the CLI for each of the steps mentioned above.

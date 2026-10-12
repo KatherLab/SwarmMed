@@ -5,7 +5,7 @@ description: A guide for developers to write shared project scripts for SwarmMed
 
 # Developer Guide
 
-This guide describes the shared project script contract used by both SwarmMedHub and the local `swarmed` CLI. The same project code bundle can be imported through the web UI or ingested locally with `swarmed project create --code-dir PATH` or `swarmed project update --code-dir PATH`.
+This guide describes the shared project script contract used by both SwarmMedHub and the `swarmed` CLI. The same project code bundle can be imported through the web UI or with `swarmed project create --code-dir PATH` or `swarmed project update --code-dir PATH`. The CLI runs inside the application container, so `PATH` must lie inside the repository directory ([CLI](cli.md)).
 
 SwarmMed supports four script types:
 
@@ -18,7 +18,7 @@ SwarmMed supports four script types:
     You can find example scripts in the [examples/](https://github.com/KatherLab/SwarmMed/tree/main/examples) directory of the repository.
 
 !!! tip "Testing Locally"
-    You can test your validation and visualization scripts locally either by selecting `Test in local environment` as the creation method in the network settings or by creating a CLI local-test network with `swarmed network create --local-test` and reviewing the output on the logs page.
+    Validation and visualization scripts need no network: run them from the **Data** page or with `swarmed data validate` and `swarmed data visualize`. To test a training script on a single host, create a local test network, either by selecting `Test in local environment` as the creation method in the network settings or with `swarmed network create --local-test`, and review the output on the logs page.
 
 ## 📦 Shared Project Bundle
 
@@ -43,10 +43,10 @@ Your validation script has access to a global `validation` object:
     *   **`status`** (str): The outcome, which can be `"ok"`, `"info"`, `"warning"` or `"error"`.
     *   **`message`** (str): A descriptive message about the outcome.
     *   **`details`** (dict): A dictionary for any additional information.
-*   **`get_data_path(relative_path="")`**: Gets the local path to a file or directory from your project's data folder. Files are accessed from the object storage storage on demand.
-*   **`open(relative_path, mode='r', **kwargs)`**: Opens a file from your project's data folder.
-*   **`exists(relative_path)`**: Checks if a file or directory exists.
-*   **`listdir(relative_path="")`**: Lists the contents of a directory.
+*   **`get_data_path(relative_path="")`**: Returns the URL from which a file of your project's data is streamed, or `None` if there is no such file. Files are read from the object storage on demand, not copied.
+*   **`open(relative_path, mode='r', **kwargs)`**: Opens a file from your project's data for streaming; raises `FileNotFoundError` if there is no such file.
+*   **`exists(relative_path)`**: Checks if a file exists. Directories are not entries of their own, so `exists()` returns `False` for them; use `listdir()` instead.
+*   **`listdir(relative_path="")`**: Lists the files under a directory, with their paths relative to it, including files in its subdirectories. Without an argument it lists every file of the project's data.
 
 !!! warning "Available packages for validation and visualization"
     The execution environment (sandbox) comes pre-installed with a wide range of data science and machine learning libraries:
@@ -197,19 +197,14 @@ Visualization scripts allow you to generate plots and charts to explore your dat
 
 ### `visualization` Object
 
-*   **`save_plot(title="Untitled Plot")`**: Saves the current Matplotlib figure. You can save up to **4 plots** per run.
-*   **`get_data_path(relative_path="")`**: Returns the internal URL/path.
+*   **`save_plot(title="Untitled Plot")`**: Saves the current Matplotlib figure. You can save up to **4 plots** per run; further calls are ignored without an error, so the fifth plot of the example below is not kept.
+*   **`get_data_path(relative_path="")`**: Returns the URL from which a data file is streamed.
 *   **`open(relative_path, mode='r', **kwargs)`**: Opens a data file.
-*   **`exists(relative_path)`**: Checks if a file exists.
-*   **`listdir(relative_path="")`**: Lists contents.
+*   **`exists(relative_path)`**: Checks if a file exists (not a directory).
+*   **`listdir(relative_path="")`**: Lists the files under a directory, including those in subdirectories.
 
 !!! warning "Available packages for visualization"
-    Only standard Python packages and the following additional packages are available in visualization scripts:
-
-    *   `numpy`
-    *   `pandas`
-    *   `matplotlib`
-    *   `seaborn`
+    Visualization scripts run in the same sandbox image as validation scripts, so the same packages are available (see [Sandbox Environment](#sandbox-environment)).
 
 ??? example "Example Visualization Script"
     ```python title="visualization.py" linenums="1"
@@ -342,8 +337,8 @@ These scripts are used to analyze the output of a training job. They have access
 
 In addition to the standard methods, the results visualization object includes:
 
-*   **`get_model(client_name="fl-client-1", model_filename="model.pt")`**: Retrieves a model file and automatically parses it into a NumPy-compatible format (works for PyTorch `.pt`, `.pth`, `.ckpt` and NumPy `.npy`, `.npz`).
-*   **`load_weights(model, client_name="fl-client-1", model_filename="model.pt")`**: Automatically loads retrieved weights into a provided model instance (supports PyTorch, Keras, and Scikit-learn).
+*   **`get_model(client_name="fl-client-1", model_filename="model.pt")`**: Retrieves the model file `results/<client_name>/<model_filename>` of the job and parses it (PyTorch `.pt`, `.pth`, `.ckpt`, NumPy `.npy`, `.npz`, pickled or joblib files, and Keras `.h5` or `.keras` files). If that file does not exist, it uses the first model file it finds among the job's results, so pass the participant name and the file name shown on the **Results** page; the global model that NVFlare's PyTorch persistor writes is `FL_global_model.pt`.
+*   **`load_weights(model, client_name="fl-client-1", model_filename="model.pt")`**: Loads the retrieved weights into a provided model instance (supports PyTorch, Keras, and Scikit-learn). PyTorch weights are loaded with `strict=False`, so parameters whose names do not match the model are skipped without an error.
 
 ??? example "Example Results Visualization Script"
     ```python title="results_visualization.py" linenums="1"
@@ -508,7 +503,7 @@ In addition to the standard methods, the results visualization object includes:
 
 ## 🧠 Training Scripts (NVFlare)
 
-Custom training code is executed within the NVIDIA FLARE framework. This training contract is shared by SwarmMedHub and `swarmed`. We provide a `flare_adapter.py` module to simplify data access and model exchange.
+Custom training code is executed within the NVIDIA FLARE framework. This training contract is shared by SwarmMedHub and `swarmed`. We provide a `flare_adapter.py` module to simplify data access and model exchange; SwarmMedHub copies it into every job next to `training.py`, so the script can `import flare_adapter`.
 
 ### The `flare_adapter` Module
 
@@ -518,10 +513,21 @@ Custom training code is executed within the NVIDIA FLARE framework. This trainin
     *   **`fs.ls(path)`**: Lists files in a directory. 
     *   **`fs.glob(pattern)`**: Navigate the dataset.
 *   **`receive_model()`**: Receives the latest global model.
-*   **`send_model(params, metrics)`**: Sends updated parameters and metrics back to the server.
+*   **`send_model(params, metrics=None, meta=None)`**: Sends updated parameters, metrics and metadata back for aggregation.
+*   **`get_pytorch_state_dict(params)`** and **`get_weights_list(params)`**: Convert received parameters for PyTorch's `load_state_dict()` and Keras' `set_weights()`.
+
+### How the Job Is Built
+
+When training starts, SwarmMedHub builds an NVFlare job from the project's stored code, and every site runs its `training.py`:
+
+*   **`training.py` is required.** If the stored code has none, for example while the object store is unavailable, the job is not submitted.
+*   **Rounds:** the number of rounds is read from the first `SWARM_ROUNDS = <n>` in `training.py`, and is 10 if there is none. `SWARMMEDHUB_SWARM_ROUNDS` in the environment of the process that submits the job overrides it.
+*   **Project identifier:** a call `main(project_id="default_project")`, as in the example below, is rewritten to the project's identifier, which `get_data_filesystem()` uses to find the project's data.
+*   **Aggregation weight:** report the number of local training steps with `meta={"NUM_STEPS_CURRENT_ROUND": steps}`. Each site's update is weighted by it in the average, or by 1 if it is missing.
+*   **Model persistor:** chosen from the script's imports. Jobs that import PyTorch, PyTorch Lightning, Transformers or MONAI, and also TensorFlow or Keras, use NVFlare's PyTorch persistor; other jobs use its NumPy persistor ([SwarmMed and NVIDIA FLARE](nvflare-comparison.md#division-of-responsibility)).
 
 !!! danger "Provide suitable requirements"
-    Please ensure that your training script's `requirements.txt` includes all necessary libraries used in your training script to avoid runtime errors.
+    Please ensure that your training script's `requirements.txt` includes all necessary libraries used in your training script to avoid runtime errors. By default the FL server and clients run in an image that SwarmMed builds for each network from `python:3.12-slim`, its own baseline packages (including `nvflare==2.7.1` and `torch`) and the project's `requirements.txt`. If a prebuilt image is configured with `SWARMMEDHUB_FLARE_IMAGE` and `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE=true`, nothing is installed from `requirements.txt` and the image must already contain every package ([Runtime backend](runtime-backend.md#nvflare-version)).
 
 ??? example "Example Training Script"
     ```python title="training.py" linenums="1"
@@ -697,6 +703,8 @@ Custom training code is executed within the NVIDIA FLARE framework. This trainin
 
 ## 📦 Sandbox Environment
 
+Validation, visualization and results visualization scripts run in short-lived containers of the `swarmmedhub-sandbox` image on the separate `sandbox-dind` Docker daemon. Each container is limited to 1 CPU and 1 GB of memory, runs as an unprivileged user and is removed after at most 300 s. Its network is not isolated: scripts can reach the internet and the platform's internal services, so treat them as trusted code ([Security](security.md#script-sandbox)).
+
 The execution environment (sandbox) comes pre-installed with the following libraries:
 
 | Category | Packages |
@@ -712,4 +720,10 @@ The execution environment (sandbox) comes pre-installed with the following libra
 
 1.  Modifying `Dockerfile.sandbox`.
 2.  Adding packages to the `sandbox` extra in `pyproject.toml`.
-3.  Rebuilding via `make sandbox-build`.
+3.  Removing the existing image from the sandbox daemon, so that the next script run builds it again from `Dockerfile.sandbox`:
+
+    ```bash
+    docker exec sandbox-dind docker rmi swarmmedhub-sandbox
+    ```
+
+The sandbox image is built automatically the first time a script runs and is not rebuilt while it exists. The Makefile has no target for it.
