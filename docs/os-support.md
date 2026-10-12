@@ -108,13 +108,28 @@ Two Ubuntu releases, three kernel series (5.14, 6.17 and 7.0), three Docker
 versions (28.4–29.8) and three toolkit versions (1.13–1.20); the deployment was
 not sensitive to these.
 
-Separately, a fresh-install test on Ubuntu 24.04 ran `make install`, `make env`
-and `make start`, reached the web interface, created a superuser, and ran
-`project create`, `data import` and `network create` through the CLI inside the
-application container.
+Separately, automated fresh-installation tests were executed against clean
+container environments following the README instructions literally (`make install`,
+`make env`, `make start`, web UI verification, superuser initialization,
+in-container CLI verification, project creation, data import, local-test network
+provisioning and startup, 2-round tabular training, and results synchronization):
 
-RPM-based and other distributions have not yet been exercised end to end; we
-expect no difference given the prerequisites above, and would welcome a report.
+| Distribution | Docker Engine | Docker Compose | Result |
+|---|---|---|---|
+| **Ubuntu 24.04 LTS** | 29.1.3 | v2.40.3 | **Passed all stages** end to end, through training and results sync (97 s execution) |
+| **Debian GNU/Linux 13 (trixie)** | 29.9.0 | v5.6.0 | **Passed deployment and provisioning**: `make install`, `make env`, `make start`, Web UI, superuser, CLI, project creation, data import, network provisioning, and runtime image build |
+| **Fedora Linux 44** | 29.9.0 | v5.6.0 | **Passed deployment and provisioning**: `make install`, `make env`, `make start`, Web UI, superuser, CLI, project creation, data import, network provisioning, and runtime image build |
+| **Rocky Linux 9.8 (Blue Onyx)** | 29.9.0 | v5.6.0 | **Passed deployment and provisioning**: `make install`, `make env`, `make start`, Web UI, superuser, CLI, project creation, data import, network provisioning, and runtime image build |
+
+Across all four distributions, dependency installation (`uv`), platform container builds,
+service orchestration, database migrations, HTTPS endpoints, superuser creation,
+and network provisioning completed without distribution-specific defects. On
+Debian, Fedora, and Rocky, network startup during concurrent parallel test runs
+reached Celery's default 25-minute soft task time limit (`CELERY_TASK_SOFT_TIME_LIMIT`)
+during un-cached pip downloads of PyTorch and CUDA libraries under bandwidth
+contention; the underlying image builds completed successfully in ~26 minutes.
+SwarmMed now exposes configurable Celery task limits with a 60-minute default to
+support slower network connections during initial runtime image builds.
 
 ## macOS and Windows
 
