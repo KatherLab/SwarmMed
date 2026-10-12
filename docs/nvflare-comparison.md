@@ -52,6 +52,55 @@ The following are *not* decentralised, and should not be implied to be:
 The defensible claim is decentralised *computation and aggregation* within a
 coordinated consortium, not a leaderless network.
 
+## Time limits and failure behaviour
+
+SwarmMed exposes two server-controller deadlines when constructing a job:
+
+| Setting | What it limits | NVIDIA FLARE 2.7.1 default | MediSwarm build default (worked example) |
+|---|---|---|---|
+| `SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL` | Time since the server last received a status report from any individual client | 90 s | 360 000 s (100 h) |
+| `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT` | Time since the server last received a changed workflow status from any client | 3 600 s | 360 000 s (100 h) |
+
+Set the values in seconds in the **job-submitting process**, before submission:
+the CLI process for a CLI submission, or the application process for a web
+submission. Setting them only on the Celery worker does not configure a job
+submitted by either interface. The generated server configuration records the
+overrides; existing jobs are unaffected. When a setting is absent, the runtime
+build's default applies. NVFlare 2.7.1 requires a status-report interval of at
+least 10 s and a progress timeout of at least 5 s.
+
+For example, the completed 50-site benchmark raised only the status deadline:
+
+```bash
+docker exec -w /app \
+    -e SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL=600 \
+    -e SWARMMEDHUB_SWARM_ROUNDS=3 \
+    swarmmedhub python3 -m swarmed_cli.main \
+    training start --user <hub-user> --network <NET>
+```
+
+The 600 s value was sufficient for that benchmark; it is not a general setting
+for every study. The first attempt aborted at the default 90 s deadline (see
+[Scalability](scalability.md#the-50-site-status-timeout)).
+
+Clients attach status reports to task-poll requests. Receiving an unchanged
+report refreshes the status-report deadline but does not count as progress.
+Progress means a change in the reported workflow state, such as starting or
+finishing a learn task; training epochs alone do not change that state. With the
+unmodified 3,600 s progress timeout, an hour without such a change at any site
+aborts the job even if reports continue to arrive. Exceeding either server
+deadline aborts the whole workflow; it does not complete a round with fewer sites.
+
+Other controller deadlines are not exposed by SwarmMed. NVFlare 2.7.1 defaults
+to 300 s for accepting the workflow configuration, 10 s for starting the
+workflow and 10 s for acknowledging a learn task or training result; the
+MediSwarm build uses 360,000 s for each. The client-side `learn_task_timeout`
+defaults to `None` in both builds, and SwarmMed leaves it unset. There is no
+separate local-training or gathering deadline configured, but the server
+deadlines still apply. SwarmMed sets `min_responses_required` to the number of
+participating clients, so every site's result is required. Raising a server
+deadline permits a longer wait; it does not add dropout tolerance.
+
 ## Backend portability
 
 There is no abstract runtime interface in the code today, and the documentation

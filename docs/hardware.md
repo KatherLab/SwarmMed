@@ -62,6 +62,19 @@ confirmed for your model.
 | **3D MRI classification** | **MST (DINOv2 ViT-S/14 + slice fusion), unilateral** | **1 × 24 GB** | **2.7–8.1 GB measured** | **32 GB** | **2–7 GB per node** | **measured** |
 | 3D segmentation | 3D U-Net at 128³ | 1 × 24–48 GB | 16–40 GB | 64 GB | 0.1–1 TB | indicative |
 
+**Long rounds.** NVFlare 2.7.1 defaults to aborting a job after 3,600 s without
+a change in any client's reported workflow state (`progress_timeout`). Starting
+or finishing a training task changes that state; training epochs alone do not.
+Local training can therefore trigger this deadline even while status reports
+continue to arrive. SwarmMed exposes `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT` to
+adjust it, and `SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL` for the separate
+deadline on missing reports (90 s by default in NVFlare 2.7.1). Set these in
+seconds in the job-submitting CLI or app process before creating the job (see
+[Timeout configuration](nvflare-comparison.md#time-limits-and-failure-behaviour)).
+The worked example's MediSwarm runtime defaults to 360,000 s (100 h) for both
+server deadlines. The client-side `learn_task_timeout` remains unset and is not
+exposed by SwarmMed; server deadlines still apply during local training.
+
 ### The worked example, in detail
 
 The breast-MRI demonstration ran on three hosts, each 16 cores / 125 GB RAM with

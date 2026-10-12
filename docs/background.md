@@ -144,6 +144,13 @@ With Swarm Learning, training is done in multiple rounds. In each round, an aggr
 
 #### _NVIDIA FLARE_[^4] Swarm Learning architecture
 
+SwarmMed requires every participating site's result and leaves the client-side
+`learn_task_timeout` unset. Separate server deadlines can abort the whole job:
+`SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL` limits gaps between received
+status reports, and `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT` limits time without a
+change in any client's reported workflow state. Set them in the job-submitting
+CLI or app process; see [Timeout configuration](nvflare-comparison.md#time-limits-and-failure-behaviour).
+
 _NVIDIA FLARE_ implementation of swarm learning leverages the newly added **secure peer-to-peer communication** between clients. The `server` is simply responsible for the job lifecycle management (health of client sites and monitoring of job status), while the `clients` are now responsible for training logic and aggregation management (where tasks are assigned via peer-to-peer communication).
 
 Algorithmically, swarm learning is identical to federated averaging with the main differences being that the server will no longer control the aggregation process and will not have access to any sensitive information, such as trained model weights.
@@ -157,7 +164,7 @@ Algorithmically, swarm learning is identical to federated averaging with the mai
     - Calls the `shareable generator` to compute the current global model based.
     - sets up a Gatherer object to wait for results from `training_clients`. Note that the `aggregation_client` could also be a `training_client`.
 - When a training result is received from another client, the Gatherer object of the `aggregation_client` calls the configured aggregator to accept the result.
-- After all results are received (or other exit conditions occur such as timeout), the `aggregation_client`:
+- After all participating sites' results are received, the `aggregation_client`:
     - Calls the aggregate method of the aggregator to get the aggregation result.
     - Calls the shareable generator to apply the aggregated result to the current global model.
     - If not all rounds are completed, prepare for next round:
@@ -207,7 +214,7 @@ sequenceDiagram
         AC->>AC: aggregator.accept(result)
         AC->>AC: Fire AFTER_CONTRIBUTION_ACCEPT event
     end
-    note right of AC: Loop continues until all results are received or a timeout occurs.
+    note right of AC: SwarmMed waits for all sites; server deadlines may abort the job.
 
     %% Aggregation
     AC->>AC: Fire BEFORE_AGGREGATION event
