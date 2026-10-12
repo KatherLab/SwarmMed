@@ -1373,7 +1373,7 @@ def execute_and_log_in_container(
         internal_logger.network.error(f"Exec failed in {container_name}: {e}")
 
 
-@shared_task
+@shared_task(time_limit=3600, soft_time_limit=3300)
 def start_swarm_network_task(network_id, user_id):
     """Deploys a swarm network using NVFlare containerized deployment.
 
