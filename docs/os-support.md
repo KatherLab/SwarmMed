@@ -57,10 +57,10 @@ The Docker-in-Docker sandbox, in which site validation and visualisation scripts
 run, is not a host-OS dependency in the same sense: it needs a privileged
 container on a Linux kernel, which Docker Desktop also provides inside its virtual
 machine. It has only been run on Linux. Scripts there are limited to 1 GB of
-memory, one CPU and 300 s, but their network is not isolated: the nested Docker
-network is created non-internal so that scripts can reach the object store, and
-the nested daemon routes through the platform's internal network, so scripts can
-reach the platform's internal services and the internet.
+memory, one CPU and 300 s. The sandbox daemon is isolated from the platform's
+internal database network, with access confined to MinIO (`sandbox_internal`)
+and outbound internet access (`sandbox_egress`), preventing access to the host
+Docker socket proxy or internal databases.
 
 Everything else — the Django application, the web interface and the CLI
 (portable Python), and the database, object store, queue and reverse proxy
