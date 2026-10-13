@@ -132,9 +132,9 @@ def ensure_sandbox_network():
 def _shared_network_sort_key(network_name):
     """Prefer stable compose networks shared by sandbox-dind and MinIO."""
     lowered = str(network_name).lower()
-    if "db_network" in lowered:
-        return (0, lowered)
     if "sandbox_internal" in lowered:
+        return (0, lowered)
+    if "db_network" in lowered:
         return (1, lowered)
     return (2, lowered)
 

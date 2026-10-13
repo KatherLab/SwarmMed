@@ -703,7 +703,7 @@ When training starts, SwarmMedHub builds an NVFlare job from the project's store
 
 ## 📦 Sandbox Environment
 
-Validation, visualization and results visualization scripts run in short-lived containers of the `swarmmedhub-sandbox` image on the separate `sandbox-dind` Docker daemon. Each container is limited to 1 CPU and 1 GB of memory, runs as an unprivileged user and is removed after at most 300 s. Its network is not isolated: scripts can reach the internet and the platform's internal services, so treat them as trusted code ([Security](security.md#script-sandbox)).
+Validation, visualization and results visualization scripts run in short-lived containers of the `swarmmedhub-sandbox` image on the separate `sandbox-dind` Docker daemon. Each container is limited to 1 CPU and 1 GB of memory, runs as an unprivileged user and is removed after at most 300 s. Its network is isolated from the platform's internal database network (`db_network`), preventing access to the host Docker daemon proxy (`docker-proxy`), PostgreSQL, or Redis ([Security](security.md#script-sandbox)).
 
 The execution environment (sandbox) comes pre-installed with the following libraries:
 

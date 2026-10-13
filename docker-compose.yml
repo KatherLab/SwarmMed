@@ -9,6 +9,7 @@ services:
     networks:
       - db_network
       - web_network
+      - sandbox_control
     volumes:
       - ./:/app
       - ./:/workspace
@@ -80,6 +81,7 @@ services:
       context: .
     networks:
       - db_network
+      - sandbox_control
     volumes:
       - ./:/app
       - ./:/workspace
@@ -139,8 +141,9 @@ services:
     restart: always
     shm_size: '10.24gb'
     networks:
-      - db_network
+      - sandbox_control
       - sandbox_internal
+      - sandbox_egress
     environment:
       - DOCKER_TLS_CERTDIR=/certs
       - DOCKER_TLS_SAN=DNS:sandbox-dind
@@ -267,9 +270,14 @@ networks:
     driver: bridge
   web_network:
     driver: bridge
+  sandbox_control:
+    driver: bridge
+    internal: true
   sandbox_internal:
     driver: bridge
     internal: true
+  sandbox_egress:
+    driver: bridge
 
 volumes:
 

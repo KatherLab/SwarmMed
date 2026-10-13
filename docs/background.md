@@ -18,7 +18,7 @@ SwarmMed consists of several components that each participating site runs on its
 *   **Celery Worker:** Handles long-running background tasks such as data synchronization, script execution, network start-up and training job monitoring.
 *   **PostgreSQL and Redis:** The database (users, projects, networks, training jobs, audit log), and the task queue and cache.
 *   **MinIO:** S3-compatible object storage for imported datasets, project code and scripts, plots and synchronized training results.
-*   **Sandbox-dind:** A separate Docker daemon on which user-provided validation and visualization scripts run in short-lived containers with CPU, memory and time limits. Their network is not isolated, so the scripts must be trusted ([Security](security.md#script-sandbox)).
+*   **Sandbox-dind:** A separate Docker daemon on which user-provided validation and visualization scripts run in short-lived containers with CPU, memory and time limits. Their network is isolated from the internal database network, with access confined to MinIO and outbound egress ([Security](security.md#script-sandbox)).
 *   **NVIDIA FLARE:** The runtime for decentralized training. It issues each study's certificates, runs the FL server and the FL clients in containers, and carries out the swarm workflow.
 *   **Tailscale (optional):** An overlay network between the sites. Federated training does not need it, but network creation in the web interface and the status exchange between sites' web interfaces use the host's Tailscale address ([Networking](networking.md)).
 
