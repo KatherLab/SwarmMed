@@ -5,68 +5,71 @@ description: Which components are genuinely OS-dependent, and which are merely u
 
 # Operating system support
 
-The short version: **sites that train run Linux; the coordinating site and the CLI
-have so far only been run on Linux; people who only use the web interface can use
-any operating system.** The hard Linux requirement for training sites comes from
-two container features, not from the application, and it is about the container
-runtime rather than about a particular distribution.
+The short version: **SwarmMed supports Linux (Ubuntu, Debian, Fedora, RHEL/Rocky), macOS (Docker Desktop), and Windows (WSL2 / Docker Desktop) across the web interface, the `swarmed` CLI, the coordinating site (FL server), and training sites (FL clients).** NVIDIA GPU acceleration is supported on Linux and Windows (WSL2 with NVIDIA Container Toolkit), while macOS and CPU-only hosts run FL client containers on CPU via Docker bridge networking.
 
 ## By role
 
-| Role | Requirement | Why |
+| Role | Supported OS | How it runs |
 |---|---|---|
-| **Site running training** (FL client) | Linux | GPU passthrough and host networking (below) |
-| **Coordinating site** (FL server, platform services) | Linux, the only OS used so far | The FL server container runs on a Docker bridge network with published ports and needs no GPU, so neither feature applies to it; other operating systems are untested rather than known not to work |
-| **Clinician / analyst using the interface** | Any OS with a current browser | It is a web application |
-| **Operator using the `swarmed` CLI** | A shell on the platform host (Linux so far) | The CLI runs inside the platform's application container; any computer that can open an SSH session to the host will do |
+| **Site running training** (FL client) | Linux (GPU or CPU), Windows with WSL2 / Docker Desktop (NVIDIA GPU or CPU), macOS with Docker Desktop (CPU) | Uses host networking on native Linux by default (`SWARMMEDHUB_CLIENT_HOST_NETWORK=true`) and automatically switches to Docker bridge networking with `--add-host` routing on Docker Desktop (macOS/Windows) |
+| **Coordinating site** (FL server, platform services) | Linux, macOS (Docker Desktop), Windows (WSL2 / Docker Desktop) | The FL server and platform services run on Docker bridge networks with published ports and require no GPU |
+| **Clinician / analyst using the interface** | Any OS with a current browser | Web application over HTTPS |
+| **Operator using the `swarmed` CLI** | Linux, macOS, Windows (WSL2) | Runs either inside the application container (`docker exec -w /app swarmmedhub python3 -m swarmed_cli.main …`) or directly on the host (`uv run swarmed …`), with automatic host endpoint and CA certificate resolution |
 
 A network created in the web interface also makes the coordinating host a
-training site, which brings both container features back; the CLI does the same
-unless `--no-local-client` is given.
+training site; the CLI does the same unless `--no-local-client` is given.
 
-On the platform host, run the CLI inside the application container:
-`docker exec -w /app swarmmedhub python3 -m swarmed_cli.main <command>`. Run on
-the host as installed (`uv run swarmed …`), it fails: the generated `.env` names
-the database host `postgres`, which resolves only inside the Docker network. The
-host-side form needs at least `DB_HOST=127.0.0.1` and the published database
-port; that is how it ran on the worked example's training hosts, where each call
-stalled about 20 s retrying Redis. See [CLI](cli.md).
+On the platform host, you can run the CLI either inside the application container
+(`docker exec -w /app swarmmedhub python3 -m swarmed_cli.main <command>`) or
+directly on the host (`uv run swarmed <command>`). When invoked on the host
+outside a container, `swarmed_cli.bootstrap` automatically translates the
+container-internal hostnames in `.env` (`postgres`, `redis`, `minio`) and the
+internal CA path to the published `127.0.0.1` ports (auto-discovering
+`POSTGRES_HOST_PORT` via `docker port` if needed) and `.secrets/certs/internal/ca.crt`.
+See [CLI](cli.md).
 
-## What is genuinely OS-dependent
+## Container runtime features across operating systems
 
-1. **GPU passthrough.** Training containers get GPUs through the NVIDIA Container
-   Toolkit (`docker run --gpus all`), which runs only on Linux. The platform's GPU
-   auto-detection only checks whether `docker info` lists a runtime named `nvidia`
-   (registered, for example, by `nvidia-ctk runtime configure --runtime=docker`).
-   Hosts on which `--gpus all` works without that runtime being registered — all
-   three training hosts of the worked example — are not detected, and neither are
-   other setups such as CDI-only ones. The client container then starts without a
-   GPU, only a warning is logged, and a GPU-only model such as the breast-MRI
-   example fails at its first task. Where `docker run --gpus all` works, set
-   `SWARMMEDHUB_FORCE_GPU=true` (it adds that flag) or register the runtime.
-2. **Host networking.** FL client containers are started with `--network host`,
-   except in local-test networks. SwarmMed's startup kit pins each client's
-   internal listener to that participant's IP address, so the address must exist
-   on an interface the client container can bind. On Docker Desktop for macOS and
-   Windows, containers run inside a Linux virtual machine and host networking
-   refers to that machine's interfaces, which do not carry the computer's own
-   addresses, so the client cannot bind the address written into its startup kit.
-   This follows from the design; it has not been tried.
+1. **GPU passthrough.** Training containers receive NVIDIA GPUs via
+   `docker run --gpus all` on Linux (NVIDIA Container Toolkit) and Windows
+   (Docker Desktop with WSL2 backend). SwarmMed's GPU auto-detection checks both
+   whether `docker info` lists a legacy `nvidia` runtime and, if not, executes a
+   lightweight `docker run --rm --gpus all` capability probe against the runtime
+   image. This automatically detects modern CDI-only setups, Ubuntu hosts where
+   `--gpus all` works without a legacy runtime entry in `/etc/docker/daemon.json`,
+   and Windows WSL2 Docker Desktop. On macOS or CPU-only hosts, the probe
+   gracefully falls back to CPU execution. You can also explicitly override
+   detection with `SWARMMEDHUB_FORCE_GPU=true` or disable GPUs with
+   `SWARMMEDHUB_ENABLE_GPU=false`.
+2. **Container networking (Host vs. Bridge mode).** SwarmMed stores participant IP
+   metadata in `client_ip` / `.client_ip_map.json` rather than NVFlare's
+   relay-oriented `listening_host` property, and automatically normalizes any
+   legacy `local/comm_config.json` internal listener host to `localhost`. Because
+   each client's internal parent-to-subprocess listener binds to container
+   loopback (`localhost`) and all client-to-server FLARE traffic uses outbound
+   gRPC connections, FL client containers work in both `--network host` mode
+   (default on native Linux) and standard Docker bridge mode (auto-selected on
+   macOS and Windows Docker Desktop, or selectable on Linux via
+   `SWARMMEDHUB_CLIENT_HOST_NETWORK=false`).
 
 The Docker-in-Docker sandbox, in which site validation and visualisation scripts
-run, is not a host-OS dependency in the same sense: it needs a privileged
-container on a Linux kernel, which Docker Desktop also provides inside its virtual
-machine. It has only been run on Linux. Scripts there are limited to 1 GB of
-memory, one CPU and 300 s. The sandbox daemon is isolated from the platform's
-internal database network, with access confined to MinIO (`sandbox_internal`)
-and outbound internet access (`sandbox_egress`), preventing access to the host
-Docker socket proxy or internal databases.
+run, needs a privileged container on a Linux kernel, which both native Linux
+Docker Engine and Docker Desktop (inside its Linux VM on macOS and Windows)
+provide. Scripts there are limited to 1 GB of memory, one CPU and 300 s. The
+sandbox daemon is isolated from the platform's internal database network, with
+access confined to MinIO (`sandbox_internal`) and outbound internet access
+(`sandbox_egress`), preventing access to the host Docker socket proxy or internal
+databases.
 
 Everything else — the Django application, the web interface and the CLI
 (portable Python), and the database, object store, queue and reverse proxy
-(PostgreSQL, MinIO, Redis and nginx in Linux container images) — has no
-OS-specific requirement of its own. The installation steps (`make`, shell scripts,
-`uv`) assume a Unix-like shell.
+(PostgreSQL, MinIO, Redis and nginx in Linux container images) — runs in standard
+containers. The PostgreSQL entrypoint copies the TLS private key onto the
+container's native filesystem with `0600 postgres:postgres` permissions at
+startup so bind mounts on macOS (VirtioFS/APFS) and Windows (WSL2/NTFS) start
+cleanly without host UID-mapping errors, and `scripts/generate_internal_certs.sh`
+uses explicit X.509 extension configs compatible with both Linux OpenSSL and
+macOS LibreSSL.
 
 ## Prerequisites (any Linux distribution)
 
@@ -135,20 +138,9 @@ support slower network connections during initial runtime image builds.
 
 * **Using the interface: supported.** SwarmMedHub is a web application and
   nothing is installed on the user's computer, so clinicians at a participating
-  site do not need Linux. The web certificate the installation generates is issued
-  for `localhost` and `127.0.0.1` only, so browsers on other computers show a
-  certificate warning.
-* **Running a training site: not supported.** Host networking does not work as
-  required under Docker Desktop, and GPU passthrough is unavailable on macOS.
-  Docker Desktop on Windows offers NVIDIA GPUs through its WSL2 backend, but
-  neither that nor a Windows host with WSL2 has been tested; treat it as
-  unvalidated.
-* **Running the coordinating site: untested.** The FL server needs neither
-  container feature, but nothing has been run under Docker Desktop or WSL2.
-* **CLI use:** the CLI runs inside the platform's container on the platform host,
-  so an operator on macOS or Windows uses it over SSH.
-
-If your institution's only available hardware is macOS or Windows, the practical
-arrangement is a Linux server — with an NVIDIA GPU if the model needs one, as the
-breast-MRI example does — for the site's client and data, with clinicians using
-the interface from their usual desktops.
+  site can connect from any browser on macOS, Windows, or Linux.
+* **Running the coordinating site or a training site: supported via Docker Desktop / WSL2.**
+  - **Networking:** SwarmMed automatically detects Docker Desktop (`OperatingSystem: Docker Desktop` / `linuxkit` kernel / `darwin` / `nt`) and launches FL client containers on the Docker bridge network with `--add-host` routing (`swarmmedhub:host-gateway`, `host.docker.internal:host-gateway`, and `server:<coordinating-ip>`), while binding NVFlare's internal parent-to-subprocess listener to `localhost`.
+  - **Compute (GPU vs. CPU):** On Windows with WSL2 and NVIDIA Container Toolkit, SwarmMed's `--gpus all` probe detects and passes through the NVIDIA GPU automatically. On macOS (Intel or Apple Silicon) or Windows hosts without an NVIDIA GPU, client containers fall back cleanly to CPU execution (suitable for tabular, clinical, and CPU-compatible models; GPU-mandatory 3D imaging workloads such as the breast-MRI MST example require an NVIDIA GPU on Linux or Windows WSL2).
+  - **Filesystem & TLS:** Internal certificate generation (`scripts/generate_internal_certs.sh`) is compatible with both OpenSSL and macOS LibreSSL, includes SANs for `localhost`, `127.0.0.1`, `172.17.0.1`, `swarmmedhub`, and `host.docker.internal`, and the PostgreSQL container copies its TLS key to container-local storage at startup to avoid VirtioFS/NTFS bind-mount ownership errors.
+* **CLI use (`swarmed`):** Supported both inside the application container (`docker exec -w /app swarmmedhub python3 -m swarmed_cli.main …`) and directly on the host (`uv run swarmed …` on Linux, macOS, or Windows WSL2).

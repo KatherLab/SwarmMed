@@ -39,16 +39,31 @@ ensure_ca_passphrase() {
     fi
 }
 
-# Root CA
+# Root CA (use explicit config file for portability across Linux OpenSSL and macOS LibreSSL)
 ensure_ca_passphrase
 trap 'unset CA_PASSPHRASE' EXIT
 cleanup_file_if_present "$CA_DIR/ca.key"
 cleanup_file_if_present "$CA_DIR/ca.crt"
+cleanup_file_if_present "$CA_DIR/ca.cnf"
 cleanup_file_if_present "$SERIAL_FILE"
+cat <<EOT > "$CA_DIR/ca.cnf"
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_ca
+prompt = no
+
+[req_distinguished_name]
+CN = InternalCA
+
+[v3_ca]
+basicConstraints = critical,CA:TRUE
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+EOT
 openssl genrsa -aes256 -passout pass:"$CA_PASSPHRASE" -out "$CA_DIR/ca.key" 4096
 openssl req -x509 -new -key "$CA_DIR/ca.key" -passin pass:"$CA_PASSPHRASE" \
-    -sha256 -days 3650 -out "$CA_DIR/ca.crt" -subj "/CN=InternalCA" \
-    -addext "basicConstraints=critical,CA:TRUE"
+    -sha256 -days 3650 -out "$CA_DIR/ca.crt" -config "$CA_DIR/ca.cnf" -extensions v3_ca
+cleanup_file_if_present "$CA_DIR/ca.cnf"
 
 # Distribute CA certificate (public) alongside issued certs for convenience
 install -m 644 "$CA_DIR/ca.crt" "$CERT_DIR/ca.crt"
@@ -75,7 +90,10 @@ subjectAltName = @alt_names
 [alt_names]
 DNS.1 = $dns
 DNS.2 = localhost
+DNS.3 = swarmmedhub
+DNS.4 = host.docker.internal
 IP.1 = 127.0.0.1
+IP.2 = 172.17.0.1
 EOT
 
     openssl x509 -req -in "$CERT_DIR/$name.csr" -CA "$CA_DIR/ca.crt" -CAkey "$CA_DIR/ca.key" \

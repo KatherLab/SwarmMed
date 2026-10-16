@@ -24,6 +24,15 @@ class DataConfig(AppConfig):
         Uses the method to ensure the necessary storage infrastructure is ready.
         Imports are done locally to avoid circular dependencies during startup.
         """
+        import os
+
+        if os.getenv("SWARMMEDHUB_SKIP_STARTUP_BUCKET_CHECK", "").strip() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            return
+
         # We import here to avoid circular dependencies during startup
         from django.conf import settings
 

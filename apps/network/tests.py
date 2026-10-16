@@ -13,14 +13,20 @@ from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from project.models import Project
 
+from swarmed_cli.bootstrap import _configure_host_cli_environment
+
 from .models import SwarmNetwork, SwarmParticipant
 from .provision import safe_participant_name
 from .tasks import (
     _client_runtime_env_pairs,
+    _detect_docker_gpu_support,
+    _ensure_client_comm_config_portable,
     _get_runtime_manifest_base_url,
     _read_local_hostname_candidates,
+    _read_project_client_ip_map,
     _resolve_bind_source_path,
     _runtime_ulimit_args,
+    _should_use_client_host_network,
     _split_runtime_entrypoint,
 )
 from .utils import ensure_worker_writable
@@ -142,6 +148,111 @@ class RuntimeLaunchTests(SimpleTestCase):
 
             self.assertTrue(workspace.stat().st_mode & stat.S_IWUSR)
             self.assertTrue(runtime_file.stat().st_mode & stat.S_IWUSR)
+
+    def test_read_project_client_ip_map_supports_client_ip_and_legacy_listening_host(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_yml = Path(tmp_dir) / "project.yml"
+            project_yml.write_text(
+                "participants:\n"
+                "  - name: node-A\n"
+                "    type: client\n"
+                "    client_ip: 100.64.0.1\n"
+                "  - name: node-B\n"
+                "    type: client\n"
+                "    listening_host: 100.64.0.2\n"
+            )
+            ip_map = _read_project_client_ip_map(str(project_yml))
+            self.assertEqual(
+                ip_map,
+                {"node-A": "100.64.0.1", "node-B": "100.64.0.2"},
+            )
+
+    def test_ensure_client_comm_config_portable_normalizes_external_ip_to_localhost(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            local_dir = Path(tmp_dir) / "local"
+            local_dir.mkdir()
+            comm_cfg = local_dir / "comm_config.json"
+            comm_cfg.write_text(
+                json.dumps(
+                    {
+                        "internal": {
+                            "scheme": "tcp",
+                            "resources": {
+                                "host": "100.100.101.102",
+                                "connection_security": "clear",
+                            },
+                        }
+                    }
+                )
+            )
+            changed = _ensure_client_comm_config_portable(tmp_dir)
+            self.assertTrue(changed)
+            updated = json.loads(comm_cfg.read_text())
+            self.assertEqual(
+                updated["internal"]["resources"]["host"], "localhost"
+            )
+            self.assertFalse(_ensure_client_comm_config_portable(tmp_dir))
+
+    def test_should_use_client_host_network_auto_disables_on_docker_desktop(self):
+        self.assertFalse(
+            _should_use_client_host_network(
+                {},
+                docker_info={"OperatingSystem": "Docker Desktop"},
+            )
+        )
+        self.assertFalse(
+            _should_use_client_host_network(
+                {},
+                docker_info={"KernelVersion": "6.6.12-linuxkit"},
+            )
+        )
+        self.assertTrue(
+            _should_use_client_host_network(
+                {},
+                docker_info={"OperatingSystem": "Ubuntu 24.04 LTS"},
+            )
+        )
+        self.assertTrue(
+            _should_use_client_host_network(
+                {"SWARMMEDHUB_CLIENT_HOST_NETWORK": "true"},
+                docker_info={"OperatingSystem": "Docker Desktop"},
+            )
+        )
+
+    def test_detect_docker_gpu_support_uses_probe_when_nvidia_runtime_unregistered(self):
+        with patch("network.tasks.subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
+            self.assertTrue(
+                _detect_docker_gpu_support(
+                    docker_path="/usr/bin/docker",
+                    image_name="demo:latest",
+                    env={},
+                    docker_info={"Runtimes": {"runc": {}}},
+                )
+            )
+            mock_run.assert_called_once()
+
+    def test_configure_host_cli_environment_falls_back_to_localhost_endpoints(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = Path(tmp_dir)
+            ca_file = repo / ".secrets" / "certs" / "internal" / "ca.crt"
+            ca_file.parent.mkdir(parents=True)
+            ca_file.write_text("dummy-ca")
+            env = {
+                "DB_HOST": "postgres",
+                "POSTGRES_HOST_PORT": "55432",
+                "REDIS_HOST": "redis",
+                "AWS_S3_ENDPOINT_URL": "https://minio:9000",
+                "DOCKER_HOST_IP": "127.0.0.1",
+            }
+            with patch("swarmed_cli.bootstrap._can_resolve_host", return_value=False):
+                _configure_host_cli_environment(repo, env, in_container=False)
+
+            self.assertEqual(env["DB_HOST"], "127.0.0.1")
+            self.assertEqual(env["DB_PORT"], "55432")
+            self.assertEqual(env["REDIS_HOST"], "127.0.0.1")
+            self.assertEqual(env["AWS_S3_ENDPOINT_URL"], "https://127.0.0.1:9000")
+            self.assertEqual(env["CA_CERT_PATH"], str(ca_file))
 
 
 class GossipParticipantNormalizationTests(TestCase):

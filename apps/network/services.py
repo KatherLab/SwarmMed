@@ -581,7 +581,8 @@ def import_network(
                         participant.get("type", participant.get("role", ""))
                     ).lower()
                     participant_ip = str(
-                        participant.get("listening_host", "")
+                        participant.get("client_ip")
+                        or participant.get("listening_host", "")
                     ).strip()
                     if not participant_name:
                         continue

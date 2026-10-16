@@ -113,12 +113,13 @@ participants as offline.
   certificate and verifies the peer's, so a host without a startup kit cannot join.
   Who holds which kit is the subject of
   [Key custody](#key-custody-what-the-startup-package-contains) below.
-* **Plain TCP inside each participant.** NVFlare's parent and job processes at each
-  participant talk over an internal connection without TLS or certificates
-  (`"connection_security": "clear"` in the kit's `local/comm_config.json`). NVFlare
-  binds that listener on all interfaces, on a random port. Because SwarmMed runs
-  client containers with host networking by default, the listener is open on every
-  interface of a participating site's host and should be firewalled.
+* **Plain TCP inside each participant (bound to loopback).** NVFlare's parent and
+  job processes at each participant talk over an internal connection without TLS
+  or certificates (`"connection_security": "clear"`). SwarmMed provisions client
+  kits without an external `listening_host` (and normalizes any legacy
+  `local/comm_config.json` internal host to `localhost`), so the internal parent-to-job
+  listener binds to `localhost` (`127.0.0.1`) rather than external network
+  interfaces, whether the client container runs in host-network or bridge-network mode.
 * **Protocol versions and ciphers are not pinned for FLARE connections.** They are
   negotiated by the BoringSSL library bundled with gRPC, not the system OpenSSL, and
   its defaults allow TLS 1.2 and 1.3. The web interface's nginx pins TLS 1.2 and 1.3

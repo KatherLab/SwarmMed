@@ -227,13 +227,19 @@ def get_s3_client():
     Returns:
         botocore.client.S3: A configured S3 client for internal use.
     """
-    return boto3.client(
-        "s3",
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME,
-        endpoint_url=settings.AWS_S3_ENDPOINT_URL,
-    )
+    verify_env = os.getenv("SWARMMEDHUB_S3_VERIFY", "").strip().lower()
+    kwargs = {
+        "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
+        "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
+        "region_name": settings.AWS_S3_REGION_NAME,
+        "endpoint_url": settings.AWS_S3_ENDPOINT_URL,
+    }
+    if verify_env in {"0", "false", "no", "off"}:
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        kwargs["verify"] = False
+    return boto3.client("s3", **kwargs)
 
 
 def get_public_s3_client():

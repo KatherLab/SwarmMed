@@ -12,6 +12,7 @@ import shutil
 import socket
 import stat
 import subprocess  # nosec B404
+import sys
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -471,28 +472,42 @@ def _read_local_client_names_metadata(base_prod_path):
     return names
 
 
-def _read_project_client_ip_map(project_yml_path):
-    """Parses the project.yml to map client names to their listening IPs.
+def _read_project_client_ip_map(project_yml_path, base_prod_path=None):
+    """Parses project.yml (and optional .client_ip_map.json) to map client names to their IPs.
 
     Args:
         project_yml_path (str): The path to the project.yml file.
+        base_prod_path (str | None): Optional path to the 'prod_00' directory.
 
     Returns:
         dict: A dictionary mapping client names to IP addresses.
     """
+    client_map = {}
+
+    if base_prod_path:
+        ip_map_path = Path(base_prod_path) / ".client_ip_map.json"
+        if ip_map_path.exists():
+            try:
+                payload = json.loads(ip_map_path.read_text())
+                if isinstance(payload, dict):
+                    for k, v in payload.items():
+                        if isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip():
+                            client_map[k.strip()] = v.strip()
+            except Exception:
+                pass
+
     if not os.path.exists(project_yml_path):
-        return {}
+        return client_map
 
     try:
         with open(project_yml_path) as f:
             project_yml = yaml.safe_load(f) or {}
     except Exception:
-        return {}
+        return client_map
 
     if not isinstance(project_yml, dict):
-        return {}
+        return client_map
 
-    client_map = {}
     for participant in project_yml.get("participants", []):
         if not isinstance(participant, dict):
             continue
@@ -500,11 +515,170 @@ def _read_project_client_ip_map(project_yml_path):
             continue
 
         participant_name = str(participant.get("name", "")).strip()
-        participant_ip = str(participant.get("listening_host", "")).strip()
+        participant_ip = str(
+            participant.get("client_ip")
+            or participant.get("listening_host", "")
+        ).strip()
         if participant_name and participant_ip:
             client_map[participant_name] = participant_ip
 
     return client_map
+
+
+def _ensure_client_comm_config_portable(participant_path, logger=None):
+    """Ensure a client kit's local/comm_config.json uses localhost for internal IPC.
+
+    Legacy kits provisioned with ``listening_host: <ip>`` on clients wrote the
+    external host IP into ``local/comm_config.json``'s ``internal.resources.host``.
+    Inside Docker bridge networks or Docker Desktop (macOS/Windows), that IP is
+    not assigned to a container interface, causing NVFlare's internal parent-to-child
+    listener to fail with ``Cannot assign requested address``. Normalizing the
+    internal IPC host to ``localhost`` makes client containers portable across
+    bridge and host networking on Linux, macOS, and Windows.
+    """
+    comm_cfg_path = Path(participant_path) / "local" / "comm_config.json"
+    if not comm_cfg_path.exists():
+        return False
+
+    try:
+        data = json.loads(comm_cfg_path.read_text())
+    except Exception:
+        return False
+
+    if not isinstance(data, dict):
+        return False
+
+    internal_cfg = data.get("internal")
+    if not isinstance(internal_cfg, dict):
+        return False
+
+    resources = internal_cfg.get("resources")
+    if not isinstance(resources, dict):
+        return False
+
+    current_host = str(resources.get("host", "")).strip()
+    if current_host in {"", "localhost", "127.0.0.1", "0.0.0.0"}:
+        return False
+
+    resources["host"] = "localhost"
+    try:
+        comm_cfg_path.write_text(json.dumps(data, indent=2) + "\n")
+        if logger:
+            logger.network.info(
+                f"Normalized internal IPC host from '{current_host}' to 'localhost' in {comm_cfg_path}"
+            )
+        return True
+    except Exception as exc:
+        if logger:
+            logger.network.warning(
+                f"Could not update {comm_cfg_path} for cross-platform IPC: {exc}"
+            )
+        return False
+
+
+def _is_docker_desktop_daemon(docker_info=None) -> bool:
+    """Return True if the host OS or Docker daemon is Docker Desktop (macOS/Windows)."""
+    if os.name == "nt" or sys.platform == "darwin":
+        return True
+    if not isinstance(docker_info, dict):
+        return False
+    os_name = str(docker_info.get("OperatingSystem", "")).strip().lower()
+    kernel = str(docker_info.get("KernelVersion", "")).strip().lower()
+    daemon_name = str(docker_info.get("Name", "")).strip().lower()
+    if "docker desktop" in os_name or daemon_name == "docker-desktop":
+        return True
+    if "linuxkit" in kernel:
+        return True
+    return False
+
+
+def _should_use_client_host_network(
+    env=None,
+    *,
+    local_test_network: bool = False,
+    has_server_target: bool = False,
+    docker_info=None,
+) -> bool:
+    """Determine whether an FL client container should use --network host or bridge mode.
+
+    On macOS and Windows (Docker Desktop), containers run inside a Linux utility VM
+    where ``--network host`` does not attach to the host OS network stack; bridge
+    networking with ``--add-host`` works out of the box once internal IPC binds to
+    ``localhost``.
+    """
+    env = env or os.environ
+    explicit = str(env.get("SWARMMEDHUB_CLIENT_HOST_NETWORK", "")).strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    if local_test_network and has_server_target:
+        return False
+    if _is_docker_desktop_daemon(docker_info):
+        return False
+    return True
+
+
+def _detect_docker_gpu_support(
+    *,
+    docker_path: str,
+    image_name: str,
+    env: dict,
+    docker_info=None,
+    logger=None,
+) -> bool:
+    """Detect whether the Docker daemon can launch containers with ``--gpus all``.
+
+    Checks both the legacy ``Runtimes["nvidia"]`` entry and a lightweight
+    ``docker run --rm --gpus all`` probe so modern NVIDIA Container Toolkit (CDI
+    mode), Ubuntu hosts without a legacy runtime entry, and Windows WSL2 Docker
+    Desktop are all detected automatically.
+    """
+    runtimes = (docker_info or {}).get("Runtimes") or {}
+    if isinstance(runtimes, dict) and "nvidia" in runtimes:
+        if logger:
+            logger.network.info(
+                "GPU support detected via Docker 'nvidia' runtime and enabled for this network."
+            )
+        return True
+
+    if docker_path and image_name:
+        try:
+            probe = subprocess.run(  # nosec B603
+                [
+                    docker_path,
+                    "run",
+                    "--rm",
+                    "--gpus",
+                    "all",
+                    "--entrypoint",
+                    "/bin/true",
+                    image_name,
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=15,
+                check=False,
+            )
+            if probe.returncode == 0:
+                if logger:
+                    logger.network.info(
+                        "GPU support detected via '--gpus all' probe and enabled for this network."
+                    )
+                return True
+        except Exception as exc:
+            if logger:
+                logger.network.warning(
+                    f"GPU capability probe failed: {exc}"
+                )
+
+    if logger:
+        logger.network.warning(
+            "GPU was requested but neither 'nvidia' runtime nor '--gpus all' device support "
+            "is available on this Docker daemon. Falling back to CPU."
+        )
+    return False
 
 
 def _resolve_local_client_names(project_yml_path, base_prod_path):
@@ -528,7 +702,9 @@ def _resolve_local_client_names(project_yml_path, base_prod_path):
         valid_local_ip = False
 
     if valid_local_ip:
-        project_client_ip_map = _read_project_client_ip_map(project_yml_path)
+        project_client_ip_map = _read_project_client_ip_map(
+            project_yml_path, base_prod_path=base_prod_path
+        )
         for participant_name, participant_ip in project_client_ip_map.items():
             if participant_ip == local_ip:
                 candidates.add(participant_name)
@@ -1564,6 +1740,16 @@ def start_swarm_network_task(network_id, user_id):
             f"(server_only_mode={server_only_mode}, client_only_mode={client_only_mode})"
         )
 
+        # Query Docker daemon info once for GPU and platform (Docker Desktop vs Linux) detection
+        docker_info = {}
+        try:
+            client = docker.from_env()
+            docker_info = client.info() or {}
+        except Exception as e:
+            logger.network.warning(
+                f"Could not query Docker daemon info: {e}"
+            )
+
         # Check for GPU support once to avoid repeated slow docker-py calls or invalid flags
         force_gpu_enabled = (
             os.getenv("SWARMMEDHUB_FORCE_GPU", "")
@@ -1582,30 +1768,24 @@ def start_swarm_network_task(network_id, user_id):
             gpu_is_available = True
             logger.network.info("GPU support forced by SWARMMEDHUB_FORCE_GPU=true.")
         elif gpu_request_enabled:
-            try:
-                # Use the imported 'docker' library to check runtime support
-                client = docker.from_env()
-                info = client.info()
-                runtimes = info.get("Runtimes", {})
-                if "nvidia" in runtimes:
-                    gpu_is_available = True
-                    logger.network.info("GPU support detected and enabled for this network.")
-                else:
-                    logger.network.warning(
-                        "GPU was requested but 'nvidia' runtime is not available on this Docker daemon. "
-                        "Falling back to CPU."
-                    )
-            except Exception as e:
-                # If we cannot check, we assume no GPU support to be safe
-                logger.network.warning(
-                    f"Could not check for GPU support: {e}. Falling back to CPU."
-                )
+            gpu_is_available = _detect_docker_gpu_support(
+                docker_path=docker_path,
+                image_name=image_name,
+                env=env,
+                docker_info=docker_info,
+                logger=logger,
+            )
 
         for target in filtered_targets:
             startup_dir = target["startup_dir"]
             role = target["role"]
             participant_name = target["name"]
             host_workspace_path = _resolve_bind_source_path(target["path"])
+
+            if role == "client":
+                _ensure_client_comm_config_portable(target["path"], logger=logger)
+                if host_workspace_path != target["path"]:
+                    _ensure_client_comm_config_portable(host_workspace_path, logger=logger)
 
             host_startup_dir = os.path.join(host_workspace_path, "startup")
             runtime_startup_dir = "/workspace/startup"
@@ -1690,14 +1870,11 @@ def start_swarm_network_task(network_id, user_id):
                 check=False,
             )
 
-            client_host_network_enabled = (
-                os.getenv(
-                    "SWARMMEDHUB_CLIENT_HOST_NETWORK",
-                    "false" if local_test_network and has_server_target else "true",
-                )
-                .strip()
-                .lower()
-                in {"1", "true", "yes", "on"}
+            client_host_network_enabled = _should_use_client_host_network(
+                env,
+                local_test_network=local_test_network,
+                has_server_target=has_server_target,
+                docker_info=docker_info,
             )
             use_host_network = role == "client" and client_host_network_enabled
 
@@ -1800,6 +1977,8 @@ def start_swarm_network_task(network_id, user_id):
                         participant_name,
                         "--add-host",
                         "swarmmedhub:host-gateway",
+                        "--add-host",
+                        "host.docker.internal:host-gateway",
                     ]
                 )
 

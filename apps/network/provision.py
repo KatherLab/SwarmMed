@@ -230,6 +230,7 @@ def generate_flare_startup_kit(
             }
         )
 
+        client_ip_map = {}
         for client_info in prepared_clients:
             safe_client_name = client_info["name"]
             ip = client_info["ip"]
@@ -245,9 +246,10 @@ def generate_flare_startup_kit(
                     "name": safe_client_name,
                     "type": "client",
                     "org": center_org_name,
-                    "listening_host": ip,
+                    "client_ip": ip,
                 }
             )
+            client_ip_map[safe_client_name] = ip
             client_server_map[safe_client_name] = mapped_server
 
             admin_name = f"admin-{safe_client_name}@nvidia.com"
@@ -368,6 +370,11 @@ def generate_flare_startup_kit(
 
         if not local_test:
             try:
+                if client_ip_map:
+                    (base_prod_path / ".client_ip_map.json").write_text(
+                        json.dumps(client_ip_map)
+                    )
+
                 if client_admin_map:
                     (base_prod_path / ".client_admin_map.json").write_text(
                         json.dumps(client_admin_map)
