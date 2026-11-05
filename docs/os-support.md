@@ -5,7 +5,7 @@ description: Which components are genuinely OS-dependent, and which are merely u
 
 # Operating system support
 
-The short version: **SwarmMed supports Linux (Ubuntu, Debian, Fedora, RHEL/Rocky), macOS (Docker Desktop), and Windows (WSL2 / Docker Desktop) across the web interface, the `swarmed` CLI, the coordinating site (FL server), and training sites (FL clients).** NVIDIA GPU acceleration is supported on Linux and Windows (WSL2 with NVIDIA Container Toolkit), while macOS and CPU-only hosts run FL client containers on CPU via Docker bridge networking.
+The short version: **the SwarmMedHub web interface works from any operating system with a browser. Hosting SwarmMed (platform, coordinating site, training sites) has been run on Ubuntu 22.04 and 24.04.** Fresh installations passed end to end on Ubuntu 24.04 and through installation and provisioning on Debian 13, Fedora 44 and Rocky Linux 9 (see the test results below). macOS (Docker Desktop) and Windows (WSL2 / Docker Desktop) hosts are handled in the code since v1.0.1 but have not been tested. NVIDIA GPU training needs Linux or WSL2 with the NVIDIA Container Toolkit; on macOS, FL client containers can only run on CPU.
 
 ## By role
 
