@@ -1,24 +1,54 @@
-# Duke Breast MRI Worked Example: Data Splits & Metadata
+# Duke breast MRI worked example: split and annotation files
 
-This directory provides the exact patient-level stratified split definitions and clinical annotations used in the SwarmMed protocol paper (Nature Protocols, NP-P260024A).
+This folder holds the patient-level split of the Duke breast MRI cohort used in
+the worked example of the SwarmMed protocol ([Reproducing the worked
+example](../../../docs/reproduce.md)). It contains no images.
 
-## Partition Overview
+## Source data and licence
 
-The Duke Breast Cancer MRI dataset (available publicly via [The Cancer Imaging Archive (TCIA)](https://doi.org/10.7937/TCIA.65004D0D)) comprises 922 patients. After unilateral examination processing (one record per breast exam) and exclusion criteria, 651 unique patients (1,302 exams) form the study cohort:
+The files are derived from the Duke-Breast-Cancer-MRI collection of The Cancer
+Imaging Archive (TCIA), which is distributed under the
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) licence. These
+derived files are subject to the same licence, not to the Apache License 2.0 of
+the SwarmMed code. The images must be obtained from TCIA under its terms of use.
+If you use these files, cite the dataset and its publication:
 
-* **Held-out Test Cohort (`test/`)**: 131 patients (262 exams, 137 malignant / 125 benign). Kept strictly isolated from all model training and validation across all experimental arms.
-* **Consortium Training & Validation Cohort (`node_all/`)**: 520 patients (1,040 exams: 832 training / 208 validation, with stratified 51.9% malignant balance).
-  * **Site A (`node_A/`)**: 260 patients (50.0% of consortium data; 416 training exams, 104 validation exams).
-  * **Site B (`node_B/`)**: 195 patients (37.5% of consortium data; 312 training exams, 78 validation exams).
-  * **Site C (`node_C/`)**: 65 patients (12.5% of consortium data; 104 training exams, 26 validation exams).
+* Saha, A., Harowicz, M. R., Grimm, L. J., Weng, J., Cain, E. H., Kim, C. E.,
+  Ghate, S. V., Walsh, R., & Mazurowski, M. A. (2021). Dynamic contrast-enhanced
+  magnetic resonance images of breast cancer patients with tumor locations
+  [Data set]. The Cancer Imaging Archive.
+  <https://doi.org/10.7937/TCIA.e3sv-re93>
+* Saha, A., Harowicz, M. R., Grimm, L. J., Kim, C. E., Ghate, S. V., Walsh, R.
+  and Mazurowski, M. A. (2018). A machine learning approach to radiogenomics of
+  breast cancer: a study of 922 subjects and 529 DCE-MRI features. British
+  Journal of Cancer, 119(4), 508–516. <https://doi.org/10.1038/s41416-018-0185-8>
 
-## Patient Stratification & Leakage Prevention
+## Partition
 
-* **Strict Patient-Level Isolation**: Splitting was performed at the subject level (`PatientID`). No patient appears in more than one node or split.
-* **Label Balance**: The malignant fraction is preserved identically across every node's training and validation partition (51.9%–53.8%).
+The collection comprises 922 patients. The worked example uses 651 of them, with
+one record per breast (1,302 breasts); the script that selected them and made
+the partition is not part of this repository.
 
-## File Formats
+| Folder | Patients | Breasts | Training | Validation | Test | Malignant |
+|---|---|---|---|---|---|---|
+| `node_A/` | 260 | 520 | 416 | 104 | | 271 |
+| `node_B/` | 195 | 390 | 312 | 78 | | 203 |
+| `node_C/` | 65 | 130 | 104 | 26 | | 68 |
+| `node_all/` (the three nodes pooled) | 520 | 1,040 | 832 | 208 | | 542 |
+| `test/` (internal test set) | 131 | 262 | | | 262 | 137 |
+
+* The split is at patient level: both breasts of a patient are in the same
+  folder and split, and no patient is in more than one folder.
+* The malignant fraction is between 51.9% and 53.8% in every training,
+  validation and test split. All other breasts are labelled 0 (no lesion);
+  these files contain no benign class (1).
+* `node_all/` is the union of `node_A/`, `node_B/` and `node_C/`, used to
+  train the centralised baseline.
+
+## Files
 
 Each folder contains:
-1. `split.csv`: Maps each unilateral examination identifier (`UID`) to `Fold` (0) and `Split` (`train`, `val`, or `test`).
-2. `annotation.csv`: Maps each `UID` to `PatientID`, `Age` (in days), and ground-truth `Lesion` class (`0` = Normal / non-malignant, `2` = Malignant).
+
+1. `annotation.csv`: `UID` (one breast, for example `Breast_MRI_001_left`),
+   `PatientID`, `Age` (in days) and `Lesion` (0, no lesion; 2, malignant).
+2. `split.csv`: `UID`, `Fold` (always 0) and `Split` (`train`, `val` or `test`).
