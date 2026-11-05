@@ -123,15 +123,15 @@
                         </tr>
                         <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
                             <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">Model inversion attacks</td>
-                            <td class="px-6 py-4">Differential Privacy (DP) and Secure Aggregation.</td>
+                            <td class="px-6 py-4">None in SwarmMed: model parameters are shared without differential privacy or secure aggregation. Admit only institutions the consortium trusts.</td>
                         </tr>
                         <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
                             <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">Data breach of metadata/logs</td>
-                            <td class="px-6 py-4">Audit log signing, TLS 1.3, managed DB security.</td>
+                            <td class="px-6 py-4">Signed audit logs, HTTPS (TLS 1.2 or 1.3) for the web interface, and a database and object store that are not exposed beyond the platform host by default.</td>
                         </tr>
                         <tr class="bg-white dark:bg-gray-800">
                             <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">Malicious participant</td>
-                            <td class="px-6 py-4">Byzantine-robust aggregation algorithms.</td>
+                            <td class="px-6 py-4">Project membership, roles and the audit log. Aggregation is not robust against manipulated model updates, so admit only institutions the consortium trusts.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -157,7 +157,7 @@
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mt-4">12.3 Swarm Learning Coordination</h3>
             <ul class="list-disc ml-6 space-y-2">
                 <li><strong>Purpose:</strong> To coordinate decentralized model training.</li>
-                <li><strong>Data Categories:</strong> Organization name, project membership, mTLS public keys, training metadata.</li>
+                <li><strong>Data Categories:</strong> Organization name, project membership, startup kits (certificates and private keys), training metadata.</li>
                 <li><strong>Retention:</strong> Duration of the training project.</li>
             </ul>
 
