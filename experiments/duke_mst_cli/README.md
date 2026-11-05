@@ -74,6 +74,8 @@ python experiments/duke_mst_cli/evaluate_global_model.py \
 ```
 
 Per-case predictions for the statistics come from `export_global_predictions.py`,
-the statistics from `build_delong_report.py`, `build_results_summary.py` and
-`build_nodec_analysis.py`, and the negative control's site copies from
-`make_scrambled_labels.py`; see `docs/reproduce.md`.
+the matched single-site and centralised baselines from `train_local_baseline.sh`,
+the statistics from `build_matched_baseline_report.py` (swarm against the matched
+baselines, and the single runs), `build_delong_report.py`,
+`build_results_summary.py` and `build_nodec_analysis.py`, and the negative
+control's site copies from `make_scrambled_labels.py`; see `docs/reproduce.md`.

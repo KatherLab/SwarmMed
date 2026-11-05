@@ -54,6 +54,14 @@ that did not train, and one GPU at each training site.
 * **Checks.** In repetition 3, the ablation and the negative control the final
   model had the same MD5 on every site. Repetition 3 took 3 h 01 min for its 20
   rounds, according to the FL server log.
+* **FedProx.** One further swarm run, `swarm_fedprox_mu001` (October 2026), ran
+  20 rounds on the same three hosts in the same image, with `FEDPROX_MU=0.01` in
+  the clients' runtime environment, which turns on the proximal term of
+  MediSwarm's training code (`fedprox_callback.py` in the image). Its
+  `FL_global_model.pt` has MD5 `1f110a09e117983ece976ca35106cc08`.
+* **Baselines.** The single-site and centralised baselines, three runs each,
+  were trained in October 2026 in the same image with the same settings; see
+  [Baselines](#baselines).
 
 ## Software
 
@@ -312,6 +320,45 @@ as a slug with underscores (`DUKE MST IID 3-site` becomes
 NVFlare's PyTorch persistor output, a dictionary whose `model` entry is the state
 dict. Compare the MD5 across the hosts and copy one file for scoring.
 
+## Baselines
+
+The single-site and centralised baselines were trained with
+`experiments/duke_mst_cli/train_local_baseline.sh`, three runs per arm, on the
+three training hosts. The script runs MediSwarm's `main.py` in local-training
+mode (`TRAINING_MODE=local_training`) in the swarm runs' image, pinned by digest,
+on one site's folder: the same model, data module and settings as a swarm
+client, in one continuous run without NVFlare. The calls for run 1 (paths are
+examples):
+
+```bash
+B=experiments/duke_mst_cli/train_local_baseline.sh
+$B node_A   1 120 /mnt/data/DUKE_iid /mnt/data/matched_baselines
+$B node_B   1 160 /mnt/data/DUKE_iid /mnt/data/matched_baselines
+$B node_C   1 200 /mnt/data/DUKE_iid /mnt/data/matched_baselines
+$B node_all 1  60 /mnt/data/DUKE_iid /mnt/data/matched_baselines
+```
+
+Each single-site model trains for as many epochs as its site trains in the 20
+swarm rounds (6, 8 and 10 epochs per round at node_A, node_B and node_C). The
+centralised model trains on `node_all`, the three sites' training and validation
+data pooled (`examples/breast_mri/data_splits/node_all/`), for 60 epochs, which
+is the same number of optimizer steps as node_A and node_B take in the swarm. No
+global random seed is set.
+
+Each run leaves two checkpoints, written as `FL_global_model.pt` files that the
+scorer loads like a swarm model: `<name>_last`, the model after the last epoch,
+which is the one compared with the swarm, and `<name>_best`, the checkpoint
+MediSwarm's training code selected on the validation set, used as a sensitivity
+analysis. `<name>` is `matched_local_<site>_rep<k>` or
+`matched_centralised_rep<k>`. Both were scored like the swarm models (see
+[Evaluation](#evaluation)), with `--model-family matched_baseline` and output in
+`predictions/matched_baseline/<name>/`. The launcher used for the recorded runs
+also copied the checkpoints to the scoring host and started the scoring there;
+that step is not in the script.
+
+The no-collaboration ensemble of run k is not trained or scored: the statistics
+average, case by case, the scores of the three single-site models of run k.
+
 ## Evaluation
 
 Each checkpoint was scored with
@@ -373,15 +420,17 @@ which count as negative.
 ## Statistics
 
 Copy each scored model's directory to
-`results/duke_mst_cli/stat_tests/predictions/swarm/<name>/` in the repository,
-then run the scripts from the repository root with its Python environment. They
-read and write paths under `results/`, which git ignores:
+`results/duke_mst_cli/stat_tests/predictions/swarm/<name>/` in the repository
+(the baselines to `predictions/matched_baseline/<name>/`), then run the scripts
+from the repository root with its Python environment. They read and write paths
+under `results/`, which git ignores:
 
 ```bash
 .venv/bin/python experiments/duke_mst_cli/build_delong_report.py
 .venv/bin/python experiments/duke_mst_cli/build_results_summary.py
 .venv/bin/python experiments/duke_mst_cli/build_nodec_analysis.py
 .venv/bin/python experiments/duke_mst_cli/build_scalability_report.py
+.venv/bin/python experiments/duke_mst_cli/build_matched_baseline_report.py
 ```
 
 Paths below are relative to `results/duke_mst_cli/stat_tests/` unless shown in
@@ -428,9 +477,35 @@ full.
   next to it. It belongs to the scalability benchmark, not to the breast-MRI
   runs; the benchmark script that writes its input is not in the repository (see
   [Scalability](scalability.md)).
+* **`build_matched_baseline_report.py`** compares the swarm with the matched
+  baselines (see [Baselines](#baselines)) and the single runs with the swarm. It
+  reads only per-case predictions: `predictions/swarm/swarm_repetition_{1,2,3}/`,
+  the baselines in `predictions/matched_baseline/` and, if present,
+  `predictions/swarm/` of `swarm_fedprox_mu001`, `swarm_ablation_no_nodeC`,
+  `hub_poc_run1` and `swarm_scrambled_label_control`. It writes:
+    * `matched_auroc_by_model.csv`: every model's AUROC on every cohort;
+    * `matched_arm_summary.csv`: per arm (node_A, node_B, node_C, centralised,
+      ensemble and swarm), checkpoint and cohort, the AUROC of each run with
+      mean, SD and a 95% t-interval;
+    * `matched_comparisons.csv`: the swarm minus the centralised model, the
+      ensemble and node_C's model, as a paired DeLong test per run (run k
+      against run k) and as the mean of the three differences with a 95%
+      t-interval, with the swarm's mean AUROC as a percentage of the
+      reference's;
+    * `matched_single_runs.csv`: each single run's AUROC with a DeLong 95%
+      interval and a test against 0.5, the 95% prediction interval of the three
+      swarm runs for a further run, and paired DeLong tests against each swarm
+      run;
+    * `matched_report.md` with the main tables in readable form.
 
-Re-running the four scripts on the recorded inputs on 9 October 2026 reproduced
-the recorded CSV and JSON outputs and both PNG figures byte for byte.
+The baseline arms of `build_delong_report.py`, `build_results_summary.py` and
+`build_nodec_analysis.py` are the earlier baselines described under
+[What cannot be reproduced](#what-cannot-be-reproduced-from-public-artefacts).
+The comparisons with the baselines, and the results of the single runs, given in
+the paper come from `build_matched_baseline_report.py`.
+
+Re-running the first four scripts on the recorded inputs on 9 October 2026
+reproduced the recorded CSV and JSON outputs and both PNG figures byte for byte.
 
 ## Negative control
 
@@ -464,28 +539,30 @@ paired DeLong tests against each swarm repetition (`scrambled_label_control.csv`
 * **The data.** The images are not distributed with SwarmMed and must be
   obtained from their providers: the Duke breast-MRI dataset from The Cancer
   Imaging Archive (TCIA), under its terms of use, and the ODELIA cohorts on
-  request from the ODELIA consortium. The prepared files used here are not public
-  either: the per-breast volumes, and each folder's `annotation.csv` and
-  `split.csv`, which define the three-site partition and the Duke test set.
-  Neither this repository nor the runtime image contains them, or the script
-  that made the partition. The image does contain MediSwarm's preprocessing
-  scripts for the TCIA download
+  request from the ODELIA consortium. The prepared per-breast volumes used here
+  are not public either. Each folder's `annotation.csv` and `split.csv`, which
+  define the three-site partition and the Duke test set, are published in
+  `examples/breast_mri/data_splits/`; the script that made the partition is
+  not. The image does contain MediSwarm's preprocessing scripts for the TCIA
+  download
   (`/MediSwarm/application/jobs/ODELIA_ternary_classification/app/scripts/preprocessing/`);
   whether the files used here were made with them is not recorded.
-* **The single-site and centralised baselines.** The published node_A, node_B,
-  node_C and pooled baselines, three runs each, were trained with a different
-  codebase (the `odelia_breast_mri` repository) and a different model
-  configuration from the swarm: a DINOv2 ViT-S backbone with registers, loaded
+* **The earlier baselines.** Before the matched baselines were trained, the
+  single-site and centralised comparisons used node_A, node_B, node_C and pooled
+  baselines, three runs each, trained with a different codebase (the
+  `odelia_breast_mri` repository) and a different model configuration from the
+  swarm: a DINOv2 ViT-S backbone with registers, loaded
   from Hugging Face, instead of DINOv2 ViT-S/14 without registers; one output
   with unweighted binary cross-entropy instead of three classes with
   class-weighted cross-entropy; AdamW at a learning rate of 1e-5 instead of 1e-6;
   and their own training and scoring scripts. Only their exported per-case
   predictions enter the statistics, and those exports are not public. The
-  checkpoints of runs 2 and 3 of every baseline arm are no longer available.
-  Comparisons of the swarm with these baselines, or with the ensemble built from
-  them, therefore also compare two model configurations; comparisons among swarm
-  runs (repetitions, ablation, web interface against CLI, negative control) do
-  not.
+  checkpoints of runs 2 and 3 of every earlier baseline arm are no longer
+  available. Comparisons of the swarm with these baselines, or with the ensemble
+  built from them, therefore also compare two model configurations, which is why
+  the matched baselines were trained. `build_delong_report.py` stops without
+  these exports, and `build_results_summary.py` and `build_nodec_analysis.py`
+  read its output; `build_matched_baseline_report.py` does not need them.
 * **The run records and helper scripts.** `results/` and `workspaces/` are
   ignored by git, so the checkpoints, per-case predictions, logs and provenance
   files referred to on this page are not in the repository. Neither are the
