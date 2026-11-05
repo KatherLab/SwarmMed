@@ -3,22 +3,24 @@ title: >-
   SwarmMed: an open-source platform for decentralized, collaborative and
   privacy-preserving biomedical data analysis
 message: >-
-  If you use this software, please cite both the software (this file) and the
-  accompanying protocol paper listed under preferred-citation.
+  If you use this software, please cite it using the metadata from this file.
 type: software
 authors:
   - given-names: Kevin
     family-names: Pfeiffer
     affiliation: >-
-      Else Kroener Fresenius Center for Digital Health, Faculty of Medicine and
-      University Hospital Carl Gustav Carus, TUD Dresden University of
-      Technology, Dresden, Germany
+      Institute for Medical AI (IMAI), Heidelberg University Hospital and Medical
+      Faculty of Heidelberg University, Heidelberg, Germany
   - given-names: Jiefu
     family-names: Zhu
     affiliation: >-
-      Else Kroener Fresenius Center for Digital Health, Faculty of Medicine and
-      University Hospital Carl Gustav Carus, TUD Dresden University of
-      Technology, Dresden, Germany
+      Institute for Medical AI (IMAI), Heidelberg University Hospital and Medical
+      Faculty of Heidelberg University, Heidelberg, Germany; Else Kroener
+      Fresenius Center for Digital Health, Faculty of Medicine and University
+      Hospital Carl Gustav Carus, TUD Dresden University of Technology, Dresden,
+      Germany; Department of Medical Oncology, National Center for Tumor
+      Diseases (NCT) Heidelberg, Heidelberg University Hospital, Heidelberg,
+      Germany
   - given-names: Lars Ole
     family-names: Schwen
     affiliation: Fraunhofer Institute for Digital Medicine MEVIS, Bremen, Germany
@@ -38,18 +40,33 @@ authors:
   - given-names: Oliver Lester
     family-names: Saldanha
     affiliation: >-
-      Else Kroener Fresenius Center for Digital Health, TUD Dresden University of
-      Technology, Dresden, Germany
+      Institute for Medical AI (IMAI), Heidelberg University Hospital and Medical
+      Faculty of Heidelberg University, Heidelberg, Germany; Else Kroener
+      Fresenius Center for Digital Health, Faculty of Medicine and University
+      Hospital Carl Gustav Carus, TUD Dresden University of Technology, Dresden,
+      Germany; Department of Medical Oncology, National Center for Tumor
+      Diseases (NCT) Heidelberg, Heidelberg University Hospital, Heidelberg,
+      Germany
   - given-names: Fiona R.
     family-names: Kolbinger
     affiliation: >-
-      Weldon School of Biomedical Engineering, Purdue University, West Lafayette,
-      IN, USA
+      Else Kroener Fresenius Center for Digital Health, Faculty of Medicine and
+      University Hospital Carl Gustav Carus, TUD Dresden University of
+      Technology, Dresden, Germany; Department of Visceral, Thoracic and
+      Vascular Surgery, University Hospital and Faculty of Medicine Carl Gustav
+      Carus, TUD Dresden University of Technology, Dresden, Germany; Weldon
+      School of Biomedical Engineering, Purdue University, West Lafayette, IN,
+      USA
   - given-names: Jakob Nikolas
     family-names: Kather
     affiliation: >-
-      Else Kroener Fresenius Center for Digital Health, TUD Dresden University of
-      Technology, Dresden, Germany
+      Institute for Medical AI (IMAI), Heidelberg University Hospital and Medical
+      Faculty of Heidelberg University, Heidelberg, Germany; Else Kroener
+      Fresenius Center for Digital Health, Faculty of Medicine and University
+      Hospital Carl Gustav Carus, TUD Dresden University of Technology, Dresden,
+      Germany; Department of Medical Oncology, National Center for Tumor
+      Diseases (NCT) Heidelberg, Heidelberg University Hospital, Heidelberg,
+      Germany
     email: kather.jn@tu-dresden.de
 repository-code: https://github.com/KatherLab/SwarmMed
 url: https://github.com/KatherLab/SwarmMed
@@ -59,8 +76,9 @@ abstract: >-
   (SwarmMedHub) and a command-line interface (SwarmMedCLI) over the NVIDIA FLARE
   client-controlled swarm workflow, covering project and consortium setup,
   network provisioning and startup-kit distribution, site-local data registration
-  and sandboxed validation, decentralized training, and results synthesis. Raw
-  patient data never leaves the originating institution.
+  and sandboxed validation, decentralized training, and results synthesis. Sites
+  exchange model parameters and training metadata; no message sent by SwarmMed
+  or NVIDIA FLARE contains raw data.
 keywords:
   - swarm learning
   - federated learning
@@ -69,5 +87,5 @@ keywords:
   - medical imaging
   - biomedical data analysis
 license: Apache-2.0
-version: 1.0.0
-date-released: "2026-09-22"
+version: 1.0.2
+date-released: "2026-11-05"
