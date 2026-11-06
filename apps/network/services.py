@@ -17,9 +17,14 @@ from django.utils.text import slugify
 from logs.logger import get_logger
 from project.models import Project
 
+from .failover import active_server_record, is_valid_server_host, provisioned_server_host
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .provision import generate_flare_startup_kit, is_valid_ip, safe_participant_name
-from .tasks import start_swarm_network_task, stop_swarm_network_task
+from .tasks import (
+    failover_network_task,
+    start_swarm_network_task,
+    stop_swarm_network_task,
+)
 from .utils import (
     create_startup_kits_zip,
     ensure_worker_writable,
@@ -366,6 +371,16 @@ def import_network(
                     dirs_exist_ok=True,
                 )
 
+            # The server's local settings let this site host the FL server as a
+            # standby (see network.failover). Older bundles do not carry them.
+            server_local = os.path.join(participant_dir, "server_local")
+            if os.path.isdir(server_local):
+                shutil.copytree(
+                    server_local,
+                    os.path.join(prod_00_dir, "server", "local"),
+                    dirs_exist_ok=True,
+                )
+
             admin_startup = os.path.join(participant_dir, "admin_startup")
             if os.path.isdir(admin_startup):
                 shutil.copytree(
@@ -688,6 +703,67 @@ def start_network(network: SwarmNetwork, actor: User) -> SwarmNetwork:
     else:
         start_swarm_network_task.delay(str(network.identifier), actor.id)
     return network
+
+
+def failover_network(
+    network: SwarmNetwork,
+    actor: User,
+    *,
+    server_host: str,
+    start_server: bool = False,
+) -> SwarmNetwork:
+    """Enqueue a switch of this Hub's sites to another FL server.
+
+    Args:
+        network: The network whose server was lost.
+        actor: The user making the switch.
+        server_host: Address of the server to use from now on.
+        start_server: Start the FL server at this site (the standby) first.
+    """
+    server_host = str(server_host or "").strip()
+    if not is_valid_server_host(server_host):
+        raise ValueError(
+            f"--server-host must be an IPv4 address, got {server_host!r}."
+        )
+    log = get_logger(user=actor, project=network.project)
+    log.network.info(
+        f"Switching network '{network.name}' (ID: {network.identifier}) to the FL "
+        f"server at {server_host}"
+        + (", started at this site." if start_server else ".")
+    )
+    previous_status = network.status
+    network.status = "STARTING"
+    network.save(update_fields=["status"])
+    run_inline = os.getenv("SWARMMEDHUB_RUN_TASKS_INLINE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    task_args = (
+        str(network.identifier),
+        actor.id,
+        server_host,
+        bool(start_server),
+        previous_status,
+    )
+    if run_inline:
+        failover_network_task(*task_args)
+    else:
+        failover_network_task.delay(*task_args)
+    return network
+
+
+def describe_server_switch(network: SwarmNetwork) -> dict:
+    """Return which FL server this Hub uses for a network."""
+    record = active_server_record(network)
+    provisioned = provisioned_server_host(network)
+    return {
+        "server_host": record.get("server_host") or provisioned,
+        "provisioned_server_host": provisioned,
+        "switched": bool(record.get("server_host")),
+        "switch": record or None,
+    }
 
 
 def stop_network(network: SwarmNetwork, actor: User) -> SwarmNetwork:
