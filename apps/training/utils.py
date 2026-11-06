@@ -151,7 +151,12 @@ def summarize_training_log(log_text: str) -> dict:
 
 
 def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> int:
-    """Extract the Swarm controller round count from an NVFLARE server config."""
+    """Extract the Swarm controller round count from an NVFLARE server config.
+
+    A resumed run starts at ``start_round`` and runs ``num_rounds`` more rounds;
+    its round numbers continue the interrupted run, so the count returned is
+    ``start_round + num_rounds``.
+    """
     for workflow in config.get("workflows", []):
         if not isinstance(workflow, dict):
             continue
@@ -171,10 +176,11 @@ def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> i
 
         try:
             rounds = int(args.get("num_rounds"))
+            start_round = int(args.get("start_round") or 0)
         except (TypeError, ValueError):
             continue
         if rounds > 0:
-            return rounds
+            return rounds + max(start_round, 0)
     return default
 
 

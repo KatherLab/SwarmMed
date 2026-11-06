@@ -82,6 +82,9 @@ What this means for a participating hospital:
 * The coordinating site needs an address the others can reach, and must accept
   inbound connections on the fed-learn port, and on the admin port and 5085 if
   participating sites run a Hub.
+* A site agreed as the standby server (see [Server failover](failover.md)) needs
+  the same address and inbound rules as the coordinating site, in case it has to
+  take over the server.
 
 This is the single most useful fact to put in front of an information security
 committee. For federated training, it is what makes the choice of overlay

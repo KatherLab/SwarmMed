@@ -319,6 +319,15 @@ def create_startup_kits_zip(swarm_network):
                                 f_path = Path(root) / file
                                 client_zip.write(str(f_path), str(Path("server_startup") / f_path.relative_to(srv_dir)))
 
+                    # The server's local settings (job store, scheduler, launcher;
+                    # no keys), so that the site can host the server as a standby.
+                    srv_local_dir = srv_dir.parent / "local"
+                    if srv_local_dir.is_dir():
+                        for root, _, files in os.walk(str(srv_local_dir)):
+                            for file in files:
+                                f_path = Path(root) / file
+                                client_zip.write(str(f_path), str(Path("server_local") / f_path.relative_to(srv_local_dir)))
+
                 main_zip.writestr(f"{item.name}.zip", client_zip_buffer.getvalue())
 
         # Root project files

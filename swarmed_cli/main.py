@@ -235,6 +235,30 @@ def build_parser() -> argparse.ArgumentParser:
     network_status.add_argument("network_identifier")
     network_status.set_defaults(handler="network_status", command_name="network status")
 
+    network_failover = network_subparsers.add_parser(
+        "failover",
+        parents=[common_parent],
+        help="Point this Hub's FL clients and admin connection at another FL server.",
+    )
+    network_failover.add_argument("network_identifier")
+    network_failover.add_argument(
+        "--server-host",
+        required=True,
+        help="IPv4 address of the FL server to use from now on.",
+    )
+    network_failover.add_argument(
+        "--start-server",
+        action="store_true",
+        help=(
+            "Start the FL server at this site first, from the server kit in its "
+            "startup package (this site is the standby)."
+        ),
+    )
+    _add_wait_options(network_failover)
+    network_failover.set_defaults(
+        handler="network_failover", command_name="network failover"
+    )
+
     # training
     training_parser = subparsers.add_parser("training", parents=[common_parent])
     training_subparsers = training_parser.add_subparsers(dest="action")
@@ -272,6 +296,51 @@ def build_parser() -> argparse.ArgumentParser:
     training_stop.add_argument("job_identifier", nargs="?")
     training_stop.add_argument("--network")
     training_stop.set_defaults(handler="training_stop", command_name="training stop")
+
+    training_checkpoints = training_subparsers.add_parser(
+        "checkpoints",
+        parents=[common_parent],
+        help="List the checkpoints of a job at this site that a run can resume from.",
+    )
+    training_checkpoints.add_argument("job_identifier", nargs="?")
+    training_checkpoints.add_argument("--network")
+    training_checkpoints.set_defaults(
+        handler="training_checkpoints", command_name="training checkpoints"
+    )
+
+    training_resume = training_subparsers.add_parser(
+        "resume",
+        parents=[common_parent],
+        help="Continue an interrupted run as a new job from the newest checkpoint here.",
+    )
+    training_resume.add_argument(
+        "job_identifier",
+        nargs="?",
+        help="The interrupted job (default: the network's latest job).",
+    )
+    training_resume.add_argument("--network")
+    training_resume.add_argument(
+        "--checkpoint",
+        help="Model file to start from instead of the newest checkpoint at this site.",
+    )
+    training_resume.add_argument(
+        "--start-round",
+        type=int,
+        help="Round to start at; needed when the checkpoint's round is unknown.",
+    )
+    training_resume.add_argument(
+        "--rounds",
+        type=int,
+        help="Rounds of the whole run (default: the interrupted job's).",
+    )
+    training_resume.add_argument(
+        "--force",
+        action="store_true",
+        help="Submit even if the current FL server still lists the job as running.",
+    )
+    training_resume.set_defaults(
+        handler="training_resume", command_name="training resume"
+    )
 
     # results
     results_parser = subparsers.add_parser("results", parents=[common_parent])
@@ -598,7 +667,38 @@ def run(args: argparse.Namespace):
                     )
             except Exception:
                 pass
+            try:
+                serialized["fl_server"] = network_services.describe_server_switch(network)
+            except Exception:
+                pass
             result = serialized
+
+        elif handler_name == "network_failover":
+            network = resolve_network(state, network_identifier=args.network_identifier)
+            network = network_services.failover_network(
+                network,
+                state.user,
+                server_host=args.server_host,
+                start_server=args.start_server,
+            )
+            if args.wait:
+                network = wait_for_state(
+                    fetch=lambda: _refresh(network),
+                    status_of=lambda item: item.status,
+                    terminal_statuses={"RUNNING", "ERROR"},
+                    interval_seconds=args.interval,
+                    timeout_seconds=args.timeout,
+                )
+                if network.status == "ERROR":
+                    raise ValueError(
+                        f"The switch of network '{network.name}' to the FL server at "
+                        f"{args.server_host} failed (status ERROR). The cause is in the "
+                        "network's log in the web interface and in the worker log."
+                    )
+            result = network_services.serialize_network(
+                network, current_for=state.user, include_participants=True
+            )
+            result["fl_server"] = network_services.describe_server_switch(network)
 
         elif handler_name == "training_start":
             network = resolve_network(state, network_identifier=args.network)
@@ -712,6 +812,35 @@ def run(args: argparse.Namespace):
                 actor=state.user, network=network, job=job
             )
             result = training_services.serialize_training_job(job)
+
+        elif handler_name in {"training_checkpoints", "training_resume"}:
+            if args.network:
+                network = resolve_network(state, network_identifier=args.network)
+            elif args.job_identifier:
+                network = None
+            else:
+                network = resolve_network(state)
+            job = resolve_training_job(
+                state, job_identifier=args.job_identifier, network=network
+            )
+            network = network or job.network
+            if handler_name == "training_checkpoints":
+                result = {
+                    "job_identifier": str(job.identifier),
+                    "flare_job_id": job.flare_job_uuid or job.flare_job_id,
+                    "checkpoints": training_services.list_resume_checkpoints(job),
+                }
+            else:
+                new_job = training_services.resume_training_job(
+                    actor=state.user,
+                    network=network,
+                    from_job=job,
+                    checkpoint_path=args.checkpoint,
+                    start_round=args.start_round,
+                    total_rounds=args.rounds,
+                    force=args.force,
+                )
+                result = training_services.serialize_training_job(new_job)
 
         elif handler_name == "results_sync":
             project = resolve_project(state, args.project)
