@@ -184,9 +184,12 @@ swarmed network create \
 
 Each `--participant NAME=IPv4` needs an IPv4 address that stays assigned to that
 site's host for the study ([Networking](networking.md#addressing)). Without
-`--server-ip`, the FL server's address is this host's Tailscale address. Unless
-`--no-local-client` is given, this host is also added as a training client, named
-after its `SWARMMEDHUB_HOSTNAME`.
+`--server-ip`, the FL server's address is this host's overlay address (NetBird or
+Tailscale); the command fails if the overlay is not connected or the overlay
+helper has not reported for two minutes. A `--server-ip` that is not a usable
+IPv4 address, such as a host name, an IPv6 address or a loopback address, is an
+error. Unless `--no-local-client` is given, this host is also added as a
+training client, named after its `SWARMMEDHUB_HOSTNAME`.
 
 For server/admin-only hosts, prevent the local host from being added as an
 extra training client:

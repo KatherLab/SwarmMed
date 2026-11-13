@@ -9,9 +9,10 @@ import subprocess
 
 from logs.logger import get_logger
 
+from .overlay import get_local_addresses
 from .provision import FED_LEARN_PORT
 from .tasks import _container_name_for, _is_container_running
-from .utils import _safe_cache_get, _safe_cache_set, get_tailscale_ip
+from .utils import _safe_cache_get, _safe_cache_set
 
 logger = get_logger()
 
@@ -25,11 +26,11 @@ def get_local_participant_status(swarm_network):
 
     participants = swarm_network.participants.all()
     server_logs = ""
-    local_ip = get_tailscale_ip()
+    local_addresses = get_local_addresses()
 
     logger.network.debug(
         f"[get_local_participant_status] Checking local status for network "
-        f"{swarm_network.identifier}. Local IP: {local_ip}"
+        f"{swarm_network.identifier}. Local addresses: {sorted(local_addresses)}"
     )
 
     if swarm_network.status == "RUNNING":
@@ -106,7 +107,7 @@ def get_local_participant_status(swarm_network):
     for participant in participants:
         name = participant.participant_id
         role = participant.role.lower()
-        is_me = participant.ip == local_ip
+        is_me = participant.ip in local_addresses
         status = "Offline"
 
         if swarm_network.status == "RUNNING":
@@ -238,7 +239,7 @@ def get_local_participant_status(swarm_network):
         name = participant.participant_id
         if status_map.get(name) not in {"Offline", "Disconnected"}:
             continue
-        if participant.ip != local_ip:
+        if participant.ip not in local_addresses:
             continue
         try:
             docker_path = shutil.which("docker") or "docker"

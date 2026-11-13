@@ -1,0 +1,123 @@
+{
+  "peers": {
+    "total": 3,
+    "connected": 3,
+    "details": [
+      {
+        "fqdn": "fl-client-1.netbird.selfhosted",
+        "netbirdIp": "100.64.0.11",
+        "publicKey": "synthetic-public-key-fl-client-1",
+        "status": "Connected",
+        "lastStatusUpdate": "2026-11-11T10:14:30Z",
+        "connectionType": "P2P",
+        "iceCandidateType": {
+          "local": "host",
+          "remote": "srflx"
+        },
+        "iceCandidateEndpoint": {
+          "local": "192.0.2.10:51820",
+          "remote": "198.51.100.11:51820"
+        },
+        "relayAddress": "",
+        "lastWireguardHandshake": "2026-11-11T10:14:55Z",
+        "transferReceived": 274512,
+        "transferSent": 211368,
+        "latency": 460000,
+        "quantumResistance": false,
+        "networks": null
+      },
+      {
+        "fqdn": "fl-client-2.netbird.selfhosted",
+        "netbirdIp": "100.64.0.12",
+        "publicKey": "synthetic-public-key-fl-client-2",
+        "status": "Connected",
+        "lastStatusUpdate": "2026-11-11T10:14:30Z",
+        "connectionType": "P2P",
+        "iceCandidateType": {
+          "local": "host",
+          "remote": "srflx"
+        },
+        "iceCandidateEndpoint": {
+          "local": "192.0.2.10:51820",
+          "remote": "198.51.100.12:51820"
+        },
+        "relayAddress": "",
+        "lastWireguardHandshake": "2026-11-11T10:14:55Z",
+        "transferReceived": 268100,
+        "transferSent": 209874,
+        "latency": 510000,
+        "quantumResistance": false,
+        "networks": null
+      },
+      {
+        "fqdn": "fl-client-3.netbird.selfhosted",
+        "netbirdIp": "100.64.0.13",
+        "publicKey": "synthetic-public-key-fl-client-3",
+        "status": "Connected",
+        "lastStatusUpdate": "2026-11-11T10:14:30Z",
+        "connectionType": "Relayed",
+        "iceCandidateType": {
+          "local": "relay",
+          "remote": "relay"
+        },
+        "iceCandidateEndpoint": {
+          "local": "",
+          "remote": ""
+        },
+        "relayAddress": "rels://netbird.example.org:443/relay",
+        "lastWireguardHandshake": "2026-11-11T10:14:55Z",
+        "transferReceived": 251876,
+        "transferSent": 198302,
+        "latency": 4200000,
+        "quantumResistance": false,
+        "networks": null
+      }
+    ]
+  },
+  "cliVersion": "0.82.1",
+  "daemonVersion": "0.82.1",
+  "daemonStatus": "Connected",
+  "management": {
+    "url": "https://netbird.example.org:443",
+    "connected": true,
+    "error": ""
+  },
+  "signal": {
+    "url": "https://netbird.example.org:443",
+    "connected": true,
+    "error": ""
+  },
+  "relays": {
+    "total": 2,
+    "available": 2,
+    "details": [
+      {
+        "uri": "stun:netbird.example.org:3478",
+        "available": true,
+        "error": ""
+      },
+      {
+        "uri": "rels://netbird.example.org:443/relay",
+        "available": true,
+        "error": "",
+        "transport": "ws"
+      }
+    ]
+  },
+  "netbirdIp": "100.64.0.10/16",
+  "publicKey": "synthetic-public-key-fl-server",
+  "usesKernelInterface": true,
+  "wireguardPort": 51820,
+  "fqdn": "fl-server.netbird.selfhosted",
+  "quantumResistance": false,
+  "quantumResistancePermissive": false,
+  "networks": null,
+  "dnsServers": [],
+  "events": [],
+  "lazyConnectionEnabled": false,
+  "profileName": "default",
+  "sshServer": {
+    "enabled": false,
+    "sessions": []
+  }
+}

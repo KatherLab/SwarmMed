@@ -50,13 +50,13 @@
           <!-- Title -->
           <div>
             <label for="title" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Title</label>
-            <input type="text" id="title" name="title" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Enter network title" required />
+            <input type="text" id="title" name="title" value="{{ form.title|default:'' }}" class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Enter network title" required />
           </div>
       
           <!-- Description -->
           <div>
             <label for="description" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Description</label>
-            <textarea id="description" name="description" rows="4" class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-purple-700 focus:border-purple-700 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Write a brief project description..."></textarea>
+            <textarea id="description" name="description" rows="4" class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-purple-700 focus:border-purple-700 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-purple-300 dark:focus:border-purple-300" placeholder="Write a brief network description...">{{ form.description|default:'' }}</textarea>
           </div>
 
           <!-- Creation Method -->
@@ -78,13 +78,30 @@
 
           <!-- Conditional UI for Create New -->
           <div id="create-new-options" class="space-y-6">
+            <div id="server-ip-section">
+              <label for="server-ip" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">FL server address{% if not server_ip_required %} (optional){% endif %}</label>
+              {% if form_error %}
+              <div class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-700 dark:text-red-400 border border-red-300 dark:border-red-800" role="alert" id="server-ip-error">{{ form_error }}</div>
+              {% endif %}
+              <input type="text" id="server-ip" name="server_ip" inputmode="decimal" autocomplete="off"
+                pattern="^(\d{1,3}\.){3}\d{1,3}$" title="An IPv4 address, for example 100.64.0.10"
+                value="{{ form.server_ip|default:'' }}" placeholder="{{ overlay_address|default:'100.64.0.10' }}"
+                {% if server_ip_required %}required{% endif %}
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+              />
+              <p class="mt-2 text-sm text-gray-500 dark:text-gray-400" id="server-ip-help">
+                {% if overlay_address and overlay.source == "env" %}Leave empty to use the address from <code>SWARMMEDHUB_LOCAL_ADDRESSES</code>, {{ overlay_address }}.{% elif overlay_address %}Leave empty to use this host's {{ overlay_provider_label }} address, {{ overlay_address }}.{% else %}Enter the address: this host's overlay address cannot be used, because {{ overlay_unavailable_reason }}.{% endif %}
+                The address is written into every startup kit and cannot be changed later, so give an IPv4 address of this host that every site can reach and that stays the same for the study.
+                If it is not one of this host's NetBird or Tailscale addresses, also add it to <code>SWARMMEDHUB_LOCAL_ADDRESSES</code> so that the Hub recognises itself as the server.
+              </p>
+            </div>
             <div id="add-client-section">
               <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Add Client</label>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                 <input type="text" id="client-name" placeholder="client-1"
                   class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                 />
-                <input type="text" id="client-ip" placeholder="192.168.1.101"
+                <input type="text" id="client-ip" placeholder="100.64.0.11"
                   class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                 />
                 <button type="button" onclick="addClientEntry()"
@@ -134,6 +151,7 @@
       
 </main>
 
+{{ form.clients|json_script:"posted-clients" }}
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         const createNewRadio = document.getElementById('create-new');
@@ -141,11 +159,15 @@
         const localTestRadio = document.getElementById('local-test');
         const createNewOptions = document.getElementById('create-new-options');
         const uploadPackageOptions = document.getElementById('upload-package-options');
+        const serverIpInput = document.getElementById('server-ip');
 
+        // A hidden field must not block the form (it may be required), so it is
+        // disabled whenever "Create New Startup Package" is not selected.
         createNewRadio.addEventListener('change', () => {
             if (createNewRadio.checked) {
                 createNewOptions.style.display = 'block';
                 uploadPackageOptions.style.display = 'none';
+                serverIpInput.disabled = false;
             }
         });
 
@@ -153,6 +175,7 @@
             if (uploadPackageRadio.checked) {
                 createNewOptions.style.display = 'none';
                 uploadPackageOptions.style.display = 'block';
+                serverIpInput.disabled = true;
             }
         });
 
@@ -160,8 +183,15 @@
             if (localTestRadio.checked) {
                 createNewOptions.style.display = 'none';
                 uploadPackageOptions.style.display = 'none';
+                serverIpInput.disabled = true;
             }
         });
+
+        // Clients posted with a form that was refused are listed again.
+        const postedClients = JSON.parse(document.getElementById('posted-clients').textContent || '[]');
+        if (Array.isArray(postedClients)) {
+            postedClients.forEach((client) => appendClient(String(client.name || ''), String(client.ip || '')));
+        }
 
         // Handle file selection display for Startup Package (single .zip file)
         setupSingleFileUploadDisplay(
@@ -171,31 +201,42 @@
         );
     });
 
+    function appendClient(name, ip) {
+        const clientList = document.getElementById('client-list');
+        const li = document.createElement('li');
+        li.className = 'flex justify-between items-center p-2';
+
+        const label = document.createElement('span');
+        label.textContent = `${name} - ${ip}`;
+        li.appendChild(label);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'text-sm font-medium text-red-600 hover:underline dark:text-red-500';
+        removeButton.textContent = 'Remove';
+        removeButton.addEventListener('click', () => {
+            li.remove();
+        });
+        li.appendChild(removeButton);
+
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'clients';
+        hiddenInput.value = JSON.stringify({ name, ip });
+        li.appendChild(hiddenInput);
+
+        clientList.appendChild(li);
+    }
+
     function addClientEntry() {
         const clientNameInput = document.getElementById('client-name');
         const clientIpInput = document.getElementById('client-ip');
-        const clientList = document.getElementById('client-list');
 
         const name = clientNameInput.value.trim();
         const ip = clientIpInput.value.trim();
 
         if (name && ip) {
-            const li = document.createElement('li');
-            li.className = 'flex justify-between items-center p-2';
-            li.innerHTML = `<span>${name} - ${ip}</span><button type="button" class="text-sm font-medium text-red-600 hover:underline dark:text-red-500">Remove</button>`;
-            
-            const hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.name = 'clients';
-            hiddenInput.value = JSON.stringify({ name, ip });
-            li.appendChild(hiddenInput);
-
-            clientList.appendChild(li);
-
-            li.querySelector('button').addEventListener('click', () => {
-                li.remove();
-            });
-
+            appendClient(name, ip);
             clientNameInput.value = '';
             clientIpInput.value = '';
         }

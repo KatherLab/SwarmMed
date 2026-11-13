@@ -57,7 +57,10 @@ class MonitorFinishedJobsTests(TestCase):
 
         for target, value in (
             ("training.tasks.logger", MagicMock()),
-            ("network.utils.get_tailscale_ip", MagicMock(return_value="127.0.0.1")),
+            (
+                "network.overlay.get_local_addresses",
+                MagicMock(return_value=frozenset({"127.0.0.1"})),
+            ),
             ("training.utils.scrape_docker_progress", MagicMock(return_value=[])),
         ):
             patcher = patch(target, value)

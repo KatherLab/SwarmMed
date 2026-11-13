@@ -27,12 +27,12 @@ ENV_HELP = {
         "example": "False",
     },
     "DJANGO_ALLOWED_HOSTS": {
-        "desc": "A comma-separated list of host/domain names this site can serve. Please include all hostnames and IPs you will use to access the platform, including tailscale ip.",
-        "example": "localhost,127.0.0.1,192.168.33.107,100.127.11.1",
+        "desc": "A comma-separated list of host/domain names this site can serve. Please include all hostnames and IPs you will use to access the platform, including this host's overlay address (NetBird or Tailscale).",
+        "example": "localhost,127.0.0.1,192.0.2.10,100.64.0.10",
     },
     "DJANGO_CSRF_TRUSTED_ORIGINS": {
         "desc": "A list of trusted origins for Unsafe requests. Include all URLs (with scheme) that will be used to access the platform, especially if using HTTPS or accessing via IP.",
-        "example": "http://localhost:8000,http://localhost:5085,https://localhost:5085,https://100.127.11.1:5085",
+        "example": "http://localhost:8000,http://localhost:5085,https://localhost:5085,https://100.64.0.10:5085",
     },
     "POSTGRES_PASSWORD": {
         "desc": "The password for the PostgreSQL database connection.",
@@ -56,7 +56,7 @@ ENV_HELP = {
     },
     "PUBLIC_URL": {
         "desc": "The public-facing URL for accessing stored files.",
-        "example": "https://100.127.11.1:9000",
+        "example": "https://100.64.0.10:9000",
     },
     "ORGANIZATION_NAME": {
         "desc": "Legal name of the organization operating this platform instance.",
@@ -153,6 +153,10 @@ ENV_HELP = {
     "SWARMMEDHUB_HOSTNAME": {
         "desc": "Custom hostname for the platform deployment.",
         "example": "pc1.tud",
+    },
+    "SWARMMEDHUB_OVERLAY": {
+        "desc": "Overlay network whose address this Hub uses as the FL server address of new networks and to recognise itself among a network's participants: auto (NetBird if it is connected, otherwise Tailscale), netbird, tailscale or none.",
+        "example": "auto",
     },
     "ALLOWED_EXTENSIONS": {
         "desc": "Comma-separated list of allowed file extensions for data import.",
@@ -277,6 +281,13 @@ def setup_env():
 
     Reads `.env.template`, prompts for missing values, generates keys, and
     saves the final configuration to `.env`.
+
+    Answers are read from standard input, a terminal or a pipe. Once the input
+    has ended (Ctrl-D, `</dev/null`, a CI job, `ssh host make start` without
+    input), nothing more is asked: values already in `.env` are kept, a missing
+    value takes the template's default, which is reported, and if a value still
+    holds a placeholder the script stops with exit code 1 and leaves `.env`
+    unchanged.
     """
     template_path = ".env.template"
     env_path = ".env"
@@ -297,6 +308,11 @@ def setup_env():
                     resolved_env[key.strip()] = value.strip()
 
     new_env_lines = []
+    # Once the input has ended, values that would be asked for are not;
+    # placeholders that nobody could replace stop the script before .env is
+    # written.
+    input_ended = False
+    needs_value = []
 
     with open(template_path) as f:
         template_lines = f.readlines()
@@ -365,16 +381,40 @@ def setup_env():
             or template_value.startswith("replace-with-")
             or not template_value
         ):
-            # Prompt for values in ENV_HELP or marked as replace-with
-            print_help(key)
             default_val = template_value
-            # If it's a "replace-with" placeholder, don't use it as the default text in []
-            display_default = (
-                f" [{default_val}]" if not default_val.startswith("replace-with-") else ""
-            )
-
-            val = input(f"❓ Enter {key}{display_default}: ").strip()
-            if not val:
+            val = None
+            if not input_ended:
+                # Prompt for values in ENV_HELP or marked as replace-with
+                print_help(key)
+                # If it's a "replace-with" placeholder, don't use it as the default text in []
+                display_default = (
+                    f" [{default_val}]"
+                    if not default_val.startswith("replace-with-")
+                    else ""
+                )
+                try:
+                    val = input(f"❓ Enter {key}{display_default}: ").strip()
+                except (EOFError, OSError, RuntimeError):
+                    # The input ended (Ctrl-D, </dev/null, the end of a pipe, or
+                    # the terminal went away). RuntimeError: standard input is
+                    # closed (<&-), so there is no sys.stdin to read from.
+                    print()
+                    input_ended = True
+            if val is None:
+                if default_val.startswith("replace-with-"):
+                    needs_value.append(key)
+                else:
+                    used = (
+                        f"used the template default, {default_val}"
+                        if default_val
+                        else "left it empty, as in the template"
+                    )
+                    print(
+                        f"ℹ️ Not asked for {key} (the input ended): {used} "
+                        f"(edit {env_path} to change it)"
+                    )
+                val = default_val
+            elif not val:
                 val = default_val
         else:
             # Keep template default if it's not a placeholder and not in ENV_HELP
@@ -382,6 +422,16 @@ def setup_env():
 
         resolved_env[key] = val
         new_env_lines.append(f"{key}={val}")
+
+    if needs_value:
+        state = "was not changed" if os.path.exists(env_path) else "was not written"
+        print(
+            "\n❌ These values still hold placeholders and could not be asked for "
+            f"(the input ended): {', '.join(needs_value)}.\n"
+            f"   Run `make env` in a terminal and enter them, or set them in "
+            f"{env_path}, then run the command again. {env_path} {state}."
+        )
+        sys.exit(1)
 
     write_env_file(env_path, new_env_lines)
 

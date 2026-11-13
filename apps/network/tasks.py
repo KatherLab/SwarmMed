@@ -34,7 +34,8 @@ from logs.models import LogCategory, LogEntry
 from project.models import Project
 
 from .models import SwarmNetwork
-from .utils import ensure_worker_writable, get_hostname, get_tailscale_ip
+from .overlay import get_local_addresses
+from .utils import ensure_worker_writable, get_hostname
 
 
 def run_and_log_subprocess(command, cwd, env, logger):
@@ -694,19 +695,15 @@ def _resolve_local_client_names(project_yml_path, base_prod_path):
     candidates = _read_local_client_names_metadata(base_prod_path)
     candidates.update(_read_local_hostname_candidates())
 
-    local_ip = str(get_tailscale_ip() or "").strip()
-    try:
-        ipaddress.ip_address(local_ip)
-        valid_local_ip = True
-    except ValueError:
-        valid_local_ip = False
-
-    if valid_local_ip:
+    # Every overlay address of this host (NetBird and Tailscale) counts, so a
+    # kit provisioned with either address is recognised.
+    local_addresses = get_local_addresses()
+    if local_addresses:
         project_client_ip_map = _read_project_client_ip_map(
             project_yml_path, base_prod_path=base_prod_path
         )
         for participant_name, participant_ip in project_client_ip_map.items():
-            if participant_ip == local_ip:
+            if participant_ip in local_addresses:
                 candidates.add(participant_name)
 
     return candidates
@@ -1703,7 +1700,8 @@ def start_swarm_network_task(network_id, user_id):
                     raise RuntimeError(
                         "Client-only mode found multiple client startup kits but "
                         "could not match SWARMMEDHUB_LOCAL_PARTICIPANT, hostname, "
-                        "or local Tailscale IP. Set SWARMMEDHUB_LOCAL_PARTICIPANT "
+                        "or one of this host's overlay addresses (NetBird or "
+                        "Tailscale). Set SWARMMEDHUB_LOCAL_PARTICIPANT "
                         "to the intended site name, for example node_A."
                     )
 

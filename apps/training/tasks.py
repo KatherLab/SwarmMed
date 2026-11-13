@@ -104,11 +104,11 @@ def monitor_training_jobs():
     Discovers new jobs from the FLARE server, scrapes local Docker logs for 
     real-time progress, and automatically uploads finalized results to S3.
     """
-    from network.utils import get_tailscale_ip
+    from network.overlay import get_local_addresses
 
     from .utils import scrape_docker_progress
 
-    local_ip = get_tailscale_ip()
+    local_addresses = get_local_addresses()
     log = logger.get_logger()
 
     # 1. DISCOVERY: Find jobs on the FLARE server that aren't in our local database.
@@ -175,7 +175,7 @@ def monitor_training_jobs():
     # 2. LOCAL DOCKER SCRAPING: Check running containers for progress
     for network in active_networks:
         try:
-            local_participants = network.participants.filter(ip=local_ip)
+            local_participants = network.participants.filter(ip__in=local_addresses)
             participant_ids = [p.participant_id for p in local_participants]
             docker_results = scrape_docker_progress(
                 participant_ids=participant_ids

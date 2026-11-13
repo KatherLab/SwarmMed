@@ -7,12 +7,15 @@ UV_INSTALL_SCRIPT := https://astral.sh/uv/install.sh
 PYTHON_VERSION ?= 3.12
 MKDOCS_CONFIG := mkdocs.yml
 SECRETS_DIRS := .secrets/certs .secrets/docker .secrets/pgbouncer
+# The overlay helper runs with the host's python3 (standard library only).
+OVERLAY_PYTHON ?= python3
+OVERLAY_LOG := tmp/overlay_watcher.log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-uv install-python install deinstall deinstall-docker env env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-debug migrate shell test superuser tailscale
+.PHONY: help check-uv install-python install deinstall deinstall-docker env env-setup setup-pgbouncer generate-certs setup start stop restart docs-install docs-serve docs-build venv compose-build compose-up compose-down compose-down-v logs sandbox-build sandbox-up sandbox-down restart-debug migrate shell test superuser overlay overlay-stop tailscale
 
-MAIN_TARGETS := start stop restart logs  migrate shell test superuser docs-serve docs-build venv deinstall env
+MAIN_TARGETS := start stop restart logs overlay migrate shell test superuser docs-serve docs-build venv deinstall env
 
 help: ## Show available targets
 	@echo "✨ Main targets:"
@@ -40,7 +43,7 @@ install: install-python ## Install project dependencies with uv
 	fi
 	@$(UV) pip install -e .
 
-deinstall: deinstall-docker ## Remove uv-managed environment, caches, and generated artifacts
+deinstall: overlay-stop deinstall-docker ## Remove uv-managed environment, caches, and generated artifacts
 	@echo "🧹 Tearing down uv environment, caches, and generated artifacts"
 	@rm -rf .venv .cache/uv staticfiles _build tmp workspaces || true
 	@rm -rf .secrets/certs .secrets/docker .secrets/pgbouncer 2>/dev/null || true
@@ -76,12 +79,29 @@ setup: install env-setup setup-pgbouncer generate-certs ## Bootstrap secrets, sc
 	@echo "🧰 Bootstrapping secrets, scripts, and certs"
 	@echo "Environment setup complete"
 
-tailscale: ## Start the background Tailscale watcher
-	@echo "📡 Starting Tailscale watcher in background"
-	@chmod +x scripts/tailscale_watcher.sh
-	@./scripts/tailscale_watcher.sh >/dev/null 2>&1 &
+# --status and --stop go by the helper's lock on tmp/overlay_watcher.pid, so a PID
+# file left behind by a killed helper never counts as a running helper.
+overlay: ## Start the overlay helper (records this host's NetBird or Tailscale address)
+	@mkdir -p tmp
+	@PID=$$($(OVERLAY_PYTHON) scripts/overlay_watcher.py --status); \
+	case $$? in \
+		0) echo "📡 Overlay helper already running (PID $$PID)" ;; \
+		3) exit 1 ;; \
+		*) echo "📡 Starting the overlay helper in the background (log: $(OVERLAY_LOG))"; \
+		   nohup $(OVERLAY_PYTHON) scripts/overlay_watcher.py >> $(OVERLAY_LOG) 2>&1 & ;; \
+	esac
 
-start: setup tailscale compose-build compose-up ## Prepare the env, build assets, and start the services
+overlay-stop: ## Stop the overlay helper
+	@PID=$$($(OVERLAY_PYTHON) scripts/overlay_watcher.py --stop); \
+	case $$? in \
+		0) echo "📡 Overlay helper stopped (PID $$PID)" ;; \
+		3) exit 1 ;; \
+		*) echo "📡 Overlay helper not running" ;; \
+	esac
+
+tailscale: overlay ## Old name of the overlay target
+
+start: setup overlay compose-build compose-up ## Prepare the env, build assets, and start the services
 	@echo "⚙️ Kicking off SwarmMedHub services"
 	@echo "SwarmMedHub services are running"
 

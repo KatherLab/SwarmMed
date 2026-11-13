@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "provider": "netbird",
+  "ip": null,
+  "connected": false,
+  "state": "Connecting",
+  "peers": {
+    "connected": 0,
+    "total": 0
+  },
+  "installed": true,
+  "error": "management: rpc error: code = FailedPrecondition desc = failed connecting to Management Service : create connection: dial context: context deadline exceeded",
+  "updated_at": "2026-11-11T10:31:11Z",
+  "interval_seconds": 30,
+  "watcher_mode": "auto",
+  "providers": {
+    "netbird": {
+      "installed": true,
+      "ip": null,
+      "connected": false,
+      "state": "Connecting",
+      "peers": {
+        "connected": 0,
+        "total": 0
+      },
+      "error": "management: rpc error: code = FailedPrecondition desc = failed connecting to Management Service : create connection: dial context: context deadline exceeded"
+    },
+    "tailscale": {
+      "installed": false,
+      "ip": null,
+      "connected": null,
+      "state": null,
+      "peers": null,
+      "error": null
+    }
+  }
+}

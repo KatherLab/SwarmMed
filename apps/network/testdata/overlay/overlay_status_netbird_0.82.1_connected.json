@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "provider": "netbird",
+  "ip": "192.0.2.13",
+  "connected": true,
+  "state": "Connected",
+  "peers": {
+    "connected": 1,
+    "total": 1
+  },
+  "installed": true,
+  "error": null,
+  "updated_at": "2026-11-11T10:28:42Z",
+  "interval_seconds": 30,
+  "watcher_mode": "auto",
+  "providers": {
+    "netbird": {
+      "installed": true,
+      "ip": "192.0.2.13",
+      "connected": true,
+      "state": "Connected",
+      "peers": {
+        "connected": 1,
+        "total": 1
+      },
+      "error": null
+    },
+    "tailscale": {
+      "installed": false,
+      "ip": null,
+      "connected": null,
+      "state": null,
+      "peers": null,
+      "error": null
+    }
+  }
+}

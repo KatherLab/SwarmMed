@@ -738,18 +738,18 @@ def training_status_api(request):
     
     # Identify server node and local state
     server_node = current_network.participants.filter(role="SERVER").first()
-    from network.utils import get_tailscale_ip
-    local_ip = get_tailscale_ip()
-    is_server_node = server_node and server_node.ip == local_ip
+    from network.overlay import get_local_addresses
+    local_addresses = get_local_addresses()
+    is_server_node = bool(server_node and server_node.ip in local_addresses)
     
-    logger.training.debug(f"StatusAPI: local_ip={local_ip}, server_ip={server_node.ip if server_node else 'N/A'}, is_server_node={is_server_node}")
+    logger.training.debug(f"StatusAPI: local_addresses={sorted(local_addresses)}, server_ip={server_node.ip if server_node else 'N/A'}, is_server_node={is_server_node}")
     
     job = TrainingJob.objects.filter(network=current_network).order_by("-created_at").first()
     if job:
         logger.training.debug(f"StatusAPI: Most recent job in DB: {job.flare_job_id} (status: {job.status})")
     
     # NEW: Scrape local docker logs for progress (User priority)
-    local_participants = current_network.participants.filter(ip=local_ip)
+    local_participants = current_network.participants.filter(ip__in=local_addresses)
     participant_ids = [p.participant_id for p in local_participants]
     
     logger.training.debug(f"StatusAPI: Local participant IDs: {participant_ids}")
@@ -780,17 +780,17 @@ def training_status_api(request):
         if admin_target:
             _, _, effective_server_ip = admin_target
     
-    if effective_server_ip and effective_server_ip != "-" and effective_server_ip != local_ip:
+    if effective_server_ip and effective_server_ip != "-" and effective_server_ip not in local_addresses:
         mirror_targets.append(("SERVER", effective_server_ip))
         
     # Target B: Other Online Clients (Fallback)
     # We poll recent peers to find the active job initiator
-    other_clients = current_network.participants.filter(role="CLIENT").exclude(ip__in=[local_ip, "-", ""]).order_by("-last_seen")[:3]
+    other_clients = current_network.participants.filter(role="CLIENT").exclude(ip__in=[*local_addresses, "-", ""]).order_by("-last_seen")[:3]
     for oc in other_clients:
         if oc.ip not in [t[1] for t in mirror_targets]:
             mirror_targets.append(("CLIENT", oc.ip))
 
-    local_participant = current_network.participants.filter(ip=local_ip).order_by("role").first()
+    local_participant = current_network.participants.filter(ip__in=local_addresses).order_by("role").first()
     
     # We use the network gossip token as the shared token for all internal P2P communication.
     # This allows nodes to trust each other without a central registry.

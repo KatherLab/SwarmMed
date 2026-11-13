@@ -1,6 +1,7 @@
 """Utility functions for the network app.
-Provides helpers for Tailscale integration, machine identification,
-and packaging startup kits into zip files.
+Provides machine identification, packaging of startup kits into zip files,
+and the old names of the overlay-address helpers, which now live in
+``network.overlay``.
 """
 
 import io
@@ -8,13 +9,7 @@ import json
 import os
 import pwd
 import random
-import shutil
 import stat
-
-# Bandit B404: subprocess is required for tailscale CLI integration; no shell=True usage.
-import subprocess  # nosec B404
-import urllib.error
-import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -22,6 +17,10 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils.text import slugify
 
+from .overlay import get_overlay_ip, is_overlay_connected
+
+# Old location of the status file, written by the old scripts/tailscale_watcher.sh.
+# network.overlay still reads it (computing the path at call time).
 TAILSCALE_STATUS_FILE = Path(settings.BASE_DIR) / "tmp" / "tailscale_status.json"
 
 
@@ -92,7 +91,7 @@ def _safe_cache_set(key, value, timeout):
 
 
 def _read_tailscale_file():
-    """Reads Tailscale status from the shared JSON file.
+    """Reads the old helper's status file (kept for scripts that import it).
 
     Returns:
         dict: The status data or None if unavailable.
@@ -100,55 +99,29 @@ def _read_tailscale_file():
     if not TAILSCALE_STATUS_FILE.exists():
         return None
     try:
-        with open(TAILSCALE_STATUS_FILE, "r") as f:
+        with open(TAILSCALE_STATUS_FILE) as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return None
 
 
 def get_tailscale_ip():
-    """Retrieves the current machine's Tailscale IPv4 address.
+    """Old name of ``network.overlay.get_overlay_ip``.
 
-    The result is cached for 5 minutes to improve performance.
-
-    Returns:
-        str: The Tailscale IP address, or 'Not Available' if failed.
+    Returns this host's overlay address (NetBird or Tailscale, as selected by
+    SWARMMEDHUB_OVERLAY), or 'Not Available'.
     """
-    cached_ip = _safe_cache_get("tailscale_ip")
-    if cached_ip:
-        return cached_ip
-
-    # Try reading from shared file
-    payload = _read_tailscale_file()
-    if payload and payload.get("ipv4"):
-        ip = payload["ipv4"]
-        _safe_cache_set("tailscale_ip", ip, 300)
-        return ip
-
-    return "Not Available"
+    return get_overlay_ip()
 
 
 def is_tailscale_connected():
-    """Checks if Tailscale is currently connected.
+    """Old name of ``network.overlay.is_overlay_connected``.
 
-    Returns:
-        str: "connected", "disconnected", or "Not Available".
+    Returns "connected", "disconnected" or "Not Available"; a stale status
+    counts as "disconnected", as this function never returned "stale".
     """
-    cached_state = _safe_cache_get("tailscale_connected")
-    if cached_state is not None:
-        return cached_state
-
-    # Try reading from shared file
-    payload = _read_tailscale_file()
-    if payload:
-        connected = payload.get("connected")
-        # Handle both boolean and string "true" from the watcher
-        is_connected = str(connected).lower() == "true"
-        status = "connected" if is_connected else "disconnected"
-        _safe_cache_set("tailscale_connected", status, 30)
-        return status
-
-    return "Not Available"
+    state = is_overlay_connected()
+    return "disconnected" if state == "stale" else state
 
 
 def get_hostname():

@@ -27,12 +27,25 @@ The [installation guide](docs/installation.md) describes each step and what it c
 
 - **Linux** on every host that runs the FL server or trains ([operating systems](docs/os-support.md)); people who only use the web interface can use any operating system with a current browser.
 - **Hardware** for the platform alone: at least 4 cores, 8 GB RAM and 100 GB disk; sites that train need what their model needs, for the breast-MRI example an NVIDIA GPU ([hardware](docs/hardware.md)).
-- [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/), usable without `sudo`, and `git`, `make`, `curl`, `openssl` and `jq`. Sites that train on a GPU also need the NVIDIA driver and the NVIDIA Container Toolkit.
+- [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/), usable without `sudo`, and `git`, `make`, `curl`, `openssl` and `python3` (3.8 or later). Sites that train on a GPU also need the NVIDIA driver and the NVIDIA Container Toolkit.
 - **Internet access during installation, including `github.com`.** MinIO no longer publishes community images (`minio/minio` no longer exists on Docker Hub), so the stack builds MinIO `RELEASE.2025-09-07T16-13-09Z` from its pinned upstream source (`infrastructure/minio/`).
 
-### 🌐 2. VPN Network (Tailscale)
+### 🌐 2. Overlay Network (NetBird or Tailscale)
 
-Federated training does not need an overlay network, but two features of the web interface use Tailscale: a network created in the web interface takes this host's Tailscale address as the FL server's address, and a Hub recognises itself among a network's participants by it. Without Tailscale, create networks with the CLI and `--server-ip` ([networking](docs/networking.md)).
+Federated training does not need an overlay network, but two features of the web interface use this host's overlay address: the network form proposes it as the FL server's address, and a Hub recognises itself among a network's participants by it. Without an overlay, enter the server address in the form or use the CLI's `--server-ip`; [networking](docs/networking.md#the-overlay-helper-and-the-hub) explains `SWARMMEDHUB_OVERLAY=none` and `SWARMMEDHUB_LOCAL_ADDRESSES` for that case.
+
+The recommended option is [NetBird](https://netbird.io/) with a management server that the consortium hosts itself ([self-hosting quickstart](https://docs.netbird.io/selfhosted/selfhosted-quickstart)), so that no third party mediates the connections between the sites; [networking](docs/networking.md#netbird-recommended) describes the setup keys, groups and access policy for a study. NetBird Cloud ([app.netbird.io](https://app.netbird.io/)) is a quick way to try it. Tailscale, which the worked example used, optionally with a self-hosted Headscale control server, and WireGuard, OpenVPN or IPSec are the alternatives ([options](docs/networking.md#options)). NetBird's client is licensed under BSD-3-Clause; its management, signal and relay servers have been licensed under AGPL-3.0 since v0.53.0. With SwarmMed, NetBird has so far been exercised only in a containers-only test on one host ([validation status](docs/networking.md#validation-status)).
+
+```bash
+# 🌐 Install NetBird (the script uses NetBird's apt, dnf or yum repository when it finds one)
+curl -fsSL https://pkgs.netbird.io/install.sh | sh
+
+# 🔑 Join the consortium's network with a setup key from its management server
+sudo netbird up --management-url https://netbird.example.org --setup-key <SETUP_KEY>
+netbird status    # NetBird IP: 100.64.0.10/16; Management and Signal: Connected
+```
+
+For a trial on NetBird Cloud, leave out `--management-url`. Other platforms and package repositories are described in the [NetBird documentation](https://docs.netbird.io/get-started/install/linux). To use Tailscale instead:
 
 ```bash
 # 🌐 Install Tailscale (example for Ubuntu; $(lsb_release -cs) is the release codename)
@@ -47,7 +60,10 @@ sudo tailscale up
 An installation guide for other platforms can be found in the [Tailscale documentation](https://tailscale.com/docs/install).
 
 > [!NOTE]
-> SwarmMed does not install, configure or join Tailscale. `make start` launches a helper on the host that reads the address with `tailscale ip -4` every 30 seconds, so check that this command prints it. After a reboot, start the helper again with `make tailscale`.
+> SwarmMed does not install, configure or join the overlay. `make start` launches a helper on the host, `scripts/overlay_watcher.py`, that records this host's NetBird and Tailscale addresses and states every 30 seconds; `SWARMMEDHUB_OVERLAY` in `.env` (`auto`, `netbird`, `tailscale` or `none`) selects whose address the Hub uses. After a reboot, start the helper again with `make overlay`.
+
+> [!WARNING]
+> On a Linux host that runs both NetBird and Tailscale, NetBird's traffic is likely to be dropped: according to Tailscale's documentation and code, its default firewall rule drops packets from 100.64.0.0/10 that do not arrive on Tailscale's interface, and NetBird's default addresses lie in that range. Neither this nor the remedies (a NetBird address range outside 100.64.0.0/10, Tailscale's `disable-linux-cgnat-drop-rule` node attribute, or `--netfilter-mode=nodivert`) have been tested with SwarmMed ([hosts that also run Tailscale](docs/networking.md#hosts-that-also-run-tailscale)).
 
 ### 🚢 3. Deploy Application
 Clone the repository and navigate to the project directory:
@@ -136,8 +152,8 @@ sudo update-ca-certificates
 
 Browsers on other computers, which reach the host by its name or address, show the warning even with the CA trusted, because the certificate does not name the host. Every `make start` creates a new CA, so trust the new `ca.crt` after each one. Details are in the [installation guide](docs/installation.md).
 
-### No Tailscale Connection
-If you encounter connectivity issues with the VPN:
+### No Overlay Connection
+The **Network** page shows the address and state that the overlay helper last recorded, and marks them as stale when the helper has stopped; start it again with `make overlay`, and see `tmp/overlay_watcher.log` for the changes it recorded. For NetBird, `netbird status -d` shows whether the management and signal servers are reachable, and every peer that an access policy connects with this host. For Tailscale, if DNS stops working after joining:
 ```bash
 tailscale set --accept-dns=false
 sudo systemctl restart tailscaled
@@ -170,11 +186,13 @@ To also remove the code, `.env` and anything else left in the directory, run fro
 sudo rm -r SwarmMed
 ```
 
-### 3. Remove Tailscale (Optional)
-If you no longer need Tailscale:
+### 3. Remove the Overlay Client (Optional)
+If you no longer need NetBird or Tailscale, remove the client (Debian and Ubuntu packages):
 ```bash
-sudo apt remove tailscale
+sudo apt remove netbird      # NetBird
+sudo apt remove tailscale    # Tailscale
 ```
+NetBird keeps the host's state, including its private key, in `/var/lib/netbird`; delete that directory too. Then remove the host in the NetBird dashboard or the Tailscale admin console.
 
 ## 📄 License
 
