@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Stopping a network from the web interface or with `swarmed network stop`
   failed in 1.0.0 to 1.0.2: the stop task had lost its Celery task decorator.
+- New installations: the Celery worker restarted in a loop. kombu 5.7.0 (released on
+  3 November 2026) needs redis-py 6.4 or later, SwarmMed pins redis 5.0.1, and the
+  Dockerfiles install without `uv.lock`, so every image built since then got kombu
+  5.7.0. kombu is now pinned to 5.6.2.
 
 ## [1.0.2] - 2026-11-05
 
