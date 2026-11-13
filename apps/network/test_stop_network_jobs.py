@@ -41,3 +41,14 @@ class StopNetworkJobsTests(TestCase):
         self.assertEqual(self.running.status, "STOPPED")
         self.assertIsNotNone(self.running.completed_at)
         self.assertEqual(self.finished.status, "COMPLETED")
+
+
+class StopTaskQueueTests(TestCase):
+    def test_the_stop_task_can_be_queued(self):
+        # stop_network() and the admin action call .delay(). Without the Celery
+        # task decorator that raised AttributeError and left the network in
+        # STOPPING (1.0.0 to 1.0.2).
+        self.assertTrue(callable(getattr(stop_swarm_network_task, "delay", None)))
+        with patch.object(stop_swarm_network_task, "apply_async") as apply_async:
+            stop_swarm_network_task.delay("network-id", 1)
+        apply_async.assert_called_once()
