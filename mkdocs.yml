@@ -5,23 +5,31 @@ repo_url: https://github.com/KatherLab/SwarmMed
 
 nav:
     - Home: index.md
-    - Background: background.md
-    - Security: security.md
-    - Threat Model: threat-model.md
-    - Hardware: hardware.md
-    - Networking: networking.md
-    - Operating Systems: os-support.md
-    - SwarmMed and NVFlare: nvflare-comparison.md
-    - Runtime Backend and Portability: runtime-backend.md
-    - Explainability: explainability.md
-    - Scalability: scalability.md
-    - Getting Started: getting-started.md
-    - Usage: usage.md
-    - Reproducing the Worked Example: reproduce.md
-    - Installation: installation.md
-    - Developer: developer.md
-    - CLI: cli.md
-    - Contribution: contribution.md
+    - Concepts:
+        - Background: background.md
+        - SwarmMed and NVIDIA FLARE: nvflare-comparison.md
+        - Runtime backend and portability: runtime-backend.md
+    - Set up:
+        - Getting started: getting-started.md
+        - Installation: installation.md
+        - Operating systems: os-support.md
+        - Hardware: hardware.md
+        - Networking: networking.md
+    - Build a task:
+        - Templates: templates.md
+        - Bring your own task: bring-your-own-task.md
+        - Code bundle reference: developer.md
+    - Run a study:
+        - Web interface: usage.md
+        - CLI: cli.md
+        - Explainability: explainability.md
+    - Security:
+        - Threat model: threat-model.md
+        - Security controls: security.md
+    - Results:
+        - Breast MRI worked example: reproduce.md
+        - Scalability benchmark: scalability.md
+    - Contributing: contribution.md
 
 extra:
   generator: false
@@ -78,7 +86,6 @@ theme:
     - navigation.sections
     - navigation.expand
     - navigation.path
-    - navigation.indexes
     - navigation.footer
     - navigation.top
     - toc.integrate

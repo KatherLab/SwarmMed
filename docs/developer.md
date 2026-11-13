@@ -7,15 +7,16 @@ description: A guide for developers to write shared project scripts for SwarmMed
 
 This guide describes the shared project script contract used by both SwarmMedHub and the `swarmed` CLI. The same project code bundle can be imported through the web UI or with `swarmed project create --code-dir PATH` or `swarmed project update --code-dir PATH`. The CLI runs inside the application container, so `PATH` must lie inside the repository directory ([CLI](cli.md)).
 
-SwarmMed supports four script types:
+SwarmMed supports five script types:
 
 *   **Data Validation Scripts:** Verify the quality and format of your datasets.
 *   **Data Visualization Scripts:** Explore your datasets through plots and charts.
 *   **Training Scripts (NVFlare):** Custom machine learning logic for decentralized training.
 *   **Results Visualization Scripts:** Analyze and visualize the models and metrics produced by training.
+*   **Explainability Scripts:** Explain a trained model's predictions case by case for review at the site.
 
 !!! tip "Example Code"
-    You can find example scripts in the [examples/](https://github.com/KatherLab/SwarmMed/tree/main/examples) directory of the repository.
+    Templates for several kinds of data are listed in [Templates](templates.md), and [Bring your own task](bring-your-own-task.md) walks through writing a bundle; the framework examples are in the [examples/](https://github.com/KatherLab/SwarmMed/tree/main/examples) directory of the repository.
 
 !!! tip "Testing Locally"
     Validation and visualization scripts need no network: run them from the **Data** page or with `swarmed data validate` and `swarmed data visualize`. To test a training script on a single host, create a local test network, either by selecting `Test in local environment` as the creation method in the network settings or with `swarmed network create --local-test`, and review the output on the logs page.
@@ -25,7 +26,7 @@ SwarmMed supports four script types:
 Both interfaces use the same project bundle layout:
 
 *   **Required:** `training.py`
-*   **Optional:** `requirements.txt`, `validation.py`, `visualization.py`, `results_visualization.py`
+*   **Optional:** `requirements.txt`, `validation.py`, `visualization.py`, `results_visualization.py`, `explainability.py`
 *   **Additional support files:** Preserved relative to the project root and imported under the training code layout
 
 This shared bundle is what lets the same project be created and executed through either SwarmMedHub or the local `swarmed` workflow.
@@ -501,6 +502,36 @@ In addition to the standard methods, the results visualization object includes:
         main()
     ```
 
+## Explainability Scripts
+
+`explainability.py` explains a trained model's predictions case by case. It runs in the sandbox like `results_visualization.py`, with the site's data and the job's result files in its manifest, and the Hub shows the cases it adds on the **Results** page, where project members review them ([Explainability](explainability.md#in-swarmmedhub)). Upload it in its own field on the project form (the web folder upload stores every `.py` file as training code) or put it at the root of a `--code-dir`.
+
+### `explain` Object
+
+The sandbox defines a global `explain` before the script starts:
+
+*   **`listdir(relative_path="")`**, **`exists(relative_path)`**, **`open(relative_path, mode="rb")`**: Read the manifest's files (the site's data under its own paths, the job's result files under `results/<participant>/<file>`).
+*   **`get_model(client_name="fl-client-1", model_filename="model.pt")`** and **`load_weights(model, client_name="fl-client-1", model_filename="model.pt", *, strict=False)`**: As for results visualization; PyTorch files are loaded with `weights_only=True` and NVIDIA FLARE's checkpoint dict is unwrapped.
+*   **`add_case(case_id, *, label=None, prediction=None, score=None, target=None, outcome=None, details=None)`**: Adds a case. `case_id` is the site's pseudonymous ID (`[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`); `outcome` is `TP`, `FP`, `FN`, `TN`, `correct`, `incorrect` or `None`; `details` is a small flat dict of text, numbers or booleans and must not hold identifiers (keys containing `name`, `patient`, `birth`, `dob`, `mrn`, `address`, `phone`, `email`, `ssn`, `insurance` or `accession` are refused).
+*   **`add_panel(case_id, method, title=None)`**: Saves the current matplotlib figure as one panel of the case and closes it. A panel whose method is `raw` or `input` shows the model's input rather than a map; it stays visible in blinded review.
+*   **`add_summary(title)`**: Saves the current figure as a run-level figure.
+*   **`set_info(methods=[...], target=..., notes=..., metrics={...})`**: Run-level information shown above the cases.
+
+Limits: 24 cases, 4 panels per case, 4 summary figures. Every call checks its values and raises `ValueError` on a broken rule. The package `swarmmed_explain` (occlusion, integrated gradients, gradient × input, Grad-CAM, feature ablation, permutation importance, case selection, rank agreement and plotting helpers) can be imported; its README (`swarmmed_explain/README.md`) documents the methods and has a complete example, and every template under `examples/` has an `explainability.py`.
+
+A script that raises an exception or exits with a non-zero code stores nothing, and its output (the last 64 KiB) is shown on the Results page. To test a script on your own machine, or to explain a model that needs a GPU, run it with `python -m swarmmed_explain.run_local --script explainability.py --data DATA_DIR --model FL_global_model.pt --out BUNDLE_DIR` and import the bundle with `swarmed results explain-import`.
+
+### How the Hub Runs It
+
+`results.tasks.run_results_explanation_task` builds the manifest, then `data.sandbox.run_script_in_sandbox(..., run_type="explainability")`:
+
+1.  writes the project's script as `explainability.py` into the run folder, next to `script.py` (the wrapper from `swarmmed_explain.helper.wrapper_source()`) and a copy of the `swarmmed_explain` package (`copy_package`; the package is not built into the sandbox image);
+2.  runs the container with the explainability limits (below), named `swarmmedhub-explain-<run UUID>` so that **Stop** can remove it;
+3.  only if the script exited with code 0 within the time limit, copies the bundle the script wrote (`explain/`) with `swarmmed_explain.bundle.safe_copy_bundle` into a private folder: fixed file names only, no symbolic links, FIFOs or hard links, size caps, strict JSON, and every PNG decoded and re-encoded (which drops PNG text chunks);
+4.  stores the cases, panels and summaries (`ExplanationRun`, `ExplanationCase`, `ExplanationPanel`, `ExplanationSummary` in `apps/results/models.py`) and the images under `<project>/plots/explanations/<run UUID>/` in the Hub's object storage.
+
+Reviews (`ExplanationReview`) are append-only rows; `ExplanationReader` keeps each reviewer's blinded mode per run and whether the run's model output was already shown to them. The services shared by the web interface and the CLI are in `apps/results/explanations.py`, the views in `apps/results/explain_views.py`.
+
 ## 🧠 Training Scripts (NVFlare)
 
 Custom training code is executed within the NVIDIA FLARE framework. This training contract is shared by SwarmMedHub and `swarmed`. We provide a `flare_adapter.py` module to simplify data access and model exchange; SwarmMedHub copies it into every job next to `training.py`, so the script can `import flare_adapter`.
@@ -703,7 +734,7 @@ When training starts, SwarmMedHub builds an NVFlare job from the project's store
 
 ## 📦 Sandbox Environment
 
-Validation, visualization and results visualization scripts run in short-lived containers of the `swarmmedhub-sandbox` image on the separate `sandbox-dind` Docker daemon. Each container is limited to 1 CPU and 1 GB of memory, runs as an unprivileged user and is removed after at most 300 s. Its network is isolated from the platform's internal database network (`db_network`), preventing access to the host Docker daemon proxy (`docker-proxy`), PostgreSQL, or Redis ([Security](security.md#script-sandbox)).
+Validation, visualization and results visualization scripts run in short-lived containers of the `swarmmedhub-sandbox` image on the separate `sandbox-dind` Docker daemon. Each container is limited to 1 CPU and 1 GB of memory, runs as an unprivileged user and is removed after at most 300 s. Explainability scripts have their own limits, read from the environment of the Celery worker: `SWARMMEDHUB_EXPLAIN_MEM_LIMIT` (default `2g`), `SWARMMEDHUB_EXPLAIN_CPUS` (default `2`) and `SWARMMEDHUB_EXPLAIN_TIMEOUT` (seconds, default `900`, at most `3000` because the data URLs in the manifest expire after an hour); invalid values fall back to the defaults with a warning. `sandbox-dind` itself is limited to 4 GB of memory in `docker-compose.yml`. Its network is isolated from the platform's internal database network (`db_network`), preventing access to the host Docker daemon proxy (`docker-proxy`), PostgreSQL, or Redis ([Security](security.md#script-sandbox)).
 
 The execution environment (sandbox) comes pre-installed with the following libraries:
 

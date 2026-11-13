@@ -52,10 +52,11 @@ See [CLI](cli.md).
    macOS and Windows Docker Desktop, or selectable on Linux via
    `SWARMMEDHUB_CLIENT_HOST_NETWORK=false`).
 
-The Docker-in-Docker sandbox, in which site validation and visualisation scripts
-run, needs a privileged container on a Linux kernel, which both native Linux
-Docker Engine and Docker Desktop (inside its Linux VM on macOS and Windows)
-provide. Scripts there are limited to 1 GB of memory, one CPU and 300 s. The
+The Docker-in-Docker sandbox, in which site validation, visualisation and
+explainability scripts run, needs a privileged container on a Linux kernel, which
+both native Linux Docker Engine and Docker Desktop (inside its Linux VM on macOS and
+Windows) provide. Scripts there are limited to 1 GB of memory, one CPU and 300 s;
+explainability scripts by default to 2 GB, two CPUs and 900 s. The
 sandbox daemon is isolated from the platform's internal database network, with
 access confined to MinIO (`sandbox_internal`) and outbound internet access
 (`sandbox_egress`), preventing access to the host Docker socket proxy or internal

@@ -711,6 +711,11 @@ def export_user_data(request):
                     if project.results_visualization_script
                     else None
                 ),
+                "explainability_script": (
+                    project.explainability_script.name
+                    if project.explainability_script
+                    else None
+                ),
             },
         }
         data["authored_projects"].append(project_data)
@@ -759,6 +764,38 @@ def export_user_data(request):
             "error_message",
         )
     )
+
+    # Add explanation runs the user started or imported, and the user's own
+    # reviews of explained cases (by run and case position, without the
+    # site's case ID). A run's script output and error message are left out:
+    # they are project data and can hold case-level results.
+    data["explanation_runs"] = list(
+        user.explanation_runs.values(
+            "identifier",
+            "project__title",
+            "source",
+            "status",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "success",
+        )
+    )
+    data["explanation_reviews"] = [
+        {
+            "identifier": str(review.identifier),
+            "project": review.case.run.project.title,
+            "explanation_run": str(review.case.run.identifier),
+            "case_position": review.case.position,
+            "verdict": review.verdict,
+            "note": review.note,
+            "blinded": review.blinded,
+            "created_at": review.created_at,
+        }
+        for review in user.explanation_reviews.select_related(
+            "case__run__project"
+        )
+    ]
 
     # Add Swarm Network Participation
     # Optimize with select_related for related network and project

@@ -7,15 +7,130 @@ automated building of the sandbox environment.
 
 import json
 import os
+import re
 import shutil
 import socket
 import tempfile
+import time
 
 import docker
 from django.conf import settings
 
 from common.utils import get_docker_client
 from logs import logger
+
+SANDBOX_IMAGE = "swarmmedhub-sandbox"
+SANDBOX_NETWORK = "sandbox_internal"
+
+# Run type of explainability.py; only this run type reads the
+# SWARMMEDHUB_EXPLAIN_* limits below.
+EXPLAIN_RUN_TYPE = "explainability"
+
+# Limits of every other run type (validation, visualization,
+# results_visualization).
+DEFAULT_SANDBOX_LIMITS = {
+    "mem_limit": "1g",
+    "nano_cpus": 1_000_000_000,  # 1 CPU
+    "timeout": 300,  # seconds
+}
+
+EXPLAIN_MEM_LIMIT_ENV = "SWARMMEDHUB_EXPLAIN_MEM_LIMIT"
+EXPLAIN_CPUS_ENV = "SWARMMEDHUB_EXPLAIN_CPUS"
+EXPLAIN_TIMEOUT_ENV = "SWARMMEDHUB_EXPLAIN_TIMEOUT"
+EXPLAIN_DEFAULT_MEM_LIMIT = "2g"
+EXPLAIN_DEFAULT_CPUS = 2.0
+EXPLAIN_DEFAULT_TIMEOUT = 900
+# Bounds: presigned data URLs expire after 3600 s and Celery's soft time limit
+# is 55 minutes, so a run may not take longer than 3000 s.
+EXPLAIN_TIMEOUT_RANGE = (60, 3000)
+EXPLAIN_CPUS_RANGE = (0.5, 16.0)
+EXPLAIN_MEM_RANGE = (256 * 1024**2, 64 * 1024**3)
+# Lines of container output kept for an explainability run.
+EXPLAIN_LOG_TAIL_LINES = 5000
+
+_MEMORY_RE = re.compile(r"^\s*(\d+)\s*([kmg]?)b?\s*$", re.IGNORECASE)
+_MEMORY_UNITS = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
+
+
+def _explain_memory_limit(log):
+    raw = os.getenv(EXPLAIN_MEM_LIMIT_ENV, "").strip()
+    if not raw:
+        return EXPLAIN_DEFAULT_MEM_LIMIT
+    match = _MEMORY_RE.match(raw)
+    if match:
+        size = int(match.group(1)) * _MEMORY_UNITS[match.group(2).lower()]
+        if EXPLAIN_MEM_RANGE[0] <= size <= EXPLAIN_MEM_RANGE[1]:
+            return f"{match.group(1)}{match.group(2).lower()}"
+    log.data.warning(
+        f"Ignoring {EXPLAIN_MEM_LIMIT_ENV}={raw!r} (use for example 2g or "
+        f"2048m, between 256m and 64g); using {EXPLAIN_DEFAULT_MEM_LIMIT}."
+    )
+    return EXPLAIN_DEFAULT_MEM_LIMIT
+
+
+def _explain_number(log, name, default, bounds, cast):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = cast(raw)
+    except ValueError:
+        value = None
+    if value is not None and bounds[0] <= value <= bounds[1]:
+        return value
+    log.data.warning(
+        f"Ignoring {name}={raw!r} (allowed {bounds[0]} to {bounds[1]}); "
+        f"using {default}."
+    )
+    return default
+
+
+def sandbox_limits(run_type):
+    """Return the container limits of a sandbox run type.
+
+    Only the explainability run type reads ``SWARMMEDHUB_EXPLAIN_MEM_LIMIT``
+    (default 2g), ``SWARMMEDHUB_EXPLAIN_CPUS`` (default 2) and
+    ``SWARMMEDHUB_EXPLAIN_TIMEOUT`` (seconds, default 900); every other run type
+    keeps 1 GB, 1 CPU and 300 seconds. Invalid values fall back to the default
+    with a warning.
+
+    Args:
+        run_type (str): The sandbox run type.
+
+    Returns:
+        dict: ``mem_limit`` (str), ``nano_cpus`` (int) and ``timeout`` (int).
+    """
+    limits = dict(DEFAULT_SANDBOX_LIMITS)
+    if run_type != EXPLAIN_RUN_TYPE:
+        return limits
+    log = logger.get_logger()
+    limits["mem_limit"] = _explain_memory_limit(log)
+    cpus = _explain_number(
+        log, EXPLAIN_CPUS_ENV, EXPLAIN_DEFAULT_CPUS, EXPLAIN_CPUS_RANGE, float
+    )
+    limits["nano_cpus"] = int(round(cpus * 1_000_000_000))
+    limits["timeout"] = _explain_number(
+        log, EXPLAIN_TIMEOUT_ENV, EXPLAIN_DEFAULT_TIMEOUT, EXPLAIN_TIMEOUT_RANGE, int
+    )
+    return limits
+
+
+def remove_sandbox_container(name):
+    """Force-remove a named sandbox container, if it exists.
+
+    Args:
+        name (str): The container name.
+
+    Returns:
+        bool: True if a container was removed.
+    """
+    client = get_docker_client(target="sandbox")
+    try:
+        container = client.containers.get(name)
+    except docker.errors.NotFound:
+        return False
+    container.remove(force=True)
+    return True
 
 
 def get_host_path(container_path):
@@ -53,7 +168,7 @@ def ensure_sandbox_image():
     client = get_docker_client(target="sandbox")
 
     try:
-        client.images.get("swarmmedhub-sandbox")
+        client.images.get(SANDBOX_IMAGE)
     except docker.errors.ImageNotFound:
         log.data.info(
             "Sandbox image not found. Building 'swarmmedhub-sandbox' "
@@ -71,7 +186,7 @@ def ensure_sandbox_image():
             generator = client.api.build(
                 path=str(settings.BASE_DIR),
                 dockerfile="Dockerfile.sandbox",
-                tag="swarmmedhub-sandbox",
+                tag=SANDBOX_IMAGE,
                 rm=True,
                 network_mode=os.getenv("SANDBOX_BUILD_NETWORK", "host"),
                 decode=True,
@@ -174,7 +289,14 @@ def _resolve_minio_host_for_sandbox():
 
 
 def run_script_in_sandbox(
-    script_content, data_dir, project_uuid, run_type="validation"
+    script_content,
+    data_dir,
+    project_uuid,
+    run_type="validation",
+    *,
+    prepare_run_dir=None,
+    collect_outputs=None,
+    container_name=None,
 ):
     """Runs a Python script inside an ephemeral Docker container.
 
@@ -185,18 +307,31 @@ def run_script_in_sandbox(
         script_content (str): The Python code to execute.
         data_dir (str): Path to the directory containing project data files.
         project_uuid (str): Unique identifier of the project.
-        run_type (str): Type of execution ('validation', 'visualization').
-            Defaults to "validation".
+        run_type (str): Type of execution ('validation', 'visualization',
+            'results_visualization', 'explainability'). Defaults to
+            "validation". Limits come from ``sandbox_limits(run_type)``.
+        prepare_run_dir (callable, optional): Called with the run directory
+            after ``script.py`` is written and before the container starts,
+            to add files the script needs.
+        collect_outputs (callable, optional): Called with the run directory
+            after the container exited with code 0 within the time limit and
+            before the directory is deleted. Its return value is returned as
+            'collected'; an exception becomes 'collect_error'.
+        container_name (str, optional): Name of the container, so that it can
+            be removed by name when the run is stopped.
 
     Returns:
         dict: A dictionary containing 'success', 'output', 'exit_code',
-            'results', and 'plots'.
+            'results', and 'plots' (and, for the explainability run type,
+            'timed_out', 'collected' and 'collect_error').
     """
     log = logger.get_logger()
     ensure_sandbox_image()
     ensure_sandbox_network()
 
     client = get_docker_client(target="sandbox")
+    limits = sandbox_limits(run_type)
+    is_explain = run_type == EXPLAIN_RUN_TYPE
 
     # Create a unique temporary directory within the project root for this execution
     sandbox_dir = tempfile.mkdtemp(
@@ -214,6 +349,9 @@ def run_script_in_sandbox(
         # Write the script to the sandbox directory
         with open(script_path, "w") as f:
             f.write(script_content)
+
+        if prepare_run_dir is not None:
+            prepare_run_dir(sandbox_dir)
 
         # Define volume mounts using HOST-SIDE paths
         host_data_path = get_host_path(data_dir)
@@ -262,26 +400,37 @@ def run_script_in_sandbox(
                         f"Could not check for GPU support: {e}. Falling back to CPU."
                     )
 
+            run_options = {}
+            if container_name:
+                run_options["name"] = container_name
+                run_options["labels"] = {"swarmmedhub.run_type": run_type}
+
             # Run the container with resource limits.
             container = client.containers.run(
-                image="swarmmedhub-sandbox",
+                image=SANDBOX_IMAGE,
                 command=["script.py"],
                 volumes=volumes,
                 working_dir="/home/sandboxuser/run",
-                network="sandbox_internal",
+                network=SANDBOX_NETWORK,
                 extra_hosts=extra_hosts,
-                mem_limit="1g",
-                nano_cpus=1000000000,  # 1 CPU
+                mem_limit=limits["mem_limit"],
+                nano_cpus=limits["nano_cpus"],
                 shm_size="10.24gb",
                 device_requests=device_requests,
                 detach=True,
                 stdout=True,
                 stderr=True,
                 remove=False,
+                **run_options,
             )
 
+            if is_explain:
+                return _finish_explain_run(
+                    container, limits["timeout"], sandbox_dir, collect_outputs, log
+                )
+
             # Wait for completion (max 5 minutes)
-            result = container.wait(timeout=300)
+            result = container.wait(timeout=limits["timeout"])
             exit_code = result.get("StatusCode", 1)
 
             logs = container.logs().decode("utf-8")
@@ -339,3 +488,61 @@ def run_script_in_sandbox(
             log.data.warning(
                 f"Failed to cleanup sandbox directory {sandbox_dir}: {e}"
             )
+
+
+def _finish_explain_run(container, timeout, sandbox_dir, collect_outputs, log):
+    """Wait for an explainability container and collect its outputs.
+
+    The run folder is written by untrusted code, so nothing in it is read here;
+    ``collect_outputs`` copies what it needs with its own checks, and only
+    after the script exited with code 0 within the time limit.
+    """
+    started = time.monotonic()
+    timed_out = False
+    exit_code = None
+    try:
+        exit_code = container.wait(timeout=timeout).get("StatusCode", 1)
+    except Exception as exc:
+        if time.monotonic() - started < timeout - 1:
+            raise
+        timed_out = True
+        log.data.warning(f"Explainability sandbox run timed out: {exc}")
+        try:
+            container.kill()
+        except Exception as kill_exc:
+            log.data.warning(f"Could not stop the timed-out container: {kill_exc}")
+
+    try:
+        output = container.logs(tail=EXPLAIN_LOG_TAIL_LINES).decode(
+            "utf-8", errors="replace"
+        )
+    except Exception as exc:
+        output = f"(could not read the container output: {exc})"
+
+    collected = None
+    collect_error = None
+    if timed_out:
+        error = f"The script did not finish within {timeout} seconds."
+    elif exit_code != 0:
+        error = f"The script exited with code {exit_code}."
+    else:
+        error = None
+        if collect_outputs is not None:
+            try:
+                collected = collect_outputs(sandbox_dir)
+            except Exception as exc:
+                collect_error = str(exc) or exc.__class__.__name__
+
+    result = {
+        "success": exit_code == 0 and not timed_out,
+        "output": output,
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "results": {},
+        "plots": [],
+        "collected": collected,
+        "collect_error": collect_error,
+    }
+    if error:
+        result["error"] = error
+    return result

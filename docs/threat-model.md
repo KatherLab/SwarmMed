@@ -28,8 +28,9 @@ web interface adds a fourth, with the other participants' web interfaces.
 | **Orchestration messages** | Task assignment and acknowledgement, heartbeats, client registration, run lifecycle events, admin commands. Each site's web interface also opens an admin session to the FL server every 60 s to list jobs. | Not measured for the worked example. In the [scalability](scalability.md) benchmark (model of about 10 kB, 3 rounds), all traffic through the FL server, job deployment included, averaged about 0.2 MB per client per round with 3 clients and 1 MB with 20; the model was a small part of it. |
 | **Hub-to-hub status** | Participant status and training progress, exchanged directly between the participants' web interfaces over HTTPS on port 5085 ([below](#the-hub-to-hub-status-channel)). | Small JSON messages, every 30 s to each peer. |
 
-Raw images, DICOM headers, patient identifiers, labels and local file paths are not
-part of any message the FLARE workflow or the hub-to-hub channel sends. The job code
+Raw data (for example images and their DICOM headers, signal recordings, table rows or
+free text), patient identifiers, labels and local file paths are not part of any
+message the FLARE workflow or the hub-to-hub channel sends. The job code
 can still move such data off a site: it runs at every site with access to that
 site's data ([section 4](#4-adversaries-considered)).
 
@@ -45,8 +46,8 @@ data off-site.
   used this path.
 * **The site's object store.** Files imported through the web interface or with
   `swarmed data import` are stored in the site's own MinIO. A training script that
-  uses the platform's data adapter (`flare.get_data_filesystem`, as in
-  `examples/breast_mri`) fetches a manifest of presigned URLs from the platform and
+  uses the platform's data adapter (`flare.get_data_filesystem`, as in every
+  training script under `examples/`) fetches a manifest of presigned URLs from the platform and
   streams each file from MinIO into the container. In a multi-site network the
   manifest lookup tries the coordinating host's web interface first
   (`https://<server-host>:5085`) and the site's own afterwards; the request carries

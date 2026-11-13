@@ -1,7 +1,6 @@
 """Common views for the application, including legal and static pages."""
 
-from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth.models import AnonymousUser, User
 from django.shortcuts import render
 
 from logs.models import LogEntry
@@ -115,6 +114,18 @@ def dashboard_callback(request, context):
     return context
 
 
+def _render_error(request, template_name, status):
+    """Render an error page, also for a request rejected before authentication.
+
+    A request with a Host header that is not in ALLOWED_HOSTS fails in the
+    middleware before AuthenticationMiddleware sets ``request.user``; the page
+    is then rendered as for an anonymous visitor.
+    """
+    if not hasattr(request, "user"):
+        request.user = AnonymousUser()
+    return render(request, template_name, status=status)
+
+
 def permission_denied_view(request, exception=None):
     """Render a custom 403 (Permission Denied) page.
 
@@ -129,7 +140,7 @@ def permission_denied_view(request, exception=None):
     Returns:
         HttpResponse: The rendered 403 error page.
     """
-    return render(request, "errors/403.html", status=403)
+    return _render_error(request, "errors/403.html", 403)
 
 
 def page_not_found_view(request, exception=None):
@@ -142,7 +153,7 @@ def page_not_found_view(request, exception=None):
     Returns:
         HttpResponse: The rendered 404 error page.
     """
-    return render(request, "errors/404.html", status=404)
+    return _render_error(request, "errors/404.html", 404)
 
 
 def server_error_view(request):
@@ -154,7 +165,7 @@ def server_error_view(request):
     Returns:
         HttpResponse: The rendered 500 error page.
     """
-    return render(request, "errors/500.html", status=500)
+    return _render_error(request, "errors/500.html", 500)
 
 
 def bad_request_view(request, exception=None):
@@ -167,4 +178,4 @@ def bad_request_view(request, exception=None):
     Returns:
         HttpResponse: The rendered 400 error page.
     """
-    return render(request, "errors/400.html", status=400)
+    return _render_error(request, "errors/400.html", 400)

@@ -7,6 +7,10 @@ project, put them in its code bundle as `validation.py` (`val.py`),
 SwarmMedHub runs the first two in its sandbox against a site's registered data
 and keeps only their check results and plots.
 
+These are the site scripts of the breast MRI worked example, not a template that
+works unchanged as a code directory. Templates for other kinds of data are listed
+in [examples/README.md](../README.md).
+
 | File | What it does |
 |---|---|
 | `val.py` | Checks a site's data before it joins a study (see below) |

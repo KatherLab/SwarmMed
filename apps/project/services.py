@@ -13,13 +13,28 @@ from network.models import UserCurrentNetwork
 from users.models import Profile
 
 from .models import Project, UserCurrentProject
-from .utils import clean_folder_path, handle_training_code_upload, process_member_identifiers
+from .utils import (
+    clean_folder_path,
+    handle_training_code_upload,
+    process_member_identifiers,
+    training_code_upload_error,
+)
 
 SPECIAL_CODE_DIR_FILES = {
     "requirements.txt": "requirements_file",
     "validation.py": "data_validation_script",
     "visualization.py": "data_visualization_script",
     "results_visualization.py": "results_visualization_script",
+    "explainability.py": "explainability_script",
+}
+
+# Storage folder (below the project's identifier) of each special file field.
+SPECIAL_FIELD_FOLDERS = {
+    "requirements_file": "code/requirements/",
+    "data_validation_script": "code/data_validation/",
+    "data_visualization_script": "code/data_visualization/",
+    "results_visualization_script": "code/results_visualization/",
+    "explainability_script": "code/explainability/",
 }
 
 
@@ -122,12 +137,7 @@ def ingest_code_directory(project: Project, code_dir: str | Path) -> Project:
         )
 
     clean_folder_path(project.identifier, "code/training/")
-    for field_name, subfolder in (
-        ("requirements_file", "code/requirements/"),
-        ("data_validation_script", "code/data_validation/"),
-        ("data_visualization_script", "code/data_visualization/"),
-        ("results_visualization_script", "code/results_visualization/"),
-    ):
+    for field_name, subfolder in SPECIAL_FIELD_FOLDERS.items():
         clean_folder_path(project.identifier, subfolder)
         _delete_project_field(project, field_name)
 
@@ -140,6 +150,9 @@ def ingest_code_directory(project: Project, code_dir: str | Path) -> Project:
         if not path.is_file():
             continue
         relative_path = path.relative_to(code_dir_path)
+        # Python's bytecode caches are not code to upload.
+        if "__pycache__" in relative_path.parts or path.suffix == ".pyc":
+            continue
         relative_posix = relative_path.as_posix()
 
         if relative_posix == "training.py":
@@ -159,6 +172,19 @@ def ingest_code_directory(project: Project, code_dir: str | Path) -> Project:
     return project
 
 
+def _check_training_code_upload(request) -> None:
+    """Refuse uploaded training code without a root-level training.py.
+
+    Runs before anything is created or changed, so a refused upload leaves no
+    half-created project and keeps a project's current code.
+    """
+    if request is None:
+        return
+    error = training_code_upload_error(request.POST, request.FILES)
+    if error:
+        raise ValueError(error)
+
+
 def _apply_uploaded_project_files(
     project: Project,
     *,
@@ -168,6 +194,8 @@ def _apply_uploaded_project_files(
     data_validation_script=None,
     data_visualization_script=None,
     results_visualization_script=None,
+    explainability_script=None,
+    remove_explainability_script: bool = False,
 ) -> Project:
     """Apply uploaded project files from the web UI to a project."""
     training_handled = False
@@ -185,8 +213,28 @@ def _apply_uploaded_project_files(
         project.data_visualization_script = data_visualization_script
     if results_visualization_script is not None:
         project.results_visualization_script = results_visualization_script
+    if explainability_script is not None:
+        project.explainability_script = explainability_script
+    elif remove_explainability_script:
+        remove_explainability_script_file(project, save=False)
 
     project.save()
+    return project
+
+
+def remove_explainability_script_file(
+    project: Project, *, save: bool = True
+) -> Project:
+    """Remove a project's explainability script and its storage folder.
+
+    Explanations already computed stay; only new runs need the script.
+    """
+    clean_folder_path(
+        project.identifier, SPECIAL_FIELD_FOLDERS["explainability_script"]
+    )
+    _delete_project_field(project, "explainability_script")
+    if save:
+        project.save()
     return project
 
 
@@ -203,8 +251,11 @@ def create_project(
     data_validation_script=None,
     data_visualization_script=None,
     results_visualization_script=None,
+    explainability_script=None,
 ) -> Project:
     """Create a project from UI or CLI inputs."""
+    if code_dir is None:
+        _check_training_code_upload(request)
     project = Project.objects.create(
         title=title,
         description=description,
@@ -225,6 +276,7 @@ def create_project(
             data_validation_script=data_validation_script,
             data_visualization_script=data_visualization_script,
             results_visualization_script=results_visualization_script,
+            explainability_script=explainability_script,
         )
 
     log = logger.get_logger(user=author, project=project)
@@ -247,12 +299,16 @@ def update_project(
     data_validation_script=None,
     data_visualization_script=None,
     results_visualization_script=None,
+    explainability_script=None,
+    remove_explainability_script: bool = False,
 ) -> Project:
     """Update project metadata and files from UI or CLI inputs."""
     if actor != project.author:
         raise PermissionError(
             f"Only the project author can update '{project.title}'."
         )
+    if code_dir is None:
+        _check_training_code_upload(request)
 
     if title is not None:
         project.title = title
@@ -279,6 +335,8 @@ def update_project(
             data_validation_script=data_validation_script,
             data_visualization_script=data_visualization_script,
             results_visualization_script=results_visualization_script,
+            explainability_script=explainability_script,
+            remove_explainability_script=remove_explainability_script,
         )
 
     log = logger.get_logger(user=actor, project=project)

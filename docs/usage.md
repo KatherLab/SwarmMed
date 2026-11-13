@@ -84,7 +84,7 @@ As a developer, you can view the logs of the training jobs to monitor their prog
     The same workflow is also available through the `swarmed` CLI, which runs inside the application container on the SwarmMedHub host. See the dedicated [CLI guide](cli.md) for command-line equivalents of the steps below.
 
 !!! info "Shared Project Bundle"
-    SwarmMedHub and `swarmed` use the same project code bundle. The required root entrypoint is `training.py`, with optional `requirements.txt`, `validation.py`, `visualization.py`, and `results_visualization.py`.
+    SwarmMedHub and `swarmed` use the same project code bundle. The required root entrypoint is `training.py`, with optional `requirements.txt`, `validation.py`, `visualization.py`, `results_visualization.py` and `explainability.py`. To start from a template for your kind of data, see [Templates](templates.md).
 
 ### 1. 📁 Create a Project
 
@@ -99,12 +99,15 @@ A project is a workspace for your decentralized learning experiment. It contains
     *   **Title:** A descriptive name for your project.
     *   **Members:** Add members via the user uuid (the user can find their uuid on the Profile page).
     *   **Description:** A brief description of your project.
-4.  Import your training code. Select only the files you need containing your Python scripts including main script `training.py`.
+4.  Import your training code with **Select project folder** (the folder that holds `training.py`) or **Select individual files** (the main script `training.py` and any Python modules it imports). A folder's files are stored relative to the selected folder, without the folder's own name, so its `training.py` is at the root of the training code, where training looks for it, and subfolders are kept. An upload without a root-level `training.py` is refused. Only `.py` files are taken, and each of them is stored as training code, also a folder's `validation.py`, `explainability.py` and other optional scripts; import those in their own fields (steps 6 to 9).
 5.  Import your requirements file as `requirements.txt`.
 6.  Import your data validation script as `validation.py` (optional).
 7.  Import your data visualization script as `visualization.py` (optional).
 8.  Import your results visualization script as `results_visualization.py` (optional).
-9.  Click on the **Save Project** button to save your project.
+9.  Import your explainability script as `explainability.py` (optional; see [Explainability](explainability.md#in-swarmmedhub)).
+10. Click on the **Save Project** button to save your project.
+
+To start from a template, take the files from one `examples/<template>/` folder: its `training.py` in step 4 and each of its other scripts and its `requirements.txt` in its own field ([Templates](templates.md)).
 
 !!! warning "All network participants need the same project code"
     All network participants need to have the same project code. Make sure to share the project code with all participants.
@@ -135,7 +138,7 @@ After creating a project, you need to import the data that will be used for trai
 1.  Navigate to the **Data** page from the sidebar.
 2.  Click on the **Import Data** button.
 3.  Select your **Destination folder** where the data will be stored.
-4.  Select the data files from your local machine. The data should be in a format and structure that is compatible with your training code.
+4.  Select the data folder on your local machine. Every file is stored below the folder's name (for example `fl-client-1/train.npz`) inside the destination folder. The data should be in a format and structure that is compatible with your training code; each template's README describes the layout its training script expects. Files whose extension is not in `ALLOWED_EXTENSIONS` are skipped on import.
 5.  Click on the **Import** button to start the import process.
 
 ??? example "Image of data page"
@@ -290,6 +293,17 @@ If you have imported a results visualization script, you can run it to visualize
 ??? example "Image of results visualization"
     ![Results Visualization](assets/usage/results_viz_dark.png#only-dark)
     ![Results Visualization](assets/usage/results_viz_light.png#only-light)
+
+### 13. 🔍 Explain and Review Predictions (optional)
+
+If the project has an explainability script, you can run it on a finished job and review the cases it explains.
+
+1.  Navigate to the **Results** page from the sidebar and select the job.
+2.  Click on **Run Explainability** in the **Explainability** section. The script runs in the sandbox with its own limits (by default 2 CPUs, 2 GB and 15 minutes). Starting a run cancels the pending or running runs of the job that you may stop: your own, or every run if you are the project author. While a run that another member started is pending or running, and you are not the project author, the start is refused.
+3.  Once the run has finished, the section shows its cases in a random order, fixed when the run was stored. Select a case to see its panels and record your review.
+4.  The first time you open a project's explanations, **Blinded review** is on: until you save your own read of a case, it shows only the case ID, the label and the input panels, and the run-level figures and the script output appear once every case is read. Later runs start in the mode you chose last. Switching blinded review off, downloading the bundle, listing or exporting the run with the CLI, or opening one of its maps or run-level figures with blinded review off gives you the run's model output: from then on all its cases are shown even with blinded review on, the page says so, and your reviews of that run are recorded as made after seeing the output ([Reviewing cases](explainability.md#reviewing-cases)).
+
+[Explainability](explainability.md#in-swarmmedhub) describes the script, the review and what the explanations can and cannot show.
 
 ### ✉️ Messages
 

@@ -8,7 +8,9 @@ description: Documentation for SwarmMed 1.0.0, the SwarmMedHub web interface and
 !!! warning "Research Use Only"
     This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-SwarmMed is a platform for **decentralized (swarm) learning** on medical data. Several institutions **train a machine-learning model together**: each keeps its data and trains on it locally, and the sites exchange model parameters instead of data. SwarmMed consists of the SwarmMedHub web interface and the `swarmed` command-line interface (CLI), and runs the training on NVIDIA FLARE.
+SwarmMed is a platform for **decentralized (swarm) learning** on biomedical data. Several institutions **train a machine-learning model together**: each keeps its data and trains on it locally, and the sites exchange model parameters instead of data. SwarmMed consists of the SwarmMedHub web interface and the `swarmed` command-line interface (CLI), and runs the training on NVIDIA FLARE.
+
+The platform does not interpret a study's data. A study is a code bundle: a `training.py` that reads the site's files through a small adapter, and optional scripts for data checks, plots and per-case explanations. [Templates](templates.md) provides such bundles for several kinds of data; the breast MRI study ([Reproducing the worked example](reproduce.md)) is the worked example.
 
 This documentation describes SwarmMed 1.0.0.
 
@@ -38,11 +40,21 @@ This documentation describes SwarmMed 1.0.0.
 
     [:octicons-arrow-right-24: Usage](usage.md)
 
+-   :material-puzzle:{ .lg .middle } __Templates__
+
+    ---
+
+    Start a study from a template: a folder with the training script, data preparation, data checks, plots and explanations for one kind of data, from tabular records to ECG, heart sounds and sleep EEG.
+
+    [:octicons-arrow-right-24: Templates](templates.md)
+
+    [:octicons-arrow-right-24: Bring your own task](bring-your-own-task.md)
+
 -   :material-scale:{ .lg .middle } __Scalability__
 
     ---
 
-    Measured with 3 to 20 simulated sites on a single host. Every model update passes through the coordinating host, whose traffic grows with the number of sites.
+    Measured with 3 to 50 simulated sites on a single host. Every model update passes through the coordinating host, whose traffic grows with the number of sites.
 
     [:octicons-arrow-right-24: Scalability](scalability.md)
 
@@ -60,7 +72,7 @@ This documentation describes SwarmMed 1.0.0.
 
 </div>
 
-## 🧠 Frameworks
+## 🧠 Frameworks and templates
 
 The example training scripts exchange model weights with NVIDIA FLARE through a small adapter (`flare_adapter`) that converts them to NumPy arrays, which keeps the exchange independent of the machine-learning library. The repository includes example projects for:
 
@@ -70,13 +82,19 @@ The example training scripts exchange model weights with NVIDIA FLARE through a 
 - **Hugging Face Transformers**
 - **MONAI**
 
-Only PyTorch has been run end to end with SwarmMed so far: the tabular example in `examples/pytorch`, in the [scalability benchmark](scalability.md), and the breast-MRI worked example with PyTorch Lightning ([Reproducing the worked example](reproduce.md)). The other examples are provided but not validated. Jobs for TensorFlow and Keras are generated with NVFlare's PyTorch model persistor ([SwarmMed and NVIDIA FLARE](nvflare-comparison.md)).
+Templates for six kinds of data (tabular clinical data, intensive-care EHR, 12-lead ECG, ECG with patient metadata, heart sound recordings and sleep EEG) are complete project folders: a PyTorch training script, a script that prepares a public dataset, data checks, plots and per-case explanations. [Templates](templates.md) lists them with what was run for each.
+
+Only PyTorch has been run end to end with SwarmMed so far: the tabular example in `examples/pytorch`, in the [scalability benchmark](scalability.md), and the breast-MRI worked example with PyTorch Lightning ([Reproducing the worked example](reproduce.md)). The six templates were each run to completion in NVIDIA FLARE's simulator with the job SwarmMed builds for them, on one host with simulated sites (11 November 2026). On 11 and 12 November 2026 each template also trained to completion on a SwarmMed local-test network (all sites as containers on one host, CPU) on a fresh installation of SwarmMed, through the CLI steps in its README, and its data checks, result plots and explanations ran in the Hub's sandbox. The other framework examples are provided but not validated. Jobs for TensorFlow and Keras are generated with NVFlare's PyTorch model persistor ([SwarmMed and NVIDIA FLARE](nvflare-comparison.md)).
 
 ## ❓ FAQ
 
 ### What is SwarmMed?
 
-SwarmMed is a platform for decentralized learning on medical data. It combines the SwarmMedHub web interface with the `swarmed` CLI, which runs inside the web interface's application container, so teams can collaborate without sharing raw data.
+SwarmMed is a platform for decentralized learning on biomedical data. It combines the SwarmMedHub web interface with the `swarmed` CLI, which runs inside the web interface's application container, so teams can collaborate without sharing raw data.
+
+### What kinds of data can SwarmMed train on?
+
+Any data that a Python training script can read from the site's files. Each site's registered files reach the project's `training.py` through the platform's data adapter, and the sites exchange model weights; the platform does not interpret the data. The worked example trains on 3D breast MRI, and the [templates](templates.md) train on tabular clinical data, intensive-care EHR, 12-lead ECG, ECG with patient metadata, heart sound recordings and sleep EEG, each converted by the template's `prepare_data.py` into compact `.npz` files first. Files imported into SwarmMedHub need an extension listed in `ALLOWED_EXTENSIONS`. SwarmMed's built-in default (`core/settings/base.py`) covers tables (CSV, TSV, Parquet), arrays (NumPy, HDF5), DICOM, NIfTI, common image formats, WAV and FLAC audio, EDF and BDF recordings, WFDB records (`.hea`, `.dat`) and MATLAB files. A value in `.env` overrides the default: an installation set up with an earlier version keeps its old list there and has to add `.wav,.flac,.edf,.bdf,.dat,.hea,.mat,.tsv` to import these files.
 
 ### How does Swarm Learning work?
 
@@ -84,7 +102,7 @@ Each site trains the current model on its own data and shares only the resulting
 
 ### How has SwarmMed been validated?
 
-With one public dataset: the Duke breast-MRI cohort, split by patient into three label-balanced shares on three GPU hosts of one institution, with the FL server on a fourth host. The final models were also scored on test sets of six other cohorts. This shows the platform running a swarm across separate hosts; it does not show a deployment across institutions and their networks, or training on data from different institutions. See [Reproducing the worked example](reproduce.md) and [Scalability](scalability.md).
+With one public dataset: the Duke breast-MRI cohort, split by patient into three label-balanced shares on three GPU hosts of one institution, with the FL server on a fourth host. The final models were also scored on test sets of six other cohorts. This shows the platform running a swarm across separate hosts; it does not show a deployment across institutions and their networks, or training on data from different institutions. See [Reproducing the worked example](reproduce.md) and [Scalability](scalability.md). The six templates for other kinds of data were each run to completion in NVIDIA FLARE's simulator, with the job SwarmMed builds, on one host with simulated sites; [Templates](templates.md) lists what was run for each, with dates. These runs show that the templates' training runs to completion; they do not validate the models or a deployment across sites.
 
 ### What are the system requirements for SwarmMed?
 

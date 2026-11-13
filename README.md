@@ -3,11 +3,13 @@
 > [!WARNING]
 > **Research Use Only:** This software is intended for research purposes only and is **not** a medical device. It has not been cleared or approved by any regulatory authority (e.g., FDA, EMA) for clinical use. The developers and contributors take no responsibility or liability for any clinical decisions made based on results obtained from this software.
 
-SwarmMed is a platform for decentralized (swarm) learning on medical data, built on the client-controlled swarm workflow of [NVIDIA FLARE](https://github.com/NVIDIA/NVFlare). Each site keeps its data and trains on it locally; the sites exchange model parameters through a coordinating FL server, and in each round one site, drawn at random, aggregates them.
+SwarmMed is a platform for decentralized (swarm) learning on biomedical data, built on the client-controlled swarm workflow of [NVIDIA FLARE](https://github.com/NVIDIA/NVFlare). Each site keeps its data and trains on it locally; the sites exchange model parameters through a coordinating FL server, and in each round one site, drawn at random, aggregates them.
 
 This repository contains the **SwarmMedHub** web interface and the **`swarmed`** command-line interface (CLI). Both call the same Django services and use the same database, object storage, task queue and NVFlare runtime, so a project's data, network, training and results can be handled through either. This README describes SwarmMed 1.0.0; the full documentation is in [`docs/`](docs/index.md).
 
-## 🧠 Frameworks
+The platform does not interpret a study's data. A study is a code bundle: a `training.py`, which reads the site's files through a small adapter (`flare_adapter`), and optional scripts for data checks, plots and per-case explanations. Between sites the platform sends model weights, training metrics and status, not the files. The templates in [`examples/`](examples/README.md) are such bundles for different kinds of data ([Templates](docs/templates.md)); the breast MRI study ([reproduction](docs/reproduce.md)) is the worked example and, so far, the only run across several hosts.
+
+## 🧠 Frameworks and templates
 
 The example training scripts exchange model weights with NVIDIA FLARE through a small adapter (`flare_adapter`) that converts them to NumPy arrays, which keeps the exchange independent of the machine-learning library. The repository includes example projects for:
 
@@ -17,7 +19,9 @@ The example training scripts exchange model weights with NVIDIA FLARE through a 
 - **Hugging Face Transformers**
 - **MONAI**
 
-Only PyTorch has been run end to end with SwarmMed so far: the tabular example in `examples/pytorch`, in the [scalability benchmark](docs/scalability.md), and the breast-MRI worked example with PyTorch Lightning ([reproduction](docs/reproduce.md)). The other examples are provided but not validated. Jobs for TensorFlow and Keras are generated with NVFlare's PyTorch model persistor ([SwarmMed and NVIDIA FLARE](docs/nvflare-comparison.md)).
+Templates for six kinds of data (tabular clinical data, intensive-care EHR, 12-lead ECG, ECG with patient metadata, heart sound recordings and sleep EEG) are complete project folders: a PyTorch training script, a script that prepares a public dataset, data checks, plots and per-case explanations. [Templates](docs/templates.md) lists them with what was run for each.
+
+Only PyTorch has been run end to end with SwarmMed so far: the tabular example in `examples/pytorch`, in the [scalability benchmark](docs/scalability.md), and the breast-MRI worked example with PyTorch Lightning ([reproduction](docs/reproduce.md)). The six templates were each run to completion in NVIDIA FLARE's simulator with the job SwarmMed builds for them, on one host with simulated sites (11 November 2026). On 11 and 12 November 2026 each template also trained to completion on a SwarmMed local-test network (all sites as containers on one host, CPU) on a fresh installation of SwarmMed, through the CLI steps in its README, and its data checks, result plots and explanations ran in the Hub's sandbox. The other framework examples are provided but not validated. Jobs for TensorFlow and Keras are generated with NVFlare's PyTorch model persistor ([SwarmMed and NVIDIA FLARE](docs/nvflare-comparison.md)).
 
 ## 🛠️ Installation & Setup
 
@@ -26,7 +30,7 @@ The [installation guide](docs/installation.md) describes each step and what it c
 ### 📋 1. Prerequisites
 
 - **Linux** on every host that runs the FL server or trains ([operating systems](docs/os-support.md)); people who only use the web interface can use any operating system with a current browser.
-- **Hardware** for the platform alone: at least 4 cores, 8 GB RAM and 100 GB disk; sites that train need what their model needs, for the breast-MRI example an NVIDIA GPU ([hardware](docs/hardware.md)).
+- **Hardware** for the platform alone: at least 4 cores, 8 GB RAM and 100 GB disk; sites that train need what their model needs: the templates and the tabular example ran on CPUs, and the breast-MRI example needs an NVIDIA GPU ([hardware](docs/hardware.md)).
 - [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/), usable without `sudo`, and `git`, `make`, `curl`, `openssl` and `jq`. Sites that train on a GPU also need the NVIDIA driver and the NVIDIA Container Toolkit.
 - **Internet access during installation, including `github.com`.** MinIO no longer publishes community images (`minio/minio` no longer exists on Docker Hub), so the stack builds MinIO `RELEASE.2025-09-07T16-13-09Z` from its pinned upstream source (`infrastructure/minio/`).
 
@@ -82,6 +86,20 @@ Serve the documentation locally at `http://localhost:9999` (it listens on all of
 make docs-serve
 ```
 
+## 🗂️ Repository layout
+
+| Path | Contents |
+|---|---|
+| `apps/` | SwarmMedHub's Django apps (projects, data, networks, training, results and explanations, users and others) |
+| `core/` | Django settings, URLs and the Celery application |
+| `swarmed_cli/` | The `swarmed` CLI |
+| `swarmmed_explain/` | Explainability methods, plotting helpers and the bundle format that `explainability.py` writes ([README](swarmmed_explain/README.md)) |
+| `examples/` | Templates for six kinds of data, framework examples on synthetic data and the breast MRI site scripts ([catalogue](examples/README.md)) |
+| `experiments/duke_mst_cli/` | Code of the breast MRI worked example |
+| `templates/`, `static/` | Pages and assets of the web interface |
+| `docs/` | The documentation (MkDocs) |
+| `scripts/`, `infrastructure/` | Host-side helpers (environment, certificates, overlay status) and the configuration of nginx, PostgreSQL, PgBouncer and MinIO |
+
 ## 💻 Local CLI
 
 In SwarmMed 1.0.0, `swarmed` runs on the SwarmMedHub host, inside the application container, and uses the same database, object storage, Celery workers and current-project/current-network context as the web interface. It has so far been run only on Linux hosts. The host-side `uv run swarmed …` fails on a standard installation, because the generated `.env` names the database host `postgres`, which resolves only inside the Docker network; see the [CLI guide](docs/cli.md) for the overrides it needs.
@@ -119,7 +137,7 @@ SwarmMed has not undergone an external security audit or penetration test. In br
 - **The startup package** that every site imports contains every participant's private key, the FL server's private key and, for each site, an admin identity that may run code at every site. SwarmMed is designed for consortia whose institutions trust each other, not for open participation.
 - **Platform services** (PostgreSQL, Redis, MinIO and the web server) use TLS with certificates from the installation's own internal CA. The web interfaces of different sites exchange status over HTTPS without certificate verification by default.
 - **An overlay network is optional.** The compose files ship no VPN, and the FL server's ports are published on all of the host's addresses.
-- **Validation and visualization scripts** run in short-lived containers on a separate Docker daemon, limited to 1 CPU, 1 GB of memory and 5 minutes, but their network is not isolated: they can reach the internet and the platform's internal services, including the unauthenticated proxy to the host's Docker API. Treat them as trusted code.
+- **Validation, visualization and explainability scripts** run in short-lived containers on a separate Docker daemon, limited to 1 CPU, 1 GB of memory and 5 minutes (explainability scripts by default to 2 CPUs, 2 GB and 15 minutes), but their network is only partly isolated: they can reach the internet, MinIO, the application and worker containers and any service the host publishes on a non-loopback address, but not the Docker socket proxy, PostgreSQL or Redis. Treat them as trusted code.
 - **Raw data** is not part of any message the platform sends between sites, but the training code runs at every site with access to its data.
 
 Read the [threat model](docs/threat-model.md), [security controls](docs/security.md) and [networking](docs/networking.md) pages before deploying, and [SECURITY.md](SECURITY.md) for how to report a vulnerability.

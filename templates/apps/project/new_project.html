@@ -272,6 +272,45 @@
                 </div>
               </div>
             </div>
+
+            <!-- Explainability Script (Only .py file) -->
+            <div>
+              <label for="id_explainability_script" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Explainability Script</label>
+              {% if form.instance.explainability_script %}
+                <div class="flex items-center mb-2 gap-2">
+                  <span class="text-sm text-gray-500 dark:text-gray-400">Current file: {{ form.instance.explainability_script.name }}</span>
+                  <a href="{% url 'project:download_file' form.instance.id 'explainability_script' %}" class="text-sm text-purple-700 hover:underline dark:text-purple-300" target="_blank">(View)</a>
+                </div>
+                {% if edit %}
+                <div class="flex items-center mb-2 gap-2">
+                  <input id="id_remove_explainability_script" name="remove_explainability_script" type="checkbox" class="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded" />
+                  <label for="id_remove_explainability_script" class="text-sm text-gray-500 dark:text-gray-400">Remove the current script (explanations already computed are kept)</label>
+                </div>
+                {% endif %}
+              {% endif %}
+              <label for="id_explainability_script" class="flex items-center justify-center w-full h-32 border border-dashed rounded-lg cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600 {% if form.explainability_script.errors %}border-red-500{% endif %}">
+                <div class="flex flex-col items-center justify-center pt-5 pb-5">
+                  <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                    <path fill-rule="evenodd" d="M9 7V2.221a2 2 0 0 0-.5.365L4.586 6.5a2 2 0 0 0-.365.5H9Zm2 0V2h7a2 2 0 0 1 2 2v6.41A7.5 7.5 0 1 0 10.5 22H6a2 2 0 0 1-2-2V9h5a2 2 0 0 0 2-2Z" clip-rule="evenodd"/>
+                    <path fill-rule="evenodd" d="M9 16a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3a1 1 0 0 1 1 1v1h1a1 1 0 1 1 0 2h-1v1a1 1 0 1 1-2 0v-1h-1a1 1 0 1 1 0-2h1v-1a1 1 0 0 1 1-1Z" clip-rule="evenodd"/>
+                  </svg>
+                  <p class="mb-2 pt-2 text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold">Click to import</span></p>
+                  <p class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">.py file only; per-case explanations shown on the Results page</p>
+                </div>
+                <input id="id_explainability_script" name="explainability_script" type="file" accept=".py" class="hidden" />
+              </label>
+              {% if form.explainability_script.errors %}
+              <p class="mt-1 text-sm text-red-600 dark:text-red-500">{{ form.explainability_script.errors.0 }}</p>
+              {% endif %}
+
+              <!-- Selected Files Display for Explainability Script -->
+              <div id="explainability_files_container" class="mt-4 hidden">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-2">Selected explainability script:</h3>
+                <div id="explainability_files_list" class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 max-h-60 overflow-y-auto">
+                  <!-- File info will be inserted here by JavaScript -->
+                </div>
+              </div>
+            </div>
           </div>
           
           <!-- Submit Button -->
@@ -311,9 +350,16 @@
     
     // Handle file selection display for Results Visualization Script (single .py file)
     setupSingleFileUploadDisplay(
-      "id_results_visualization_script", 
-      "results_visualization_files_container", 
+      "id_results_visualization_script",
+      "results_visualization_files_container",
       "results_visualization_files_list"
+    );
+
+    // Handle file selection display for the Explainability Script (single .py file)
+    setupSingleFileUploadDisplay(
+      "id_explainability_script",
+      "explainability_files_container",
+      "explainability_files_list"
     );
 
     // Handle file selection display for requirements.txt (single .txt file)
@@ -353,7 +399,11 @@
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (file.name.endsWith('.py')) {
-          const relPath = file.webkitRelativePath || file.name;
+          // A folder pick gives paths that start with the selected folder's own
+          // name; drop it so that the folder's training.py is stored at the root.
+          const relPath = file.webkitRelativePath
+            ? file.webkitRelativePath.split('/').slice(1).join('/')
+            : file.name;
           directoriesMap[file.name + '_' + i] = relPath;
           pythonFileCount++;
 

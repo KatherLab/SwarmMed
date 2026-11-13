@@ -111,7 +111,7 @@ ALLOWED_EXTENSIONS = {
     ext.strip().lower()
     for ext in os.environ.get(
         "ALLOWED_EXTENSIONS",
-        ".csv,.txt,.json,.parquet,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf",
+        ".csv,.txt,.json,.parquet,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf,.wav,.flac,.edf,.bdf,.dat,.hea,.mat,.tsv",
     ).split(",")
     if ext.strip()
 }

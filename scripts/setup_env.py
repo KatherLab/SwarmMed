@@ -156,7 +156,7 @@ ENV_HELP = {
     },
     "ALLOWED_EXTENSIONS": {
         "desc": "Comma-separated list of allowed file extensions for data import.",
-        "example": ".csv,.txt,.json,.parquet,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf",
+        "example": ".csv,.txt,.json,.parquet,.npy,.npz,.h5,.pt,.pth,.dcm,.nii,.nii.gz,.jpg,.jpeg,.png,.bmp,.gif,.pdf,.wav,.flac,.edf,.bdf,.dat,.hea,.mat,.tsv",
     },
     "DOCKER_HOST_IP": {
         "desc": "The IP address of the host machine as seen from the containers, or for binding ports to the host.",

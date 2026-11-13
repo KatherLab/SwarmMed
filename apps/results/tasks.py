@@ -4,10 +4,13 @@ import base64
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 import textwrap
 
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.utils import timezone
 
 from celery import shared_task
@@ -26,6 +29,7 @@ from .artifacts import (
     parse_result_key,
 )
 from .models import (
+    ExplanationRun,
     ResultsVisualizationPlot,
     ResultsVisualizationRun,
     TrainingResult,
@@ -536,3 +540,299 @@ except Exception as e:
             run.save()
         except: pass
         raise e
+
+
+# --------------------------------------------------------------------------
+# Explainability
+# --------------------------------------------------------------------------
+
+# Bytes of script output kept on an explanation run.
+EXPLAIN_OUTPUT_LIMIT = 64 * 1024
+
+
+def _storable_text(text):
+    """Return a text that a database text column can hold.
+
+    PostgreSQL text cannot hold NUL characters; they become U+FFFD.
+    Characters that cannot be encoded as UTF-8 (lone surrogates) become "?".
+    """
+    text = str(text or "").replace("\x00", "�")
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _tail_text(text, limit=EXPLAIN_OUTPUT_LIMIT):
+    """Return at most the last ``limit`` bytes of a text (see _storable_text)."""
+    if not text:
+        return ""
+    text = _storable_text(text)
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    tail = encoded[-limit:].decode("utf-8", errors="ignore")
+    return "[earlier output omitted]\n" + tail
+
+
+def _build_explanation_manifest(project, flare_id, filesystem, log):
+    """Write ``data_manifest.json`` for an explanation run into the data folder.
+
+    The manifest maps the site's data files (their paths below
+    ``<project>/data/``) and the job's result files
+    (``results/<participant>/<file>``) to presigned URLs, as for results
+    visualization.
+
+    Returns:
+        dict: The manifest.
+    """
+    from common.utils import get_internal_s3_download_url
+
+    manifest = filesystem.build_manifest()
+    results_prefix = f"{project.identifier}/results/{flare_id}/"
+    s3 = get_s3_client()
+    paginator = s3.get_paginator("list_objects_v2")
+    found = 0
+    for page in paginator.paginate(
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=results_prefix
+    ):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if key.endswith(("/", ".py", ".pyc")):
+                continue
+            manifest[f"results/{key[len(results_prefix) :]}"] = (
+                get_internal_s3_download_url(key, expires=3600)
+            )
+            found += 1
+    log.results.info(
+        f"Explanation manifest: {len(manifest) - found} data files, "
+        f"{found} result files."
+    )
+    with open(os.path.join(filesystem.temp_dir, "data_manifest.json"), "w") as f:
+        json.dump(manifest, f)
+    return manifest
+
+
+def _read_explainability_script(project):
+    """Return the project's explainability script as bytes."""
+    field = project.explainability_script
+    if not field or not field.name:
+        raise ValueError("The project has no explainability script.")
+    with field.open("rb") as handle:
+        return handle.read()
+
+
+class _ExplanationRunCancelled(Exception):
+    """The run was cancelled before its sandbox container started."""
+
+
+def _explanation_run_status(run_id):
+    return (
+        ExplanationRun.objects.filter(id=run_id)
+        .values_list("status", flat=True)
+        .first()
+    )
+
+
+def _finish_explanation_run(run, *, output, success, error, collected, bundle_dir):
+    """Store a run's output, final status and bundle in one transaction.
+
+    The run row is locked first. A run that is no longer running (it was
+    cancelled while the script ran) is left as it is and nothing is stored.
+    Otherwise either everything is stored or nothing: an error rolls the
+    rows back and removes the images stored so far, and the caller then marks
+    the run failed.
+
+    Returns:
+        bool: False if the run was no longer running.
+    """
+    from .explanations import delete_stored_images, persist_explanation_bundle
+
+    stored = []
+    try:
+        with transaction.atomic():
+            status = (
+                ExplanationRun.objects.select_for_update()
+                .filter(id=run.id)
+                .values_list("status", flat=True)
+                .first()
+            )
+            if status != "running":
+                return False
+            run.output = output
+            run.success = success
+            run.error_message = error
+            run.status = "completed"
+            run.completed_at = timezone.now()
+            run.save(
+                update_fields=[
+                    "output",
+                    "success",
+                    "error_message",
+                    "status",
+                    "completed_at",
+                    "script_sha256",
+                    "updated_at",
+                ]
+            )
+            if collected is not None:
+                stored = persist_explanation_bundle(run, collected, bundle_dir)
+    except BaseException:
+        delete_stored_images(stored)
+        raise
+    return True
+
+
+@shared_task
+def run_results_explanation_task(run_id, flare_id):
+    """Run the project's explainability.py in the sandbox and store its bundle.
+
+    The run folder gets the script as ``explainability.py``, the wrapper of
+    ``swarmmed_explain.helper.wrapper_source()`` as ``script.py`` and a copy of
+    the ``swarmmed_explain`` package. Nothing is stored unless the script exits
+    with code 0 within the time limit and its bundle passes
+    ``swarmmed_explain.bundle.safe_copy_bundle``.
+
+    Stopping a run (``explanations.stop_results_explanation``) marks it
+    cancelled and removes its container; this task's wait then returns, the
+    task finds the run cancelled, stores nothing and removes its folders. A
+    run cancelled before its container started is not started.
+    """
+    from swarmmed_explain.helper import (
+        SANDBOX_OUTPUT_DIR,
+        SANDBOX_SCRIPT,
+        copy_package,
+        wrapper_source,
+    )
+
+    from data.filesystem import DataFileSystem
+    from data.sandbox import EXPLAIN_RUN_TYPE
+
+    from .explanations import explain_container_name
+
+    log = logger.get_logger()
+    run = (
+        ExplanationRun.objects.select_related("project", "user")
+        .filter(id=run_id)
+        .first()
+    )
+    if run is None:
+        log.results.warning(f"Explanation run {run_id} no longer exists.")
+        return {"success": False}
+    started_at = timezone.now()
+    # Only a pending run is started, so a cancellation is never overwritten.
+    if run.status != "pending" or not (
+        ExplanationRun.objects.filter(id=run.id, status="pending").update(
+            status="running", started_at=started_at, updated_at=started_at
+        )
+    ):
+        # Cancelled (or started) before this worker picked the task up.
+        return {"success": False, "status": _explanation_run_status(run.id)}
+    run.status = "running"
+    run.started_at = started_at
+
+    project = run.project
+    set_context(user=run.user, project=project)
+    log = logger.get_logger(user=run.user, project=project)
+
+    staging_dir = None
+    output = None
+    try:
+        script_bytes = _read_explainability_script(project)
+        run.script_sha256 = hashlib.sha256(script_bytes).hexdigest()
+        try:
+            script_text = script_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("explainability.py is not UTF-8 text.") from exc
+
+        staging_dir = tempfile.mkdtemp(
+            prefix=f"explain_{run.identifier}_", dir=settings.PROJECT_TEMP_DIR
+        )
+        bundle_dir = os.path.join(staging_dir, "bundle")
+
+        def prepare(run_dir):
+            if _explanation_run_status(run.id) == "cancelled":
+                # Stopped while the data was prepared: start no container.
+                raise _ExplanationRunCancelled()
+            script_path = os.path.join(run_dir, SANDBOX_SCRIPT)
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write(script_text)
+            copy_package(run_dir)
+
+        def collect(run_dir):
+            from swarmmed_explain.bundle import safe_copy_bundle
+
+            return safe_copy_bundle(
+                os.path.join(run_dir, SANDBOX_OUTPUT_DIR), bundle_dir
+            )
+
+        with DataFileSystem(str(project.identifier)) as filesystem:
+            _build_explanation_manifest(project, flare_id, filesystem, log)
+            result = run_script_in_sandbox(
+                wrapper_source(),
+                filesystem.temp_dir,
+                str(project.identifier),
+                run_type=EXPLAIN_RUN_TYPE,
+                prepare_run_dir=prepare,
+                collect_outputs=collect,
+                container_name=explain_container_name(run),
+            )
+
+        output = _tail_text(result.get("output") or "")
+        collected = result.get("collected")
+        if result.get("collect_error"):
+            success = False
+            error = "The explanation bundle was rejected: " + result["collect_error"]
+            collected = None
+        elif result.get("success") and collected:
+            success = True
+            error = ""
+        else:
+            success = False
+            error = result.get("error") or "The explainability script failed."
+            collected = None
+        error = _storable_text(error)
+        if not _finish_explanation_run(
+            run,
+            output=output,
+            success=success,
+            error=error,
+            collected=collected,
+            bundle_dir=bundle_dir,
+        ):
+            log.results.info(f"Explanation run {run.identifier} was cancelled.")
+            return {"success": False, "status": "cancelled"}
+        if success:
+            log.results.info(f"Explanation run {run.identifier} stored its cases.")
+        else:
+            log.results.error(
+                f"Explanation run {run.identifier} stored nothing: "
+                f"{error}\n{_tail_text(output, 4096)}"
+            )
+        return {"success": success}
+
+    except _ExplanationRunCancelled:
+        log.results.info(
+            f"Explanation run {run.identifier} was cancelled before it started."
+        )
+        return {"success": False, "status": "cancelled"}
+    except Exception as exc:
+        log.results.error(f"Explanation task failed: {format_exception(exc)}")
+        now = timezone.now()
+        fields = {
+            "status": "failed",
+            "success": False,
+            "error_message": _storable_text(str(exc)[:4000]) or exc.__class__.__name__,
+            "completed_at": now,
+            "updated_at": now,
+        }
+        if output is not None:
+            fields["output"] = output
+        if run.script_sha256:
+            fields["script_sha256"] = run.script_sha256
+        # A cancelled (or already completed) run keeps its status.
+        ExplanationRun.objects.filter(id=run_id, status="running").update(**fields)
+        return {"success": False}
+    finally:
+        if staging_dir:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        # Do not leave this run's user and project as the logging context of
+        # whatever the worker process runs next.
+        set_context()

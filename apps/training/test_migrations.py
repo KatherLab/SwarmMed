@@ -31,6 +31,14 @@ class TrainingJobMigrationTests(TransactionTestCase):
         self.executor.migrate(self.migrate_to)
         self.apps = self.executor.loader.project_state(self.migrate_to).apps
 
+    def tearDown(self):
+        # Migrating to results 0001 also unapplied the later results migrations;
+        # apply every app's latest migration again for the tests that follow.
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        super().tearDown()
+
     def _set_up_before_migration(self, apps):
         TrainingJob = apps.get_model("training", "TrainingJob")
         TrainingResult = apps.get_model("results", "TrainingResult")

@@ -135,11 +135,11 @@ The term comes from Warnat-Herresthal et al., who described Swarm Learning as co
 
 ### Why is Swarm Learning important?
 
-Medical data are often not allowed to leave the institution that holds them, and moving large imaging datasets is costly. Decentralized learning lets institutions build a model on their combined data while each dataset stays where it is: only model parameters are exchanged.
+Medical data are often not allowed to leave the institution that holds them, and moving large datasets, imaging studies for example, is costly. Decentralized learning lets institutions build a model on their combined data while each dataset stays where it is: only model parameters are exchanged.
 
 ### What are the benefits of Swarm Learning?
 
-*   **Data stay at each site.** Raw images, labels and patient identifiers are not part of any message the platform sends between sites, and each site keeps control of its own storage.
+*   **Data stay at each site.** Raw data (images, signals, tables or text), labels and patient identifiers are not part of any message the platform sends between sites, and each site keeps control of its own storage.
 *   **Each site contributes to, and receives, a model trained on all participants' data**, without the data being pooled.
 *   **No permanently privileged aggregator.** The aggregating site is drawn at random each round, and the FL server computes no aggregate.
 

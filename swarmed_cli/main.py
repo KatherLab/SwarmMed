@@ -306,6 +306,56 @@ def build_parser() -> argparse.ArgumentParser:
         handler="results_visualize", command_name="results visualize"
     )
 
+    results_explain = results_subparsers.add_parser(
+        "explain", parents=[common_parent]
+    )
+    results_explain.add_argument("--project")
+    results_explain.add_argument("--job", required=True)
+    _add_wait_options(results_explain)
+    results_explain.set_defaults(
+        handler="results_explain", command_name="results explain"
+    )
+
+    results_explanations = results_subparsers.add_parser(
+        "explanations", parents=[common_parent]
+    )
+    results_explanations.add_argument("--project")
+    results_explanations.add_argument("--job", required=True)
+    results_explanations.add_argument(
+        "--run",
+        help="Explanation run UUID (default: the newest run with stored explanations).",
+    )
+    results_explanations.add_argument(
+        "--out",
+        help=(
+            "Write the run's bundle (cases.json and PNG files) to this new or "
+            "empty folder."
+        ),
+    )
+    results_explanations.add_argument(
+        "--reviews",
+        action="store_true",
+        help="List every review of each case, not only each reviewer's latest.",
+    )
+    results_explanations.set_defaults(
+        handler="results_explanations", command_name="results explanations"
+    )
+
+    results_explain_import = results_subparsers.add_parser(
+        "explain-import", parents=[common_parent]
+    )
+    results_explain_import.add_argument("--project")
+    results_explain_import.add_argument("--job", required=True)
+    results_explain_import.add_argument(
+        "--dir",
+        required=True,
+        dest="bundle_dir",
+        help="Bundle folder (cases.json and PNG files), for example from run_local.",
+    )
+    results_explain_import.set_defaults(
+        handler="results_explain_import", command_name="results explain-import"
+    )
+
     return parser
 
 
@@ -750,6 +800,71 @@ def run(args: argparse.Namespace):
                     timeout_seconds=args.timeout,
                 )
             result = results_services.serialize_results_visualization_run(run_obj)
+
+        elif handler_name == "results_explain":
+            from results import explanations as explain_services
+
+            project = resolve_project(state, args.project)
+            run_obj = explain_services.start_results_explanation(
+                project=project, user=state.user, job_identifier=args.job
+            )
+            if args.wait:
+                run_obj = wait_for_state(
+                    fetch=lambda: _refresh(run_obj),
+                    status_of=lambda item: item.status,
+                    terminal_statuses=set(explain_services.TERMINAL_STATUSES),
+                    interval_seconds=args.interval,
+                    timeout_seconds=args.timeout,
+                )
+            result = explain_services.serialize_explanation_run(run_obj)
+
+        elif handler_name == "results_explanations":
+            from results import explanations as explain_services
+
+            project = resolve_project(state, args.project)
+            if args.out:
+                from swarmmed_explain.bundle import check_destination
+
+                # Refuse an unusable folder before the listing counts as the
+                # user having seen the run's output.
+                check_destination(Path(args.out).expanduser().resolve())
+            result = explain_services.describe_explanations(
+                project,
+                state.user,
+                job_identifier=args.job,
+                run_identifier=args.run,
+                include_reviews=args.reviews,
+            )
+            if args.out:
+                exported = explain_services.export_explanations_to_directory(
+                    project,
+                    state.user,
+                    output_dir=args.out,
+                    job_identifier=args.job,
+                    run_identifier=args.run,
+                )
+                result["output_dir"] = exported["output_dir"]
+                result["written_files"] = exported["written_files"]
+
+        elif handler_name == "results_explain_import":
+            from results import explanations as explain_services
+
+            project = resolve_project(state, args.project)
+            run_obj = explain_services.import_explanation_bundle(
+                project=project,
+                user=state.user,
+                job_identifier=args.job,
+                bundle_dir=args.bundle_dir,
+            )
+            result = explain_services.serialize_explanation_run(run_obj)
+            if run_obj.job_id is None and not explain_services.job_has_result_files(
+                project, run_obj.flare_job_id
+            ):
+                state.warnings.append(
+                    "The job has no training record and no result files, so the "
+                    "Results page does not list it; use `swarmed results "
+                    "explanations` to see the imported explanations."
+                )
 
         else:
             raise ValueError(f"Unsupported command handler '{handler_name}'.")

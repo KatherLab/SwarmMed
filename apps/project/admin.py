@@ -123,6 +123,7 @@ class ProjectAdmin(ModelAdmin):
                     "data_validation_script",
                     "data_visualization_script",
                     "results_visualization_script",
+                    "explainability_script",
                 ),
                 "classes": ("collapse",),
             },
