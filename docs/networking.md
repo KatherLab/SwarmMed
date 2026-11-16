@@ -376,9 +376,10 @@ The Hub reads NetBird and Tailscale (see
 other option, enter the server address in the network form or give it with the
 CLI's `--server-ip`, set `SWARMMEDHUB_OVERLAY=none`, and at each site list the
 address the site was provisioned with in `SWARMMEDHUB_LOCAL_ADDRESSES`, or set
-`SWARMMEDHUB_LOCAL_PARTICIPANT`. Only Tailscale has been used for a training run
-across hosts so far; NetBird has been exercised in a containers-only test on one
-host ([Validation status](#validation-status)).
+`SWARMMEDHUB_LOCAL_PARTICIPANT`. Tailscale (the worked example) and an existing
+VPN between institutions (the three-hospital runs of the ECG template) have been
+used for training across hosts so far; NetBird has been exercised in a
+containers-only test on one host ([Validation status](#validation-status)).
 
 ### NetBird (recommended)
 
@@ -614,6 +615,7 @@ connect to the server.
 |---|---|
 | Tailscale | Used for the worked example: the coordinating host and three training hosts on one tailnet, with the coordinating host's Tailscale address as the server address |
 | NetBird | Exercised in a containers-only test on one host on 11 November 2026 ([below](#netbird-test-on-one-host)); not yet used for training across hosts |
+| An existing VPN between institutions (neither NetBird nor Tailscale) | Used for training across three hospitals and a coordinating host on 13 and 16 November 2026 ([ECG template](https://github.com/KatherLab/SwarmMed/blob/main/examples/ecg_ptbxl/README.md#what-was-run)): server address given with `--server-ip` and listed in `SWARMMEDHUB_LOCAL_ADDRESSES` at the coordinating host; the hospitals connected outbound only; Docker's default address pools had to be moved off the VPN's address range |
 | Direct routed addressing, no overlay | Not yet exercised; no platform change expected for FLARE traffic |
 | Self-hosted WireGuard | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
 | OpenVPN, site-to-site IPSec | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
