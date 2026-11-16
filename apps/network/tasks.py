@@ -2261,7 +2261,6 @@ def run_nvflare_preflight_check(network_id, user_id):
         print(f"Preflight exception: {e}")
 
 
-@shared_task
 def _stop_unfinished_training_jobs(network, logger):
     """Marks the network's unfinished training jobs as stopped.
 
@@ -2283,6 +2282,7 @@ def _stop_unfinished_training_jobs(network, logger):
         logger.network.info(f"Training job {job.identifier} marked as stopped.")
 
 
+@shared_task
 def stop_swarm_network_task(network_id, user_id):
     """Stops and removes the containers for a swarm network.
 
