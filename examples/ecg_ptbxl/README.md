@@ -432,9 +432,9 @@ FL server; NetBird as the overlay; the PTB-XL 500 Hz records.
 
 ## Explainability
 
-The paragraphs below describe the cases of the simulator run's final model (11 Nov 2026) on
-`fl-client-1`, with their outcomes. If you want to try the blinded review on that run, do it before
-you read them.
+The paragraphs below describe the cases of the final model of the simulator run on the host (11 Nov
+2026, the first row of the table in [What was run](#what-was-run)) on `fl-client-1`, with their
+outcomes. If you want to try the blinded review on that run, do it before you read them.
 
 `explainability.py` explains the final global model on the test split of the first site folder
 (or the root data in a real deployment). It selects the two most confident cases of each outcome
@@ -467,8 +467,8 @@ python -m swarmmed_explain.run_local --script examples/ecg_ptbxl/explainability.
   --out tmp/ptbxl_ecg/explain_bundle
 ```
 
-On the simulator's final model (11 Nov 2026), the run took 10.3 s pinned to 2 CPUs
-(`taskset -c 0,1`) with 0.84 GB peak memory, inside the sandbox limits of 2 CPUs, 2 GB and 15
+On the final model of the simulator run on the host (11 Nov 2026), the run took 10.3 s pinned to 2
+CPUs (`taskset -c 0,1`) with 0.84 GB peak memory, inside the sandbox limits of 2 CPUs, 2 GB and 15
 minutes, and wrote a valid bundle of 8 cases, 32 panels and 3 summaries. On the fl-client-1 test
 split the maps are not zero or uniform: they concentrate on individual beats and, in the first true
 positive, on one wide beat of different shape at about 2.8 s that both methods mark in the same
@@ -487,10 +487,10 @@ Hub shows the cases in a random order, so a case's position says nothing about i
 
 ## Limitations
 
-- One data split. One seed and one training run per environment, except the three runs at the
-  hospitals (seeds 0 to 2), which are too few to estimate the spread between runs reliably; no
-  external validation. The PTB-XL test fold comes from the same hospitals and devices as the
-  training folds.
+- One data split. One seed and one training run per environment, except the three 20-round runs at
+  the hospitals (seeds 0 to 2; a 5-round bring-up run on 13 Nov 2026 came before them), which are
+  too few to estimate the spread between runs reliably; no external validation. The PTB-XL test fold
+  comes from the same hospitals and devices as the training folds.
 - **Label provenance differs at fl-client-1.** Only 28.6% of its training records were validated by
   a human; the other 71.4% were not (their label is the initial automatic report), while its
   validation and test records are 100% human-validated. Abnormal prevalence there drops from 58% in
