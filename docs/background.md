@@ -20,7 +20,7 @@ SwarmMed consists of several components that each participating site runs on its
 *   **MinIO:** S3-compatible object storage for imported datasets, project code and scripts, plots and synchronized training results.
 *   **Sandbox-dind:** A separate Docker daemon on which user-provided validation and visualization scripts run in short-lived containers with CPU, memory and time limits. Their network is isolated from the internal database network, with access confined to MinIO and outbound egress ([Security](security.md#script-sandbox)).
 *   **NVIDIA FLARE:** The runtime for decentralized training. It issues each study's certificates, runs the FL server and the FL clients in containers, and carries out the swarm workflow.
-*   **Tailscale (optional):** An overlay network between the sites. Federated training does not need it, but network creation in the web interface and the status exchange between sites' web interfaces use the host's Tailscale address ([Networking](networking.md)).
+*   **Overlay network (optional):** NetBird (recommended) or Tailscale between the sites. Federated training does not need it, but the web interface proposes the host's overlay address as the FL server's address, and the status exchange between sites' web interfaces uses it to recognise each site ([Networking](networking.md)).
 
 ### SwarmMed Hub/CLI Orchestration
 ``` mermaid
@@ -305,19 +305,21 @@ Django runs SwarmMedHub's web interface and the services that the web interface 
 
 [^6]: [https://www.djangoproject.com/](https://www.djangoproject.com/)
 
-## 🌐 _TAILSCALE_[^7] VPN
+## 🌐 _NETBIRD_[^netbird] and _TAILSCALE_[^7] Overlay Networks
 
-### What is Tailscale?
+### What are NetBird and Tailscale?
 
-Tailscale is a VPN service built on the WireGuard protocol. It creates a private network (a "tailnet") between the devices enrolled in it, which can then reach each other at their Tailscale addresses.
+Both build a private network of WireGuard tunnels between the hosts enrolled in them, which can then reach each other at stable overlay addresses. A coordination service enrols the hosts, distributes their keys and addresses, and distributes the access policies that decide which host may reach which ports. NetBird's coordination service (its management, signal and relay servers) is open source and can be hosted by the consortium itself; Tailscale's is run by Tailscale Inc. and cannot be self-hosted.
 
-### How does SwarmMedHub use Tailscale?
+### How does SwarmMedHub use them?
 
-Federated training does not need Tailscale: each FL client connects out to the FL server, and clients do not connect to each other. The worked example ran over a Tailscale network, and two features of the web interface use the host's Tailscale address: a network created in the web interface takes it as the FL server's address, and a site's web interface recognises itself among a network's participants by it. Training itself needs only a stable IPv4 address for every participant and a path from the clients to the server, so another overlay network, or none, can take Tailscale's place; only Tailscale has been exercised with SwarmMed so far. [Networking](networking.md) compares the options.
+Federated training does not need an overlay network: each FL client connects out to the FL server, and clients do not connect to each other. The worked example ran over a Tailscale network. The documentation recommends NetBird with a self-hosted management server, which has so far been exercised with SwarmMed in a containers-only test on one host. A helper on the host records the host's NetBird and Tailscale addresses, and two features of the web interface use them: the network form proposes the overlay address as the FL server's address, and a site's web interface recognises itself among a network's participants by it. Training itself needs only a stable IPv4 address for every participant and a path from the clients to the server, so another network, or none, can take their place. [Networking](networking.md) compares the options.
 
 ### Key Features
 
-*   **WireGuard:** Traffic between devices on the tailnet is encrypted with WireGuard.
-*   **Coordination Service:** Tailscale operates the coordination service, which cannot be self-hosted. Its clients can be pointed at a compatible third-party control server such as Headscale; that has not been tried with SwarmMed.
+*   **WireGuard:** Traffic between hosts on the overlay is encrypted with WireGuard.
+*   **Access control:** A policy in the coordination service can limit the participating sites to the FL server's ports.
+*   **Coordination Service:** NetBird's can be self-hosted; its client is licensed under BSD-3-Clause, and its management, signal and relay servers under AGPL-3.0 since v0.53.0. Tailscale's cannot be self-hosted; its clients can be pointed at a compatible third-party control server such as Headscale, which has not been tried with SwarmMed.
 
 [^7]: [https://tailscale.com/](https://tailscale.com/)
+[^netbird]: [https://netbird.io/](https://netbird.io/)

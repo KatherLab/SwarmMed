@@ -106,7 +106,7 @@ With one public dataset: the Duke breast-MRI cohort, split by patient into three
 
 ### What are the system requirements for SwarmMed?
 
-Every host that runs the FL server or trains needs Linux, Docker Engine with the Compose plugin and, for imaging models such as the breast-MRI example, an NVIDIA GPU with the NVIDIA Container Toolkit. People who only use the web interface can use any operating system with a current browser. Networks created in the web interface rely on Tailscale; without it, create networks with the CLI. See [Installation](installation.md), [Operating systems](os-support.md), [Hardware](hardware.md) and [Networking](networking.md).
+Every host that runs the FL server or trains needs Linux, Docker Engine with the Compose plugin and, for imaging models such as the breast-MRI example, an NVIDIA GPU with the NVIDIA Container Toolkit. People who only use the web interface can use any operating system with a current browser. The web interface proposes this host's overlay address (NetBird or Tailscale) as the FL server's address; any other IPv4 address that every site can reach can be entered instead. See [Installation](installation.md), [Operating systems](os-support.md), [Hardware](hardware.md) and [Networking](networking.md).
 
 ### How can I contribute to SwarmMed?
 We welcome contributions to the SwarmMed project. Please refer to the [Contribution Guide](contribution.md) for more information on how to get involved.

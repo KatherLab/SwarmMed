@@ -1,18 +1,22 @@
 ---
 title: Networking
-description: What the platform needs from the network, and how to provide it with Tailscale, Netbird, WireGuard, OpenVPN or IPSec.
+description: What the platform needs from the network, and how to provide it with NetBird, Tailscale, WireGuard, OpenVPN or IPSec.
 ---
 
 # Networking
 
-The documentation and the worked example use [Tailscale](https://tailscale.com/)
-because it is the quickest way to get a consortium talking;
-[Netbird](https://netbird.io/) is a self-hostable alternative that has not yet
-been exercised with SwarmMed. No overlay network is required for federated
-training itself. Network creation in the web interface and the Hub's peer status
-do currently rely on Tailscale (see [Tailscale and the Hub](#tailscale-and-the-hub)).
-This page states what SwarmMed actually needs, so that a site can satisfy it with
-whatever its information security team already approves.
+No overlay network is required for federated training itself. This page
+states what SwarmMed actually needs, so that a site can satisfy it with whatever
+its information security team already approves. For a consortium that has no
+network of its own yet, the documentation recommends [NetBird](https://netbird.io/)
+with a management server that the consortium hosts itself: NetBird's control
+plane is open source and supported for self-hosting, so no third party mediates
+the connections between the sites. The worked example ran over
+[Tailscale](https://tailscale.com/). The Hub reads this host's NetBird or
+Tailscale address (see
+[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). NetBird has
+so far been exercised with SwarmMed only in a containers-only test on one host
+([Validation status](#validation-status)).
 
 ## What the platform requires
 
@@ -89,7 +93,7 @@ What this means for a participating hospital:
 This is the single most useful fact to put in front of an information security
 committee. For federated training, it is what makes the choice of overlay
 network a site decision rather than a platform constraint; the Hub's
-Tailscale-specific conveniences are the exception.
+conveniences, which read NetBird or Tailscale, are the exception.
 
 Client-only mode, and the choice of which site's kit to start from the bundle,
 are environment variables of the process that starts the network. That is the
@@ -105,8 +109,9 @@ services:
 ```
 
 Apply it with `docker compose up -d celery_worker`. Without
-`SWARMMEDHUB_LOCAL_PARTICIPANT`, the start aborts unless the hostname or the
-host's Tailscale address matches a site in the bundle. On the coordinating host,
+`SWARMMEDHUB_LOCAL_PARTICIPANT`, the start aborts unless the hostname or one of
+the host's addresses (its NetBird and Tailscale addresses and those in
+`SWARMMEDHUB_LOCAL_ADDRESSES`) matches a site in the bundle. On the coordinating host,
 if it does not also train, set `SWARMMEDHUB_SERVER_ONLY_MODE=true` for the worker
 instead; otherwise starting the network there also starts a client for every
 site. The port variables above go in the same file, under both `app` and
@@ -209,9 +214,9 @@ Both need inbound connections on port 5085:
 
 A Hub accepts these requests only if the address it was provisioned with is
 listed in its `DJANGO_ALLOWED_HOSTS`; the same applies to every name or address
-users type into their browsers. A Hub sends status only if it finds its own
-Tailscale address among the participants (see
-[Tailscale and the Hub](#tailscale-and-the-hub)).
+users type into their browsers. A Hub sends status only if it finds one of
+its own addresses among the participants (see
+[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)).
 
 The channel uses HTTPS without certificate verification by default
 (`SWARMMEDHUB_SKIP_PEER_SSL_VERIFY` defaults to `true`). Turning verification on
@@ -235,8 +240,9 @@ entry for the name `server` in the client containers at participating sites. It
 must be an IPv4 address that every participant can reach and that stays the same
 for the study.
 
-Give it with `--server-ip` when creating the network with the CLI, run inside
-the Hub's app container (see [CLI](cli.md)):
+Give it in the **FL server address** field of the network form in the web
+interface, or with `--server-ip` when creating the network with the CLI, run
+inside the Hub's app container (see [CLI](cli.md)):
 
 ```bash
 docker exec -w /app swarmmedhub python3 -m swarmed_cli.main network create \
@@ -247,15 +253,20 @@ docker exec -w /app swarmmedhub python3 -m swarmed_cli.main network create \
   --no-local-client
 ```
 
-* `--server-ip` accepts only a dotted IPv4 address. A hostname or an IPv6
-  address is silently ignored, and the host's Tailscale address is used instead
-  if it has one.
-* The web interface has no field for the server address. Networks created there
-  always get the host's Tailscale address; on a host without Tailscale their
-  kits contain no server address, and remote sites cannot reach the server. A
-  consortium that does not use Tailscale must create its networks with the CLI.
-* The web interface also always adds the coordinating host as a training site;
-  the CLI does so unless `--no-local-client` is given.
+* The address must be a dotted IPv4 address. A host name, an IPv6 address, an
+  address with a prefix length (`100.64.0.10/16`), and loopback, link-local,
+  multicast, reserved and `0.0.0.0/8` addresses are rejected, and the network
+  is not created.
+* Left empty, the address is this host's current overlay address, NetBird's or
+  Tailscale's (see [The overlay helper and the Hub](#the-overlay-helper-and-the-hub)).
+  The network is not created if there is none: if the overlay is not connected,
+  or if the overlay helper has not reported for more than two minutes.
+* If the server address is not one of this host's NetBird or Tailscale
+  addresses, also list it in `SWARMMEDHUB_LOCAL_ADDRESSES`; otherwise the Hub
+  does not recognise itself as the server. The CLI warns about this, and so
+  does the Network page.
+* The web interface always adds the coordinating host as a training site; the
+  CLI does so unless `--no-local-client` is given.
 
 Each participant also needs an IPv4 address of its own (`--participant NAME=IPv4`).
 It does not have to be public or reachable from other sites, but it must stay
@@ -264,69 +275,273 @@ the FL client's job processes connect to their parent process at that address,
 and other Hubs use it to reach that site's Hub. A participant entered without a
 valid IPv4 address gets no startup kit; provisioning only logs a warning.
 
-### Tailscale and the Hub
+### The overlay helper and the Hub
 
-SwarmMed does not install, configure or join Tailscale; `tailscale up` is a
-manual step. `make start` launches a helper on the host,
-`scripts/tailscale_watcher.sh`, which runs `tailscale ip -4` and
-`tailscale status --json` every 30 s and writes the result to
-`tmp/tailscale_status.json`. The Hub reads that file; there is no Tailscale
-container. The helper is not a service and does not survive a reboot (start it
-again with `make tailscale`), and the Hub keeps using the last address in the
-file without checking its age.
+SwarmMed does not install, configure or join an overlay network; joining one
+(`netbird up`, `tailscale up`) is a manual step, and the Hub runs neither
+client. `make start` and `make overlay` start a helper on the host,
+`scripts/overlay_watcher.py`, which runs `netbird status --json` and
+`tailscale status --json` every 30 s and writes this host's address and state
+in each overlay it finds to `tmp/overlay_status.json`. The Hub's `app` and
+`celery_worker` containers read that file through their bind mount of `tmp/`;
+neither client's socket is mounted into a container. The helper needs only the
+host's `python3` (3.8 or later). It logs changes of state and errors to
+`tmp/overlay_watcher.log`, and keeps running after an error. It runs once per
+checkout: while it runs it holds a lock on `tmp/overlay_watcher.pid`, which
+names its process. `make overlay` and `make overlay-stop` go by that lock, not by
+the number in the file, so a file left behind by a helper that was killed, or
+that ended with the host, is not mistaken for a running helper, and no other
+process is stopped in its place. It is not a service: after a reboot, start it
+again with `make overlay`; `make overlay-stop` stops it.
+
+`SWARMMEDHUB_OVERLAY` in `.env` selects whose address the Hub uses. A change
+takes effect when the containers are recreated
+(`docker compose up -d app celery_worker`).
+
+| Value | Address the Hub uses |
+|---|---|
+| `auto` (default) | NetBird's if NetBird is connected, otherwise Tailscale's if Tailscale is connected; if neither is, the Network page shows the state of the first one installed. The Hub applies this order itself to every overlay the helper reports, whichever one the helper's `--provider` option put first |
+| `netbird` | NetBird's only |
+| `tailscale` | Tailscale's only |
+| `none` | no overlay; the first address in `SWARMMEDHUB_LOCAL_ADDRESSES`, if any |
 
 The Hub uses that address:
 
-* as the server address of networks created in the web interface (always), and
-  in the CLI when `--server-ip` is missing or is not an IPv4 address;
-* to recognise which participant it is. A Hub sends status and mirrors training
-  state ([Traffic between Hubs](#traffic-between-hubs)), and the coordinating Hub
-  shows client status from its FL server's log, only if the host's Tailscale
-  address is the address it was provisioned with;
+* as the server address of a new network when the form's **FL server address**
+  field or the CLI's `--server-ip` is left empty. Only a current address is
+  used: the network is not created if the overlay is not connected or the
+  helper has not reported for more than two minutes;
+* to recognise which participant it is. Every address the helper reports,
+  NetBird's and Tailscale's, counts, and so does every address in
+  `SWARMMEDHUB_LOCAL_ADDRESSES`; with `SWARMMEDHUB_OVERLAY=none`, only the
+  latter count. A Hub sends status and mirrors training state
+  ([Traffic between Hubs](#traffic-between-hubs)), and the coordinating Hub
+  shows client status from its FL server's log, only if one of these is the
+  address it was provisioned with;
 * as one of the ways, with `SWARMMEDHUB_LOCAL_PARTICIPANT` and the hostname, to
   pick the local client kit from a bundle;
-* for the Tailscale status shown on the Network page.
+* for the overlay status on the Network page: the address, NetBird's or
+  Tailscale's state, the number of connected peers and the time of the last
+  update. The page warns if the address is missing from
+  `DJANGO_ALLOWED_HOSTS`, because the Hub then refuses the status messages that
+  other Hubs send to it.
 
-FL traffic does not use it: the FL server and clients use the provisioned
-addresses. On any other network, or none, create the network with the CLI and
-`--server-ip`, set `SWARMMEDHUB_LOCAL_PARTICIPANT` at each site, and expect the
-Hub to show the other participants as offline.
+A status older than two minutes (`SWARMMEDHUB_OVERLAY_STALE_SECONDS`, default
+120) is shown as stale; for a helper started with a longer `--interval`, the
+limit is three of its intervals, at most 30 minutes. A status dated more than one
+minute in the future is stale too:
+a running helper replaces its status every 30 s with the current time, so such a
+status was written before the host's clock was set back, by a helper that has
+not written since, and its age is unknown. The address of a stale status is
+still used to recognise this host, but not as the server address of a new
+network. FL traffic uses none of this: the FL server and clients use the
+provisioned addresses.
 
-## Options, from easiest to most institutional
+`SWARMMEDHUB_LOCAL_ADDRESSES` lists further IPv4 addresses of this host,
+comma-separated, for example a WireGuard or routed address. `make env` drops
+variables that are not in `.env.template`, so set it, like
+`SWARMMEDHUB_OVERLAY_STALE_SECONDS`, for both the `app` and the `celery_worker`
+service in `docker-compose.override.yml` (see
+[What the platform requires](#what-the-platform-requires)).
 
-For every option other than Tailscale, create the network with the CLI's
-`--server-ip`, set `SWARMMEDHUB_LOCAL_PARTICIPANT` at each site, and do not rely
-on the Hub's peer status (see [Tailscale and the Hub](#tailscale-and-the-hub)).
-Only Tailscale has been exercised with SwarmMed so far
-([Validation status](#validation-status)).
+Details:
+
+* The helper reads the address from `netbirdIp` in `netbird status --json`. It
+  does not use `netbird status --ipv4`, which prints login instructions instead
+  of an address, and exits 0, when NetBird needs a login.
+* From NetBird 0.83 (a release candidate when this was written, on
+  11 November 2026), the NetBird daemon includes the address in its status only
+  for root and the user who connected the client. The helper then reads the
+  address of the interface `wt0` with `ip -4 addr`; set
+  `SWARMMEDHUB_NETBIRD_INTERFACE` when starting the helper if NetBird uses
+  another interface name.
+* The helper of earlier versions, `scripts/tailscale_watcher.sh`, wrote
+  `tmp/tailscale_status.json`. The Hub still reads that file when the new one is
+  missing or stale, so a host on which the old helper still runs keeps working.
+  Once the old file is stale and the new helper has written a more recent
+  status, the Hub ignores the old file, also for recognising this host, because
+  its address may since have been given to another peer. Stop an old helper
+  with `pkill -f tailscale_watcher.sh` and start the new one with
+  `make overlay`.
+* `scripts/tailscale_watcher.sh` is kept under its old name and now starts the
+  new helper with `--provider tailscale`. A cron entry or systemd unit that
+  starts it therefore keeps working, and in mode `auto` the Hub still uses
+  NetBird's address while NetBird is connected. Replace such entries with
+  `make overlay`, which starts the helper as `make start` does.
+
+## Options
+
+The Hub reads NetBird and Tailscale (see
+[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). With any
+other option, enter the server address in the network form or give it with the
+CLI's `--server-ip`, set `SWARMMEDHUB_OVERLAY=none`, and at each site list the
+address the site was provisioned with in `SWARMMEDHUB_LOCAL_ADDRESSES`, or set
+`SWARMMEDHUB_LOCAL_PARTICIPANT`. Only Tailscale has been used for a training run
+across hosts so far; NetBird has been exercised in a containers-only test on one
+host ([Validation status](#validation-status)).
+
+### NetBird (recommended)
+
+[NetBird](https://netbird.io/) connects hosts with WireGuard tunnels, directly
+where the networks allow it and through a relay otherwise. Its management server
+enrols the hosts, assigns their addresses and distributes the access policies;
+its signal server helps peers find each other. Both, and the relay, can be run
+by the consortium itself, so no third party mediates the connections between
+the sites. NetBird Cloud, the hosted service of NetBird GmbH
+([app.netbird.io](https://app.netbird.io/)), is a quick way to try NetBird; for a
+study, host the management server yourself.
+
+Licences: the client (command line, daemon and desktop interface) is
+BSD-3-Clause. The management, signal and relay servers have been AGPL-3.0 since
+v0.53.0 (August 2025), and so are the combined server image
+`netbirdio/netbird-server` and the dashboard
+([NetBird's announcement](https://netbird.io/knowledge-hub/netbird-agpl-announcement)).
+SwarmMed contains no NetBird code; its helper runs the client's command line as a
+separate program.
+
+#### Self-hosting the management server
+
+NetBird's [self-hosting quickstart](https://docs.netbird.io/selfhosted/selfhosted-quickstart)
+installs, with one script, a combined server (management, signal, relay, STUN
+and an embedded identity provider), the dashboard, and Traefik with
+certificates from Let's Encrypt. It needs a Linux host with at least 1 CPU and
+2 GB of RAM, a public domain name that points at it, and TCP 443 and UDP 3478
+reachable from the internet. TCP 80 must be free on the host, because Traefik
+binds it to redirect HTTP to HTTPS, but need not be reachable: Traefik obtains
+its certificate over port 443 (the TLS-ALPN-01 challenge; checked in NetBird's
+quickstart on 11 November 2026). The peers need no inbound port, only
+outbound access to these
+([ports](https://docs.netbird.io/about-netbird/ports-and-firewalls)). The
+script uses the images' `latest` tags unless `NETBIRD_SERVER_IMAGE` and
+`DASHBOARD_IMAGE` name versions; pin them for a study. The
+[advanced guide](https://docs.netbird.io/selfhosted/selfhosted-guide) covers
+existing identity providers and separate containers. Back up the server's data
+directory: it holds the peers, their addresses and the policies. In the
+[test on one host](#netbird-test-on-one-host), established connections kept
+working while the management server was stopped for 90 s, but a peer whose
+NetBird daemon restarted in that time had no address until the server was
+back.
+
+#### Installing the client and joining
+
+On every host that runs the FL server or trains
+([other platforms and the APT and RPM repositories](https://docs.netbird.io/get-started/install/linux)):
+
+```bash
+curl -fsSL https://pkgs.netbird.io/install.sh | sh    # uses NetBird's apt, dnf or yum repository if it finds one
+sudo netbird up --management-url https://netbird.example.org --setup-key <SETUP_KEY>
+netbird status       # NetBird IP: 100.64.0.10/16, and whether management and signal are connected
+netbird status -d    # also every peer this host may reach, with its address and connection type
+```
+
+For a trial on NetBird Cloud, leave out `--management-url`. The coordinating
+host's NetBird address, without the `/16`, is the FL server address. NetBird
+also gives every peer a DNS name (`<name>.netbird.selfhosted` on a self-hosted
+server), but startup kits need the IPv4 address: the server address becomes a
+Docker hosts entry in the client containers.
+
+#### Setup keys and groups
+
+Hosts enrolled with a setup key need no user login, and their login does not
+expire. Create the keys in the dashboard (**Setup Keys**) or with the
+[API](https://docs.netbird.io/api/resources/setup-keys), and let each key put its
+hosts into a group:
+
+* a one-off key for the coordinating host, with the group `fl-server`;
+* a reusable key, limited to as many uses as there are participating sites,
+  with the group `fl-clients`.
+
+Do not make the keys ephemeral: NetBird deletes an ephemeral peer after 10
+minutes offline, and a host that joins again may get a new address. Hand the keys
+to the sites over an encrypted channel, as you would the startup package, and
+revoke them once the hosts have joined.
+
+#### Limiting the sites to the FL ports
+
+A new NetBird account has a policy `Default` that lets every peer reach every
+other on any protocol; NetBird's
+[access control documentation](https://docs.netbird.io/manage/access-control)
+recommends replacing it. One policy covers federated training: participating
+sites may open TCP connections to the coordinating host's fed-learn and admin
+ports. Create it in the dashboard (**Access Control**, **Policies**) or with the
+[API](https://docs.netbird.io/api/resources/policies), then disable or delete
+`Default`:
+
+```json
+{
+  "name": "fl-clients-to-fl-server",
+  "enabled": true,
+  "rules": [{
+    "name": "fed-learn and admin ports",
+    "enabled": true,
+    "action": "accept",
+    "bidirectional": false,
+    "protocol": "tcp",
+    "ports": ["8002", "8003"],
+    "sources": ["<id of the group fl-clients>"],
+    "destinations": ["<id of the group fl-server>"]
+  }]
+}
+```
+
+Use the configured ports if `SWARMMEDHUB_FED_LEARN_PORT` or
+`SWARMMEDHUB_ADMIN_PORT` are set. NetBird's firewall is stateful, so replies need
+no rule. If the sites run a Hub, add a rule for TCP 5085 with
+`"bidirectional": true` between the two groups: the participating Hubs then
+exchange status with the coordinating Hub, which forwards every client's
+status, but not with each other ([Traffic between Hubs](#traffic-between-hubs)).
+This second rule has not been tested; the first, with the ports 8012 and 8013,
+was used in the [test on one host](#netbird-test-on-one-host).
+`netbird status -d` lists only the peers that a policy connects with this host,
+in either direction.
+
+#### Addresses
+
+Each NetBird account takes its peers' addresses from one range, by default a /16
+chosen at random within 100.64.0.0/10. A peer keeps its address while it keeps
+its NetBird state (`/var/lib/netbird`), is not deleted and is not ephemeral, and
+while the range is not changed. Changing the range (**Settings**, **Networks**,
+since v0.53.0) gives every peer a new address at once
+([network settings](https://docs.netbird.io/manage/settings/networks)). The
+addresses are written into every startup kit, so choose the range before the
+first network is provisioned and do not change it during a study; otherwise the
+network has to be provisioned again. Choose a range that no site uses, and avoid
+Docker's 172.17.0.0/16 and its default address pools.
+
+#### Hosts that also run Tailscale
+
+On Linux, Tailscale by default adds a firewall rule that drops packets from
+100.64.0.0/10 that do not arrive on its own interface
+([Tailscale's documentation](https://tailscale.com/docs/reference/cgnat-interoperability)).
+NetBird's default range lies inside 100.64.0.0/10, so on a host that runs both,
+NetBird's traffic would be dropped. This follows from Tailscale's documentation
+and code; it has not been tested with SwarmMed, and neither have these remedies:
+
+* give the NetBird account a range outside 100.64.0.0/10 before any network is
+  provisioned (see [Addresses](#addresses));
+* or have the tailnet's administrator set the node attribute
+  `disable-linux-cgnat-drop-rule` for these hosts in the tailnet policy file;
+  Tailscale then recommends keeping reverse-path filtering on
+  (`sysctl net.ipv4.conf.all.rp_filter` other than 0);
+* or start Tailscale with `--netfilter-mode=nodivert`, as Tailscale's
+  documentation describes;
+* or do not run both on the hosts that run the FL server or train.
+
+Both clients also manage the host's DNS resolver; let only one of them do so
+(`tailscale set --accept-dns=false` or `netbird up --disable-dns`). This has not
+been tested either.
 
 ### Tailscale (used in the worked example)
 
-WireGuard-based, with a managed control plane, and the only overlay the Hub
-reads. Install it on every host, join the same tailnet with `sudo tailscale up`,
-and use the coordinating host's address (`tailscale ip -4`) as the server
-address. Tailscale's own coordination service cannot be self-hosted. Its clients
-can be pointed at a self-hosted, Tailscale-compatible control server from a
-third-party project such as Headscale (`tailscale up --login-server <url>`);
-that combination has not been exercised with SwarmMed.
-
-### Netbird (self-hosted control plane)
-
-Open source and WireGuard-based. Its control plane is supported for
-**self-hosting**, which removes the objection that a third party mediates
-connections between hospitals. Peers are enrolled through your own identity
-provider or with setup keys; traffic is WireGuard between peers.
-
-```bash
-# each participant
-curl -fsSL https://pkgs.netbird.io/install.sh | sh
-netbird up --management-url https://netbird.your-institution.example
-netbird status -d   # lists peers with their NetBird IPs; note the coordinating host's
-```
-
-Use the coordinating host's NetBird address as `--server-ip`. FLARE traffic does
-not distinguish Netbird from Tailscale; the Hub's conveniences do (see
-[Tailscale and the Hub](#tailscale-and-the-hub)).
+WireGuard-based, with a coordination service run by Tailscale Inc. Install it
+on every host, join the same tailnet with `sudo tailscale up`, and use the
+coordinating host's address (`tailscale ip -4`) as the server address. The
+client is open source (BSD-3-Clause); the coordination service is not, and
+cannot be self-hosted. Tailscale's clients can be pointed at a self-hosted,
+Tailscale-compatible control server from a third-party project such as
+Headscale (`tailscale up --login-server <url>`); that combination has not been
+exercised with SwarmMed. The tailnet's access control policy can limit the
+sites to the FL ports in the same way as NetBird's.
 
 ### Self-hosted WireGuard
 
@@ -398,15 +613,19 @@ connect to the server.
 | Option | Status |
 |---|---|
 | Tailscale | Used for the worked example: the coordinating host and three training hosts on one tailnet, with the coordinating host's Tailscale address as the server address |
+| NetBird | Exercised in a containers-only test on one host on 11 November 2026 ([below](#netbird-test-on-one-host)); not yet used for training across hosts |
 | Direct routed addressing, no overlay | Not yet exercised; no platform change expected for FLARE traffic |
-| Netbird | Not yet exercised; no platform change expected for FLARE traffic; provision with the CLI's `--server-ip` |
-| Self-hosted WireGuard | Not yet exercised; no platform change expected for FLARE traffic; provision with the CLI's `--server-ip` |
-| OpenVPN, site-to-site IPSec | Not yet exercised; no platform change expected for FLARE traffic; provision with the CLI's `--server-ip` |
+| Self-hosted WireGuard | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
+| OpenVPN, site-to-site IPSec | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
 
 Federated training has no dependency on any of them beyond reachability and a
 stable IPv4 address for every participant, so for FLARE traffic the untested
-rows are a matter of local network configuration. The Hub's conveniences are
-Tailscale-specific (see [Tailscale and the Hub](#tailscale-and-the-hub)).
+rows are a matter of local network configuration. The Hub's conveniences read
+NetBird or Tailscale (see
+[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). The Hub's
+reading of NetBird (the overlay helper, the Network page, and the server
+address in the network form and the CLI) is covered by unit tests; no Hub has
+yet created or started a network over NetBird.
 
 Once the coordinating site has started the network, confirm reachability from
 each site with `nc -zv <server-address> <fed-learn port>` (8002 by default)
@@ -415,8 +634,62 @@ the port, so a refused connection is expected; to test the path in advance, run
 a temporary listener on the coordinating host (`nc -l 8002` with the OpenBSD
 netcat that Ubuntu ships).
 
+### NetBird test on one host
+
+On 11 November 2026, NetBird was exercised with SwarmMed in a test that ran
+entirely in containers on one Linux host, on a private Docker network without
+published ports, with NetBird 0.82.1 (server and client), Docker 29.5.2 and
+NVIDIA FLARE 2.7.1 in SwarmMed's runtime image:
+
+* A self-hosted NetBird server (`netbirdio/netbird-server`, with management,
+  signal, relay and STUN in one container, plain HTTP) and three peers
+  (`netbirdio/netbird`, userspace WireGuard), enrolled with setup keys: the FL
+  server's peer in a group `fl-server`, two clients' peers in a group
+  `fl-clients`.
+* Startup kits provisioned by SwarmMed's own provisioning code, with the
+  server's NetBird address as the server address (fed-learn port 8012, admin
+  port 8013), and a swarm job built by SwarmMed from `examples/pytorch` with two
+  clients and five rounds. The FL server and clients ran in containers that
+  shared the peers' network namespaces, started by a test script rather than by
+  the Hub. The job completed over the overlay in 24.9 s, with the same final
+  model on both clients, and an admin session over port 8013 from a client's
+  peer worked.
+* A policy that let `fl-clients` open TCP connections to `fl-server` on ports
+  8012 and 8013 only, with `Default` disabled, applied within 5 s. Afterwards
+  only these connections were open; everything else tried was dropped: other
+  ports, connections from the server to the clients and between the clients,
+  and ICMP. A second five-round job completed under this policy in 30.8 s.
+* While the management server was stopped for 90.7 s, the peers stayed
+  connected and kept their addresses and links, and new TCP connections and a
+  new admin session to the FL server over the overlay worked. A peer whose
+  NetBird daemon was restarted during the outage had no address until the
+  management server was back. One ping from a client to the server got through
+  during the outage although the policy blocks ICMP; this single observation is
+  unexplained.
+* The overlay helper, run in a fourth peer, reported each state the test
+  produced: not logged in, connected, management server down (still connected,
+  with the error), reconnecting without an address, and no daemon.
+
+No 40-round job completed in this test. Three attempts, one during the outage
+and two with the management server running, stopped with an execution error,
+which the test traced to a timing race in NVIDIA FLARE 2.7.1's swarm client
+controller (a site received a learn task while the previous one was still
+finishing), not to the network.
+
+Not tested: hosts in different networks or institutions (all peers shared one
+Docker network, so relays, STUN and NAT traversal were not exercised), TLS to
+the management server and login through an identity provider, a host that also
+runs Tailscale, throughput and latency over a wide-area network, kernel
+WireGuard, long-running jobs, and the Hub creating and starting a network over
+NetBird.
+
 ## Troubleshooting
 
+* If the Network page shows the overlay status as stale, or reports no status
+  from the overlay helper, the helper is not running: start it on the host with
+  `make overlay` and check `tmp/overlay_watcher.log`. With NetBird, `netbird status -d` shows whether
+  the management and signal servers are reachable and the state of every peer
+  this host may reach; with Tailscale, `tailscale status`.
 * A client that starts but never appears as registered is usually blocked
   outbound to the fed-learn port, pointed at an address that changed after
   provisioning, or started without client-only mode. In the last case the site

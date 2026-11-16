@@ -26,7 +26,8 @@ from .failover import (
     provisioned_server_host,
 )
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
-from .provision import generate_flare_startup_kit, is_valid_ip, safe_participant_name
+from .overlay import resolve_server_address
+from .provision import generate_flare_startup_kit, safe_participant_name
 from .tasks import (
     failover_network_task,
     start_swarm_network_task,
@@ -36,7 +37,6 @@ from .utils import (
     create_startup_kits_zip,
     ensure_worker_writable,
     get_hostname,
-    get_tailscale_ip,
 )
 
 
@@ -106,9 +106,19 @@ def create_network(
     server_ip: str | None = None,
     include_local_client: bool = True,
 ) -> SwarmNetwork:
-    """Create and provision a real network startup package."""
+    """Create and provision a real network startup package.
+
+    ``server_ip`` is the FL server's IPv4 address, written into every kit.
+    Without it, this host's current overlay address (NetBird or Tailscale) is
+    used. Raises ValueError, before anything is created, if the given address
+    is not usable or if no address is given and the overlay status is stale,
+    absent or disconnected.
+    """
     participants = participants or []
     log = get_logger(user=actor, project=project)
+
+    # Resolve the address first, so that a refusal leaves no half-created network.
+    resolved_server_ip = resolve_server_address(server_ip)
 
     swarm_network = SwarmNetwork.objects.create(
         name=name,
@@ -118,12 +128,10 @@ def create_network(
         creation_method="CREATED",
     )
     log.network.info(
-        f"Initialized new network record: {name} (ID: {swarm_network.identifier})"
+        f"Initialized new network record: {name} (ID: {swarm_network.identifier}), "
+        f"FL server address {resolved_server_ip}"
     )
 
-    resolved_server_ip = (
-        server_ip if server_ip and is_valid_ip(server_ip) else get_tailscale_ip()
-    )
     clients = []
     for participant in participants:
         safe_name = safe_participant_name(participant.get("name", "client"))
@@ -132,14 +140,10 @@ def create_network(
         clients.append({"name": safe_name, "ip": participant.get("ip", "")})
 
     if include_local_client:
+        # The local client runs on this host, which is the FL server's host.
         local_client_name = safe_participant_name(get_hostname() or "", default="")
-        local_client_ip = (
-            resolved_server_ip
-            if is_valid_ip(resolved_server_ip)
-            else "host.docker.internal"
-        )
         if local_client_name:
-            clients.append({"name": local_client_name, "ip": local_client_ip})
+            clients.append({"name": local_client_name, "ip": resolved_server_ip})
 
     clients = _dedupe_clients(clients)
 

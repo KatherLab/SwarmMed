@@ -164,7 +164,16 @@ def build_parser() -> argparse.ArgumentParser:
     network_create.add_argument("--name", required=True)
     network_create.add_argument("--description", default="")
     network_create.add_argument("--participant", action="append", default=[])
-    network_create.add_argument("--server-ip")
+    network_create.add_argument(
+        "--server-ip",
+        help=(
+            "IPv4 address of the FL server (this host) that every site can reach; "
+            "it is written into every startup kit. Defaults to this host's "
+            "overlay address (NetBird or Tailscale). The command fails if the "
+            "address is not a usable IPv4 address, or if it is omitted and the "
+            "overlay status is stale, absent or disconnected."
+        ),
+    )
     network_create.add_argument("--local-test", action="store_true")
     network_create.add_argument(
         "--clients",
@@ -611,6 +620,16 @@ def run(args: argparse.Namespace):
                     server_ip=args.server_ip,
                     include_local_client=not args.no_local_client,
                 )
+                from network.overlay import get_local_addresses
+
+                server = network.participants.filter(role="SERVER").first()
+                if server and server.ip not in get_local_addresses():
+                    state.warnings.append(
+                        f"The FL server address {server.ip} is not one of this "
+                        "host's overlay addresses, so this Hub will not recognise "
+                        "itself as the server. If it is an address of this host, "
+                        "add it to SWARMMEDHUB_LOCAL_ADDRESSES."
+                    )
             result = network_services.serialize_network(
                 network, current_for=state.user, include_participants=True
             )

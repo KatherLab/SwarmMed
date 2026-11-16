@@ -54,8 +54,8 @@ there, the application image measured 19.9 GB and the Python environment that
 * **Docker Engine with the Compose plugin** (`docker compose`). The Makefile calls
   `docker` without `sudo`, so run it as a user who may use Docker (see Docker's
   [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/)).
-* **`git`, `make`, `curl` and `openssl`**, and `jq` for the Tailscale helper
-  (step 2).
+* **`git`, `make`, `curl` and `openssl`**, and `python3` (3.8 or later) for
+  the overlay helper (step 2).
 * **At sites that train on a GPU:** the NVIDIA driver and the NVIDIA Container
   Toolkit ([versions that have been run](os-support.md#prerequisites-any-linux-distribution)).
 * **Internet access while installing.** `make install` downloads uv, Python 3.12
@@ -81,24 +81,60 @@ Install Docker Engine and the Compose plugin by following Docker's documentation
 Docker Desktop is not supported at sites that train
 ([Operating systems](os-support.md#macos-and-windows)).
 
-## 2. 🌐 VPN Network (Tailscale)
+## 2. 🌐 Overlay Network (NetBird or Tailscale)
 
 Federated training does not need an overlay network: the participating sites only
 have to reach the coordinating host's FL server port ([Networking](networking.md)).
-Two features of the web interface do depend on Tailscale:
+Two features of the web interface use this host's overlay address:
 
-* A network created in the web interface uses this host's Tailscale address as
-  the FL server's address. On a host without Tailscale, its startup kits contain no
-  server address and remote sites cannot reach the server; create networks with
-  the CLI and `--server-ip` instead ([CLI](cli.md)).
-* A Hub recognises itself among a network's participants by its Tailscale
-  address. Without it, the Hub sends no status to the other participants' Hubs and
-  shows them as offline.
+* The network form proposes it as the FL server's address. Without an overlay,
+  enter the address in the form's **FL server address** field, or give it to the
+  CLI with `--server-ip` ([CLI](cli.md)).
+* A Hub recognises itself among a network's participants by its overlay
+  addresses. On another network, list the host's address in
+  `SWARMMEDHUB_LOCAL_ADDRESSES`
+  ([Networking](networking.md#the-overlay-helper-and-the-hub)); otherwise the Hub
+  sends no status to the other participants' Hubs and shows them as offline.
 
-Install Tailscale on the hosts that will use these features. SwarmMed does not
-install, configure or join Tailscale; joining a tailnet is a manual step.
+SwarmMed does not install, configure or join the overlay; joining it is a manual
+step. The documentation recommends NetBird with a management server that the
+consortium hosts itself; NetBird Cloud is a quick way to try NetBird. Tailscale,
+which the worked example used, is the alternative.
+[Networking](networking.md#options) describes these and other options, how to
+self-host NetBird's management server, and how to limit the sites to the FL
+server's ports. With SwarmMed, NetBird has so far been exercised only in a
+containers-only test on one host
+([Validation status](networking.md#validation-status)).
 
-### Installation
+### NetBird
+
+Install the client
+([other platforms and package repositories](https://docs.netbird.io/get-started/install/linux)):
+
+``` bash
+curl -fsSL https://pkgs.netbird.io/install.sh | sh
+```
+
+Join the consortium's network with the address of its management server and the
+setup key you were given (for a trial on NetBird Cloud, leave out
+`--management-url`):
+
+``` bash
+sudo netbird up --management-url https://netbird.example.org --setup-key <SETUP_KEY>
+```
+
+Check the address and the connection:
+
+``` bash
+netbird status      # NetBird IP: 100.64.0.10/16; Management and Signal: Connected
+netbird status -d   # also every peer this host may reach, with its address
+```
+
+On a host that also runs Tailscale, Tailscale's firewall rule can drop
+NetBird's traffic; see
+[Hosts that also run Tailscale](networking.md#hosts-that-also-run-tailscale).
+
+### Tailscale
 
 On Ubuntu (`$(lsb_release -cs)` inserts the release's codename):
 
@@ -114,33 +150,31 @@ sudo apt install tailscale
 
 An installation guide for other platforms can be found in the [Tailscale documentation](https://tailscale.com/docs/install).
 
-### Login
-
-Login with your credentials:
+Log in, then check that this host has an address:
 
 ``` bash
 sudo tailscale up
-```
-
-### Test Connectivity
-
-Test your connectivity:
-
-``` bash
 tailscale ip -4
 ```
 
-!!! warning "Tailscale CLI Access"
-    `make start` launches a helper on the host, `scripts/tailscale_watcher.sh`,
-    which runs `tailscale ip -4` and `tailscale status --json` every 30 s and
-    writes the result to `tmp/tailscale_status.json`, where SwarmMedHub reads it.
-    Check that `tailscale ip -4` prints this host's address before you run
-    `make start`. The helper is not a service: after a reboot, start it again with
-    `make tailscale`.
+### The Overlay Helper
+
+`make start` launches a helper on the host, `scripts/overlay_watcher.py`, which
+runs `netbird status --json` and `tailscale status --json` every 30 s and writes
+this host's addresses and states to `tmp/overlay_status.json`, where SwarmMedHub
+reads them. `SWARMMEDHUB_OVERLAY` in `.env` selects whose address the Hub uses:
+`auto` (the default: NetBird if it is connected, otherwise Tailscale),
+`netbird`, `tailscale` or `none`. The helper is not a service: after a reboot,
+start it again with `make overlay`. The Network page marks the status as stale
+when the helper has not reported for two minutes
+([Networking](networking.md#the-overlay-helper-and-the-hub)).
 
 ### Troubleshooting
 
-If you have issues with DNS, you can try the following:
+`netbird status -d` shows whether the management and signal servers are
+reachable, and lists every peer that an access policy connects with this host,
+with its state. `tmp/overlay_watcher.log` records every change of state that the
+overlay helper saw. If DNS stops working after joining a tailnet:
 
 ``` bash
 tailscale set --accept-dns=false
@@ -196,6 +230,9 @@ other values:
   training client to a network it creates. If it matches the participant name the
   site is given at provisioning, the Hub can also find its own kit in a startup
   package by it.
+* **`SWARMMEDHUB_OVERLAY`**: whose address the Hub uses, `auto` (the default),
+  `netbird`, `tailscale` or `none`
+  ([Networking](networking.md#the-overlay-helper-and-the-hub)).
 * `DEBUG` (keep `False`), the S3 region name, the organisation, contact,
   editorial and privacy details shown on the imprint, privacy and contact pages,
   the e-mail server settings, and `ALLOWED_EXTENSIONS` (the file types accepted
@@ -203,10 +240,11 @@ other values:
   prompt describes it as a port.
 
 The defaults offered for `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` and
-`PUBLIC_URL` contain example addresses (`192.168.33.107`, `100.127.11.1`); replace
-them with this host's own. For `SWARMMEDHUB_HOSTNAME`, enter a name: if you leave
-it empty, the placeholder `replace-with-your-custom-hostname` is stored as the
-name, and `make env` asks again on its next run.
+`PUBLIC_URL` contain example addresses (`192.0.2.10`, `100.64.0.10`); replace
+them with this host's own, including its NetBird or Tailscale address. For
+`SWARMMEDHUB_HOSTNAME`, enter a name: if you leave it empty, the placeholder
+`replace-with-your-custom-hostname` is stored as the name, and `make env` asks
+again on its next run.
 
 `DOCKER_HOST_IP` is the address on which MinIO's ports are published. On Linux,
 `make env` sets it to the gateway address of Docker's default bridge network as
@@ -218,11 +256,25 @@ for those that are empty or still hold a placeholder. It writes the file readabl
 and writable only by its owner (mode 600), and sets an existing `.env` to that
 mode when it rewrites it.
 
+`make env` reads the answers from standard input, so they can also be piped in
+(`printf 'site-a\n' | make env`); an empty answer takes the default shown in
+brackets, as in a terminal. Once the input has ended (Ctrl-D, `</dev/null`, a CI
+job, or `ssh host make restart` without input), it asks nothing more. It keeps
+the values set in `.env` and generates missing secrets as usual. A missing
+variable that it would otherwise ask for gets the template's default, and the
+output names it: after an upgrade that adds a variable, such as
+`SWARMMEDHUB_OVERLAY` (default `auto`), no input is needed. If a variable still
+holds a placeholder, such as `replace-with-your-custom-hostname`, `make env`
+stops with exit code 1, names the variable and leaves `.env` unchanged, so
+`make start` stops too. Run `make env` once in a terminal, or set the value in
+`.env`, before an unattended `make start`.
+
 !!! warning "Variables that are not in the template"
     `make env`, which every `make start` runs again, rewrites `.env` from
     `.env.template` and drops any variable that the template does not contain.
-    Put other settings, such as the port and start-mode variables described in
-    [Networking](networking.md), in `docker-compose.override.yml`.
+    Put other settings, such as the port and start-mode variables and
+    `SWARMMEDHUB_LOCAL_ADDRESSES` described in [Networking](networking.md), in
+    `docker-compose.override.yml`.
 
 !!! note "Installations from before 9 October 2026"
     Earlier versions of `make env` wrote `.env` with the default file mode, which
@@ -241,8 +293,8 @@ make start
 ```
 
 `make start` runs, in order: `make install`, `make env`, the PgBouncer
-configuration script, `make generate-certs`, the Tailscale helper,
-`docker compose build` and `docker compose up -d`.
+configuration script, `make generate-certs`, `make overlay` (the overlay
+helper), `docker compose build` and `docker compose up -d`.
 
 * **CA passphrase.** `make generate-certs` creates the platform's internal
   certificate authority (CA) and the service certificates for MinIO, PostgreSQL,
@@ -254,8 +306,8 @@ configuration script, `make generate-certs`, the Tailscale helper,
   for a passphrase for the new key ([Security](security.md#internal-tls-private-pki)).
 * **MinIO.** The first build compiles MinIO from source, as described above.
 * **Restarts.** Every service has the restart policy `always`, so Docker starts
-  the stack again when the Docker daemon starts after a reboot. The Tailscale
-  helper is not restarted; run `make tailscale`.
+  the stack again when the Docker daemon starts after a reboot. The overlay
+  helper is not restarted; run `make overlay`.
 
 `make stop` stops the stack and removes its containers; the database and
 object-store volumes are kept, and nothing restarts until the next `make start`.
@@ -354,7 +406,8 @@ If you wish to remove SwarmMed and its associated local data from your system:
 
     It does not delete `.env`, which holds the deployment's passwords and keys,
     `media/`, `results/`, the rest of the source directory, uv and the Python it
-    installed in your home directory, or Tailscale.
+    installed in your home directory, or the overlay client (NetBird or
+    Tailscale).
 
 ```bash
 make deinstall
@@ -365,8 +418,10 @@ Files that the containers created as root or as another user can therefore
 remain, in `workspaces/` among them, where they can include private keys. Check
 what is left and remove it with `sudo`.
 
-`make deinstall` also does not stop the Tailscale helper that `make start`
-launched; stop it with `pkill -f tailscale_watcher.sh`.
+`make deinstall` first stops the overlay helper that `make start` launched
+(`make overlay-stop`). A helper started by an earlier version of SwarmMed,
+`scripts/tailscale_watcher.sh`, is not stopped; stop it with
+`pkill -f tailscale_watcher.sh`.
 
 ### 2. Remove the Source Directory (Optional)
 
@@ -380,10 +435,17 @@ sudo rm -r SwarmMed
 Docker creates some files in it as root, for example `infrastructure/certbot/`,
 hence `sudo`.
 
-### 3. Remove Tailscale (Optional)
+### 3. Remove the Overlay Client (Optional)
 
-If you no longer need Tailscale:
+If you no longer need NetBird or Tailscale, remove the client (Debian and Ubuntu
+packages):
 
 ```bash
-sudo apt remove tailscale
+sudo apt remove netbird      # NetBird
+sudo apt remove tailscale    # Tailscale
 ```
+
+NetBird keeps the host's state, including its private key, in
+`/var/lib/netbird`; delete that directory too. Then remove the host in the
+NetBird dashboard or the Tailscale admin console, so that its key no longer
+belongs to the network.

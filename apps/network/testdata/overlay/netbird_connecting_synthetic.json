@@ -1,0 +1,41 @@
+{
+  "peers": {
+    "total": 0,
+    "connected": 0,
+    "details": null
+  },
+  "cliVersion": "0.82.1",
+  "daemonVersion": "0.82.1",
+  "daemonStatus": "Connecting",
+  "management": {
+    "url": "https://netbird.example.org:443",
+    "connected": false,
+    "error": "rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial tcp 203.0.113.5:443: connect: connection refused\""
+  },
+  "signal": {
+    "url": "",
+    "connected": false,
+    "error": ""
+  },
+  "relays": {
+    "total": 0,
+    "available": 0,
+    "details": null
+  },
+  "netbirdIp": "",
+  "publicKey": "synthetic-public-key-fl-server",
+  "usesKernelInterface": false,
+  "wireguardPort": 0,
+  "fqdn": "",
+  "quantumResistance": false,
+  "quantumResistancePermissive": false,
+  "networks": null,
+  "dnsServers": [],
+  "events": [],
+  "lazyConnectionEnabled": false,
+  "profileName": "default",
+  "sshServer": {
+    "enabled": false,
+    "sessions": []
+  }
+}

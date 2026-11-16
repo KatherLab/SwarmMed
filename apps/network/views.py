@@ -6,9 +6,11 @@ deployment (start/stop), status monitoring, and startup kit distribution.
 import json
 import secrets
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
+from django.http.request import validate_host
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -21,13 +23,16 @@ from project.models import UserCurrentProject
 
 from . import services as network_services
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
+from .overlay import (
+    NOT_AVAILABLE,
+    get_local_addresses,
+    get_overlay_status,
+    parse_ipv4,
+    resolve_server_address,
+)
 from .provision import safe_participant_name
 from .runtime import get_local_participant_status
-from .utils import (
-    get_hostname,
-    get_tailscale_ip,
-    is_tailscale_connected,
-)
+from .utils import get_hostname
 
 # Standard project-wide logger initialization
 logger = get_logger()
@@ -239,15 +244,16 @@ def broadcast_network_status(network_id):
     if not network or network.status not in ["RUNNING", "STARTING"]:
         return
 
-    local_ip = get_tailscale_ip()
+    # Every address of this host (NetBird, Tailscale, SWARMMEDHUB_LOCAL_ADDRESSES).
+    local_addresses = get_local_addresses()
     # Find ALL roles this machine is playing (e.g. could be both SERVER and a CLIENT)
-    local_participants = network.participants.filter(ip=local_ip)
+    local_participants = network.participants.filter(ip__in=local_addresses)
     
     if not local_participants.exists():
-        logger.network.warning(f"[GOSSIP BROADCAST] Could not find myself in participant list for IP {local_ip}")
+        logger.network.warning(f"[GOSSIP BROADCAST] Could not find myself in participant list for addresses {sorted(local_addresses)}")
         return
 
-    logger.network.info(f"[GOSSIP BROADCAST] Starting asynchronous broadcast for network {network.name}. Local IP: {local_ip}")
+    logger.network.info(f"[GOSSIP BROADCAST] Starting asynchronous broadcast for network {network.name}. Local addresses: {sorted(local_addresses)}")
 
     # Source of Truth: Engine logs + Docker state
     status_map = _get_local_participant_status(network)
@@ -282,7 +288,7 @@ def broadcast_network_status(network_id):
 
         peers = network.participants.exclude(id=lp.id)
         for peer in peers:
-            if peer.ip and peer.ip != "-" and peer.ip != local_ip:
+            if peer.ip and peer.ip != "-" and peer.ip not in local_addresses:
                 shout_to_peer_task.delay(
                     peer_ip=peer.ip,
                     network_id=str(network.identifier),
@@ -327,7 +333,12 @@ def network(request):
     except UserCurrentNetwork.DoesNotExist:
         current_network = None
 
+    # This host's overlay status, and every address that identifies this host.
+    overlay = get_overlay_status()
+    local_addresses = overlay.addresses
+
     participants_details = []
+    server_address_unrecognised = None
     if current_network:
         # Trigger an immediate gossip broadcast when the dashboard is viewed
         # This acts as a 'manual' sync to ensure peer-to-peer visibility.
@@ -337,16 +348,26 @@ def network(request):
             logger.network.warning(f"[DASHBOARD] Manual gossip broadcast failed: {e}")
 
         participants = current_network.participants.all().order_by("role", "participant_id")
-        local_ip = get_tailscale_ip()
         
         # Local source of truth (Docker logs)
         local_engine_status = _get_local_participant_status(current_network)
         
-        logger.network.debug(f"[DASHBOARD] Rendering dashboard. Local IP: {local_ip}. Engine status: {local_engine_status}")
+        logger.network.debug(f"[DASHBOARD] Rendering dashboard. Local addresses: {sorted(local_addresses)}. Engine status: {local_engine_status}")
+
+        i_am_server = current_network.participants.filter(
+            ip__in=local_addresses, role="SERVER"
+        ).exists()
+        # A network provisioned here has its FL server on this host. If the Hub
+        # does not find the server's address among its own, it cannot recognise
+        # itself (for example after a hand-typed address that is not an overlay
+        # address of this host).
+        if current_network.creation_method == "CREATED" and not i_am_server:
+            server = current_network.participants.filter(role="SERVER").first()
+            if server and parse_ipv4(server.ip):
+                server_address_unrecognised = server.ip
 
         for p in participants:
-            i_am_server = current_network.participants.filter(ip=local_ip, role="SERVER").exists()
-            is_me = (p.ip == local_ip)
+            is_me = p.ip in local_addresses
 
             status = "Offline"
             
@@ -375,11 +396,19 @@ def network(request):
                 "ip": p.ip or "-",
             })
 
+    connection = overlay.connection
     context = {
         "segment": "network",
         "project": project,
-        "tailscale_status": is_tailscale_connected(),
-        "tailscale_ip": get_tailscale_ip(),
+        "overlay": overlay,
+        "overlay_provider_label": overlay.provider_label,
+        # Other Hubs post status to this address; Django refuses it otherwise.
+        "overlay_ip_not_allowed": bool(overlay.ip)
+        and not validate_host(overlay.ip, settings.ALLOWED_HOSTS),
+        "server_address_unrecognised": server_address_unrecognised,
+        # Old names, kept for one release; "stale" was not one of their values.
+        "tailscale_status": "disconnected" if connection == "stale" else connection,
+        "tailscale_ip": overlay.ip or NOT_AVAILABLE,
         "hostname": get_hostname(),
         "swarm_networks": swarm_networks,
         "current_network": current_network,
@@ -423,6 +452,50 @@ def network_api_status(request, network_id):
     return JsonResponse({"statuses": statuses})
 
 
+def _posted_clients(request):
+    """The clients the form posted, as hidden JSON inputs {"name", "ip"}."""
+    clients = []
+    for c_json in request.POST.getlist("clients"):
+        try:
+            c_data = json.loads(c_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(c_data, dict):
+            continue
+        clients.append(
+            {
+                "name": str(c_data.get("name", "client")),
+                "ip": str(c_data.get("ip", "")),
+            }
+        )
+    return clients
+
+
+def _new_network_context(form=None, form_error=None):
+    """Context of the new-network form, with this host's overlay address."""
+    overlay = get_overlay_status()
+    overlay_address = overlay.current_address
+    form = {
+        "title": "",
+        "description": "",
+        "server_ip": "",
+        "clients": [],
+        **(form or {}),
+    }
+    return {
+        "segment": "network",
+        "overlay": overlay,
+        "overlay_provider_label": overlay.provider_label,
+        "overlay_address": overlay_address,
+        "overlay_unavailable_reason": (
+            "" if overlay_address else overlay.unavailable_reason()
+        ),
+        "server_ip_required": overlay_address is None,
+        "form": form,
+        "form_error": form_error,
+    }
+
+
 @login_required
 @project_context_required
 def new_network(request):
@@ -430,6 +503,9 @@ def new_network(request):
 
     Supports three methods:
     1. 'create': Provision a new network from a list of client names and IPs.
+       The FL server address is the optional 'server_ip' field, or this host's
+       current overlay address; without either the form is shown again with
+       the reason, and nothing is created.
     2. 'import': Import an existing FLARE startup kit zip file
        ('upload', its name before the import/export rename, is still accepted).
     3. 'local_test': Auto-generate a local-only testing network.
@@ -451,26 +527,29 @@ def new_network(request):
         project = current_project_relation.project
 
         if creation_method == "create":
-            clients_json = request.POST.getlist("clients")
-            clients = []
-            for c_json in clients_json:
-                try:
-                    c_data = json.loads(c_json)
-                    clients.append(
-                        {
-                            "name": c_data.get("name", "client"),
-                            "ip": c_data.get("ip", ""),
-                        }
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    continue
+            clients = _posted_clients(request)
+            server_ip = (request.POST.get("server_ip") or "").strip()
+            try:
+                resolved_server_ip = resolve_server_address(server_ip)
+            except ValueError as exc:
+                form = {
+                    "title": network_name or "",
+                    "description": description or "",
+                    "server_ip": server_ip,
+                    "clients": clients,
+                }
+                return render(
+                    request,
+                    "apps/network/new_network.html",
+                    _new_network_context(form=form, form_error=str(exc)),
+                )
             network_services.create_network(
                 project=project,
                 actor=request.user,
                 name=network_name,
                 description=description,
                 participants=clients,
-                server_ip=get_tailscale_ip(),
+                server_ip=resolved_server_ip,
             )
 
         elif creation_method in ("import", "upload"):
@@ -495,10 +574,7 @@ def new_network(request):
 
         return redirect("network:network")
 
-    context = {
-        "segment": "network",
-    }
-    return render(request, "apps/network/new_network.html", context)
+    return render(request, "apps/network/new_network.html", _new_network_context())
 
 
 @login_required

@@ -64,7 +64,7 @@ class CLIParserTests(SimpleTestCase):
                 "--name",
                 "DUKE IID 3-site",
                 "--participant",
-                "node_A=100.64.4.100",
+                "node_A=100.64.0.11",
                 "--no-local-client",
             ]
         )
@@ -332,8 +332,11 @@ class CLISharedPathTests(TestCase):
 
     def test_network_create_no_local_client_records_only_explicit_clients(self):
         with patch("network.services.generate_flare_startup_kit"), patch(
-            "network.services.get_hostname", return_value="cosmos"
-        ), patch("network.services.get_tailscale_ip", return_value="100.64.4.104"):
+            "network.services.get_hostname", return_value="hub-host"
+        ), patch(
+            "network.overlay.get_local_addresses",
+            return_value=frozenset({"100.64.0.10"}),
+        ):
             code, output = self._run_cli(
                 "network",
                 "create",
@@ -345,13 +348,13 @@ class CLISharedPathTests(TestCase):
                 "--name",
                 "DUKE IID 3-site",
                 "--server-ip",
-                "100.64.4.104",
+                "100.64.0.10",
                 "--participant",
-                "node_A=100.64.4.100",
+                "node_A=100.64.0.11",
                 "--participant",
-                "node_B=100.64.4.102",
+                "node_B=100.64.0.12",
                 "--participant",
-                "node_C=100.64.4.103",
+                "node_C=100.64.0.13",
                 "--no-local-client",
             )
 
@@ -369,7 +372,7 @@ class CLISharedPathTests(TestCase):
         # so provisioning, training submission, gossip, and tests all use the
         # same FLARE-safe form. ``node_A`` therefore lands as ``node-A``.
         self.assertEqual(client_names, ["node-A", "node-B", "node-C"])
-        self.assertNotIn("cosmos", client_names)
+        self.assertNotIn("hub-host", client_names)
 
     def test_training_start_ui_and_cli_share_service(self):
         from training import views as training_views

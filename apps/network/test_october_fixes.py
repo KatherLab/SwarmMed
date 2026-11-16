@@ -133,7 +133,8 @@ class ParticipantStatusPatternTests(SimpleTestCase):
         with patch("network.runtime._safe_cache_get", return_value=None), patch(
             "network.runtime._safe_cache_set"
         ), patch(
-            "network.runtime.get_tailscale_ip", return_value="100.64.0.1"
+            "network.runtime.get_local_addresses",
+            return_value=frozenset({"100.64.0.1"}),
         ), patch(
             "network.runtime._is_container_running", return_value=False
         ), patch("network.runtime.subprocess.run", side_effect=fake_run):

@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "provider": "netbird",
+  "ip": "192.0.2.13",
+  "connected": true,
+  "state": "Connected",
+  "peers": {
+    "connected": 1,
+    "total": 1
+  },
+  "installed": true,
+  "error": "management: rpc error: code = Internal desc = server closed the stream without sending trailers",
+  "updated_at": "2026-11-11T10:30:32Z",
+  "interval_seconds": 30,
+  "watcher_mode": "auto",
+  "providers": {
+    "netbird": {
+      "installed": true,
+      "ip": "192.0.2.13",
+      "connected": true,
+      "state": "Connected",
+      "peers": {
+        "connected": 1,
+        "total": 1
+      },
+      "error": "management: rpc error: code = Internal desc = server closed the stream without sending trailers"
+    },
+    "tailscale": {
+      "installed": false,
+      "ip": null,
+      "connected": null,
+      "state": null,
+      "peers": null,
+      "error": null
+    }
+  }
+}

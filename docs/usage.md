@@ -212,13 +212,13 @@ A network defines the participants in your decentralized learning experiment.
 
 5.  If `Create New Startup Package` was selected: Add participants to the network. For each participant, you need to provide:
     *   **Hostname:** A unique name for the participant, displayed on the Network page of the participant.
-    *   **IP Address:** The IPv4 address of the participant's machine, which must stay assigned to it for the study. The Network page of the participant displays the machine's Tailscale address. A participant without a valid IPv4 address gets no startup kit.
+    *   **IP Address:** The IPv4 address of the participant's machine, which must stay assigned to it for the study. The Network page of the participant displays the machine's overlay address (NetBird or Tailscale). A participant without a valid IPv4 address gets no startup kit.
 
 6. If `Import Startup Package` was selected: Import the startup package file provided by another network partner.
 7. Click on the **Create Network** button to save your network.
 
 !!! info "Networks created in the web interface"
-    The web interface uses this host's Tailscale address as the FL server's address and always adds this host as a training site. To give another server address, for example on a network other than Tailscale, or to run the FL server on a host that does not train, create the network with the [CLI](cli.md) (`--server-ip`, `--no-local-client`); see [Networking](networking.md#addressing).
+    Leave **FL server address** empty to use this host's overlay address (NetBird or Tailscale), or enter another IPv4 address that every site can reach. With the field empty, the network is not created if the overlay is not connected or the overlay helper has stopped reporting. The web interface always adds this host as a training site; to run the FL server on a host that does not train, create the network with the [CLI](cli.md) (`--no-local-client`); see [Networking](networking.md#addressing).
 
 !!! info "Network editing"
     Networks cannot be edited, because the participants and their addresses are written into the startup kits when the network is provisioned. Create a new network instead.

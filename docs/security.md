@@ -43,8 +43,9 @@ User-provided validation, visualization and explainability scripts run in short-
 
 SwarmMedHub neither requires nor enforces an overlay network; see [Networking](networking.md).
 
-- **Encryption:** When participating sites use an overlay such as [Tailscale](https://tailscale.com/security/), traffic between them on the overlay is carried over WireGuard. Federated-learning traffic is protected by NVFlare's mutual TLS whether or not an overlay is used.
-- **Status Display:** To show the Tailscale state in the interface, a host-side script (`scripts/tailscale_watcher.sh`, started by `make tailscale` or `make start`) writes the host's Tailscale IPv4 address and connection state to `tmp/tailscale_status.json` every 30 seconds. The application reads this file from the bind-mounted project directory, so the host's Tailscale socket is not mounted into any container.
+- **Encryption:** When participating sites use an overlay such as [NetBird](https://netbird.io/) or [Tailscale](https://tailscale.com/security/), traffic between them on the overlay is carried over WireGuard. Federated-learning traffic is protected by NVFlare's mutual TLS whether or not an overlay is used.
+- **Access Control:** An overlay's access policy can limit the participating sites to the FL server's ports ([Networking](networking.md#limiting-the-sites-to-the-fl-ports)).
+- **Status Display:** To show the overlay's state in the interface, a host-side script (`scripts/overlay_watcher.py`, started by `make overlay` or `make start`) runs `netbird status --json` and `tailscale status --json`, without a shell, and writes the host's NetBird and Tailscale IPv4 addresses and connection states to `tmp/overlay_status.json` every 30 seconds. The application reads this file from the bind-mounted project directory, so neither NetBird's nor Tailscale's socket is mounted into any container.
 
 ### Database Proxy (PgBouncer)
 
