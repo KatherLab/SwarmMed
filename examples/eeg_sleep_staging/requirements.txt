@@ -1,0 +1,5 @@
+# Packages that training.py imports, pinned to the versions in the SwarmMed
+# runtime image (the same pins as SwarmMed's baseline runtime requirements).
+numpy==2.4.3
+torch==2.10.0
+scikit-learn==1.8.0

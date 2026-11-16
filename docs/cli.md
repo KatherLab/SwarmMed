@@ -124,6 +124,7 @@ Optional root-level files are picked up automatically:
 - `validation.py`
 - `visualization.py`
 - `results_visualization.py`
+- `explainability.py`
 
 Any other files under the directory are imported under the existing training code layout.
 
@@ -150,6 +151,14 @@ swarmed data import \
   --dest incoming \
   ./data/patients.csv ./data/images
 ```
+
+A file is stored under its name, and each file in a directory under
+`<directory name>/<path inside the directory>`; `--dest` puts all of them below that
+folder. The example stores `incoming/patients.csv` and `incoming/images/...`. Files
+whose extension is not in `ALLOWED_EXTENSIONS` are skipped. For the templates' per-site
+layout, import the `fl-client-k` folders themselves and leave out `--dest`, so that the
+keys start with `fl-client-k/`, where the clients look
+([Templates](templates.md#command-line)).
 
 ### 4. Run optional data checks
 
@@ -275,7 +284,61 @@ swarmed results visualize \
   --wait
 ```
 
-### 10. Recover from the loss of the FL server
+### 10. Explain the model's predictions
+
+`results explain` runs the project's `explainability.py` for a job in the Hub sandbox
+(see [Explainability](explainability.md#in-swarmmedhub)). With `--wait` it returns once the
+run has finished; `success` says whether explanations were stored and `error_message` says
+why not. Starting a run cancels the job's pending or running runs that you may stop: your
+own, or every run if you are the project author. While a run of the same job that another
+member started is pending or running, the command is refused with exit code 2, unless you
+are the project author. The script output of a run that stored explanations is left out
+here (`output_hidden` says whether there was any), because it can hold model output;
+`results explanations` lists it with the run's cases. The output of a run that stored
+nothing is shown.
+
+```bash
+swarmed results explain \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --job <JOB_UUID> \
+  --wait --timeout 1200
+```
+
+`results explanations` lists the job's explanation runs and the cases of the newest run with
+stored explanations (`--run <RUN_UUID>` picks another run): case ID, label, prediction,
+score, outcome, details, panels, and each reviewer's latest review (`--reviews` lists every
+review). `--out` writes that run's bundle (`cases.json` and PNG files) to a new or empty
+folder. Listing or exporting counts as having seen the model output, so later reviews of
+that run are not recorded as blinded.
+
+```bash
+swarmed results explanations --user alice --project <PROJECT_UUID> --job <JOB_UUID>
+swarmed results explanations --user alice --project <PROJECT_UUID> --job <JOB_UUID> \
+  --out ./explanations
+```
+
+`results explain-import` stores a bundle written elsewhere, for example by
+`python -m swarmmed_explain.run_local` on a GPU machine at the site, or by
+`experiments/duke_mst_cli/explain/export_hub_bundle.py`. The folder is checked like sandbox
+output: only the fixed file names, regular files, size limits, strict JSON, and every PNG
+decoded and re-encoded. A bundle that breaks a rule is rejected with exit code 2 and
+nothing is stored. The path is read by the process that runs the CLI; inside the app
+container, a folder copied to the checkout's `tmp/` is at `/app/tmp/`.
+
+```bash
+swarmed results explain-import \
+  --user alice \
+  --project <PROJECT_UUID> \
+  --job <FLARE_JOB_UUID> \
+  --dir /app/tmp/explanations
+```
+
+The Results page lists jobs that have result files. If the job has neither a training
+record nor result files, the command warns that the imported explanations are only
+reachable through `results explanations`.
+
+### 11. Recover from the loss of the FL server
 
 ```bash
 # at the standby site
@@ -299,5 +362,5 @@ project create|list|show|use|update
 data import|ls|export|mv|rm|validate|visualize
 network create|import|list|show|use|export-package|start|stop|status|failover
 training start|list|status|watch|stop|checkpoints|resume
-results sync|list|export|visualize
+results sync|list|export|visualize|explain|explanations|explain-import
 ```

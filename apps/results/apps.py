@@ -14,3 +14,7 @@ class ResultsConfig(AppConfig):
 
     # The full Python path to the application.
     name = "results"
+
+    def ready(self):
+        """Connect the app's signal handlers."""
+        from . import signals  # noqa: F401

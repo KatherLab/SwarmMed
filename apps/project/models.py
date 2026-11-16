@@ -2,12 +2,14 @@
 Defines the structure for projects, file storage paths, and current project tracking.
 """
 
+import logging
 import os
 import secrets
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.db import models
+from django.core.files.storage import default_storage
+from django.db import models, transaction
 from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
 
@@ -18,6 +20,7 @@ from common.models import AbstractBaseModel
 from .utils import (
     data_validation_path,
     data_visualization_path,
+    explainability_path,
     requirements_path,
     results_visualization_path,
     training_code_path,
@@ -41,6 +44,8 @@ class Project(AbstractBaseModel):
         data_validation_script (FileField): Script for validating input data.
         data_visualization_script (FileField): Script for visualizing input data.
         results_visualization_script (FileField): Script for visualizing results.
+        explainability_script (FileField): Script that explains a trained model's
+            predictions on the site's data (per-case explanations).
         is_current (BooleanField): Flag for globally active project (deprecated).
         secret (EncryptedCharField): Project-specific secret for container authentication.
     """
@@ -114,6 +119,15 @@ class Project(AbstractBaseModel):
         null=True,
     )
 
+    # Script that writes per-case explanations of a trained model (run in the
+    # sandbox like the results visualization script).
+    explainability_script = models.FileField(
+        upload_to=explainability_path,
+        max_length=512,
+        blank=True,
+        null=True,
+    )
+
     # UI helper to mark a project as globally active (deprecated in favor of
     # UserCurrentProject).
     is_current = models.BooleanField(default=False)
@@ -147,6 +161,8 @@ class Project(AbstractBaseModel):
             self.secret = secrets.token_urlsafe(48)
 
         from .tasks import cleanup_project_files
+
+        old_explainability_name = ""
 
         # If self.pk exists, it means we are updating an existing project.
         if self.pk:
@@ -205,6 +221,9 @@ class Project(AbstractBaseModel):
                     self.results_visualization_script,
                     "code/results_visualization/",
                 )
+                old_explainability_name = (
+                    old_instance.explainability_script.name or ""
+                )
 
             except Project.DoesNotExist:
                 # If the instance doesn't exist yet, it's a brand new project.
@@ -213,6 +232,21 @@ class Project(AbstractBaseModel):
         # Call the parent class's save method to actually save the project to
         # the database.
         super().save(*args, **kwargs)
+
+        # The explainability script's previous file is deleted by its exact key
+        # once the new name is stored. A folder-wide cleanup queued before the
+        # upload (as for the fields above) could also delete the new file when
+        # the worker runs after the upload.
+        new_explainability_name = self.explainability_script.name or ""
+        update_fields = kwargs.get("update_fields")
+        if (
+            old_explainability_name
+            and old_explainability_name != new_explainability_name
+            and (update_fields is None or "explainability_script" in update_fields)
+        ):
+            transaction.on_commit(
+                lambda name=old_explainability_name: _delete_stored_file(name)
+            )
 
     def delete(self, *args, **kwargs):
         """Custom delete method to ensure all files are removed from storage.
@@ -229,6 +263,16 @@ class Project(AbstractBaseModel):
         # Call the standard Django delete operation to remove the database
         # record.
         super().delete(*args, **kwargs)
+
+
+def _delete_stored_file(name):
+    """Delete one stored project file by its storage key, ignoring errors."""
+    try:
+        default_storage.delete(name)
+    except Exception:  # cleanup must not break a save
+        logging.getLogger(__name__).warning(
+            "Could not delete the replaced project file %s", name
+        )
 
 
 class UserCurrentProject(models.Model):

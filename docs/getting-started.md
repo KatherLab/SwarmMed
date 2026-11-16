@@ -22,7 +22,7 @@ Follow the instructions in the [Installation](installation.md) guide to install 
 
 ## 💻 2. Code Creation and Adaptation
 
-Once the platform is installed, you need to create or adapt your code to work with the shared SwarmMed project contract. Follow the instructions in the [Developer](developer.md) guide to prepare your code bundle for data validation, visualization, training, and results analysis.
+Once the platform is installed, you need to create or adapt your code to work with the shared SwarmMed project contract. Start from a template for your kind of data ([Templates](templates.md)) or write your own ([Bring your own task](bring-your-own-task.md)); the [Developer](developer.md) guide is the reference for the code bundle: data validation, visualization, training, results analysis and explanations.
 
 ## 📖 3. Usage
 

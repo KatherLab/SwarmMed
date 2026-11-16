@@ -8,6 +8,7 @@ from django import forms
 from users.models import Profile
 
 from .models import Project
+from .utils import training_code_upload_error
 
 
 class ProjectForm(forms.ModelForm):
@@ -42,6 +43,7 @@ class ProjectForm(forms.ModelForm):
             "data_validation_script",
             "data_visualization_script",
             "results_visualization_script",
+            "explainability_script",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -73,3 +75,16 @@ class ProjectForm(forms.ModelForm):
             self.initial["member_identifiers"] = ", ".join(
                 current_member_uuids
             )
+
+    def clean(self):
+        """Refuse training code without a root-level training.py.
+
+        Training runs the training.py at the root of the uploaded code, so an
+        upload of Python files without one is shown as an error on the
+        training code field instead of being stored.
+        """
+        cleaned_data = super().clean()
+        error = training_code_upload_error(self.data, self.files)
+        if error:
+            self.add_error("training_code", error)
+        return cleaned_data

@@ -30,6 +30,7 @@ from project.decorators import (
 from project.models import Project, UserCurrentProject
 
 from . import services as results_services
+from .explanations import explain_page_config
 from .models import TrainingResult
 
 # Standard Python logger for this module.
@@ -67,6 +68,7 @@ def results(request):
         selected_job_id=request.GET.get("job"),
         default_to_latest="job" not in request.GET,
     )
+    context["explain_ui"] = explain_page_config(project, context)
     return render(request, "apps/results/results.html", context)
 
 

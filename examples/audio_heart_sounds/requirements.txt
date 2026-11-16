@@ -1,0 +1,6 @@
+# Packages that training.py imports, pinned to the SwarmMed runtime image.
+# NVIDIA FLARE and the data adapter's packages come with SwarmMed's baseline requirements.
+# prepare_data.py (run by each site before importing data) needs numpy and scipy (tested
+# with scipy 1.17.1 and 1.18.1); evaluate.py needs numpy and torch.
+numpy==2.4.3
+torch==2.10.0

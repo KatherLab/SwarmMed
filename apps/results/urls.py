@@ -5,7 +5,7 @@ and managing visualization runs.
 
 from django.urls import path
 
-from . import views
+from . import explain_views, views
 
 # Application namespace for results-related URLs.
 app_name = "results"
@@ -56,5 +56,49 @@ urlpatterns = [
         "plot/<str:plot_id>/<str:plot_type>/",
         views.get_visualization_plot,
         name="get_visualization_plot",
+    ),
+    # --- Explainability Endpoints ---
+    # (No URL argument may be called pk, identifier, project_id or network_id:
+    # project_membership_required would read it as a project.)
+    path(
+        "explain/start/<str:job_id>/",
+        explain_views.start_explanation,
+        name="start_explanation",
+    ),
+    path("explain/stop/", explain_views.stop_explanation, name="stop_explanation"),
+    path(
+        "explain/delete/",
+        explain_views.delete_explanation,
+        name="delete_explanation",
+    ),
+    path(
+        "explain/status/<str:job_id>/",
+        explain_views.explanation_status,
+        name="explanation_status",
+    ),
+    path(
+        "explain/run/<str:run_uuid>/cases/",
+        explain_views.explanation_cases,
+        name="explanation_cases",
+    ),
+    path(
+        "explain/run/<str:run_uuid>/mode/",
+        explain_views.explanation_mode,
+        name="explanation_mode",
+    ),
+    path(
+        "explain/run/<str:run_uuid>/download/",
+        explain_views.explanation_download,
+        name="explanation_download",
+    ),
+    path(
+        "explain/image/<str:image_kind>/<str:image_uuid>/",
+        explain_views.explanation_image,
+        name="explanation_image",
+    ),
+    path(
+        "explain/case/<str:case_uuid>/reviews/",
+        explain_views.explanation_reviews,
+        name="explanation_reviews",
     ),
 ]

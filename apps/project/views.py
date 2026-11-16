@@ -124,6 +124,9 @@ def project_create(request):
                     results_visualization_script=request.FILES.get(
                         "results_visualization_script"
                     ),
+                    explainability_script=request.FILES.get(
+                        "explainability_script"
+                    ),
                 )
             except Exception as e:
                 log.project.error(
@@ -197,6 +200,12 @@ def project_edit(request, pk):
                     ),
                     results_visualization_script=request.FILES.get(
                         "results_visualization_script"
+                    ),
+                    explainability_script=request.FILES.get(
+                        "explainability_script"
+                    ),
+                    remove_explainability_script=(
+                        request.POST.get("remove_explainability_script") == "on"
                     ),
                 )
             except Exception as e:

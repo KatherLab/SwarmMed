@@ -255,6 +255,102 @@
         </div>
       </section>
 
+      <style>
+        /* Explainability section only (classes missing from static/dist/main.css). */
+        #explainability .swm-explain-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+        #explainability .swm-explain-img { display: block; width: 100%; height: auto; max-height: 36rem; object-fit: contain; background: #fff; border-radius: 0.5rem; }
+        #explainability .swm-explain-pre { white-space: pre-wrap; word-break: break-word; max-height: 24rem; overflow: auto; font-size: 0.75rem; }
+        #explainability .swm-explain-text { white-space: pre-wrap; word-break: break-word; }
+        #explainability .swm-explain-card[aria-pressed="true"] { outline: 2px solid #7e22ce; outline-offset: 2px; }
+        #explainability .swm-explain-dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+      </style>
+
+      <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800" id="explainability">
+        <div class="items-center justify-between lg:flex mb-4">
+          <div class="mb-4 lg:mb-0">
+            <h3 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">Explainability</h3>
+            <span class="text-base font-normal text-gray-500 dark:text-gray-400">Per-case explanations of the model, computed on this site's data and reviewed here</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            {% if explain_ui.job_id and project.explainability_script %}
+            <button id="run-explain-btn" type="button" class="inline-flex items-center justify-center whitespace-nowrap bg-green-100 text-green-700 border border-green-100 hover:border-green-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-green-300 dark:text-green-300">
+              Run Explainability
+            </button>
+            <button id="stop-explain-btn" type="button" class="hidden inline-flex items-center justify-center whitespace-nowrap bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">
+              Stop
+            </button>
+            {% endif %}
+          </div>
+        </div>
+
+        <div id="explain-alerts">
+          {% if not has_jobs %}
+          <div class="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-700 dark:text-yellow-400 border border-yellow-100" role="alert">
+            <span class="font-medium">No results found.</span> Explanations need a trained model; run training first.
+          </div>
+          {% elif not explain_ui.job_id %}
+          <div class="p-4 mb-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-700 dark:text-blue-400 border border-blue-100" role="alert">
+            <span class="font-medium">No specific job selected.</span> Select a training job above to see or compute its explanations.
+          </div>
+          {% elif not project.explainability_script %}
+          <div class="p-4 mb-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-700 dark:text-blue-400 border border-blue-100" role="alert">
+            <span class="font-medium">No explainability script.</span> To compute explanations here, <a href="{% url 'project:project_edit' project.id %}" class="font-semibold underline">import an explainability.py</a> on the project page. Explanations imported with <span class="font-mono">swarmed results explain-import</span> are shown below.
+          </div>
+          {% endif %}
+        </div>
+
+        <div id="explain-status" class="mb-4"></div>
+
+        <div id="explain-body" class="hidden">
+          <div class="flex flex-wrap items-center gap-4 mb-4">
+            <label for="explain-run-select" class="text-sm text-gray-600 dark:text-gray-300">Explanations:</label>
+            <select id="explain-run-select" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
+            <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <input id="explain-blinded" type="checkbox" class="w-4 h-4 rounded border-gray-300" />
+              Blinded review
+            </label>
+            <button id="explain-download-btn" type="button" class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-3 py-2 dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Download bundle</button>
+            <button id="explain-delete-btn" type="button" class="hidden inline-flex items-center bg-red-100 text-red-700 border border-red-100 hover:border-red-700 font-medium rounded-lg text-sm px-3 py-2 dark:bg-gray-700 dark:border-gray-700 dark:hover:border-red-300 dark:text-red-300">Delete</button>
+          </div>
+          <p id="explain-blinded-note" class="hidden mb-4 text-sm text-gray-600 dark:text-gray-300"></p>
+
+          <div id="explain-info" class="mb-4 text-sm text-gray-700 dark:text-gray-300"></div>
+          <div id="explain-output" class="mb-4 text-sm text-gray-700 dark:text-gray-300"></div>
+
+          <div id="explain-summaries" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4"></div>
+          <p id="explain-summaries-note" class="hidden mb-4 text-sm text-gray-500 dark:text-gray-400"></p>
+
+          <h4 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">Cases</h4>
+          <div id="explain-gallery" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"></div>
+
+          <div id="explain-case" class="hidden mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+            <div class="flex items-center justify-between mb-3">
+              <h4 id="explain-case-title" class="text-lg font-semibold text-gray-900 dark:text-white"></h4>
+              <button id="explain-case-close" type="button" class="text-sm text-gray-600 dark:text-gray-300 underline">Close</button>
+            </div>
+            <dl id="explain-case-fields" class="swm-explain-dl mb-4 text-sm text-gray-700 dark:text-gray-200"></dl>
+            <p id="explain-case-hidden-note" class="hidden mb-4 text-sm text-gray-600 dark:text-gray-300"></p>
+            <div id="explain-panels" class="swm-explain-panels mb-4"></div>
+            <div id="explain-details" class="mb-4"></div>
+
+            <form id="explain-review-form" class="space-y-2 mb-4">
+              <p id="explain-review-legend" class="text-sm font-medium text-gray-900 dark:text-white"></p>
+              <div id="explain-review-verdicts" class="flex flex-wrap items-center gap-4 text-sm text-gray-700 dark:text-gray-200"></div>
+              <label for="explain-review-note" class="sr-only">Note</label>
+              <textarea id="explain-review-note" name="note" rows="3" maxlength="2000" class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white resize-none"></textarea>
+              <button type="submit" class="inline-flex items-center bg-purple-100 text-purple-700 border border-purple-100 hover:border-purple-700 font-medium rounded-lg text-sm px-3 py-2 dark:bg-gray-700 dark:border-gray-700 dark:hover:border-purple-300 dark:text-purple-300">Save review</button>
+              <p id="explain-review-message" class="text-sm text-gray-600 dark:text-gray-300"></p>
+            </form>
+            <p id="explain-review-readonly" class="hidden mb-4 text-sm text-gray-600 dark:text-gray-300">Only project members can review cases.</p>
+
+            <h5 class="mb-2 text-sm font-semibold text-gray-900 dark:text-white">Latest review of each reviewer</h5>
+            <div id="explain-reviews" class="space-y-2"></div>
+          </div>
+        </div>
+
+        {{ explain_ui|json_script:"explain-config" }}
+      </section>
+
     </main>
 
 <script>
@@ -296,15 +392,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const getCsrfToken = () => document.querySelector('[name=csrfmiddlewaretoken]').value;
 
     function setStatus(status, message, isError = false) {
-        // Customize status message display to match data page style
+        // Customize status message display to match data page style.
+        // The markup is fixed; the message (which can hold server text such
+        // as a script's error) is inserted as text into data-status-message.
         let html = '<div class="space-y-4">';
-        
+
         if (status === 'running' || status === 'pending') {
              html += `<button disabled class="inline-flex items-center px-3 py-2 text-sm font-medium text-center bg-gray-100 text-gray-400 border border-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-gray-700 dark:border-gray-700 dark:text-gray-400">
                           <svg class="w-6 h-6 mr-2 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>${message}</button>`;
+                          </svg><span data-status-message></span></button>`;
         } else if (status === 'completed') {
              // Success - show nothing
              statusContainer.innerHTML = '';
@@ -316,7 +414,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
                             </svg>
                             <div>
-                                <span class="font-medium">Visualization failed:</span> ${message}
+                                <span class="font-medium">Visualization failed:</span> <span data-status-message></span>
                                 <div class="mt-2">Please check the <a href="/logs/" class="font-bold underline hover:no-underline">Logs page</a> for the full technical error output.</div>
                             </div>
                         </div>
@@ -324,11 +422,13 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (status === 'stopped' || status === 'cancelled') {
              html += '<div class="flex items-center justify-center py-4 text-yellow-600"><svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg><span>Visualization was cancelled</span></div>';
         } else {
-             html += `<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400">${message}</p></div>`;
+             html += '<div class="text-center py-8"><p class="text-gray-500 dark:text-gray-400" data-status-message></p></div>';
         }
-        
+
         html += '</div>';
         statusContainer.innerHTML = html;
+        const messageSlot = statusContainer.querySelector('[data-status-message]');
+        if (messageSlot) messageSlot.textContent = String(message || '');
     }
 
     function updateUIForState(state) {
@@ -455,7 +555,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    runBtn.addEventListener('click', async () => {
+    // Without a results_visualization_script the buttons are not rendered.
+    if (runBtn) runBtn.addEventListener('click', async () => {
         setStatus('pending', 'Starting visualization...');
         updateUIForState('pending');
 
@@ -517,7 +618,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     attachResultDownloadHandlers();
 
-    stopBtn.addEventListener('click', async () => {
+    if (stopBtn) stopBtn.addEventListener('click', async () => {
         const runIdToStop = stopBtn.dataset.runId;
         if (!runIdToStop) return;
 
@@ -553,7 +654,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Initial poll
-    pollStatus();
+    if (runBtn) pollStatus();
     {% endif %}
 
     // ======================
@@ -588,6 +689,582 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
         });
     }
+});
+</script>
+
+<script>
+// Explainability section. Every value from the server is inserted with
+// textContent or setAttribute, never as HTML.
+document.addEventListener('DOMContentLoaded', function () {
+    const configNode = document.getElementById('explain-config');
+    if (!configNode) return;
+    const cfg = JSON.parse(configNode.textContent);
+    if (!cfg.status_url) return;
+
+    const $ = (id) => document.getElementById(id);
+    const runBtn = $('run-explain-btn');
+    const stopBtn = $('stop-explain-btn');
+    const statusBox = $('explain-status');
+    const body = $('explain-body');
+    const runSelect = $('explain-run-select');
+    const blindedBox = $('explain-blinded');
+    const blindedNote = $('explain-blinded-note');
+    const downloadBtn = $('explain-download-btn');
+    const deleteBtn = $('explain-delete-btn');
+    const infoBox = $('explain-info');
+    const outputBox = $('explain-output');
+    const summariesBox = $('explain-summaries');
+    const summariesNote = $('explain-summaries-note');
+    const gallery = $('explain-gallery');
+    const caseBox = $('explain-case');
+    const reviewForm = $('explain-review-form');
+
+    const OUTCOME_GOOD = ['TP', 'TN', 'correct'];
+    const OUTCOME_BAD = ['FP', 'FN', 'incorrect'];
+    let pollTimer = null;
+    let shownRunId = null;
+    let view = null;
+    let selectedCaseId = null;
+    let activeRunId = null;
+    let wasActive = false;
+
+    function el(tag, options) {
+        const node = document.createElement(tag);
+        const opts = options || {};
+        if (opts.className) node.className = opts.className;
+        if (opts.text !== undefined && opts.text !== null) node.textContent = String(opts.text);
+        if (opts.attrs) {
+            Object.entries(opts.attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
+        }
+        return node;
+    }
+
+    function clear(node) {
+        while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function csrfToken() {
+        const field = document.querySelector('[name=csrfmiddlewaretoken]');
+        return field ? field.value : '';
+    }
+
+    function urlFor(template, id) {
+        return template.replace(cfg.placeholder, encodeURIComponent(id));
+    }
+
+    async function fetchJson(url, options) {
+        const response = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+        const type = response.headers.get('content-type') || '';
+        if (response.redirected || !type.includes('application/json')) {
+            const error = new Error('The page is out of date or the session has ended. Reload the page.');
+            error.fatal = true;
+            throw error;
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            const error = new Error(data.error || ('The request failed (' + response.status + ').'));
+            error.fatal = response.status === 401 || response.status === 403;
+            throw error;
+        }
+        return data;
+    }
+
+    function postForm(url, fields) {
+        const form = new FormData();
+        Object.entries(fields || {}).forEach(([key, value]) => form.append(key, value));
+        return fetchJson(url, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken(), 'Accept': 'application/json' },
+            body: form,
+        });
+    }
+
+    function formatScore(value) {
+        return typeof value === 'number' ? value.toFixed(3) : '';
+    }
+
+    function formatValue(value) {
+        if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toPrecision(4);
+        if (value === null || value === undefined) return '';
+        return String(value);
+    }
+
+    function formatDate(text) {
+        const date = new Date(text);
+        return isNaN(date.getTime()) ? String(text || '') : date.toLocaleString();
+    }
+
+    // ---- status -------------------------------------------------------------
+
+    function setStatus(kind, message, output) {
+        clear(statusBox);
+        if (kind === 'clear') return;
+        const styles = {
+            busy: 'p-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-700 dark:text-blue-400 border border-blue-100',
+            error: 'p-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-700 dark:text-red-400 border border-red-100',
+            warn: 'p-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-700 dark:text-yellow-400 border border-yellow-100',
+            info: 'p-4 text-sm text-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-gray-300 border border-gray-200',
+        };
+        const box = el('div', { className: styles[kind] || styles.info, attrs: { role: kind === 'error' ? 'alert' : 'status' } });
+        const line = el('div', { className: 'flex items-center' });
+        if (kind === 'busy') {
+            const ns = 'http://www.w3.org/2000/svg';
+            const svg = document.createElementNS(ns, 'svg');
+            svg.setAttribute('class', 'w-4 h-4 mr-2 animate-spin');
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.setAttribute('fill', 'none');
+            const circle = document.createElementNS(ns, 'circle');
+            ['cx', 'cy'].forEach((a) => circle.setAttribute(a, '12'));
+            circle.setAttribute('r', '10');
+            circle.setAttribute('stroke', 'currentColor');
+            circle.setAttribute('stroke-width', '4');
+            circle.setAttribute('class', 'opacity-25');
+            svg.appendChild(circle);
+            line.appendChild(svg);
+        }
+        line.appendChild(el('span', { text: message }));
+        box.appendChild(line);
+        if (output) {
+            const details = el('details', { className: 'mt-2' });
+            details.appendChild(el('summary', { className: 'cursor-pointer', text: 'Script output' }));
+            details.appendChild(el('pre', { className: 'swm-explain-pre mt-2', text: output }));
+            box.appendChild(details);
+        }
+        statusBox.appendChild(box);
+    }
+
+    function startPolling() {
+        if (!pollTimer) pollTimer = setInterval(pollStatus, 3000);
+    }
+
+    function stopPolling() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    async function pollStatus() {
+        let data;
+        try {
+            data = await fetchJson(cfg.status_url);
+        } catch (error) {
+            stopPolling();
+            setStatus('error', error.message);
+            return;
+        }
+        applyStatus(data);
+    }
+
+    function applyStatus(data) {
+        const latest = data.latest;
+        const active = Boolean(latest && (latest.status === 'pending' || latest.status === 'running'));
+        const justFinished = wasActive && !active;
+        wasActive = active;
+        activeRunId = active ? latest.identifier : null;
+        if (runBtn) runBtn.classList.toggle('hidden', active);
+        if (stopBtn) stopBtn.classList.toggle('hidden', !(active && runCanBeManaged(data, latest)));
+        if (active) {
+            setStatus('busy', latest.status === 'pending'
+                ? 'Waiting for a worker to start the explainability script...'
+                : 'The explainability script is running in the sandbox...');
+            startPolling();
+        } else {
+            stopPolling();
+            if (latest && latest.status === 'completed' && latest.success === false) {
+                setStatus('error', 'The last run stored no explanations: ' + (latest.error_message || 'unknown error'), latest.output);
+            } else if (latest && latest.status === 'failed') {
+                setStatus('error', 'The last run failed: ' + (latest.error_message || 'unknown error'), latest.output);
+            } else if (latest && latest.status === 'cancelled') {
+                setStatus('warn', 'The last run was cancelled.');
+            } else {
+                setStatus('clear');
+            }
+        }
+        const preferId = justFinished && latest && latest.success ? latest.identifier : null;
+        fillRunSelect(data.runs.filter((run) => run.status === 'completed' && run.success), preferId);
+    }
+
+    function runCanBeManaged(data, run) {
+        const entry = data.runs.find((item) => item.identifier === run.identifier);
+        return Boolean(entry && entry.can_manage);
+    }
+
+    function fillRunSelect(runs, preferId) {
+        clear(runSelect);
+        runs.forEach((run) => {
+            const label = formatDate(run.created_at) + ' (' + (run.source === 'import' ? 'imported' : 'sandbox') + (run.user ? ', ' + run.user : '') + ')';
+            runSelect.appendChild(el('option', { text: label, attrs: { value: run.identifier } }));
+        });
+        if (!runs.length) {
+            shownRunId = null;
+            view = null;
+            body.classList.add('hidden');
+            if (!statusBox.firstChild && !activeRunId) {
+                setStatus('info', cfg.has_script
+                    ? 'No explanations for this job yet. Click "Run Explainability" to compute them.'
+                    : 'No explanations for this job yet.');
+            }
+            return;
+        }
+        const keep = runs.some((run) => run.identifier === shownRunId);
+        let target = keep ? shownRunId : runs[0].identifier;
+        if (preferId && runs.some((run) => run.identifier === preferId)) target = preferId;
+        runSelect.value = target;
+        if (target !== shownRunId || !view) {
+            selectedCaseId = null;
+            loadRun(target);
+        }
+    }
+
+    // ---- run view -----------------------------------------------------------
+
+    async function loadRun(runId) {
+        shownRunId = runId;
+        try {
+            view = await fetchJson(urlFor(cfg.cases_url, runId));
+        } catch (error) {
+            setStatus('error', error.message);
+            return;
+        }
+        render();
+    }
+
+    function render() {
+        if (!view) return;
+        body.classList.remove('hidden');
+        blindedBox.checked = Boolean(view.blinded);
+        deleteBtn.classList.toggle('hidden', !view.can_manage);
+        if (view.blinded) {
+            blindedNote.textContent = view.reads_blinded
+                ? 'Blinded review: until you save your own read of a case, it shows only its case ID, label and input panels. Its prediction, score, outcome, target, details, maps and other reviewers\' reviews appear after you save the read. The cases are in a random order.'
+                : 'Blinded review is on, but this run\'s model output was already shown to you, so all its cases are shown and reviews you save are recorded as made after seeing the output.';
+            blindedNote.classList.remove('hidden');
+        } else {
+            blindedNote.classList.add('hidden');
+        }
+        renderInfo(view.run.info || {});
+        renderOutput(view.run);
+        renderSummaries();
+        renderGallery();
+        const selected = view.cases.find((item) => item.identifier === selectedCaseId);
+        if (selected) {
+            renderCase(selected);
+        } else {
+            selectedCaseId = null;
+            caseBox.classList.add('hidden');
+        }
+    }
+
+    function addField(list, label, value) {
+        list.appendChild(el('dt', { className: 'font-medium', text: label }));
+        list.appendChild(el('dd', { className: 'swm-explain-text', text: value }));
+    }
+
+    function renderInfo(info) {
+        clear(infoBox);
+        const list = el('dl', { className: 'swm-explain-dl' });
+        if (info.methods && info.methods.length) addField(list, 'Methods', info.methods.join(', '));
+        if (info.target) addField(list, 'Target', info.target);
+        if (info.metrics && Object.keys(info.metrics).length) {
+            addField(list, 'Metrics', Object.entries(info.metrics).map(([key, value]) => key + ': ' + formatValue(value)).join(', '));
+        }
+        if (info.notes) addField(list, 'Notes', info.notes);
+        if (list.firstChild) infoBox.appendChild(list);
+    }
+
+    function renderOutput(run) {
+        clear(outputBox);
+        if (!run.output) return;
+        const details = el('details');
+        details.appendChild(el('summary', { className: 'cursor-pointer', text: 'Script output' }));
+        details.appendChild(el('pre', { className: 'swm-explain-pre mt-2', text: run.output }));
+        outputBox.appendChild(details);
+    }
+
+    function figure(image, caption) {
+        const node = el('figure', { className: 'p-2 bg-gray-50 dark:bg-gray-700 rounded-lg' });
+        const img = el('img', { className: 'swm-explain-img', attrs: { loading: 'lazy', alt: caption || 'explanation figure' } });
+        img.src = image.image_url;
+        node.appendChild(img);
+        node.appendChild(el('figcaption', { className: 'mt-1 text-xs text-gray-600 dark:text-gray-300', text: caption }));
+        return node;
+    }
+
+    function renderSummaries() {
+        clear(summariesBox);
+        view.summaries.forEach((summary) => summariesBox.appendChild(figure(summary, summary.title || ('Summary ' + summary.position))));
+        const withheld = [];
+        if (view.hidden_summaries) withheld.push(view.hidden_summaries + ' run-level figure(s)');
+        if (view.run.output_hidden) withheld.push('the script output');
+        if (withheld.length) {
+            summariesNote.textContent = withheld.join(' and ') + ' appear after you have saved a read of every case.';
+            summariesNote.classList.remove('hidden');
+        } else {
+            summariesNote.classList.add('hidden');
+        }
+    }
+
+    function outcomeBadge(item) {
+        if (item.hidden) return el('span', { className: 'px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200', text: 'output hidden' });
+        if (!item.outcome) return null;
+        let style = 'bg-blue-100 text-blue-700';
+        if (OUTCOME_GOOD.includes(item.outcome)) style = 'bg-green-100 text-green-700';
+        if (OUTCOME_BAD.includes(item.outcome)) style = 'bg-red-100 text-red-700';
+        return el('span', { className: 'px-2 py-0.5 text-xs rounded-full ' + style, text: item.outcome });
+    }
+
+    function renderGallery() {
+        clear(gallery);
+        view.cases.forEach((item) => {
+            const card = el('button', {
+                className: 'swm-explain-card text-left p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-purple-700',
+                attrs: { type: 'button', 'aria-pressed': item.identifier === selectedCaseId ? 'true' : 'false' },
+            });
+            const top = el('div', { className: 'flex items-center justify-between gap-2 mb-1' });
+            top.appendChild(el('span', { className: 'font-mono text-sm truncate text-gray-900 dark:text-white', text: item.case_id }));
+            const badge = outcomeBadge(item);
+            if (badge) top.appendChild(badge);
+            card.appendChild(top);
+            const lines = [['Label', item.label || '']];
+            if (!item.hidden) {
+                lines.push(['Prediction', item.prediction || '']);
+                lines.push(['Score', formatScore(item.score)]);
+            }
+            lines.forEach(([label, value]) => {
+                if (value !== '') card.appendChild(el('div', { className: 'text-xs text-gray-600 dark:text-gray-300 truncate', text: label + ': ' + value }));
+            });
+            if (item.hidden) {
+                card.appendChild(el('div', { className: 'text-xs text-gray-500 dark:text-gray-400', text: 'Prediction, score, outcome, target and details hidden until you save a read' }));
+            }
+            Object.entries(item.details || {}).slice(0, 3).forEach(([key, value]) => {
+                card.appendChild(el('div', { className: 'text-xs text-gray-500 dark:text-gray-400 truncate', text: key + ': ' + formatValue(value) }));
+            });
+            const reviews = item.hidden
+                ? 'not reviewed by you, other reviews hidden'
+                : item.reviews.length + ' reviewer(s), ' + (item.my_review_count ? 'your review saved' : 'not reviewed by you');
+            card.appendChild(el('div', { className: 'mt-1 text-xs text-gray-500 dark:text-gray-400', text: reviews }));
+            card.addEventListener('click', () => {
+                selectedCaseId = item.identifier;
+                render();
+                caseBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            gallery.appendChild(card);
+        });
+    }
+
+    function renderCase(item) {
+        caseBox.classList.remove('hidden');
+        $('explain-case-title').textContent = 'Case ' + item.position + ': ' + item.case_id;
+
+        const fields = $('explain-case-fields');
+        clear(fields);
+        const hiddenText = 'hidden until you save a read';
+        addField(fields, 'Label', item.label || '-');
+        addField(fields, 'Prediction', item.hidden ? hiddenText : (item.prediction || '-'));
+        addField(fields, 'Score', item.hidden ? hiddenText : (formatScore(item.score) || '-'));
+        addField(fields, 'Outcome', item.hidden ? hiddenText : (item.outcome || '-'));
+        if (item.hidden) {
+            addField(fields, 'Target', hiddenText);
+            addField(fields, 'Details', hiddenText);
+        } else if (item.target) {
+            addField(fields, 'Target', item.target);
+        }
+
+        const hiddenNote = $('explain-case-hidden-note');
+        if (item.hidden_panels) {
+            hiddenNote.textContent = item.hidden_panels + ' map panel(s) appear after you save your read of this case.';
+            hiddenNote.classList.remove('hidden');
+        } else {
+            hiddenNote.classList.add('hidden');
+        }
+
+        const panels = $('explain-panels');
+        clear(panels);
+        item.panels.forEach((panel) => {
+            const caption = panel.method + (panel.title ? ': ' + panel.title : '');
+            panels.appendChild(figure(panel, caption));
+        });
+
+        const details = $('explain-details');
+        clear(details);
+        const entries = Object.entries(item.details || {});
+        if (entries.length) {
+            const table = el('table', { className: 'min-w-full text-sm text-left text-gray-700 dark:text-gray-200' });
+            const tbody = el('tbody');
+            entries.forEach(([key, value]) => {
+                const row = el('tr', { className: 'border-t border-gray-200 dark:border-gray-600' });
+                row.appendChild(el('th', { className: 'p-2 font-medium', text: key, attrs: { scope: 'row' } }));
+                row.appendChild(el('td', { className: 'p-2 swm-explain-text', text: formatValue(value) }));
+                tbody.appendChild(row);
+            });
+            table.appendChild(tbody);
+            details.appendChild(table);
+        }
+
+        renderReviewForm(item);
+        renderReviews(item);
+    }
+
+    function renderReviewForm(item) {
+        const canReview = Boolean(view.can_review);
+        reviewForm.classList.toggle('hidden', !canReview);
+        $('explain-review-readonly').classList.toggle('hidden', canReview);
+        if (!canReview) return;
+        const blindRead = item.hidden;
+        $('explain-review-legend').textContent = blindRead
+            ? 'Your read before seeing the model output: do you agree with the label?'
+            : 'Your verdict on the model output and its explanation:';
+        const choices = blindRead
+            ? [['agree', 'Agree with the label'], ['disagree', 'Disagree with the label'], ['unsure', 'Unsure']]
+            : [['agree', 'Agree'], ['disagree', 'Disagree'], ['unsure', 'Unsure']];
+        const verdicts = $('explain-review-verdicts');
+        clear(verdicts);
+        choices.forEach(([value, label], index) => {
+            const wrap = el('label', { className: 'flex items-center gap-2' });
+            const input = el('input', { attrs: { type: 'radio', name: 'verdict', value: value } });
+            if (index === 2) input.checked = true;
+            wrap.appendChild(input);
+            wrap.appendChild(document.createTextNode(label));
+            verdicts.appendChild(wrap);
+        });
+        const note = $('explain-review-note');
+        note.value = '';
+        note.setAttribute('placeholder', blindRead
+            ? 'Your own read, for example the finding and where it is'
+            : 'What the maps show, and whether that is plausible');
+        $('explain-review-message').textContent = '';
+    }
+
+    function renderReviews(item) {
+        const list = $('explain-reviews');
+        clear(list);
+        if (!item.reviews.length) {
+            list.appendChild(el('p', { className: 'text-sm text-gray-500 dark:text-gray-400', text: item.hidden ? 'Other reviewers\' reviews appear after you save your read.' : 'No reviews yet.' }));
+            return;
+        }
+        item.reviews.forEach((review) => {
+            const box = el('div', { className: 'p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600' });
+            const head = (review.reviewer || 'deleted user') + ' - ' + review.verdict
+                + ' - ' + (review.blinded ? 'blinded read' : 'after seeing the model output')
+                + ' - ' + formatDate(review.created_at);
+            box.appendChild(el('div', { className: 'text-xs text-gray-600 dark:text-gray-300', text: head }));
+            if (review.note) box.appendChild(el('p', { className: 'mt-1 text-sm text-gray-800 dark:text-gray-200 swm-explain-text', text: review.note }));
+            list.appendChild(box);
+        });
+    }
+
+    // ---- actions ------------------------------------------------------------
+
+    reviewForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!view || !selectedCaseId) return;
+        const choice = reviewForm.querySelector('input[name="verdict"]:checked');
+        const message = $('explain-review-message');
+        message.textContent = 'Saving...';
+        try {
+            await postForm(urlFor(cfg.reviews_url, selectedCaseId), {
+                verdict: choice ? choice.value : '',
+                note: $('explain-review-note').value,
+            });
+            await loadRun(shownRunId);
+            const saved = $('explain-review-message');
+            if (saved) saved.textContent = 'Review saved.';
+        } catch (error) {
+            message.textContent = error.message;
+        }
+    });
+
+    $('explain-case-close').addEventListener('click', () => {
+        selectedCaseId = null;
+        render();
+    });
+
+    runSelect.addEventListener('change', () => {
+        selectedCaseId = null;
+        loadRun(runSelect.value);
+    });
+
+    blindedBox.addEventListener('change', async () => {
+        if (!shownRunId) return;
+        if (!blindedBox.checked && view && view.reads_blinded && !window.confirm('Switching blinded review off shows the model output of every case of this run. Reviews you save for this run are then recorded as made after seeing the output, even if you switch blinded review on again. Switch it off?')) {
+            blindedBox.checked = true;
+            return;
+        }
+        try {
+            view = await postForm(urlFor(cfg.mode_url, shownRunId), { blinded: blindedBox.checked ? '1' : '0' });
+            render();
+        } catch (error) {
+            setStatus('error', error.message);
+        }
+    });
+
+    downloadBtn.addEventListener('click', async () => {
+        if (!shownRunId) return;
+        if (view && view.blinded && view.reads_blinded && !window.confirm('The bundle contains the model output of every case. After the download, all cases of this run are shown to you, and reviews you save for it are recorded as made after seeing the output. Download?')) return;
+        try {
+            const response = await fetch(urlFor(cfg.download_url, shownRunId), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'X-CSRFToken': csrfToken() },
+            });
+            const type = response.headers.get('content-type') || '';
+            if (!response.ok || !type.includes('application/zip')) throw new Error('The download failed (' + response.status + ').');
+            const blob = await response.blob();
+            const link = el('a', { attrs: { download: 'explanations_' + shownRunId + '.zip' } });
+            link.href = URL.createObjectURL(blob);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(link.href);
+            loadRun(shownRunId);
+        } catch (error) {
+            setStatus('error', error.message);
+        }
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+        if (!shownRunId || !window.confirm('Delete these explanations, their images and all reviews of them?')) return;
+        try {
+            await postForm(cfg.delete_url, { run_id: shownRunId });
+            shownRunId = null;
+            view = null;
+            selectedCaseId = null;
+            pollStatus();
+        } catch (error) {
+            setStatus('error', error.message);
+        }
+    });
+
+    if (runBtn) {
+        runBtn.addEventListener('click', async () => {
+            setStatus('busy', 'Starting the explainability script...');
+            runBtn.classList.add('hidden');
+            try {
+                await postForm(cfg.start_url, {});
+            } catch (error) {
+                setStatus('error', 'Could not start the explainability script: ' + error.message);
+                runBtn.classList.remove('hidden');
+                return;
+            }
+            pollStatus();
+        });
+    }
+
+    if (stopBtn) {
+        stopBtn.addEventListener('click', async () => {
+            if (!activeRunId) return;
+            try {
+                await postForm(cfg.stop_url, { run_id: activeRunId });
+            } catch (error) {
+                setStatus('error', error.message);
+                return;
+            }
+            pollStatus();
+        });
+    }
+
+    pollStatus();
 });
 </script>
   {%endblock content%}
