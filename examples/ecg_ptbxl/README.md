@@ -4,12 +4,13 @@ A signal template for SwarmMed. Four recording sites each hold their own 12-lead
 public PTB-XL dataset, and a small 1D convolutional network learns to tell normal from abnormal
 records. The data are about 320 MB in all, so a swarm run of five rounds finishes in minutes on a
 CPU. The template is meant to show that training, data checks, result plots and per-case
-explanations run on SwarmMed with a natural site split (PTB-XL's recording-site field). Its
-training has run to completion on a SwarmMed local-test network (all sites on one host) and in
-NVIDIA FLARE's simulator, and its data checks, data plots, result plots and explanations have run
-in a SwarmMedHub sandbox (see [What was run](#what-was-run)). It does not make a performance claim.
-A second template, [`multimodal_ptbxl`](../multimodal_ptbxl/README.md), adds age, sex, height and
-weight to the same task.
+explanations run on SwarmMed with a natural site split (PTB-XL's recording-site field). Its training
+has run to completion on a SwarmMed local-test network (all sites on one host), in NVIDIA FLARE's
+simulator and, with a development version of SwarmMed (changes now in 1.0.3), across three
+hospitals, each training on its own server; its data checks, data plots, result plots and
+explanations have run in a SwarmMedHub sandbox (see [What was run](#what-was-run)). It does not make
+a performance claim. A second template, [`multimodal_ptbxl`](../multimodal_ptbxl/README.md), adds
+age, sex, height and weight to the same task.
 
 ## Task
 
@@ -210,6 +211,7 @@ from `training.py` next to it.
 | NVIDIA FLARE simulator, job built by SwarmMed | 11 Nov 2026 | 4 (PTB-XL recording sites 0, 1, 2, other) | 5 x 1 local epoch | see below | 15 s job build + 94 s simulator on 4 clients | Host virtual environment: Python 3.12.13, torch 2.10.0, numpy 2.4.3, scikit-learn 1.8.0, pandas 2.3.3, NVFlare 2.7.1; CPU |
 | NVIDIA FLARE simulator, job built by SwarmMed | 11 Nov 2026 | 4 (PTB-XL recording sites 0, 1, 2, other) | 5 x 1 local epoch | pooled AUROC 0.922 (0.910-0.932); per site 0.874, 0.936, 0.912, 0.947 | 9 s job build + 66 s simulator on 4 clients | Runtime image `swarmcloud-app:latest` (torch 2.10, numpy 2.4, scikit-learn 1.8, NVFlare 2.7.1), container without network, CPU |
 | SwarmMed local-test network on one host, CPU | 11 Nov 2026 | 4 (as above) | 5 x 1 local epoch | pooled AUROC 0.922 (0.910-0.932); per site 0.874, 0.936, 0.912, 0.947, as in the runtime-image simulator run | 11 s network start + 39 s job | Fresh installation of SwarmMed following its README, in an isolated Ubuntu 24.04 container with its own Docker Engine; runtime image built by the Hub for the network (python:3.12-slim with the platform's packages and this template's `requirements.txt`, torch 2.10.0, NVFlare 2.7.1); CPU |
+| SwarmMed at three hospitals and a coordinating host, each on its own institutional network, joined by a VPN | 16 Nov 2026, three runs | 3 (PTB-XL recording sites 0, 1, 2, one per hospital; `fl-client-4` not trained on) | 20 x 1 local epoch; seeds 0, 1, 2 | pooled AUROC 0.928 (SD 0.005; runs 0.922, 0.930, 0.932) over the 3 training shares; per site 0.892, 0.949, 0.920 (means); 0.954 on `fl-client-4` (mean) | 3 min 15 s, 3 min 4 s and 3 min 4 s per job in the Hub's record; 2 min 49 s, 2 min 50 s and 2 min 46 s from the start to the end of the swarm workflow in the FL server's log | SwarmMed 1.0.2 plus changes that 1.0.3 contains: this template and the explanations, a standby FL server with a fix for client sites, NetBird support, the network-stop fix and a kombu pin (1.0.3 also has a later fix to exporting startup packages, which these runs did not include); installed with its README's steps, two edits to `.env` at the hospitals and a Compose override in one added Ubuntu 24.04 container with its own Docker Engine on each host; client-only Hubs at the hospitals, a server-only Hub at the coordinating host; runtime image: the Hub's application image, built on each host (`swarmmed-app:latest`; the image name follows the checkout folder's name; torch 2.10.0, NVFlare 2.7.1, numpy 2.4.3, scikit-learn 1.8.0); CPU only, 4 threads per site |
 
 SwarmMed run (11 Nov 2026, one run): the project was created from this folder with `swarmed project
 create --code-dir`, the `fl-client-k` folders were imported with `swarmed data import`, and the job
@@ -255,7 +257,7 @@ memory accounting can differ from the Hub's image). `validation.py`: 50 checks, 
 plots, 3.3 s, 0.29 GB. `results_visualization.py`: 4 plots, 7.9 s, 0.75 GB peak memory, which is
 close to the Hub's 1 GB limit because importing torch alone takes about 0.5 GB. On 11 Nov 2026,
 `validation.py` (the same 50 checks: 49 ok, 1 warning) and `visualization.py` (4 plots) also ran in
-a SwarmMedHub sandbox on the same data. On the SwarmMed run in [What was run](#what-was-run),
+a SwarmMedHub sandbox on the same data. On the local-test SwarmMed run (11 and 12 Nov 2026),
 `results_visualization.py` and `explainability.py` also ran in the Hub's sandbox.
 `explainability.py` is described below.
 
@@ -264,13 +266,175 @@ the official zip by range requests, 43,601 files all matching PhysioNet's `SHA25
 65 s, the whole run 87 s with 0.73 GB peak memory, and the output matched the reference counts and
 fingerprints. Without the download the conversion takes about 20 s.
 
-Not tested: GPU, more than four sites, sites on separate hosts, other random splits or seeds on
-the platform, the PTB-XL 500 Hz records.
+Multi-site runs (16 Nov 2026, three runs with seeds 0, 1 and 2; the last row of the table). Three
+hospitals each trained on one PTB-XL share on a server of their own: hospital A on `fl-client-1`
+(recording site 0), hospital B on `fl-client-2` (recording site 1) and hospital C on `fl-client-3`
+(recording site 2). The shares were the ones prepared for
+[`multimodal_ptbxl`](../multimodal_ptbxl/README.md), whose `prepare_data.py` writes the same ECG
+arrays as this template's (all 12 site and split files match this template's fingerprints) plus age,
+sex, height and weight, which this template does not read. They were copied to the hospitals, so the
+records are public PTB-XL data, not data of the hospitals' own patients; each hospital imported only
+its own share, at the root of its data, and no hospital held `fl-client-4`. The hospitals and a
+separate coordinating host were each on their own institutional network, joined by a VPN between the
+institutions. At each hospital, a development version of SwarmMed (1.0.2 plus changes now in 1.0.3)
+was copied to an existing server and installed with its README's steps, two edits to `.env` (the
+project's path on the host and the Hub's host name) and a Compose override (client-only mode, GPU
+off, the runtime image, non-default FL ports and a Celery worker running as root; see the notes
+below), in one added Ubuntu 24.04 container (privileged, with its own Docker Engine, limited to 16
+CPUs and 28 GiB of memory). Apart from that container, its base image and scratch folders, which
+were removed after the runs except for the image, the servers were left as they were. The
+installations were set up and operated remotely over SSH by the SwarmMed team, not by the hospitals'
+staff. The hospitals' Hubs ran in client-only mode (`SWARMMEDHUB_CLIENT_ONLY_MODE`,
+`SWARMMEDHUB_LOCAL_PARTICIPANT`); the coordinating host ran a server-only Hub
+(`SWARMMEDHUB_SERVER_ONLY_MODE`), also in a container with its own Docker Engine, with the FL
+server's ports published on the host's VPN address. The network was created with the CLI at the
+coordinating Hub (`--server-ip`, one `--participant` per hospital, `--no-local-client`), and each
+hospital imported the startup bundle into its own Hub. The FL clients dialled out to the FL server's
+fed-learn port and the hospitals' Hubs to its admin port; training needed no inbound connections at
+the hospitals (only the Hubs' optional status exchange on port 5085 would have; see the notes
+below). Messages between the hospitals, model weights included, were relayed through the FL server,
+as SwarmMed configures it by default (see
+[Threat model](../../docs/threat-model.md#3-the-coordinating-host-sees-model-updates-default-configuration)),
+so the coordinating host could observe the updates and the runs depended on it throughout.
+
+The first job ran this template's code (seed 0) for 20 rounds of 1 local epoch
+(`SWARMMEDHUB_SWARM_ROUNDS=20` in the environment of the `training start` command; the job's
+`training.py` was identical at the three hospitals and differs from the template only in the project
+ID that the Hub writes into it), in NVIDIA FLARE's client-controlled swarm workflow, on CPUs only
+(`SWARMMEDHUB_ENABLE_GPU=false`, 4 threads per site). Every round aggregated the updates of all
+three hospitals. The job completed at its first attempt (the deployment had been brought up on 13
+Nov 2026, see below), at about 8 s per round. Afterwards the three hospitals held byte-identical
+final models (`FL_global_model.pt`) and byte-identical best models (`best_FL_global_model.pt`,
+selected by the highest mean of the three hospitals' validation accuracies, 0.858 at round 15). Each
+hospital scored the final model on its own test split with `evaluate.py` (settings as above). The
+coordinating host scored the same model on the public shares, with the same values to four decimals,
+and also computed the pooled row, which needs all three hospitals' shares, and the `fl-client-4`
+row, from a share that no hospital held:
+
+| Hospital | Share (PTB-XL recording site) | Test records (abnormal) | AUROC (95% CI) | Accuracy | Sensitivity | Specificity |
+|---|---|---|---|---|---|---|
+| A | `fl-client-1` (0) | 483 (173) | 0.880 (0.844-0.913) | 0.816 | 0.509 | 0.987 |
+| B | `fl-client-2` (1) | 598 (337) | 0.943 (0.925-0.960) | 0.824 | 0.727 | 0.950 |
+| C | `fl-client-3` (2) | 867 (584) | 0.917 (0.901-0.935) | 0.796 | 0.716 | 0.961 |
+| pooled, A to C | `fl-client-1` to `fl-client-3` | 1,948 (1,094) | 0.922 (0.911-0.934) | 0.810 | 0.686 | 0.967 |
+| none, not trained on | `fl-client-4` (every other site) | 210 (152) | 0.946 (0.912-0.973) | 0.843 | 0.803 | 0.948 |
+
+`fl-client-4` holds the test records of PTB-XL's other recording sites and of records without a
+site. No hospital trained on it, but it comes from the same dataset, labelling and device
+manufacturer as the training shares, so it is not an external validation. The pooled row covers
+three shares (1,948 records) and is not comparable with the four-share pooled values above. The
+untuned 0.5 threshold again gives a low sensitivity, lowest at hospital A (`fl-client-1`; see
+[Limitations](#limitations)).
+
+Two more jobs ran later on 16 Nov 2026 on the same network and data, with the template's `SEED` set
+to 1 and 2: the only change, made in the coordinating Hub's project with
+`swarmed project update --code-dir`. For these jobs the hospitals' installations, removed after the
+first job, were set up again in the same way, with the subnet and worker settings of the notes below
+applied from the start; the coordinating host's container, also removed, was recreated from its kept
+data, with the same network and project. Both jobs completed at their first attempt; every round
+again aggregated the updates of all three hospitals, and the three hospitals again held
+byte-identical final models. The final models' test AUROCs, computed as above:
+
+| Test set | Seed 0 | Seed 1 | Seed 2 | Mean (SD) |
+|---|---|---|---|---|
+| hospital A, `fl-client-1` | 0.880 | 0.893 | 0.903 | 0.892 (0.012) |
+| hospital B, `fl-client-2` | 0.943 | 0.949 | 0.954 | 0.949 (0.005) |
+| hospital C, `fl-client-3` | 0.917 | 0.921 | 0.921 | 0.920 (0.002) |
+| pooled, A to C | 0.922 | 0.930 | 0.932 | 0.928 (0.005) |
+| `fl-client-4`, not trained on | 0.946 | 0.956 | 0.961 | 0.954 (0.008) |
+
+Sensitivity at the 0.5 threshold was 0.547 (SD 0.038) at hospital A, 0.762 (0.034) at B, 0.756
+(0.035) at C and 0.725 (0.035) pooled; mean specificity was 0.94 to 0.98 (0.93 to 0.99 in single
+runs). Three runs give a rough idea of the spread between seeds; they are not a test of any
+difference.
+
+Compared with the runs on one host, the sites were servers at three hospitals plus a coordinating
+host, not containers or simulated clients on one host; three shares trained instead of four; the job
+ran 20 rounds instead of 5; and the runtime image was the Hub's application image, as in the
+runtime-image simulator run, not one built for the network. The first run on this deployment, on 13
+Nov 2026, brought it up: it completed after four failed jobs, most of the issues in the notes below
+were found while bringing it up, and it ran 5 rounds with the same hospitals and training code. Its
+final model gave per-site AUROCs of 0.874, 0.936 and 0.912, pooled 0.918 (0.906-0.929), and 0.946
+(0.913-0.973) on `fl-client-4`. The per-site AUROCs of the first 20-round run (seed 0, as on 13 Nov)
+are slightly higher (by less than 0.01), inside the bootstrap intervals; with one 5-round run, this
+is no evidence of a difference.
+
+Training on this deployment did not reproduce bit for bit. The 13 Nov 2026 run and the first 16 Nov
+run (seed 0) had the same data, seed and aggregating hospitals in their first five rounds; their
+validation metrics agree to four decimals in rounds 0 and 1 and then differ slightly (AUROC by up to
+0.0004, accuracy by up to two records at a hospital). In round 0 the updates reached the aggregating
+hospital in a different order in these two runs, and the aggregator adds them in the order they
+arrive, which is consistent with differences from floating-point summation.
+
+Explanations: the hospitals' Hubs did not list the job (see the notes below), so `explainability.py`
+ran at each hospital with `python -m swarmmed_explain.run_local` (as in
+[Explainability](#explainability)), outside the Hub's sandbox, on the hospital's own test split and
+the final model of the first 20-round run (seed 0, 16 Nov 2026). Each bundle held 8 cases, 32 panels
+and 3 run-level figures. The three bundles were imported into the coordinating Hub with
+`swarmed results explain-import`, which checked them like sandbox output and stored them as three
+explanation runs of that job, for review there. These records are public; with patients' data,
+sharing explanations with another site needs its own legal basis
+([Explainability](../../docs/explainability.md#privacy)).
+
+Deployment notes from these runs:
+
+- **Docker's subnets and the VPN:** SwarmMed creates a Docker bridge network for each network
+  without naming a subnet, so Docker takes one from its default address pools. At hospital A, and at
+  the coordinating host for the second network created there, that subnet overlapped the VPN's
+  address range, and traffic to VPN addresses was routed into the bridge; hospitals B and C had
+  their pools moved before their clients first started. Here every Hub's Docker Engine ran inside
+  the added container; an engine on the host itself was not tried. Before the first network starts,
+  set Docker's `default-address-pools` to a range that no site uses, or create the bridge
+  (`swarm_<first 12 characters of the network ID>_net`) beforehand with a free subnet; SwarmMed uses
+  an existing bridge of that name.
+- **The coordinating host's own address:** the FL server's address was the coordinating host's VPN
+  address, which the Hub does not detect by itself. It was listed in `SWARMMEDHUB_LOCAL_ADDRESSES`
+  (for `app` and `celery_worker`) so that the Hub recognises itself as the server. This setting, and
+  the CLI's warning about this case when a network is created, come with the NetBird support in
+  1.0.3.
+- **Results with server-only and client-only Hubs:** the coordinating Hub had the job's record but
+  no model, and the hospitals' Hubs had the model but did not list the job, so
+  `swarmed results sync` had nothing to collect on either side. Score and explain the model at each
+  site, as above, and import the explanations into the coordinating Hub where sharing them is
+  allowed.
+- **Connectivity:** judge it by the FL server's log (`Total clients`), not by the participant status
+  that `swarmed network show` reports, which, at the coordinating Hub, listed every participant, the
+  FL server included, as offline, with no last-seen time. That status comes from status messages
+  between the Hubs (HTTPS on port 5085), which need inbound connections that this deployment did not
+  allow: the coordinating Hub tried to send them to each hospital every 30 s, and none reached a
+  Hub. The hospitals' Hubs did not find their own addresses in the participant list and sent none.
+- **Restarts:** restart FL containers with `swarmed network stop` and then `swarmed network start`,
+  which removes NVFlare's stale process-ID files. After a bare `docker restart`, NVFlare finds its
+  old `daemon_pid.fl`, whose process ID now belongs to the container's new first process, and
+  refuses to start. In 1.0.2, and in any version without the network-stop fix,
+  `swarmed network stop` fails with `'function' object has no attribute 'delay'`; 1.0.3 includes the
+  fix.
+- **Workspace permissions:** at hospital A, starting the FL client failed with permission errors on
+  the FL workspace until the Hub's Celery worker ran as root; the same change was made at hospitals
+  B and C before their clients first started. Whether a standard installation is affected was not
+  checked.
+- **Admin identity:** all four Hubs logged in to the FL server's admin port with one identity,
+  hospital A's `project_admin`, so the server's log names the same user for every Hub; only the
+  connection's source address tells them apart. The startup package gives every site every identity
+  in any case (see
+  [Threat model](../../docs/threat-model.md#key-custody-what-the-startup-package-contains)).
+- **Standby FL server:** a defect in this feature (released in 1.0.3), which was part of the code
+  run here, kept the clients from training at first: each hospital's FL workspace also held the
+  server's configuration, and the FL client read it instead of its own. The 13 Nov 2026 run worked
+  around it by editing the configuration files by hand; the 16 Nov runs used the fix that 1.0.3
+  contains.
+
+Sites on separate hosts were tested on 13 and 16 Nov 2026 (above). Not tested: GPU; more than four
+sites on one host or more than three on separate hosts; more than three runs, or other data splits;
+ECGs of the hospitals' own patients; SwarmMed installed directly on a hospital's server rather than
+in an added container; installation and operation by a hospital's own staff; failover to the standby
+FL server; NetBird as the overlay; the PTB-XL 500 Hz records.
 
 ## Explainability
 
-The paragraphs below describe the cases of the recorded run, with their outcomes. If you
-want to try the blinded review on that run, do it before you read them.
+The paragraphs below describe the cases of the simulator run's final model (11 Nov 2026) on
+`fl-client-1`, with their outcomes. If you want to try the blinded review on that run, do it before
+you read them.
 
 `explainability.py` explains the final global model on the test split of the first site folder
 (or the root data in a real deployment). It selects the two most confident cases of each outcome
@@ -304,15 +468,15 @@ python -m swarmmed_explain.run_local --script examples/ecg_ptbxl/explainability.
 ```
 
 On the simulator's final model (11 Nov 2026), the run took 10.3 s pinned to 2 CPUs
-(`taskset -c 0,1`) with 0.84 GB peak memory, inside the sandbox limits of 2 CPUs, 2 GB and
-15 minutes, and wrote a valid bundle of 8 cases, 32 panels and 3 summaries. On the fl-client-1
-test split the maps are
-not zero or uniform: they concentrate on individual beats and, in the first true positive, on one
-wide beat of different shape at about 2.8 s that both methods mark in the same leads. The rank correlation between the
-two methods over the 8 cases was between 0.24 and 0.89 (median 0.68), and the overlap of their five
-largest half seconds between 1 of 5 and 4 of 5. The methods therefore agree on the main regions
-but not on the fine ranking. These are properties of one small model on eight records; they are
-not clinical findings, and the maps were not compared with a clinician's reading.
+(`taskset -c 0,1`) with 0.84 GB peak memory, inside the sandbox limits of 2 CPUs, 2 GB and 15
+minutes, and wrote a valid bundle of 8 cases, 32 panels and 3 summaries. On the fl-client-1 test
+split the maps are not zero or uniform: they concentrate on individual beats and, in the first true
+positive, on one wide beat of different shape at about 2.8 s that both methods mark in the same
+leads. The rank correlation between the two methods over the 8 cases was between 0.24 and 0.89
+(median 0.68), and the overlap of their five largest half seconds between 1 of 5 and 4 of 5. The
+methods therefore agree on the main regions but not on the fine ranking. These are properties of one
+small model on eight records; they are not clinical findings, and the maps were not compared with a
+clinician's reading.
 
 Maps support review. They show what this model does with the signal; they are not causal, they
 depend on the reference (the median-lead record), occlusion windows of different leads overlap in
@@ -323,16 +487,17 @@ Hub shows the cases in a random order, so a case's position says nothing about i
 
 ## Limitations
 
-- One split, one seed and one training run per environment; no repetition on the platform and no
+- One data split. One seed and one training run per environment, except the three runs at the
+  hospitals (seeds 0 to 2), which are too few to estimate the spread between runs reliably; no
   external validation. The PTB-XL test fold comes from the same hospitals and devices as the
   training folds.
-- **Label provenance differs at fl-client-1.** Only 28.6% of its training records were validated
-  by a human; the other 71.4% were not (their label is the initial automatic report), while its
-  validation and test records are 100% human-validated. Abnormal prevalence there drops from 58%
-  in training to 35% to 36% in validation and test, and its test AUROC (0.874) and sensitivity
-  (0.47 at threshold 0.5) are the lowest. At the other sites at least 99.8% of the records in every
-  split are human-validated. Part of the difference between sites reflects this, not only the
-  model.
+- **Label provenance differs at fl-client-1.** Only 28.6% of its training records were validated by
+  a human; the other 71.4% were not (their label is the initial automatic report), while its
+  validation and test records are 100% human-validated. Abnormal prevalence there drops from 58% in
+  training to 35% to 36% in validation and test, and its test AUROC (0.874 in the simulator run;
+  0.892 on average over the three runs at the hospitals) and sensitivity (0.47 and 0.55 at threshold
+  0.5) are the lowest. At the other sites at least 99.8% of the records in every split are
+  human-validated. Part of the difference between sites reflects this, not only the model.
 - Sites differ in recording devices and population (fl-client-1 is mostly CS100 and CS-12
   devices, fl-client-2 the AT-6 family only), so part of the site differences reflects data
   collection. `fl-client-4` pools every other recording site and is the smallest (1,037 training
