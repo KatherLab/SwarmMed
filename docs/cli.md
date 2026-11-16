@@ -275,12 +275,29 @@ swarmed results visualize \
   --wait
 ```
 
+### 10. Recover from the loss of the FL server
+
+```bash
+# at the standby site
+swarmed network failover --user alice <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --start-server --wait
+# at every other site
+swarmed network failover --user alice <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --wait
+# at a site with the project and a checkpoint
+swarmed training checkpoints --user alice <JOB_UUID>
+swarmed training resume --user alice <JOB_UUID>
+```
+
+The interrupted job cannot continue on another server; `training resume` starts a
+new job at the interrupted round from the newest checkpoint at the site. See
+[Server failover](failover.md) for what each command does and what has to be in
+place beforehand.
+
 ## Command Tree
 
 ```text
 project create|list|show|use|update
 data import|ls|export|mv|rm|validate|visualize
-network create|import|list|show|use|export-package|start|stop|status
-training start|list|status|watch|stop
+network create|import|list|show|use|export-package|start|stop|status|failover
+training start|list|status|watch|stop|checkpoints|resume
 results sync|list|export|visualize
 ```

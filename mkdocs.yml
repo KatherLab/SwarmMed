@@ -10,6 +10,7 @@ nav:
     - Threat Model: threat-model.md
     - Hardware: hardware.md
     - Networking: networking.md
+    - Server Failover: failover.md
     - Operating Systems: os-support.md
     - SwarmMed and NVFlare: nvflare-comparison.md
     - Runtime Backend and Portability: runtime-backend.md

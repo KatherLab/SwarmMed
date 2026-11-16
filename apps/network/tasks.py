@@ -4,6 +4,7 @@ Handles long-running operations like Docker deployment,
 preflight checks, and real-time log streaming.
 """
 
+import contextlib
 import ipaddress
 import json
 import os
@@ -33,6 +34,16 @@ from logs.logger import get_logger
 from logs.models import LogCategory, LogEntry
 from project.models import Project
 
+from .failover import (
+    active_server_host_for_startup,
+    active_server_record,
+    bundled_kit_destinations,
+    ensure_server_kit_complete,
+    move_kit_folder,
+    network_prod_dir,
+    restore_active_server,
+    write_active_server,
+)
 from .models import SwarmNetwork
 from .utils import ensure_worker_writable, get_hostname, get_tailscale_ip
 
@@ -238,14 +249,18 @@ def _ensure_executable(path):
 def _configured_server_host(startup_dir):
     """Returns the server host configured for a participant's startup kit.
 
-    SWARMMEDHUB_SERVER_HOST takes precedence over the kit's server_host.txt.
+    A server switch recorded with ``swarmed network failover`` comes first,
+    then SWARMMEDHUB_SERVER_HOST, then the kit's server_host.txt.
 
     Args:
         startup_dir (str): The directory that may contain server_host.txt.
 
     Returns:
-        str: The configured host, or an empty string if neither is set.
+        str: The configured host, or an empty string if none is set.
     """
+    switched_host = active_server_host_for_startup(startup_dir)
+    if switched_host:
+        return switched_host
     env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
     if env_host:
         return env_host
@@ -525,8 +540,101 @@ def _read_project_client_ip_map(project_yml_path, base_prod_path=None):
     return client_map
 
 
+# The extensions NVFlare 2.7.1 tries for a configuration file, in this order
+# (nvflare.fuel.utils.config.ConfigFormat.config_ext_formats).
+_FLARE_CONFIG_EXTENSIONS = (
+    ".json",
+    ".conf",
+    ".yml",
+    ".yaml",
+    ".json.default",
+    ".conf.default",
+    ".yml.default",
+    ".yaml.default",
+)
+
+
+def _flare_config_file(workspace, file_name):
+    """Return the file NVFlare loads for ``file_name`` in a workspace, or None.
+
+    NVFlare's ConfigService tries each configuration extension in turn and, for
+    each, takes the first file of that name that ``os.walk`` finds anywhere in
+    the workspace (``ConfigFactory.search_config_format`` in
+    nvflare.fuel.utils.config_factory). This follows the same order.
+
+    Args:
+        workspace: A site's FLARE workspace, for example ``prod_00/<site>``.
+        file_name: The name NVFlare asks for, such as ``comm_config.json``.
+    """
+    base_name = os.path.basename(file_name).split(".", 1)[0]
+    for extension in _FLARE_CONFIG_EXTENSIONS:
+        wanted = base_name + extension
+        for root, _dirs, files in os.walk(workspace):
+            if wanted in files:
+                return Path(root) / wanted
+    return None
+
+
+def _move_foreign_kit_folders(
+    participant_path, base_prod_path, participant_name, logger=None
+):
+    """Move the server's and the admin's kit folders out of a client's workspace.
+
+    Earlier imports copied ``server_startup``, ``server_local`` and
+    ``admin_startup`` from a site's kit to where the Hub uses them, but left the
+    originals in the site's folder, which is its FLARE workspace. FLARE takes the
+    first configuration file of a name anywhere in the workspace, so the client
+    could run with the server's ``comm_config.json``, and its job process then
+    looked for its parent process at the FL server. A folder whose copy exists
+    is removed, after any file missing from the copy has been added to it; a
+    folder without a copy is moved to where the copy belongs. Running it again
+    does nothing.
+
+    Args:
+        participant_path (str): The client's workspace.
+        base_prod_path (str): The network's 'prod_00' directory.
+        participant_name (str): The client's participant name.
+        logger (Logger | None): Receives one line per folder moved or removed.
+
+    Returns:
+        list[str]: The lines logged for the folders moved or removed.
+    """
+    done = []
+    destinations = bundled_kit_destinations(
+        participant_path, base_prod_path, participant_name
+    )
+    for folder, destination in destinations.items():
+        source = Path(participant_path) / folder
+        if not source.is_dir():
+            continue
+        copy_existed = destination.is_dir()
+        try:
+            move_kit_folder(source, destination, replace_existing=False)
+        except OSError as exc:
+            if logger:
+                logger.network.warning(
+                    f"Could not move {source} out of the FLARE workspace of "
+                    f"{participant_name}; it stays there: {exc}"
+                )
+            continue
+        if copy_existed:
+            line = (
+                f"Removed {source} from the FLARE workspace of {participant_name}; "
+                f"the Hub uses its copy in {destination}."
+            )
+        else:
+            line = (
+                f"Moved {source} out of the FLARE workspace of {participant_name} "
+                f"to {destination}."
+            )
+        done.append(line)
+        if logger:
+            logger.network.info(line)
+    return done
+
+
 def _ensure_client_comm_config_portable(participant_path, logger=None):
-    """Ensure a client kit's local/comm_config.json uses localhost for internal IPC.
+    """Ensure a client's comm_config.json uses localhost for internal IPC.
 
     Legacy kits provisioned with ``listening_host: <ip>`` on clients wrote the
     external host IP into ``local/comm_config.json``'s ``internal.resources.host``.
@@ -535,11 +643,36 @@ def _ensure_client_comm_config_portable(participant_path, logger=None):
     listener to fail with ``Cannot assign requested address``. Normalizing the
     internal IPC host to ``localhost`` makes client containers portable across
     bridge and host networking on Linux, macOS, and Windows.
-    """
-    comm_cfg_path = Path(participant_path) / "local" / "comm_config.json"
-    if not comm_cfg_path.exists():
-        return False
 
+    Both ``local/comm_config.json`` and the file NVFlare actually reads are
+    normalized. NVFlare searches the whole workspace (see _flare_config_file), so
+    the two differ when another file of that name lies elsewhere in it.
+
+    Returns:
+        bool: True if a file was changed.
+    """
+    workspace = Path(participant_path)
+    comm_cfg_paths = []
+    local_comm_cfg = workspace / "local" / "comm_config.json"
+    if local_comm_cfg.exists():
+        comm_cfg_paths.append(local_comm_cfg)
+    flare_comm_cfg = _flare_config_file(workspace, "comm_config.json")
+    if flare_comm_cfg is not None and flare_comm_cfg not in comm_cfg_paths:
+        comm_cfg_paths.append(flare_comm_cfg)
+
+    changed = False
+    for comm_cfg_path in comm_cfg_paths:
+        if _normalize_internal_comm_host(comm_cfg_path, logger=logger):
+            changed = True
+    return changed
+
+
+def _normalize_internal_comm_host(comm_cfg_path, logger=None):
+    """Set the internal host in one comm_config.json to localhost if it is not local.
+
+    Returns:
+        bool: True if the file was changed.
+    """
     try:
         data = json.loads(comm_cfg_path.read_text())
     except Exception:
@@ -1550,12 +1683,18 @@ def execute_and_log_in_container(
 
 
 @shared_task(time_limit=3600, soft_time_limit=3300)
-def start_swarm_network_task(network_id, user_id):
+def start_swarm_network_task(network_id, user_id, role=None, participants=None):
     """Deploys a swarm network using NVFlare containerized deployment.
 
     Args:
         network_id (str): The unique identifier for the network.
         user_id (int): The ID of the user who initiated the task.
+        role (str | None): "server" starts only the FL server and "client" only
+            FL clients, for this call. None uses SWARMMEDHUB_SERVER_ONLY_MODE and
+            SWARMMEDHUB_CLIENT_ONLY_MODE.
+        participants (list[str] | None): The client kits to start. None picks
+            the local site as before (SWARMMEDHUB_LOCAL_PARTICIPANT, hostname
+            or Tailscale address).
     """
     try:
         swarm_network = SwarmNetwork.objects.get(identifier=network_id)
@@ -1663,6 +1802,12 @@ def start_swarm_network_task(network_id, user_id):
             .lower()
             in {"1", "true", "yes", "on"}
         )
+        if role == "server":
+            server_only_mode, client_only_mode = True, False
+        elif role == "client":
+            server_only_mode, client_only_mode = False, True
+        elif role:
+            raise ValueError(f"Unknown runtime role: {role!r}")
 
         has_server_target = any(t["role"] == "server" for t in targets)
         filtered_targets = []
@@ -1673,7 +1818,23 @@ def start_swarm_network_task(network_id, user_id):
                 continue
             filtered_targets.append(target)
 
-        if client_only_mode:
+        if participants and not server_only_mode:
+            wanted = {str(name) for name in participants}
+            known = {t["name"] for t in filtered_targets if t.get("role") == "client"}
+            missing = sorted(wanted - known)
+            if missing:
+                raise RuntimeError(
+                    f"No client startup kit for participant(s) {missing} in this bundle."
+                )
+            filtered_targets = [
+                t
+                for t in filtered_targets
+                if t.get("role") != "client" or t.get("name") in wanted
+            ]
+            logger.network.info(
+                f"Starting the requested client participant(s): {sorted(wanted)}"
+            )
+        elif client_only_mode:
             client_targets = [
                 t for t in filtered_targets if t.get("role") == "client"
             ]
@@ -1707,7 +1868,12 @@ def start_swarm_network_task(network_id, user_id):
                         "to the intended site name, for example node_A."
                     )
 
-        if not server_only_mode and not client_only_mode and has_server_target:
+        if (
+            not participants
+            and not server_only_mode
+            and not client_only_mode
+            and has_server_target
+        ):
             client_targets = [
                 t for t in filtered_targets if t.get("role") == "client"
             ]
@@ -1783,6 +1949,11 @@ def start_swarm_network_task(network_id, user_id):
             host_workspace_path = _resolve_bind_source_path(target["path"])
 
             if role == "client":
+                # Before the comm_config check, which must see the file FLARE
+                # will read once these folders are gone.
+                _move_foreign_kit_folders(
+                    target["path"], base_prod_path, participant_name, logger=logger
+                )
                 _ensure_client_comm_config_portable(target["path"], logger=logger)
                 if host_workspace_path != target["path"]:
                     _ensure_client_comm_config_portable(host_workspace_path, logger=logger)
@@ -2308,6 +2479,209 @@ def stop_swarm_network_task(network_id, user_id):
 
     except Exception as e:
         print(f"Failed to stop network: {e}")
+
+
+def _fail_interrupted_training_jobs(network, logger):
+    """Marks the jobs that a server switch interrupts as failed.
+
+    FLARE cannot continue a job on another server, so they will not finish.
+
+    Args:
+        network (SwarmNetwork): The network that switched servers.
+        logger (Logger): The logger instance for status updates.
+    """
+    from django.utils import timezone
+
+    from training import services as training_services
+    from training.models import TrainingJob
+
+    unfinished = TrainingJob.objects.filter(
+        network=network, status__in=["PENDING", "STARTING", "RUNNING"]
+    )
+    for job in unfinished:
+        training_services.persist_training_job_state(
+            job, status="FAILED", completed_at=timezone.now()
+        )
+        logger.network.warning(
+            f"Training job {job.identifier} was interrupted by the server switch; "
+            "'swarmed training resume' continues it as a new job."
+        )
+
+
+def _local_runtime_participants(network_id, role, docker_path, env, base_prod_path):
+    """Return the participants of a network that have a container at this Hub.
+
+    Args:
+        network_id (str): The unique identifier for the network.
+        role (str): "client" or "server".
+        docker_path (str): The path to the docker binary.
+        env (dict): Environment variables for the subprocess.
+        base_prod_path (str): The network's 'prod_00' directory.
+
+    Returns:
+        list[str]: Participant names, running or stopped.
+
+    Raises:
+        RuntimeError: If Docker cannot be asked. Treating that as "no
+            containers" could leave this Hub's own server running next to
+            the new one.
+    """
+    result = subprocess.run(  # nosec B603
+        [
+            docker_path,
+            "ps",
+            "-a",
+            "--filter",
+            f"label=swarmmedhub.network_id={network_id}",
+            "--filter",
+            f"label=swarmmedhub.role={role}",
+            "--format",
+            "{{.Names}}",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Could not list this Hub's {role} containers: "
+            f"{(result.stderr or result.stdout or '').strip()}"
+        )
+    names = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return [
+        target["name"]
+        for target in _discover_runtime_targets(base_prod_path)
+        if target["role"] == role
+        and _container_name_for(network_id, target["name"]) in names
+    ]
+
+
+@shared_task(time_limit=3600, soft_time_limit=3300)
+def failover_network_task(
+    network_id, user_id, server_host, start_server=False, previous_status=None
+):
+    """Point this Hub's FL clients and admin connection at another FL server.
+
+    With ``start_server`` this site first starts the FL server from the server
+    kit in its startup bundle: it becomes the standby server. Without it, an FL
+    server container of the network at this Hub is stopped, so that two
+    servers never run for one network. The FL client containers of the network
+    at this Hub are then restarted so that they connect to ``server_host``.
+    The job that was running cannot continue and is marked FAILED; resume it
+    with ``swarmed training resume``.
+
+    Args:
+        network_id (str): The unique identifier for the network.
+        user_id (int): The ID of the user who initiated the task.
+        server_host (str): The address of the server to use from now on.
+        start_server (bool): Start the FL server at this site first.
+        previous_status (str | None): The network's status before the switch
+            was requested. A Hub without client containers keeps it.
+    """
+    swarm_network = None
+    previous_record = None
+    server_started = False
+    try:
+        swarm_network = SwarmNetwork.objects.get(identifier=network_id)
+        user = User.objects.get(id=user_id)
+        logger = get_logger(user=user, project=swarm_network.project)
+        prod_dir = network_prod_dir(swarm_network)
+        docker_path = shutil.which("docker") or "docker"
+        env = os.environ.copy()
+
+        local_clients = _local_runtime_participants(
+            swarm_network.identifier, "client", docker_path, env, str(prod_dir)
+        )
+        if start_server:
+            written = ensure_server_kit_complete(prod_dir)
+            if written:
+                logger.network.info(
+                    "Wrote the server settings missing from this site's startup "
+                    f"package: {written}"
+                )
+
+        previous_record = active_server_record(swarm_network)
+        record = write_active_server(
+            swarm_network, server_host, started_server=start_server, actor=user
+        )
+        logger.network.warning(
+            "FL server for this Hub switched from "
+            f"{record['previous_server_host'] or 'the provisioned host'} to {server_host}."
+        )
+
+        if start_server:
+            start_swarm_network_task(str(swarm_network.identifier), user_id, role="server")
+            swarm_network.refresh_from_db()
+            if swarm_network.status == "ERROR":
+                raise RuntimeError("The standby FL server did not start; see the log above.")
+            server_started = True
+            logger.network.info("Standby FL server started at this site.")
+            if local_clients:
+                # The server start marks the network RUNNING; the switch is not
+                # finished until the clients have restarted.
+                swarm_network.status = "STARTING"
+                swarm_network.save(update_fields=["status"])
+        else:
+            for server_name in _local_runtime_participants(
+                swarm_network.identifier, "server", docker_path, env, str(prod_dir)
+            ):
+                container_name = _container_name_for(swarm_network.identifier, server_name)
+                subprocess.run(  # nosec B603
+                    [docker_path, "stop", "-t", "15", container_name],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    check=False,
+                )
+                logger.network.warning(
+                    f"Stopped this Hub's own FL server container {container_name}: "
+                    "the network now uses another server."
+                )
+
+        _fail_interrupted_training_jobs(swarm_network, logger)
+
+        if local_clients:
+            start_swarm_network_task(
+                str(swarm_network.identifier),
+                user_id,
+                role="client",
+                participants=local_clients,
+            )
+            swarm_network.refresh_from_db()
+            if swarm_network.status == "ERROR":
+                raise RuntimeError("The FL clients did not restart; see the log above.")
+            logger.network.info(
+                f"Restarted FL client(s) {local_clients} against {server_host}."
+            )
+        else:
+            logger.network.info(
+                "No FL client container of this network exists at this Hub; only "
+                "the Hub's admin connection was switched. 'swarmed network start' "
+                "now starts clients against the new server."
+            )
+            if not start_server:
+                # Nothing runs here for this network; keep the status it had.
+                swarm_network.status = (
+                    previous_status
+                    if previous_status in {"PROVISIONED", "STOPPED"}
+                    else "RUNNING"
+                )
+                swarm_network.save(update_fields=["status"])
+    except Exception as e:
+        if start_server and previous_record is not None and not server_started:
+            # The standby server did not start and nothing else has changed:
+            # keep this Hub pointed at the server it used before.
+            with contextlib.suppress(Exception):
+                restore_active_server(swarm_network, previous_record)
+        if swarm_network is not None:
+            swarm_network.status = "ERROR"
+            swarm_network.save(update_fields=["status"])
+        internal_logger = get_logger(
+            user=User.objects.filter(id=user_id).first(),
+            project=swarm_network.project if swarm_network is not None else None,
+        )
+        internal_logger.network.error(f"FL server failover failed: {e}")
 
 
 @shared_task

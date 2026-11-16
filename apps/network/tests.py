@@ -21,6 +21,7 @@ from .tasks import (
     _client_runtime_env_pairs,
     _detect_docker_gpu_support,
     _ensure_client_comm_config_portable,
+    _flare_config_file,
     _get_runtime_manifest_base_url,
     _read_local_hostname_candidates,
     _read_project_client_ip_map,
@@ -192,6 +193,63 @@ class RuntimeLaunchTests(SimpleTestCase):
                 updated["internal"]["resources"]["host"], "localhost"
             )
             self.assertFalse(_ensure_client_comm_config_portable(tmp_dir))
+
+    def test_ensure_client_comm_config_portable_normalizes_the_file_flare_reads(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            (workspace / "local").mkdir()
+            (workspace / "local" / "resources.json.default").write_text("{}")
+            # No local/comm_config.json: FLARE takes one from anywhere else.
+            other = workspace / "elsewhere" / "comm_config.json"
+            other.parent.mkdir()
+            other.write_text(
+                json.dumps(
+                    {"internal": {"scheme": "tcp", "resources": {"host": "server"}}}
+                )
+            )
+
+            self.assertTrue(_ensure_client_comm_config_portable(tmp_dir))
+
+            updated = json.loads(other.read_text())
+            self.assertEqual(updated["internal"]["resources"]["host"], "localhost")
+            self.assertFalse(_ensure_client_comm_config_portable(tmp_dir))
+
+    def test_flare_config_file_follows_flares_own_search(self):
+        from nvflare.fuel.utils.config_factory import ConfigFactory
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            for name in (
+                "startup/fed_client.json",
+                "local/resources.json.default",
+                "local/log_config.json.default",
+                "local/comm_config.json",
+                "job-1/app_site/config/config_fed_client.json",
+                "job-1/app_site/config/comm_config.json.default",
+                "kit/resources.json.default",
+                "kit/resources.conf",
+                "kit/deeper/comm_config.json",
+            ):
+                path = workspace / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}")
+
+            for file_name in (
+                "comm_config.json",
+                "resources.json.default",
+                "fed_client.json",
+                "config_fed_client.json",
+                "log_config.json",
+                "privacy.json",
+            ):
+                with self.subTest(file_name=file_name):
+                    _format, expected = ConfigFactory.search_config_format(
+                        file_name, [tmp_dir]
+                    )
+                    found = _flare_config_file(tmp_dir, file_name)
+                    self.assertEqual(
+                        str(found) if found else None, expected
+                    )
 
     def test_should_use_client_host_network_auto_disables_on_docker_desktop(self):
         self.assertFalse(

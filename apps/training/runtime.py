@@ -214,8 +214,13 @@ def resolve_admin_session_target(current_network) -> tuple[str, str, str] | None
 
     server_ip = ""
     try:
+        # A server switch made with 'swarmed network failover' wins over the
+        # environment and the kit's provisioned address.
+        from network.failover import active_server_host_for_startup
+
+        server_ip = active_server_host_for_startup(os.path.join(session_dir, "startup"))
         env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
-        if env_host:
+        if env_host and not server_ip:
             server_ip = env_host
 
         host_file = os.path.join(session_dir, "startup", "server_host.txt")

@@ -133,6 +133,11 @@ deadlines still apply. SwarmMed sets `min_responses_required` to the number of
 participating clients, so every site's result is required. Raising a server
 deadline permits a longer wait; it does not add dropout tolerance.
 
+Exceeding a deadline, losing a site or losing the FL server ends the run; FLARE
+cannot continue a swarm job on another server. [Server failover](failover.md)
+describes how a standby site takes over the server and how the run is resumed,
+from a checkpoint, as a new job.
+
 ## Backend portability
 
 There is no abstract runtime interface in the code today, and the documentation

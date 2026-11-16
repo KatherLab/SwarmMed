@@ -157,6 +157,7 @@ site (`node-A.zip`, `node-B.zip`, …), each containing:
 | `startup/` | The site's own client certificate and private key, and a second key pair in the site's name, which NVFlare creates because SwarmMed gives each client a listening address |
 | `admin_startup/` | The site's admin identity, `admin-<site>@nvidia.com`, with NVFlare's `project_admin` role, and its private key |
 | `server_startup/` | The FL server's certificate and private key, identical in every kit |
+| `server_local/` | The FL server's local settings (resources, logging, authorization and privacy policies, internal communication; no keys), so that a site can start the server as a standby (see [Server failover](failover.md)). Kits exported by version 1.0.2 or earlier lack it |
 | `.gossip_token` | The network token for the hub-to-hub channel |
 | `.participants.json` | Every participant's name, organisation and IP address |
 

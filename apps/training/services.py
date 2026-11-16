@@ -25,6 +25,14 @@ from results.artifacts import (
 )
 
 from .models import TrainingJob
+from .resume import (
+    ResumePlan,
+    add_resume_checkpoint_component,
+    describe_given_checkpoint,
+    find_resume_checkpoints,
+    resume_checkpoints_enabled,
+    ship_resume_checkpoint,
+)
 from .runtime import (
     build_training_status_payload,
     dedupe_keep_order,
@@ -32,6 +40,7 @@ from .runtime import (
     log_flare_pre_submit_diagnostics,
     new_secure_session_with_host,
     parse_nvflare_clients,
+    parse_nvflare_jobs,
     resolve_admin_session_target,
 )
 from .utils import (
@@ -526,8 +535,52 @@ def sync_completed_job_local_results(
     return synced_keys
 
 
-def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
-    """Assemble and submit an NVFlare job for a running network."""
+def _resolve_swarm_rounds(training_py_path: str, log) -> int:
+    """Return the number of swarm rounds for a new job.
+
+    ``SWARMMEDHUB_SWARM_ROUNDS`` wins over ``SWARM_ROUNDS = N`` in the training
+    script; the default is 10.
+    """
+    swarm_rounds = 10
+    try:
+        env_swarm_rounds = os.getenv("SWARMMEDHUB_SWARM_ROUNDS", "").strip()
+        if env_swarm_rounds:
+            swarm_rounds = int(env_swarm_rounds)
+            log.training.info(
+                f"Using SWARMMEDHUB_SWARM_ROUNDS={swarm_rounds} from environment"
+            )
+        elif os.path.exists(training_py_path):
+            with open(training_py_path) as handle:
+                content = handle.read()
+            match = re.search(r"SWARM_ROUNDS\s*=\s*(\d+)", content)
+            if match:
+                swarm_rounds = int(match.group(1))
+                log.training.info(
+                    f"Extracted SWARM_ROUNDS={swarm_rounds} from training script: {training_py_path}"
+                )
+            else:
+                log.training.warning(
+                    f"SWARM_ROUNDS not found in {training_py_path}, defaulting to 10"
+                )
+    except Exception as exc:
+        log.training.warning(
+            f"Failed to extract SWARM_ROUNDS from training script: {exc}"
+        )
+    return swarm_rounds
+
+
+def submit_training_job(
+    *, actor, network: SwarmNetwork, resume: ResumePlan | None = None
+) -> TrainingJob:
+    """Assemble and submit an NVFlare job for a running network.
+
+    Args:
+        actor: The user submitting the job.
+        network: A running network.
+        resume: Set to continue an interrupted run: the job starts at
+            ``resume.start_round`` from ``resume.checkpoint`` and runs the
+            rounds left of ``resume.total_rounds``. See :func:`resume_training_job`.
+    """
     if network.status != "RUNNING":
         raise ValueError(
             f"Network '{network.name}' is not running. Start the network before training."
@@ -737,6 +790,21 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
                 framework = "tf"
 
     log.training.info(f"Detected training framework: {framework}")
+    swarm_rounds = _resolve_swarm_rounds(training_py_path, log)
+    if resume is not None:
+        if framework != "pt":
+            raise ValueError(
+                "Only PyTorch training jobs can be resumed: the checkpoint is "
+                f"loaded by FLARE's PyTorch persistor (detected framework: {framework})."
+            )
+        if not resume.total_rounds:
+            resume.total_rounds = swarm_rounds
+        swarm_rounds = resume.total_rounds
+        if resume.remaining_rounds <= 0:
+            raise ValueError(
+                f"Nothing to resume: the checkpoint starts at round {resume.start_round} "
+                f"and the run has {resume.total_rounds} rounds."
+            )
     if framework == "pt":
         runtime_requirements_path = os.path.join(
             settings.BASE_DIR,
@@ -827,6 +895,15 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
 
                 persistor = NPModelPersistor()
 
+        if resume is not None:
+            from nvflare.app_opt.pt.file_model_persistor import PTFileModelPersistor
+
+            # Keep the weights in the type the run exchanged. PyTorch scripts
+            # (and NVFlare's Lightning callback) load tensors, not NumPy arrays.
+            persistor = PTFileModelPersistor(
+                allow_numpy_conversion=resume.checkpoint.weights_format == "numpy"
+            )
+
         if framework == "tf":
             try:
                 from nvflare.app_opt.tf.in_process_client_api_executor import (
@@ -914,35 +991,23 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
         )
         starting_client = client_names[0] if client_names else ""
 
-        swarm_rounds = 10
-        try:
-            env_swarm_rounds = os.getenv("SWARMMEDHUB_SWARM_ROUNDS", "").strip()
-            if env_swarm_rounds:
-                swarm_rounds = int(env_swarm_rounds)
-                log.training.info(
-                    f"Using SWARMMEDHUB_SWARM_ROUNDS={swarm_rounds} from environment"
-                )
-            elif os.path.exists(training_py_path):
-                with open(training_py_path) as handle:
-                    content = handle.read()
-                match = re.search(r"SWARM_ROUNDS\s*=\s*(\d+)", content)
-                if match:
-                    swarm_rounds = int(match.group(1))
-                    log.training.info(
-                        f"Extracted SWARM_ROUNDS={swarm_rounds} from training script: {training_py_path}"
-                    )
-                else:
-                    log.training.warning(
-                        f"SWARM_ROUNDS not found in {training_py_path}, defaulting to 10"
-                    )
-        except Exception as exc:
-            log.training.warning(
-                f"Failed to extract SWARM_ROUNDS from training script: {exc}"
+        num_rounds = swarm_rounds
+        start_round = 0
+        if resume is not None:
+            # FLARE's swarm workflow runs rounds start_round .. start_round + num_rounds - 1.
+            start_round = resume.start_round
+            num_rounds = resume.remaining_rounds
+            log.training.info(
+                f"Resuming job {resume.from_flare_job or resume.from_job_identifier} "
+                f"at round {start_round} of {swarm_rounds}: checkpoint from "
+                f"{resume.checkpoint.site or 'this site'} ({resume.checkpoint.source}), "
+                f"{num_rounds} rounds left."
             )
 
         time_limits = swarm_time_limits_from_env(log)
         controller = SwarmServerController(
-            num_rounds=swarm_rounds,
+            num_rounds=num_rounds,
+            start_round=start_round,
             participating_clients=client_names,
             result_clients=client_names,
             starting_client=starting_client,
@@ -994,6 +1059,14 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
         job_definition_path = os.path.abspath(
             os.path.join(generated_jobs_root, job_definition.name)
         )
+        if framework == "pt" and resume_checkpoints_enabled():
+            # Round-start checkpoints at every site; only PyTorch runs can resume.
+            add_resume_checkpoint_component(job_definition_path)
+        if resume is not None:
+            shipped = ship_resume_checkpoint(job_definition_path, starting_client, resume)
+            log.training.info(
+                f"Resume checkpoint added for starting client {starting_client}: {shipped}"
+            )
         log.training.info(
             f"Submitting exported job from: {job_definition_path}"
         )
@@ -1031,6 +1104,197 @@ def submit_training_job(*, actor, network: SwarmNetwork) -> TrainingJob:
         )
         persist_training_job_state(failed_job, status="FAILED")
         raise
+
+
+def _network_workspace_root(network: SwarmNetwork) -> Path:
+    return (
+        Path(settings.BASE_DIR)
+        / "workspaces"
+        / str(network.project.identifier)
+        / str(network.identifier)
+        / "workspace"
+    )
+
+
+def _flare_uuid_of(job: TrainingJob) -> str:
+    return (
+        job.flare_job_uuid
+        or extract_flare_job_uuid(job.flare_job_id)
+        or str(job.flare_job_id or "")
+    )
+
+
+def list_resume_checkpoints(job: TrainingJob) -> list[dict]:
+    """Return the checkpoints of a job at this site, newest round first."""
+    return [
+        checkpoint.as_dict()
+        for checkpoint in find_resume_checkpoints(
+            _network_workspace_root(job.network), _flare_uuid_of(job)
+        )
+    ]
+
+
+# FLARE job states in which the job still holds the sites.
+_ACTIVE_FLARE_JOB_STATES = ("SUBMITTED", "APPROVED", "DISPATCHED", "RUNNING")
+
+
+def _job_active_on_current_server(network: SwarmNetwork, job: TrainingJob):
+    """Ask the network's current FL server whether it still runs a job.
+
+    Returns:
+        bool | None: True if the server lists the job as active, False if it
+        does not, None if the server could not be asked.
+    """
+    admin_target = resolve_admin_session_target(network)
+    if not admin_target:
+        return None
+    admin_username, admin_dir, server_ip = admin_target
+    try:
+        session = new_secure_session_with_host(
+            username=admin_username,
+            startup_kit_location=admin_dir,
+            host=server_ip,
+            timeout=10.0,
+            network_id=network.identifier,
+        )
+    except Exception:
+        return None
+    try:
+        jobs = parse_nvflare_jobs(
+            session.api.do_command(f"list_jobs {_flare_uuid_of(job)}")
+        )
+    except Exception:
+        return None
+    finally:
+        with contextlib.suppress(Exception):
+            session.close()
+    for item in jobs:
+        state = str(item.get("status") or item.get("state") or "").upper()
+        if state in _ACTIVE_FLARE_JOB_STATES:
+            return True
+    return False
+
+
+def _append_resume_record(network: SwarmNetwork, record: dict) -> None:
+    """Keep a per-network list of resumed jobs next to the generated jobs."""
+    record_path = (
+        Path(settings.BASE_DIR)
+        / "workspaces"
+        / str(network.project.identifier)
+        / str(network.identifier)
+        / "job"
+        / "resumed_jobs.json"
+    )
+    try:
+        records = json.loads(record_path.read_text()) if record_path.exists() else []
+        if not isinstance(records, list):
+            records = []
+    except (OSError, ValueError):
+        records = []
+    records.append(record)
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    record_path.write_text(json.dumps(records, indent=2))
+
+
+def resume_training_job(
+    *,
+    actor,
+    network: SwarmNetwork,
+    from_job: TrainingJob | None = None,
+    checkpoint_path: str | None = None,
+    start_round: int | None = None,
+    total_rounds: int | None = None,
+    force: bool = False,
+) -> TrainingJob:
+    """Continue an interrupted swarm run as a new job.
+
+    FLARE cannot continue a swarm job after its server is lost. This submits a
+    new job to the network's current server that starts at the interrupted
+    round from the newest checkpoint at this site (see :mod:`training.resume`).
+    Run it at a site that holds the newest checkpoint; with round-start
+    checkpoints every training site does.
+
+    Args:
+        actor: The user submitting the job.
+        network: The network, already switched to a working FL server.
+        from_job: The interrupted job; defaults to the network's latest job.
+        checkpoint_path: A model file to start from instead of the newest one
+            found at this site.
+        start_round: The round to start at; required when the checkpoint's
+            round is unknown.
+        total_rounds: Rounds of the whole run; defaults to the interrupted
+            job's count, then to the count a new job would get.
+        force: Submit even if the current server still lists the job as running.
+
+    Returns:
+        TrainingJob: The new job. The interrupted job is marked FAILED.
+    """
+    from_job = from_job or get_latest_training_job(network)
+    if from_job is None:
+        raise LookupError(f"Network '{network.name}' has no training job to resume.")
+    if from_job.network_id != network.id:
+        raise ValueError("The job to resume belongs to another network.")
+    flare_uuid = _flare_uuid_of(from_job)
+
+    if checkpoint_path:
+        checkpoint = describe_given_checkpoint(checkpoint_path, start_round)
+    else:
+        candidates = find_resume_checkpoints(_network_workspace_root(network), flare_uuid)
+        if not candidates:
+            raise LookupError(
+                f"No checkpoint of job {flare_uuid} at this site. Run 'swarmed training "
+                f"checkpoints {flare_uuid}' at the other sites and resume from the "
+                "site that has the newest one, or copy that file here and pass --checkpoint."
+            )
+        checkpoint = candidates[0]
+        if start_round is not None:
+            checkpoint.next_round = start_round
+    if checkpoint.next_round is None:
+        raise ValueError(
+            f"The round that {checkpoint.path} belongs to is unknown; pass --start-round."
+        )
+    if checkpoint.next_round < 0:
+        raise ValueError("The start round cannot be negative.")
+
+    if not force and _job_active_on_current_server(network, from_job):
+        raise ValueError(
+            f"Job {flare_uuid} is still active on the network's FL server. Stop it "
+            "first, or pass --force to start a second job next to it."
+        )
+
+    plan = ResumePlan(
+        checkpoint=checkpoint,
+        start_round=int(checkpoint.next_round),
+        total_rounds=total_rounds or from_job.total_rounds or None,
+        from_job_identifier=str(from_job.identifier),
+        from_flare_job=flare_uuid,
+    )
+    new_job = submit_training_job(actor=actor, network=network, resume=plan)
+
+    log = get_logger(user=actor, project=network.project)
+    if new_job.status != "FAILED":
+        if from_job.status not in TERMINAL_TRAINING_STATUSES:
+            persist_training_job_state(
+                from_job, status="FAILED", completed_at=timezone.now()
+            )
+        log.training.info(
+            f"Job {flare_uuid} resumed as {new_job.flare_job_uuid or new_job.flare_job_id} "
+            f"from round {plan.start_round} of {plan.total_rounds}."
+        )
+        _append_resume_record(
+            network,
+            {
+                "job": str(new_job.identifier),
+                "flare_job": new_job.flare_job_uuid or str(new_job.flare_job_id),
+                "from_job": plan.from_job_identifier,
+                "from_flare_job": flare_uuid,
+                "start_round": plan.start_round,
+                "total_rounds": plan.total_rounds,
+                "checkpoint": checkpoint.as_dict(),
+                "resumed_at": timezone.now().isoformat(),
+            },
+        )
+    return new_job
 
 
 def stop_training_job(
