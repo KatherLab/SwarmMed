@@ -22,6 +22,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils.text import slugify
 
+from .failover import ADMIN_KIT_FOLDER, SERVER_KIT_FOLDERS
+
 TAILSCALE_STATUS_FILE = Path(settings.BASE_DIR) / "tmp" / "tailscale_status.json"
 
 
@@ -270,6 +272,8 @@ def create_startup_kits_zip(swarm_network):
 
     server_dir_names = {"server"}
     server_dir_names.update({str(s) for s in client_server_map.values() if s})
+    # The folders of a site's kit that hold the server's and the admin's kits.
+    other_role_kits = {*SERVER_KIT_FOLDERS, ADMIN_KIT_FOLDER}
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
         # 1. Add Metadata to main bundle
@@ -296,11 +300,19 @@ def create_startup_kits_zip(swarm_network):
                     if req_file.exists():
                         client_zip.write(str(req_file), "runtime_requirements.txt")
 
-                    # Kit Files
-                    for root, _, files in os.walk(item.path):
+                    # Kit Files, each name once. An import also extracts the
+                    # metadata above into the site's folder, and earlier imports
+                    # left the other roles' kits in it too; those are added below
+                    # from where the Hub keeps them.
+                    written = set(client_zip.namelist())
+                    for root, dirs, files in os.walk(item.path):
+                        if root == item.path:
+                            dirs[:] = [d for d in dirs if d not in other_role_kits]
                         for file in files:
                             file_path = Path(root) / file
-                            client_zip.write(str(file_path), str(file_path.relative_to(item.path)))
+                            arcname = str(file_path.relative_to(item.path))
+                            if arcname not in written:
+                                client_zip.write(str(file_path), arcname)
 
                     # Admin and Server partials
                     mapped_admin = client_admin_map.get(item.name, "")

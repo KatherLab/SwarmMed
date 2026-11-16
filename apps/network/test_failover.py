@@ -138,6 +138,19 @@ def _flare_reads(workspace: Path, file_name: str):
     return Path(path) if path else None
 
 
+def _site_kits(network) -> dict[str, list[tuple[str, bytes]]]:
+    """Each site's kit in the package a Hub exports, as (name, content) pairs."""
+    kits = {}
+    with zipfile.ZipFile(create_startup_kits_zip(network)) as bundle:
+        for name in bundle.namelist():
+            if name.endswith(".zip"):
+                with zipfile.ZipFile(io.BytesIO(bundle.read(name))) as kit:
+                    kits[name.removesuffix(".zip")] = [
+                        (info.filename, kit.read(info)) for info in kit.infolist()
+                    ]
+    return kits
+
+
 def _internal_host(workspace: Path) -> str:
     """The host a site's FLARE processes use between parent and job process."""
     from nvflare.fuel.f3.cellnet.connector_manager import ConnectorManager
@@ -188,6 +201,11 @@ class ActiveServerFileTests(SimpleTestCase):
         for startup in (
             self.prod_dir / "startup",
             self.prod_dir / "node-A" / "startup",
+            self.prod_dir / "server" / "startup",
+            self.prod_dir / "admin-node-A@nvidia.com" / "startup",
+            # The admin kit of a single site's kit imported on its own.
+            self.prod_dir / "admin_startup" / "startup",
+            # Where earlier imports left a site's admin kit.
             self.prod_dir / "node-A" / "admin_startup" / "startup",
         ):
             with self.subTest(startup=startup):
@@ -566,6 +584,30 @@ class StartRoleTests(NetworkFixture, TestCase):
             _comm_config("server"),
         )
 
+    def test_client_start_moves_other_kits_before_fixing_its_comm_config(self):
+        _add_flare_files(self.prod_dir)
+        _leave_kits_in_site_folder(self.prod_dir, "node-B")
+        # The server's local folder has no copy outside node-B's workspace, so
+        # starting the client moves it there; until then FLARE reads it.
+        shutil.rmtree(self.prod_dir / "server" / "local")
+        site = self.prod_dir / "node-B"
+        self.assertEqual(
+            _flare_reads(site, "comm_config.json"),
+            site / "server_local/comm_config.json",
+        )
+
+        runs = self._start(role="client", participants=["node-B"])
+
+        self.assertEqual(len(runs), 1)
+        self.assertFalse((site / "server_local").exists())
+        self.assertEqual(_internal_host(site), "localhost")
+        # Only the client's settings are made portable: the server's are moved
+        # as they were.
+        self.assertEqual(
+            json.loads((self.prod_dir / "server/local/comm_config.json").read_text()),
+            _comm_config("server"),
+        )
+
 
 class BundleTests(NetworkFixture, TestCase):
     def setUp(self):
@@ -651,6 +693,34 @@ class BundleTests(NetworkFixture, TestCase):
         self.assertEqual(names.count("admin_startup/fed_admin.json"), 1)
         self.assertEqual(names.count("server_startup/fed_server.json"), 1)
         self.assertEqual(names.count("server_local/comm_config.json"), 1)
+
+    def test_a_hub_that_imported_the_package_exports_each_file_once(self):
+        self.network.gossip_token = "network-token"
+        self.network.save(update_fields=["gossip_token"])
+        prod_dir = self._import(create_startup_kits_zip(self.network))
+        imported = SwarmNetwork.objects.get(identifier=self.network.identifier)
+        expected = _site_kits(imported)
+        # As an import before the fix left each site's folder, if no client has
+        # started since: the server's and the admin's kits are in it as well.
+        for site in ("node-A", "node-B"):
+            _leave_kits_in_site_folder(prod_dir, site)
+        # The copies can differ: an import writes the server's address it
+        # resolved into the Hub's copy, not into the one it left there.
+        (prod_dir / "server/startup/server_host.txt").write_text("resolved")
+
+        kits = _site_kits(imported)
+
+        self.assertEqual(sorted(kits), ["node-A", "node-B"])
+        for site, files in kits.items():
+            names = [name for name, _content in files]
+            with self.subTest(site=site):
+                duplicates = sorted({name for name in names if names.count(name) > 1})
+                self.assertEqual(duplicates, [])
+                self.assertEqual(
+                    sorted(names), sorted(name for name, _content in expected[site])
+                )
+                self.assertIn((".gossip_token", b"network-token"), files)
+                self.assertIn(("server_startup/server_host.txt", b"resolved"), files)
 
     def test_a_single_sites_kit_keeps_the_server_kit_outside_its_workspace(self):
         with zipfile.ZipFile(create_startup_kits_zip(self.network)) as bundle:

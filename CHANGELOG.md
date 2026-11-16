@@ -43,7 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own, where `prod_00` itself is the site's workspace, keeps the server's folders
   in the network's folder. Starting a client moves them out of networks imported
   before. The internal host is now set to `localhost` in the `comm_config.json`
-  that FLARE reads, not only in `local/comm_config.json`.
+  that FLARE reads, not only in `local/comm_config.json`. No release contained
+  `server_local/`, which came with the standby server above, but imports by
+  1.0.0 to 1.0.2 left `server_startup/` and `admin_startup/` in each site's
+  folder; starting a client moves these too.
+- Exporting the startup package from a Hub that had imported it wrote some files
+  of each site's kit twice: `.network_id`, `.participants.json` and
+  `.gossip_token`, and the server's and the admin's kits that imports by 1.0.0
+  to 1.0.2 left in the site's folder. Each file is now written once.
 
 ## [1.0.2] - 2026-11-05
 
