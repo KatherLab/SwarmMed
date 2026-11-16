@@ -304,6 +304,10 @@ def create_startup_kits_zip(swarm_network):
 
                     # Admin and Server partials
                     mapped_admin = client_admin_map.get(item.name, "")
+                    site_admin = f"admin-{item.name}@nvidia.com"
+                    if not mapped_admin and (abs_base_prod_path / site_admin).is_dir():
+                        # Where an imported package keeps the site's admin kit.
+                        mapped_admin = site_admin
                     adm_dir = abs_base_prod_path / mapped_admin / "startup" if mapped_admin else (abs_base_prod_path / "admin@nvidia.com" / "startup")
                     if adm_dir.exists():
                         for root, _, files in os.walk(str(adm_dir)):

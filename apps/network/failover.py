@@ -18,7 +18,9 @@ file takes precedence over ``SWARMMEDHUB_SERVER_HOST`` and over the kits'
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 from pathlib import Path
 
 import yaml
@@ -133,8 +135,9 @@ def _read_record(prod_dir: Path) -> dict:
 def active_server_host_for_startup(startup_dir) -> str:
     """Return the switched-to server host for a kit's startup folder, or ''.
 
-    ``startup_dir`` is ``prod_00/startup``, ``prod_00/<participant>/startup`` or,
-    for an imported admin kit, ``prod_00/<participant>/admin_startup/startup``.
+    ``startup_dir`` is ``prod_00/startup``, ``prod_00/<participant>/startup``
+    (site, server and admin kits) or, for the admin kit of a single site's kit
+    imported on its own, ``prod_00/admin_startup/startup``.
     """
     if not startup_dir:
         return ""
@@ -289,3 +292,82 @@ def ensure_server_kit_complete(prod_dir) -> list[str]:
         written.append(str(local_dir / file_name))
     (server_dir / "transfer").mkdir(parents=True, exist_ok=True)
     return written
+
+
+# A site's kit in a startup package also carries the server's kit, so that the
+# site can host a standby server, and the site's admin kit. They must not stay in
+# the site's FLARE workspace (prod_00/<site>): FLARE looks up configuration files
+# such as comm_config.json and resources.json by searching the whole workspace
+# and takes the first match (nvflare.fuel.utils.config_factory). With the
+# server's comm_config.json, a client's job process looked for its parent
+# process at the FL server and the client never trained.
+SERVER_KIT_FOLDERS = {"server_startup": "startup", "server_local": "local"}
+ADMIN_KIT_FOLDER = "admin_startup"
+
+
+def bundled_kit_destinations(workspace, prod_dir, participant_name) -> dict[str, Path]:
+    """Return where the folders a site's kit carries for other roles belong.
+
+    Args:
+        workspace: The site's FLARE workspace, ``prod_00/<participant>``, or
+            ``prod_00`` itself when a single site's kit was imported on its own.
+        prod_dir: The network's ``prod_00`` folder.
+        participant_name: The site's participant name.
+
+    Returns:
+        dict[str, Path]: Folder name in the kit -> where the folder belongs,
+        outside the site's workspace. The server's kit belongs in
+        ``prod_00/server``, where the standby server is started from, and the
+        admin kit in ``prod_00/admin-<participant>@nvidia.com/startup``.
+    """
+    prod_dir = Path(os.path.abspath(prod_dir))
+    if Path(os.path.abspath(workspace)) == prod_dir:
+        # prod_00 is the site's workspace, so the server's kit stays in the
+        # network's folder (<network>/workspace/<study>/prod_00 -> <network>).
+        # The admin kit stays in prod_00/admin_startup, where the Hub uses it;
+        # of its files, a site's configuration search can find only the study's
+        # root certificate, which is the same in every kit.
+        return {name: prod_dir.parents[2] / name for name in SERVER_KIT_FOLDERS}
+    destinations = {
+        name: prod_dir / "server" / folder
+        for name, folder in SERVER_KIT_FOLDERS.items()
+    }
+    destinations[ADMIN_KIT_FOLDER] = (
+        prod_dir / f"admin-{participant_name}@nvidia.com" / "startup"
+    )
+    return destinations
+
+
+def _copy_if_missing(source, destination):
+    if not os.path.lexists(destination):
+        shutil.copy2(source, destination)
+    return destination
+
+
+def move_kit_folder(source, destination, *, replace_existing: bool) -> None:
+    """Move a kit folder to ``destination``, merging it into a copy already there.
+
+    Args:
+        source: The folder to move. It is removed only once each of its files
+            has a file of the same name at the destination.
+        destination: Where the folder belongs.
+        replace_existing: Whether the files of ``source`` replace files of the
+            same name at ``destination``. An import replaces them; repairing an
+            earlier import keeps the copy that is in use.
+
+    Raises:
+        OSError: If a file could not be copied; ``source`` is then kept.
+    """
+    source = Path(source)
+    destination = Path(destination)
+    if not destination.exists():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(destination))
+        return
+    shutil.copytree(
+        source,
+        destination,
+        dirs_exist_ok=True,
+        copy_function=shutil.copy2 if replace_existing else _copy_if_missing,
+    )
+    shutil.rmtree(source)

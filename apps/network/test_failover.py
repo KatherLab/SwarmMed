@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess  # nosec B404
 import tempfile
 import zipfile
@@ -54,6 +55,107 @@ def _make_kits(prod_dir: Path, clients=("node-A", "node-B"), server_host="100.64
     admin = prod_dir / "admin-node-A@nvidia.com" / "startup"
     _write_json(admin / "fed_admin.json", {"admin": {}})
     (admin / "server_host.txt").write_text(server_host)
+
+
+def _comm_config(internal_host):
+    return {
+        "allow_adhoc_conns": False,
+        "backbone_conn_gen": 2,
+        "internal": {
+            "scheme": "tcp",
+            "resources": {"host": internal_host, "connection_security": "clear"},
+        },
+    }
+
+
+def _add_flare_files(prod_dir: Path) -> None:
+    """Give the kits of _make_kits the other files NVFlare 2.7.1 provisioning writes."""
+    server = prod_dir / "server"
+    for name in (
+        "rootCA.pem",
+        "server.crt",
+        "server_host.txt",
+        "signature.json",
+        "start.sh",
+        "stop_fl.sh",
+        "sub_start.sh",
+    ):
+        (server / "startup" / name).write_text("server")
+    # The server runs its jobs in its own container, where 'server' is itself.
+    _write_json(server / "local" / "comm_config.json", _comm_config("server"))
+    for name in (
+        "authorization.json.default",
+        "log_config.json.default",
+        "privacy.json.sample",
+        "signature.json",
+    ):
+        _write_json(server / "local" / name, {"role": "server"})
+    for site in ("node-A", "node-B"):
+        for name in (
+            "client.crt",
+            "client.key",
+            "rootCA.pem",
+            "signature.json",
+            "start.sh",
+            "stop_fl.sh",
+            "sub_start.sh",
+        ):
+            (prod_dir / site / "startup" / name).write_text(site)
+        for name in (
+            "authorization.json.default",
+            "log_config.json.default",
+            "privacy.json.sample",
+            "resources.json.default",
+        ):
+            _write_json(prod_dir / site / "local" / name, {"site": site})
+    # A kit provisioned with a client listening address has its own; node-B's
+    # kit has none, so FLARE uses its default internal host, localhost.
+    _write_json(
+        prod_dir / "node-A" / "local" / "comm_config.json", _comm_config("localhost")
+    )
+    admin = prod_dir / "admin-node-A@nvidia.com" / "startup"
+    for name in ("client.crt", "client.key", "rootCA.pem", "fl_admin.sh"):
+        (admin / name).write_text("admin")
+    _write_json(
+        prod_dir / ".client_admin_map.json", {"node-A": "admin-node-A@nvidia.com"}
+    )
+
+
+def _leave_kits_in_site_folder(prod_dir: Path, site: str) -> None:
+    """Recreate what an import before the fix left: the copies, and the originals."""
+    shutil.copytree(prod_dir / "server" / "startup", prod_dir / site / "server_startup")
+    shutil.copytree(prod_dir / "server" / "local", prod_dir / site / "server_local")
+    admin = prod_dir / f"admin-{site}@nvidia.com" / "startup"
+    if admin.is_dir():
+        shutil.copytree(admin, prod_dir / site / "admin_startup")
+
+
+def _flare_reads(workspace: Path, file_name: str):
+    """The file NVFlare 2.7.1 loads for ``file_name`` in a workspace, or None."""
+    from nvflare.fuel.utils.config_factory import ConfigFactory
+
+    _format, path = ConfigFactory.search_config_format(file_name, [str(workspace)])
+    return Path(path) if path else None
+
+
+def _internal_host(workspace: Path) -> str:
+    """The host a site's FLARE processes use between parent and job process."""
+    from nvflare.fuel.f3.cellnet.connector_manager import ConnectorManager
+    from nvflare.fuel.f3.comm_config import CommConfigurator
+    from nvflare.fuel.utils.config_service import ConfigService
+
+    ConfigService.reset()
+    CommConfigurator.reset()
+    try:
+        # As FLClientStarterConfiger does in a client's parent and job processes.
+        ConfigService.initialize(section_files={}, config_path=[str(workspace)])
+        manager = ConnectorManager(
+            None, secure=False, comm_configurator=CommConfigurator()
+        )
+        return manager.get_config_info()["internal_resources"]["host"]
+    finally:
+        ConfigService.reset()
+        CommConfigurator.reset()
 
 
 class ServerHostTests(SimpleTestCase):
@@ -376,11 +478,13 @@ class FailoverTaskTests(NetworkFixture, TestCase):
 class StartRoleTests(NetworkFixture, TestCase):
     """start_swarm_network_task starts only what the call asks for."""
 
-    def _start(self, **kwargs):
+    def _start(self, on_docker_run=None, **kwargs):
         commands = []
 
         def fake_run(command, *args, **run_kwargs):
             commands.append(command)
+            if on_docker_run and command[1:2] == ["run"]:
+                on_docker_run(command)
             return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
         environment = {
@@ -435,8 +539,55 @@ class StartRoleTests(NetworkFixture, TestCase):
         self._start(role="client", participants=["node-Z"])
         self.assertEqual(self.network.status, "ERROR")
 
+    def test_client_start_first_moves_other_kits_out_of_the_site_workspace(self):
+        _add_flare_files(self.prod_dir)
+        _leave_kits_in_site_folder(self.prod_dir, "node-B")
+        site = self.prod_dir / "node-B"
+        self.assertEqual(_internal_host(site), "server")
+        left_at_launch = []
+
+        def at_launch(_command):
+            left_at_launch.extend(
+                folder
+                for folder in ("server_startup", "server_local", "admin_startup")
+                if (site / folder).exists()
+            )
+
+        runs = self._start(
+            on_docker_run=at_launch, role="client", participants=["node-B"]
+        )
+
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(left_at_launch, [])
+        self.assertEqual(_internal_host(site), "localhost")
+        # The server's own settings are left as they are.
+        self.assertEqual(
+            json.loads((self.prod_dir / "server/local/comm_config.json").read_text()),
+            _comm_config("server"),
+        )
+
 
 class BundleTests(NetworkFixture, TestCase):
+    def setUp(self):
+        super().setUp()
+        _add_flare_files(self.prod_dir)
+
+    def _import(self, package) -> Path:
+        """Import a package into a Hub that has none of the network's files."""
+        identifier = self.network.identifier
+        SwarmNetwork.objects.filter(pk=self.network.pk).delete()
+        # Otherwise the provisioned kits would still be in the network's folder.
+        shutil.rmtree(network_prod_dir(self.network).parents[2])
+        package.seek(0)
+        imported = import_network(
+            project=self.project,
+            actor=self.user,
+            name="Imported",
+            package_source=package,
+        )
+        self.assertEqual(str(imported.identifier), str(identifier))
+        return network_prod_dir(imported)
+
     def test_bundle_carries_the_server_local_folder_and_import_restores_it(self):
         buffer = create_startup_kits_zip(self.network)
         with zipfile.ZipFile(buffer) as bundle:
@@ -444,22 +595,207 @@ class BundleTests(NetworkFixture, TestCase):
             names = kit.namelist()
         self.assertIn("server_local/resources.json.default", names)
         self.assertIn("server_startup/fed_server.json", names)
+        self.assertIn("admin_startup/fed_admin.json", names)
 
-        identifier = self.network.identifier
-        SwarmNetwork.objects.filter(pk=self.network.pk).delete()
-        buffer.seek(0)
-        imported = import_network(
-            project=self.project,
-            actor=self.user,
-            name="Imported",
-            package_source=buffer,
-        )
+        prod_dir = self._import(buffer)
 
-        self.assertEqual(str(imported.identifier), str(identifier))
-        restored = (
-            network_prod_dir(imported) / "server" / "local" / "resources.json.default"
-        )
+        restored = prod_dir / "server" / "local" / "resources.json.default"
         self.assertEqual(json.loads(restored.read_text()), {"format_version": 2})
+        self.assertTrue((prod_dir / "server/local/comm_config.json").is_file())
+        self.assertTrue((prod_dir / "server/startup/fed_server.json").is_file())
+        self.assertTrue(
+            (prod_dir / "admin-node-A@nvidia.com/startup/fed_admin.json").is_file()
+        )
+        # A site's folder is its FLARE workspace: no other role's kit stays there.
+        for site in ("node-A", "node-B"):
+            self.assertTrue((prod_dir / site / "startup/fed_client.json").is_file())
+            for folder in ("server_startup", "server_local", "admin_startup"):
+                self.assertFalse((prod_dir / site / folder).exists(), folder)
+
+    def test_after_import_each_site_reads_its_own_settings(self):
+        prod_dir = self._import(create_startup_kits_zip(self.network))
+        node_a = prod_dir / "node-A"
+        node_b = prod_dir / "node-B"
+        server = prod_dir / "server"
+        # A site's workspace also holds the folders of the jobs it has run.
+        _write_json(node_a / "job-1/app_node-A/config/config_fed_client.json", {})
+
+        for workspace, own_comm_config in (
+            (node_a, node_a / "local/comm_config.json"),
+            (node_b, None),
+            (server, server / "local/comm_config.json"),
+        ):
+            with self.subTest(workspace=workspace.name):
+                self.assertEqual(
+                    _flare_reads(workspace, "comm_config.json"), own_comm_config
+                )
+                # FLARE asks for the name local/ has, and finds it anywhere.
+                self.assertEqual(
+                    _flare_reads(workspace, "resources.json.default"),
+                    workspace / "local/resources.json.default",
+                )
+        self.assertEqual(_internal_host(node_a), "localhost")
+        self.assertEqual(_internal_host(node_b), "localhost")
+        self.assertEqual(_internal_host(server), "server")
+
+    def test_a_hub_that_imported_the_package_exports_the_same_kits(self):
+        prod_dir = self._import(create_startup_kits_zip(self.network))
+        imported = SwarmNetwork.objects.get(identifier=self.network.identifier)
+        # The provisioning Hub's list of admin kits is not in the package.
+        self.assertFalse((prod_dir / ".client_admin_map.json").exists())
+
+        with zipfile.ZipFile(create_startup_kits_zip(imported)) as bundle:
+            kit = zipfile.ZipFile(io.BytesIO(bundle.read("node-A.zip")))
+            names = kit.namelist()
+
+        self.assertEqual(names.count("admin_startup/fed_admin.json"), 1)
+        self.assertEqual(names.count("server_startup/fed_server.json"), 1)
+        self.assertEqual(names.count("server_local/comm_config.json"), 1)
+
+    def test_a_single_sites_kit_keeps_the_server_kit_outside_its_workspace(self):
+        with zipfile.ZipFile(create_startup_kits_zip(self.network)) as bundle:
+            site_kit = io.BytesIO(bundle.read("node-A.zip"))
+
+        # prod_00 itself is the site's FLARE workspace here.
+        prod_dir = self._import(site_kit)
+        network_dir = prod_dir.parents[2]
+        self.assertFalse((prod_dir / "server_startup").exists())
+        self.assertFalse((prod_dir / "server_local").exists())
+        self.assertTrue((network_dir / "server_startup/fed_server.json").is_file())
+        self.assertTrue((network_dir / "server_local/comm_config.json").is_file())
+        self.assertTrue((prod_dir / "admin_startup/startup/fed_admin.json").is_file())
+        self.assertEqual(
+            _flare_reads(prod_dir, "comm_config.json"),
+            prod_dir / "local/comm_config.json",
+        )
+        self.assertEqual(
+            _flare_reads(prod_dir, "resources.json.default"),
+            prod_dir / "local/resources.json.default",
+        )
+
+
+class LegacyImportRepairTests(SimpleTestCase):
+    """Starting a client clears what an import before the fix left in its workspace."""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.network_dir = Path(temp_dir.name) / "network"
+        self.prod_dir = self.network_dir / "workspace" / "demo" / "prod_00"
+        _make_kits(self.prod_dir)
+        _add_flare_files(self.prod_dir)
+        self.logger = MagicMock()
+
+    def _repair(self, site):
+        return network_tasks._move_foreign_kit_folders(
+            str(self.prod_dir / site), str(self.prod_dir), site, logger=self.logger
+        )
+
+    @staticmethod
+    def _files(folder: Path) -> dict:
+        return {
+            str(path.relative_to(folder)): path.read_bytes()
+            for path in sorted(folder.rglob("*"))
+            if path.is_file()
+        }
+
+    def test_folders_whose_copies_exist_are_removed(self):
+        _leave_kits_in_site_folder(self.prod_dir, "node-A")
+        _leave_kits_in_site_folder(self.prod_dir, "node-B")
+        server_kit = self._files(self.prod_dir / "server")
+        node_b = self.prod_dir / "node-B"
+        # node-B has no comm_config.json of its own, so FLARE reads the server's.
+        self.assertEqual(
+            _flare_reads(node_b, "comm_config.json"),
+            node_b / "server_local/comm_config.json",
+        )
+        self.assertEqual(_internal_host(node_b), "server")
+
+        self.assertEqual(len(self._repair("node-A")), 3)
+        self.assertEqual(len(self._repair("node-B")), 2)
+
+        for site in ("node-A", "node-B"):
+            for folder in ("server_startup", "server_local", "admin_startup"):
+                self.assertFalse((self.prod_dir / site / folder).exists())
+        self.assertEqual(self._files(self.prod_dir / "server"), server_kit)
+        self.assertTrue(
+            (self.prod_dir / "admin-node-A@nvidia.com/startup/fed_admin.json").is_file()
+        )
+        self.assertEqual(_internal_host(node_b), "localhost")
+        self.assertEqual(
+            _flare_reads(node_b, "resources.json.default"),
+            node_b / "local/resources.json.default",
+        )
+        node_a = self.prod_dir / "node-A"
+        self.assertEqual(
+            _flare_reads(node_a, "comm_config.json"), node_a / "local/comm_config.json"
+        )
+        self.assertIn("Removed", self.logger.network.info.call_args_list[0].args[0])
+        # Nothing is left to do the next time the client starts.
+        self.assertEqual(self._repair("node-A"), [])
+
+    def test_the_copy_in_use_wins_and_gets_the_files_it_lacks(self):
+        _leave_kits_in_site_folder(self.prod_dir, "node-A")
+        startup = self.prod_dir / "server" / "startup"
+        (startup / "server_host.txt").write_text("standby")
+        (self.prod_dir / "server/local/privacy.json.sample").unlink()
+
+        self._repair("node-A")
+
+        self.assertEqual((startup / "server_host.txt").read_text(), "standby")
+        self.assertEqual(
+            json.loads(
+                (self.prod_dir / "server/local/privacy.json.sample").read_text()
+            ),
+            {"role": "server"},
+        )
+        self.assertFalse((self.prod_dir / "node-A/server_local").exists())
+
+    def test_a_folder_without_copy_is_moved_not_deleted(self):
+        _leave_kits_in_site_folder(self.prod_dir, "node-B")
+        server_local = self._files(self.prod_dir / "server" / "local")
+        # As after an import by a release that did not copy server_local.
+        shutil.rmtree(self.prod_dir / "server" / "local")
+
+        done = self._repair("node-B")
+
+        self.assertEqual(self._files(self.prod_dir / "server" / "local"), server_local)
+        self.assertFalse((self.prod_dir / "node-B/server_local").exists())
+        self.assertTrue(any(line.startswith("Moved") for line in done))
+
+    def test_a_folder_that_cannot_be_moved_stays(self):
+        _leave_kits_in_site_folder(self.prod_dir, "node-B")
+
+        with patch("shutil.copytree", side_effect=OSError("No space left on device")):
+            done = self._repair("node-B")
+
+        self.assertEqual(done, [])
+        left = self.prod_dir / "node-B" / "server_local"
+        self.assertTrue((left / "comm_config.json").exists())
+        self.assertEqual(self.logger.network.warning.call_count, 2)
+
+    def test_a_single_sites_kit_moves_the_server_kit_to_the_network_folder(self):
+        # A single site's kit imported on its own: prod_00 is the site's workspace.
+        network_dir = self.network_dir.parent / "single-kit"
+        workspace = network_dir / "workspace" / "demo" / "prod_00"
+        shutil.copytree(self.prod_dir / "node-B", workspace)
+        shutil.copytree(self.prod_dir / "server/startup", workspace / "server_startup")
+        shutil.copytree(self.prod_dir / "server/local", workspace / "server_local")
+        admin = workspace / "admin_startup" / "startup"
+        shutil.copytree(self.prod_dir / "admin-node-A@nvidia.com/startup", admin)
+        self.assertEqual(_internal_host(workspace), "server")
+
+        done = network_tasks._move_foreign_kit_folders(
+            str(workspace), str(workspace), "node-B", logger=self.logger
+        )
+
+        self.assertEqual(len(done), 2)
+        self.assertFalse((workspace / "server_local").exists())
+        self.assertTrue((network_dir / "server_local/comm_config.json").is_file())
+        self.assertTrue((network_dir / "server_startup/fed_server.json").is_file())
+        # The Hub's admin kit for the network stays where the Hub uses it.
+        self.assertTrue((admin / "fed_admin.json").is_file())
+        self.assertEqual(_internal_host(workspace), "localhost")
 
 
 class StopTaskTests(SimpleTestCase):

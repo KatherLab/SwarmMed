@@ -17,7 +17,14 @@ from django.utils.text import slugify
 from logs.logger import get_logger
 from project.models import Project
 
-from .failover import active_server_record, is_valid_server_host, provisioned_server_host
+from .failover import (
+    SERVER_KIT_FOLDERS,
+    active_server_record,
+    bundled_kit_destinations,
+    is_valid_server_host,
+    move_kit_folder,
+    provisioned_server_host,
+)
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .provision import generate_flare_startup_kit, is_valid_ip, safe_participant_name
 from .tasks import (
@@ -363,40 +370,26 @@ def import_network(
 
                     participant_zip.extract(nested_member, participant_dir)
 
-            server_startup = os.path.join(participant_dir, "server_startup")
-            if os.path.isdir(server_startup):
-                shutil.copytree(
-                    server_startup,
-                    os.path.join(prod_00_dir, "server", "startup"),
-                    dirs_exist_ok=True,
-                )
-
-            # The server's local settings let this site host the FL server as a
-            # standby (see network.failover). Older bundles do not carry them.
-            server_local = os.path.join(participant_dir, "server_local")
-            if os.path.isdir(server_local):
-                shutil.copytree(
-                    server_local,
-                    os.path.join(prod_00_dir, "server", "local"),
-                    dirs_exist_ok=True,
-                )
-
-            admin_startup = os.path.join(participant_dir, "admin_startup")
-            if os.path.isdir(admin_startup):
-                shutil.copytree(
-                    admin_startup,
-                    os.path.join(
-                        prod_00_dir,
-                        f"admin-{participant_name}@nvidia.com",
-                        "startup",
-                    ),
-                    dirs_exist_ok=True,
-                )
+            # The server's kit (server_startup, and server_local, which older
+            # bundles lack) lets this site host the FL server as a standby (see
+            # network.failover); admin_startup is the site's admin kit. They
+            # are moved, not copied, out of the site's folder: it is the site's
+            # FLARE workspace, which FLARE searches for its configuration files.
+            for folder, destination in bundled_kit_destinations(
+                participant_dir, prod_00_dir, participant_name
+            ).items():
+                source = os.path.join(participant_dir, folder)
+                if os.path.isdir(source):
+                    move_kit_folder(source, destination, replace_existing=True)
 
     if os.path.exists(os.path.join(provision_dir, "startup")):
         os.makedirs(prod_00_dir, exist_ok=True)
         for item in os.listdir(provision_dir):
             if item in {"workspaces", "runtime_requirements.txt"}:
+                continue
+            if item in SERVER_KIT_FOLDERS:
+                # A single site's kit: prod_00 becomes the site's FLARE
+                # workspace, so the server's kit stays in the network's folder.
                 continue
             src = os.path.join(provision_dir, item)
             dst = os.path.join(prod_00_dir, item)

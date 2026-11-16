@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Stopping a network from the web interface or with `swarmed network stop`
   failed in 1.0.0 to 1.0.2: the stop task had lost its Celery task decorator.
+- FL clients could fail to train after a startup package with the server's local
+  settings (`server_local/`) was imported. The import copied the server's and
+  the admin's folders out of each site's kit but also left them in the site's
+  folder, which is the site's FLARE workspace. FLARE takes the first
+  configuration file of a name anywhere in that workspace, so a client could use
+  the server's `comm_config.json`; its job process then looked for its parent
+  process at the FL server, and the client never started training. The import
+  now moves these folders to `prod_00/server/` and
+  `prod_00/admin-<site>@nvidia.com/` instead. A single site's kit imported on its
+  own, where `prod_00` itself is the site's workspace, keeps the server's folders
+  in the network's folder. Starting a client moves them out of networks imported
+  before. The internal host is now set to `localhost` in the `comm_config.json`
+  that FLARE reads, not only in `local/comm_config.json`.
 
 ## [1.0.2] - 2026-11-05
 
