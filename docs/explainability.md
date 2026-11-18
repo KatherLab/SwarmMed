@@ -429,6 +429,13 @@ checksum, so a different checkpoint whose AUROC lies within the tolerance is not
 detected. The check runs per cohort, so the heatmaps of earlier cohorts are
 already written when a later cohort fails it.
 
+A training site can also explain cases of its own share, for example its
+validation cases, with the global model it holds: `--site-institution node_A
+--split val --cohorts site`, with `--duke-root` set to the folder that holds the
+site's folder (the site's `DATA_DIR`). These cases have no recorded AUROC, so the
+check is skipped with a warning; their AUROC is still computed, so the split must
+contain malignant and other cases. `--split` applies to every cohort of a run.
+
 Occlusion dominates the run time. In the recorded run of the default 16 cases
 (83 minutes on one NVIDIA Quadro RTX 6000), occlusion took about 5 minutes per
 case at the default patch size, stride and slice stride, and everything else took

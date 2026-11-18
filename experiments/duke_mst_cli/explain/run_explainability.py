@@ -64,6 +64,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--odelia-root", type=Path, default=Path("/mnt/data/medswarmdata"))
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--cohorts", nargs="+", default=["duke", "MHA"])
+    parser.add_argument("--split", default="test", help="Split of the cohort to explain (a site's own share has train/val).")
+    parser.add_argument("--site-institution", default=None,
+                        help="Register a cohort 'site' for this institution folder under --duke-root (e.g. node_A).")
     parser.add_argument("--ref-json-dir", type=Path,
                         default=Path("results/duke_mst_cli/repetition_1"))
     parser.add_argument("--auroc-tolerance", type=float, default=0.01)
@@ -288,6 +291,12 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = _parse_args()
+    if args.site_institution:
+        COHORT_ALIASES["site"] = {
+            "data_root_key": "duke", "institution": args.site_institution,
+            "csv_name": f"site_{args.site_institution}_{args.split}.csv",
+            "ref_json": "no_reference.json", "display": args.site_institution,
+        }
     _ensure_dirs(args.output_dir)
 
     LOGGER.info("Loading model from %s", args.checkpoint)
@@ -321,7 +330,7 @@ def main() -> None:
         cohort_root = _data_root(cohort, args)
         institution = COHORT_ALIASES[cohort]["institution"]
         dataset, loader = build_dataloader(
-            cohort_root, institution=institution, num_workers=args.num_workers
+            cohort_root, institution=institution, split=args.split, num_workers=args.num_workers
         )
 
         records = predict_per_case(model, loader, positive_class=2)

@@ -51,6 +51,30 @@ PYTHONPATH=experiments/duke_mst_cli:experiments/duke_mst_cli/explain \
 
 Add `--skip-occlusion` for a CAM-only fast path (~2 min instead of ~20 min).
 
+### One site's own cases
+
+A training site can explain cases of its own share with the global model it holds,
+for example its validation cases. `--site-institution` adds a cohort `site` for the
+site's folder under `--duke-root`, and `--split` picks the split (a site's share has
+`train` and `val`; the default is `test`):
+
+```bash
+MEDISWARM_PROJECT_ROOT=<mediswarm-checkout> \
+PYTHONPATH=experiments/duke_mst_cli:experiments/duke_mst_cli/explain \
+.venv/bin/python experiments/duke_mst_cli/explain/run_explainability.py \
+    --checkpoint <checkpoint-path> \
+    --duke-root <data-dir> \
+    --site-institution node_A --split val --cohorts site \
+    --output-dir results/duke_mst_cli/explainability_node_A_val
+```
+
+`<data-dir>` is the folder that holds the site's folder `node_A`, the site's
+`DATA_DIR`. The predictions go to `per_case_predictions/site_node_A_val.csv`, and
+the figures name the cohort `node_A`. These cases have no published AUROC, so the
+check under [Validation](#validation) is skipped with a warning; the script still
+computes their AUROC, so the split must hold malignant and other cases. `--split`
+applies to every cohort of a run, so explain a site's cases in a run of their own.
+
 ## What gets produced
 
 ```
