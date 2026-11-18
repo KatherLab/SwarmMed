@@ -16,6 +16,8 @@ import nvflare.client as flare_util
 import nvflare.client.lightning as flare
 import torch  # lets SwarmCloud select the PyTorch FLARE persistor.
 
+from loader_workers import cap_loader_workers
+
 SWARM_ROUNDS = 20
 
 
@@ -79,6 +81,9 @@ def main(project_id: str = "default_project") -> None:
     """Run the DUKE MST swarm training loop through NVFlare Lightning."""
     _add_mediswarm_paths()
     site_name = _normalize_env()
+    # MediSwarm starts one data-loader worker per CPU that torch.multiprocessing
+    # reports; cap that count before its modules are imported (loader_workers.py).
+    loader_workers = cap_loader_workers()
 
     try:
         import threedcnn_ptl
@@ -98,6 +103,7 @@ def main(project_id: str = "default_project") -> None:
         site_name,
         flare_site_name,
     )
+    logger.info(loader_workers.summary())
 
     data_module, model, checkpointing, trainer, path_run_dir, env_vars = (
         threedcnn_ptl.prepare_training(

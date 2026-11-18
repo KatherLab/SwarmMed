@@ -100,6 +100,7 @@ class RuntimeLaunchTests(SimpleTestCase):
                 "SCRATCH_DIR": "/mnt/scratch/duke_mst/node_A",
                 "MODEL_NAME": "MST",
                 "EPOCHS_PER_ROUND": "5",
+                "SWARMMED_MAX_LOADER_WORKERS": "8",
             }
         )
 
@@ -112,6 +113,7 @@ class RuntimeLaunchTests(SimpleTestCase):
         self.assertIn(("MODEL_NAME", "MST"), pairs)
         self.assertIn(("CONFIG", "unilateral"), pairs)
         self.assertIn(("TRAINING_MODE", "swarm"), pairs)
+        self.assertIn(("SWARMMED_MAX_LOADER_WORKERS", "8"), pairs)
 
     def test_safe_participant_name_converts_underscore_for_nvflare(self):
         self.assertEqual(safe_participant_name("node_A"), "node-A")

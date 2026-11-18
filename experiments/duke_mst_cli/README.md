@@ -49,6 +49,25 @@ recorded runs started the server and the clients. The CLI runtime also accepts t
 older MediSwarm aliases `DATADIR` and `SCRATCHDIR`; they are normalized to
 `DATA_DIR` and `SCRATCH_DIR`.
 
+`training.py` limits the number of data-loader workers. MediSwarm's data module in
+the image starts one worker per CPU of the host, and every worker holds the volumes
+it is preparing, so on a host with many CPUs the workers alone can use more memory
+than the client has. In a test across three hospitals, on servers with 20 to 36
+CPUs and an installation limited to 16 CPUs and 28 GiB of memory, this stopped a
+training process for running out of memory. Before it imports MediSwarm's code,
+`training.py` (with `loader_workers.py`) therefore sets the CPU count that MediSwarm
+reads to the number of workers to start: the CPUs available to the process (the
+host's CPUs, limited by the process's CPU affinity and the container's CPU quota),
+but at most `SWARMMED_MAX_LOADER_WORKERS`, 16 by default. The paper's runs used
+hosts with 16 CPUs and so started 16 workers; the default reproduces them unchanged.
+Set the variable like the variables above, for example lower on a host with little
+memory; a value that is not a positive whole number is ignored with a warning. The
+client logs the result when it starts:
+
+```text
+Data-loader workers: 16 (host CPUs: 36, available: 36, cap 16)
+```
+
 `SWARM_ROUNDS = 20` is the default full run. For a 2-round wiring smoke test, set
 the variable in the process that submits the job:
 
