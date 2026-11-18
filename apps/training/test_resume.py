@@ -666,6 +666,8 @@ class ResumeCommandTests(SubmitHarness, TestCase):
             patch.object(
                 training_services, "_job_active_on_current_server", return_value=False
             ),
+            # Keep the checkout's .env, which the CLI loads, out of the test.
+            patch("swarmed_cli.bootstrap.load_dotenv"),
             redirect_stdout(stdout),
         ):
             code = main(

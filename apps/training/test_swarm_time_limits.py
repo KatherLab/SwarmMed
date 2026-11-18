@@ -138,6 +138,17 @@ class ResumeTimeoutHintTests(SimpleTestCase):
         self.assertIn("restart the network", hint)
         self.assertIn(f"{START_TIMEOUT_ENV} (now 600 s)", hint)
 
+    def test_asks_for_a_restart_only_once_the_job_has_failed(self):
+        # The note follows the submission, and restarting the network at the Hub
+        # that runs the FL server would end the job just submitted.
+        with patch.dict("os.environ", {}, clear=True):
+            hint = resume_timeout_hint()
+
+        self.assertIn("If this job fails", hint)
+        self.assertIn("which ends running jobs", hint)
+        # A resumed job that failed before its first round has no checkpoint.
+        self.assertIn("resume the interrupted job again", hint)
+
     def test_shows_the_start_timeout_a_resumed_job_gets(self):
         with patch.dict("os.environ", {START_TIMEOUT_ENV: "900"}, clear=True):
             self.assertIn(f"{START_TIMEOUT_ENV} (now 900 s)", resume_timeout_hint())

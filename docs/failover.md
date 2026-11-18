@@ -188,7 +188,11 @@ moving it. In a test across three hospitals, both expired over a slow link:
   submits the job) replaces that value, and also applies to new jobs.
 
 `swarmed training resume` names both settings after it submits the job, unless
-`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its environment.
+`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its environment. Stopping the network
+at the Hub that runs the FL server ends the jobs on that server, so set the admin
+timeout before you resume, or once the resumed job has failed. Then resume the
+interrupted job again, not the failed one: a resumed job that fails before its
+first round leaves no checkpoint.
 
 ## Settings
 

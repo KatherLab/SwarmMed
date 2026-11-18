@@ -145,18 +145,25 @@ def resume_timeout_hint() -> str:
     A resumed job ships its checkpoint to the starting site, and that site
     sends it on to every other site when the workflow starts. Over a slow link
     FLARE's deadlines for these two steps can expire: the FL server's
-    ``admin_timeout`` and the workflow's ``start_task_timeout``. The note is
-    left out once SWARMMEDHUB_FLARE_ADMIN_TIMEOUT holds a valid value.
+    ``admin_timeout`` and the workflow's ``start_task_timeout``.
+
+    The note follows the submission, so it says what to change if the job
+    fails: the admin timeout takes effect when the network at the Hub that runs
+    the FL server restarts, which would end the job just submitted. A resumed
+    job that fails before its first round leaves no checkpoint, so the note
+    points to the interrupted job. The note is left out once
+    SWARMMEDHUB_FLARE_ADMIN_TIMEOUT holds a valid value.
     """
     if flare_admin_timeout_from_env() is not None:
         return ""
     start_timeout = swarm_time_limits_for_job(resumed=True)[0]["start_task_timeout"]
     return (
         "A resumed job ships its checkpoint to the starting site, which sends it "
-        "on to the other sites. Over slow links, set SWARMMEDHUB_FLARE_ADMIN_TIMEOUT "
-        "at the Hub that runs the FL server and restart the network there, and raise "
-        f"SWARMMEDHUB_SWARM_START_TASK_TIMEOUT (now {start_timeout} s) if the "
-        "workflow does not start; see Server failover in the documentation."
+        "on to the other sites. If this job fails over a slow link, resume the "
+        "interrupted job again after setting SWARMMEDHUB_FLARE_ADMIN_TIMEOUT at the "
+        "Hub that runs the FL server (then restart the network there, which ends "
+        "running jobs) or raising SWARMMEDHUB_SWARM_START_TASK_TIMEOUT "
+        f"(now {start_timeout} s); see Server failover in the documentation."
     )
 
 

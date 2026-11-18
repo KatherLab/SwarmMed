@@ -645,7 +645,7 @@ class FailoverTaskTests(NetworkFixture, TestCase):
 class StartRoleTests(NetworkFixture, TestCase):
     """start_swarm_network_task starts only what the call asks for."""
 
-    def _start(self, on_docker_run=None, **kwargs):
+    def _start(self, on_docker_run=None, bind_source=None, **kwargs):
         commands = []
 
         def fake_run(command, *args, **run_kwargs):
@@ -666,7 +666,9 @@ class StartRoleTests(NetworkFixture, TestCase):
                 _ensure_runtime_requirements_file=MagicMock(),
                 _has_custom_runtime_requirements=MagicMock(return_value=False),
                 _ensure_docker_network=MagicMock(),
-                _resolve_bind_source_path=MagicMock(side_effect=lambda path: path),
+                _resolve_bind_source_path=MagicMock(
+                    side_effect=bind_source or (lambda path: path)
+                ),
                 _add_required_port_mapping=MagicMock(),
                 _is_container_running=MagicMock(return_value=True),
                 _connect_control_containers_to_network=MagicMock(),
@@ -723,6 +725,28 @@ class StartRoleTests(NetworkFixture, TestCase):
         self.assertEqual(
             at_launch, [{"format_version": 2, "servers": [{"admin_timeout": 300.0}]}]
         )
+
+    def test_server_start_in_a_container_writes_the_hubs_copy(self):
+        # In a Hub container the Docker host's path (HOST_PROJECT_PATH) does not
+        # exist; the file must be written where the Hub sees the workspace.
+        resources = self.prod_dir / "server" / "local" / "resources.json"
+        at_launch = []
+
+        with patch.dict(os.environ, {FLARE_ADMIN_TIMEOUT_ENV: "300"}):
+            runs = self._start(
+                on_docker_run=lambda _command: at_launch.append(
+                    json.loads(resources.read_text())["servers"][0]["admin_timeout"]
+                ),
+                bind_source=lambda path: "/host/project/does-not-exist" + str(path),
+                role="server",
+            )
+
+        self.assertEqual(len(runs), 1)
+        # The fake `docker inspect` succeeds, so the server mounts the Hub's
+        # volumes instead of the missing host path.
+        self.assertIn("--volumes-from", runs[0])
+        self.assertEqual(at_launch, [300.0])
+        self.assertEqual(self.network.status, "RUNNING")
 
     def test_client_start_leaves_every_resources_file_alone(self):
         with patch.dict(os.environ, {FLARE_ADMIN_TIMEOUT_ENV: "300"}):
