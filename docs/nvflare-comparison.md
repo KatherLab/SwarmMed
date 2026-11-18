@@ -136,7 +136,9 @@ deadline permits a longer wait; it does not add dropout tolerance.
 Exceeding a deadline, losing a site or losing the FL server ends the run; FLARE
 cannot continue a swarm job on another server. [Server failover](failover.md)
 describes how a standby site takes over the server and how the run is resumed,
-from a checkpoint, as a new job.
+from a checkpoint, as a new job. Until a deadline ends it, a job that has lost a
+site waits for it; SwarmMedHub warns about such a job
+([When a site drops out](failover.md#when-a-site-drops-out)).
 
 ## Backend portability
 

@@ -8,13 +8,16 @@ from .models import AbstractBaseModel
 # We use a standard logger for the signal itself
 _logger = logging.getLogger(__name__)
 
-# Fields that only track a training job's progress (see audit_log_save).
+# Fields that only track a training job's progress (see audit_log_save). The
+# monitor logs a stall warning itself when it appears and when it clears.
 PROGRESS_ONLY_FIELDS = frozenset(
     {
         "rounds_finished",
         "total_rounds",
         "progress_percent",
         "progress_updated_at",
+        "last_round_at",
+        "stall_warning",
         "updated_at",
     }
 )

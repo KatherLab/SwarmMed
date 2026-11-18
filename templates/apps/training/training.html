@@ -122,6 +122,14 @@
     </div>
   </div>
 
+  <!-- Stall warning: the job monitor flags a running job whose sites stopped making progress -->
+  <div id="stallWarning" role="alert" class="{% if not stall_warning %}hidden {% endif %}flex items-start p-4 mt-4 text-sm text-yellow-800 border border-yellow-300 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 dark:border-yellow-800">
+    <svg class="flex-shrink-0 w-5 h-5 mr-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
+    </svg>
+    <p><span class="font-medium">Training has stalled.</span> <span id="stallWarningText">{{ stall_warning }}</span></p>
+  </div>
+
   
 </section>
 
@@ -252,11 +260,13 @@
         const pTxtLabel=document.getElementById('progressTextLabel');
         const startBtn=document.getElementById('startBtn');
         const stopBtn=document.getElementById('stopBtn');
-        
+        const stallEl=document.getElementById('stallWarning');
+        const stallTxt=document.getElementById('stallWarningText');
+
         if(sEl && d.status){ sEl.textContent = d.status; }
         if(durEl && d.duration){ durEl.textContent = d.duration; }
         if(etaEl && d.eta){ etaEl.textContent = d.eta; }
-        
+
         if(bar && typeof d.progress==="number"){
           const pct=Math.max(0, Math.min(100, d.progress));
           bar.style.width = pct + '%';
@@ -266,6 +276,11 @@
         if(startBtn && stopBtn){
           if(running){ startBtn.classList.add('hidden'); stopBtn.classList.remove('hidden'); }
           else{ stopBtn.classList.add('hidden'); startBtn.classList.remove('hidden'); }
+        }
+        if(stallEl && stallTxt){
+          const warning = running ? (d.stall_warning || '') : '';
+          stallTxt.textContent = warning;
+          stallEl.classList.toggle('hidden', !warning);
         }
       }).catch(()=>{});
     // logs

@@ -798,6 +798,11 @@ def run(args: argparse.Namespace):
                 for job in jobs
                 if project_services.user_can_access_project(state.user, job.project)
             ]
+            state.warnings.extend(
+                f"Job {job['identifier']}: {job['stall_warning']}"
+                for job in jobs
+                if job.get("stall_warning")
+            )
             result = {"jobs": jobs}
 
         elif handler_name == "training_status":
@@ -820,6 +825,8 @@ def run(args: argparse.Namespace):
             result = training_services.get_training_status_payload(
                 network=network, job=job
             )
+            if result.get("stall_warning"):
+                state.warnings.append(result["stall_warning"])
 
         elif handler_name == "training_watch":
             job = resolve_training_job(
@@ -834,7 +841,10 @@ def run(args: argparse.Namespace):
                 else None,
             )
             last_signature = None
+            last_warning = ""
             while True:
+                # The worker's job monitor updates the job, its stall warning too.
+                job.refresh_from_db()
                 payload = training_services.get_training_status_payload(
                     network=job.network, job=job
                 )
@@ -849,6 +859,10 @@ def run(args: argparse.Namespace):
                         f"(job={payload.get('job_id')})"
                     )
                     last_signature = signature
+                warning = payload.get("stall_warning") or ""
+                if not state.json_output and warning and warning != last_warning:
+                    print(f"warning: {warning}")
+                last_warning = warning
                 if str(payload.get("status", "")).upper() in {
                     "COMPLETED",
                     "FAILED",
@@ -864,6 +878,8 @@ def run(args: argparse.Namespace):
                 import time
 
                 time.sleep(args.interval)
+            if result.get("stall_warning"):
+                state.warnings.append(result["stall_warning"])
 
         elif handler_name == "training_stop":
             network = (

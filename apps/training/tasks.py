@@ -23,15 +23,22 @@ from .runtime import (
     new_secure_session_with_host,
     parse_nvflare_jobs,
     resolve_admin_session_target,
+    tail_text,
 )
+from .stall import describe_stall, same_stall, stall_warning_minutes
 from .utils import (
+    ClientDropouts,
     extract_flare_job_uuid,
     extract_total_rounds_from_config_file,
     progress_from_rounds,
+    scan_client_dropouts,
     summarize_training_log,
     should_update_terminal_status,
     upload_folder_to_s3,
 )
+
+# How much of the end of each log the monitor reads.
+LOG_TAIL_BYTES = 512 * 1024
 
 
 def _results_already_uploaded(project_id, flare_job_uuid):
@@ -97,12 +104,67 @@ def _select_result_root(target: str, app_subdir: str) -> str:
     return target
 
 
+def _server_log_paths(workspace_base: str) -> list[str]:
+    """Return the FL server's own logs (log.txt of its workspace) under prod_00.
+
+    The server writes its notices about sites that dropped out of a job there,
+    not in the job's folder. Only a Hub that runs the server has them.
+    """
+    candidates = [workspace_base]
+    with contextlib.suppress(OSError):
+        candidates.extend(
+            entry.path for entry in os.scandir(workspace_base) if entry.is_dir()
+        )
+    return [
+        os.path.join(path, "log.txt")
+        for path in candidates
+        if os.path.isfile(os.path.join(path, "startup", "fed_server.json"))
+        and os.path.isfile(os.path.join(path, "log.txt"))
+    ]
+
+
+def _update_stall_warning(job, dropouts, *, previous, threshold_minutes, log):
+    """Set or clear the stall warning of a job that is still running.
+
+    Args:
+        job (TrainingJob): The running job, with the state persisted in this pass.
+        dropouts (ClientDropouts): What the job's logs at this Hub say about sites
+            that dropped out.
+        previous (str): The job's warning before this pass.
+        threshold_minutes (float): ``SWARMMEDHUB_STALL_WARNING_MINUTES``.
+        log: The platform logger.
+    """
+    warning = describe_stall(
+        dropouts=dropouts.dropped(),
+        last_round_at=job.last_round_at,
+        now=timezone.now(),
+        threshold_minutes=threshold_minutes,
+    )
+    if same_stall(previous, warning):
+        warning = previous
+    if warning != job.stall_warning:
+        training_services.persist_training_job_state(job, stall_warning=warning)
+    if warning and warning != previous:
+        log.training.warning(
+            f"Training job {job.identifier} has stalled: {warning}",
+            project=job.project,
+            network=job.network,
+        )
+    elif previous and not warning:
+        log.training.info(
+            f"Training job {job.identifier} is no longer stalled.",
+            project=job.project,
+            network=job.network,
+        )
+
+
 @shared_task
 def monitor_training_jobs():
     """Periodic task to monitor training jobs and sync results.
 
-    Discovers new jobs from the FLARE server, scrapes local Docker logs for 
-    real-time progress, and automatically uploads finalized results to S3.
+    Discovers new jobs from the FLARE server, scrapes local Docker logs for
+    real-time progress, warns about running jobs that have stalled (see
+    :mod:`training.stall`), and automatically uploads finalized results to S3.
     """
     from network.overlay import get_local_addresses
 
@@ -110,6 +172,7 @@ def monitor_training_jobs():
 
     local_addresses = get_local_addresses()
     log = logger.get_logger()
+    stall_minutes = stall_warning_minutes(log)
 
     # 1. DISCOVERY: Find jobs on the FLARE server that aren't in our local database.
     active_networks = SwarmNetwork.objects.filter(
@@ -206,6 +269,8 @@ def monitor_training_jobs():
 
     for job in jobs:
         try:
+            previous_warning = job.stall_warning
+            dropouts = None
             project_id = str(job.project.identifier)
             network_id = str(job.network.identifier)
             flare_job_uuid = (
@@ -270,6 +335,7 @@ def monitor_training_jobs():
                 total_rounds = job.total_rounds or _get_total_rounds(
                     workspace_base
                 )
+                dropouts = ClientDropouts()
 
                 for root, _, files in os.walk(workspace_base):
                     if flare_job_uuid in root:
@@ -283,12 +349,14 @@ def monitor_training_jobs():
                                     ) as f:
                                         f.seek(0, os.SEEK_END)
                                         f.seek(
-                                            max(0, f.tell() - 1024 * 512)
+                                            max(0, f.tell() - LOG_TAIL_BYTES)
                                         )
                                         tail = f.read().decode(
                                             "utf-8", errors="ignore"
                                         )
-                                        summary = summarize_training_log(tail)
+                                        summary = summarize_training_log(
+                                            tail, flare_job_uuid
+                                        )
                                         if summary["rounds_finished"] > rounds_finished:
                                             rounds_finished = summary["rounds_finished"]
                                         if should_update_terminal_status(
@@ -298,8 +366,19 @@ def monitor_training_jobs():
                                             terminal_status = summary[
                                                 "terminal_status"
                                             ]
+                                        dropouts.merge(summary.get("client_dropouts"))
                                 except Exception:
                                     pass
+
+                # The server's notices name the job; they are in its own log.
+                for server_log in _server_log_paths(workspace_base):
+                    dropouts.merge(
+                        scan_client_dropouts(
+                            tail_text(server_log, LOG_TAIL_BYTES),
+                            flare_job_uuid,
+                            job_log=False,
+                        )
+                    )
 
                 if total_rounds > 0:
                     pct = progress_from_rounds(
@@ -386,6 +465,17 @@ def monitor_training_jobs():
                     status=terminal_status,
                     completed_at=_completion_time(job, terminal_status),
                     progress_percent=job.progress_percent,
+                )
+
+            # Step 4: Stall warning, for a job that is still running; a job that
+            # ended in this pass lost its warning with its new status.
+            if dropouts is not None and job.status == "RUNNING":
+                _update_stall_warning(
+                    job,
+                    dropouts,
+                    previous=previous_warning,
+                    threshold_minutes=stall_minutes,
+                    log=log,
                 )
         except Exception as e:
             log.training.error(

@@ -32,6 +32,7 @@ class TrainingJobAdmin(ModelAdmin):
         "network",
         "status",
         "progress_percent",
+        "stalled",
         "created_at",
         "completed_at",
     )
@@ -46,6 +47,8 @@ class TrainingJobAdmin(ModelAdmin):
         "rounds_finished",
         "progress_percent",
         "progress_updated_at",
+        "last_round_at",
+        "stall_warning",
     )
     date_hierarchy = "created_at"
 
@@ -66,12 +69,26 @@ class TrainingJobAdmin(ModelAdmin):
                     "rounds_finished",
                     "progress_percent",
                     "progress_updated_at",
+                    "last_round_at",
+                    "stall_warning",
                 )
             },
         ),
     )
 
     actions = ["stop_selected_jobs"]
+
+    @admin.display(boolean=True, description="Stalled")
+    def stalled(self, obj):
+        """Whether the job monitor has flagged the running job as stalled.
+
+        Args:
+            obj (TrainingJob): The job.
+
+        Returns:
+            bool: True if the job has a stall warning.
+        """
+        return bool(obj.stall_warning)
 
     def stop_selected_jobs(self, request, queryset):
         """Action to manually stop selected training jobs.
@@ -86,7 +103,7 @@ class TrainingJobAdmin(ModelAdmin):
         stoppable_jobs = queryset.filter(
             status__in=["STARTING", "RUNNING", "PENDING"]
         )
-        updated_count = stoppable_jobs.update(status="STOPPED")
+        updated_count = stoppable_jobs.update(status="STOPPED", stall_warning="")
 
         if updated_count:
             self.message_user(

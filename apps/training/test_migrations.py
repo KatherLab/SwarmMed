@@ -1,4 +1,7 @@
-"""Migration regression tests for training job canonical FLARE UUID handling."""
+"""Migration regression tests for training jobs.
+
+Migration 0002 adds the canonical FLARE UUID; 0003 adds the stall warning.
+"""
 
 from django.contrib.auth.models import User
 from django.db import connection
@@ -121,3 +124,76 @@ class TrainingJobMigrationTests(TransactionTestCase):
 
         visualization_run = ResultsVisualizationRun.objects.get()
         self.assertEqual(visualization_run.job_id, job.id)
+
+
+class StallWarningMigrationTests(TransactionTestCase):
+    """Migration 0003 adds last_round_at and stall_warning, and can be reversed."""
+
+    migrate_from = [("training", "0002_trainingjob_flare_job_uuid")]
+    migrate_to = [("training", "0003_trainingjob_stall_warning")]
+
+    def setUp(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_from)
+        old_apps = executor.loader.project_state(self.migrate_from).apps
+        OldTrainingJob = old_apps.get_model("training", "TrainingJob")
+
+        user = User.objects.create(username="stall-migration-user")
+        project = Project.objects.create(title="Stall Migration Project", author=user)
+        network = SwarmNetwork.objects.create(
+            name="Stall Migration Network",
+            project=project,
+            author=user,
+            status="RUNNING",
+            creation_method="CREATED",
+        )
+        self.job_id = OldTrainingJob.objects.create(
+            project_id=project.id,
+            network_id=network.id,
+            status="RUNNING",
+            flare_job_id="77777777-7777-7777-7777-777777777777",
+            rounds_finished=3,
+        ).id
+        transaction.commit()
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_to)
+        self.apps = executor.loader.project_state(self.migrate_to).apps
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        super().tearDown()
+
+    def _columns(self):
+        with connection.cursor() as cursor:
+            return {
+                column.name
+                for column in connection.introspection.get_table_description(
+                    cursor, "training_trainingjob"
+                )
+            }
+
+    def test_existing_jobs_get_no_warning_and_no_round_time(self):
+        job = self.apps.get_model("training", "TrainingJob").objects.get(
+            id=self.job_id
+        )
+
+        self.assertEqual(job.stall_warning, "")
+        self.assertIsNone(job.last_round_at)
+        self.assertEqual(job.rounds_finished, 3)
+
+    def test_migration_can_be_reversed(self):
+        self.assertTrue({"last_round_at", "stall_warning"} <= self._columns())
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_from)
+
+        self.assertFalse({"last_round_at", "stall_warning"} & self._columns())
+        old_apps = executor.loader.project_state(self.migrate_from).apps
+        self.assertTrue(
+            old_apps.get_model("training", "TrainingJob")
+            .objects.filter(id=self.job_id)
+            .exists()
+        )

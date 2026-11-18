@@ -165,8 +165,14 @@ def persist_training_job_state(
     progress_percent: int | None = None,
     completed_at=None,
     progress_updated_at=None,
+    stall_warning: str | None = None,
 ) -> TrainingJob:
-    """Persist one canonical training-job state transition."""
+    """Persist one canonical training-job state transition.
+
+    ``last_round_at`` is set when the job starts running and whenever
+    ``rounds_finished`` increases. The stall warning is cleared when rounds
+    advance or the job ends, unless the call sets a new one for a running job.
+    """
     update_fields = []
     new_status = str(status or "").upper() or None
 
@@ -189,7 +195,10 @@ def persist_training_job_state(
         and (job.rounds_finished is None or rounds_finished > job.rounds_finished)
     ):
         job.rounds_finished = rounds_finished
-        update_fields.append("rounds_finished")
+        job.last_round_at = timezone.now()
+        update_fields.extend(["rounds_finished", "last_round_at"])
+        if stall_warning is None:
+            stall_warning = ""  # the rounds advance again
 
     if new_status:
         current_status = str(job.status or "").upper()
@@ -204,6 +213,16 @@ def persist_training_job_state(
         elif current_status not in {"COMPLETED", "FAILED", "STOPPED"} and job.status != new_status:
             job.status = new_status
             update_fields.append("status")
+
+    running = str(job.status or "").upper() == "RUNNING"
+    if running and job.last_round_at is None:
+        job.last_round_at = timezone.now()
+        update_fields.append("last_round_at")
+    if not running:
+        stall_warning = ""  # only a running job can stall
+    if stall_warning is not None and job.stall_warning != stall_warning:
+        job.stall_warning = stall_warning
+        update_fields.append("stall_warning")
 
     effective_status = str(job.status or new_status or "").upper()
     normalized_progress = progress_percent
@@ -359,6 +378,10 @@ def get_latest_training_job(network: SwarmNetwork) -> TrainingJob | None:
     )
 
 
+def _isoformat(value) -> str | None:
+    return value.isoformat() if value else None
+
+
 def serialize_training_job(job: TrainingJob) -> dict:
     """Serialize a training job for CLI output."""
     info = get_training_progress_info(job, job.network)
@@ -375,6 +398,8 @@ def serialize_training_job(job: TrainingJob) -> dict:
         "flare_job_uuid": job.flare_job_uuid,
         "total_rounds": job.total_rounds,
         "rounds_finished": job.rounds_finished,
+        "last_round_at": _isoformat(job.last_round_at),
+        "stall_warning": job.stall_warning,
         "created_at": job.created_at.isoformat(),
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
     }
@@ -1350,9 +1375,16 @@ def stop_training_job(
 def get_training_status_payload(
     *, network: SwarmNetwork, job: TrainingJob | None = None
 ) -> dict:
-    """Return a CLI-friendly training status payload."""
+    """Return a CLI-friendly training status payload.
+
+    Besides the status and progress it gives ``last_round_at`` (ISO 8601, or
+    None) and ``stall_warning`` (empty unless the running job has stalled; see
+    :mod:`training.stall`).
+    """
     job = job or get_latest_training_job(network)
     payload = build_training_status_payload(network, job)
+    payload["last_round_at"] = None
+    payload["stall_warning"] = ""
     if job:
         normalized_status = str(payload.get("status") or "").upper()
         progress_percent = payload.get("progress")
@@ -1377,4 +1409,6 @@ def get_training_status_payload(
         payload["identifier"] = str(job.identifier)
         payload["network_identifier"] = str(network.identifier)
         payload["project_identifier"] = str(job.project.identifier)
+        payload["last_round_at"] = _isoformat(job.last_round_at)
+        payload["stall_warning"] = job.stall_warning
     return payload
