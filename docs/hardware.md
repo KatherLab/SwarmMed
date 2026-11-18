@@ -98,6 +98,12 @@ The worked example's MediSwarm runtime defaults to 360,000 s (100 h) for both
 server deadlines. The client-side `learn_task_timeout` remains unset and is not
 exposed by SwarmMed; server deadlines still apply during local training.
 
+**Large models over slow links.** A resumed run carries its checkpoint when the
+FL server deploys the job and when the starting site starts the workflow. Over a
+slow link, either step can outlast FLARE's 10 s defaults;
+`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` and `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` give
+them more time (see [Server failover](failover.md#resuming-over-a-slow-link)).
+
 ### The worked example, in detail
 
 The breast-MRI demonstration trained on three hosts of one institution, each with

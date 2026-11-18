@@ -37,6 +37,7 @@ from project.models import Project
 from .failover import (
     active_server_host_for_startup,
     active_server_record,
+    apply_flare_admin_timeout,
     bundled_kit_destinations,
     ensure_server_kit_complete,
     move_kit_folder,
@@ -1955,6 +1956,12 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
                 _ensure_client_comm_config_portable(target["path"], logger=logger)
                 if host_workspace_path != target["path"]:
                     _ensure_client_comm_config_portable(host_workspace_path, logger=logger)
+            elif role == "server":
+                # SWARMMEDHUB_FLARE_ADMIN_TIMEOUT, which FLARE reads when the
+                # server starts; a standby server is started here too.
+                apply_flare_admin_timeout(
+                    [target["path"], host_workspace_path], logger=logger
+                )
 
             host_startup_dir = os.path.join(host_workspace_path, "startup")
             runtime_startup_dir = "/workspace/startup"

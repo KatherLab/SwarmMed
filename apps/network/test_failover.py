@@ -22,10 +22,13 @@ from project.models import Project
 from . import tasks as network_tasks
 from .failover import (
     ACTIVE_SERVER_FILE,
+    FLARE_ADMIN_TIMEOUT_ENV,
     active_server_host_for_startup,
+    apply_flare_admin_timeout,
     ensure_server_kit_complete,
     is_valid_server_host,
     network_prod_dir,
+    set_server_admin_timeout,
     write_active_server,
 )
 from .models import SwarmNetwork, SwarmParticipant
@@ -305,6 +308,152 @@ class ServerKitTests(SimpleTestCase):
         )
 
 
+# The server's local resources as provisioning writes them, shortened.
+_PROVISIONED_RESOURCES = {
+    "format_version": 2,
+    "servers": [
+        {
+            "admin_storage": "transfer",
+            "max_num_clients": 100,
+            "heart_beat_timeout": 600,
+            "admin_timeout": 10.0,
+        }
+    ],
+    "components": [{"id": "job_scheduler", "args": {"max_jobs": 4}}],
+}
+
+
+class AdminTimeoutTests(SimpleTestCase):
+    """SWARMMEDHUB_FLARE_ADMIN_TIMEOUT in the FL server's local/resources.json."""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.server = Path(temp_dir.name) / "prod_00" / "server"
+        _write_json(self.server / "startup" / "fed_server.json", {"servers": [{}]})
+        self.local = self.server / "local"
+        self.resources = self.local / "resources.json"
+        self.log = MagicMock()
+
+    def _apply(self, value="300", workspaces=None):
+        environment = {FLARE_ADMIN_TIMEOUT_ENV: value} if value is not None else {}
+        with patch.dict(os.environ, environment, clear=True):
+            return apply_flare_admin_timeout(
+                workspaces or [self.server], logger=self.log
+            )
+
+    def _resources(self):
+        return json.loads(self.resources.read_text())
+
+    def test_made_from_the_provisioned_defaults(self):
+        _write_json(self.local / "resources.json.default", _PROVISIONED_RESOURCES)
+
+        self.assertEqual(self._apply(), [str(self.resources)])
+
+        expected = json.loads(json.dumps(_PROVISIONED_RESOURCES))
+        expected["servers"][0]["admin_timeout"] = 300.0
+        self.assertEqual(self._resources(), expected)
+        self.assertEqual(
+            json.loads((self.local / "resources.json.default").read_text()),
+            _PROVISIONED_RESOURCES,
+        )
+        # FLARE reads this file, not the .default one.
+        from nvflare.apis.workspace import Workspace
+
+        self.assertEqual(
+            Workspace(str(self.server)).get_resources_file_path(), str(self.resources)
+        )
+
+    def test_merged_into_an_existing_file(self):
+        _write_json(self.local / "resources.json.default", _PROVISIONED_RESOURCES)
+        existing = {
+            "format_version": 2,
+            "servers": [{"max_num_clients": 200, "admin_timeout": 60.0}],
+            "snapshot_persistor": {"path": "custom.Persistor"},
+        }
+        _write_json(self.resources, existing)
+
+        self.assertEqual(self._apply("900.5"), [str(self.resources)])
+
+        existing["servers"][0]["admin_timeout"] = 900.5
+        self.assertEqual(self._resources(), existing)
+
+    def test_made_from_the_template_when_there_is_no_resources_file(self):
+        self.assertEqual(self._apply(), [str(self.resources)])
+
+        resources = self._resources()
+        self.assertEqual(resources["servers"][0]["admin_timeout"], 300.0)
+        self.assertEqual(resources["servers"][0]["admin_storage"], "transfer")
+        self.assertIn("job_manager", [c["id"] for c in resources["components"]])
+
+    def test_a_file_without_servers_gets_one_entry(self):
+        _write_json(self.local / "resources.json.default", {"format_version": 2})
+
+        self._apply()
+
+        self.assertEqual(
+            self._resources(),
+            {"format_version": 2, "servers": [{"admin_timeout": 300.0}]},
+        )
+
+    def test_running_it_again_changes_nothing(self):
+        _write_json(self.local / "resources.json.default", _PROVISIONED_RESOURCES)
+        self._apply()
+        written = self.resources.read_text()
+
+        self.assertEqual(self._apply(), [])
+        self.assertEqual(self._apply("300.0"), [])
+        self.assertEqual(self.resources.read_text(), written)
+        self.assertFalse(set_server_admin_timeout(self.server, 300.0))
+
+    def test_the_provisioned_value_needs_no_file(self):
+        _write_json(self.local / "resources.json.default", _PROVISIONED_RESOURCES)
+
+        self.assertEqual(self._apply("10"), [])
+        self.assertFalse(self.resources.exists())
+
+    def test_untouched_while_the_variable_is_unset(self):
+        _write_json(self.local / "resources.json.default", _PROVISIONED_RESOURCES)
+        for value in (None, "", "  "):
+            with self.subTest(value=value):
+                self.assertEqual(self._apply(value), [])
+                self.assertFalse(self.resources.exists())
+        self.log.network.warning.assert_not_called()
+
+    def test_invalid_values_are_ignored_with_a_warning(self):
+        _write_json(self.resources, _PROVISIONED_RESOURCES)
+        for value in ("five minutes", "0", "-30", "inf", "nan"):
+            with self.subTest(value=value):
+                self.log.reset_mock()
+                self.assertEqual(self._apply(value), [])
+                self.log.network.warning.assert_called_once()
+                self.assertIn(
+                    FLARE_ADMIN_TIMEOUT_ENV, self.log.network.warning.call_args.args[0]
+                )
+        self.assertEqual(self._resources(), _PROVISIONED_RESOURCES)
+
+    def test_a_broken_file_is_left_alone_with_a_warning(self):
+        self.resources.parent.mkdir(parents=True)
+        self.resources.write_text("{not json")
+
+        self.assertEqual(self._apply(), [])
+
+        self.assertEqual(self.resources.read_text(), "{not json")
+        self.log.network.warning.assert_called_once()
+
+    def test_only_server_workspaces_are_written(self):
+        client = self.server.parent / "node-A"
+        _write_json(client / "startup" / "fed_client.json", {"servers": []})
+        _write_json(client / "local" / "resources.json.default", {"site": "node-A"})
+        missing_host_path = self.server.parent / "not-on-this-host" / "server"
+
+        written = self._apply(workspaces=[self.server, client, missing_host_path])
+
+        self.assertEqual(written, [str(self.resources)])
+        self.assertFalse((client / "local" / "resources.json").exists())
+        self.assertFalse(missing_host_path.exists())
+
+
 class NetworkFixture:
     def setUp(self):
         super().setUp()
@@ -556,6 +705,46 @@ class StartRoleTests(NetworkFixture, TestCase):
     def test_unknown_participant_is_an_error(self):
         self._start(role="client", participants=["node-Z"])
         self.assertEqual(self.network.status, "ERROR")
+
+    def test_server_start_first_writes_the_admin_timeout(self):
+        resources = self.prod_dir / "server" / "local" / "resources.json"
+        at_launch = []
+
+        with patch.dict(os.environ, {FLARE_ADMIN_TIMEOUT_ENV: "300"}):
+            runs = self._start(
+                on_docker_run=lambda _command: at_launch.append(
+                    json.loads(resources.read_text())
+                ),
+                role="server",
+            )
+
+        self.assertEqual(len(runs), 1)
+        # The kit's resources.json.default, with the timeout added.
+        self.assertEqual(
+            at_launch, [{"format_version": 2, "servers": [{"admin_timeout": 300.0}]}]
+        )
+
+    def test_client_start_leaves_every_resources_file_alone(self):
+        with patch.dict(os.environ, {FLARE_ADMIN_TIMEOUT_ENV: "300"}):
+            runs = self._start(role="client", participants=["node-B"])
+
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(list(self.prod_dir.glob("*/local/resources.json")), [])
+
+    def test_standby_server_from_an_older_package_gets_the_admin_timeout(self):
+        # A package exported without the server's local folder; the failover
+        # task writes the missing settings before it starts the server.
+        shutil.rmtree(self.prod_dir / "server" / "local")
+        ensure_server_kit_complete(self.prod_dir)
+
+        with patch.dict(os.environ, {FLARE_ADMIN_TIMEOUT_ENV: "300"}):
+            self._start(role="server")
+
+        resources = json.loads(
+            (self.prod_dir / "server" / "local" / "resources.json").read_text()
+        )
+        self.assertEqual(resources["servers"][0]["admin_timeout"], 300.0)
+        self.assertIn("job_manager", [c["id"] for c in resources["components"]])
 
     def test_client_start_first_moves_other_kits_out_of_the_site_workspace(self):
         _add_flare_files(self.prod_dir)

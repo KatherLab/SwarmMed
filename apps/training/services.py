@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from common.utils import get_safe_slug
 from logs.logger import get_logger
+from network.failover import flare_admin_timeout_from_env
 from network.models import SwarmNetwork
 from results.artifacts import (
     GLOBAL_MODEL_FILENAME_CANDIDATES,
@@ -54,16 +55,33 @@ from .utils import (
 
 
 # Environment overrides for the swarm workflow's server-side time limits. NVFlare's
-# defaults are 90 s without a status report from a site and 3600 s without progress;
-# either one aborts the whole job, which large or slow consortia can hit.
+# defaults are 90 s without a status report from a site, 3600 s without progress and
+# 10 s for the starting site to start the workflow; each one aborts the whole job,
+# which large or slow consortia can hit.
 SWARM_TIME_LIMIT_ENV = {
     "max_status_report_interval": "SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL",
     "progress_timeout": "SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT",
+    "start_task_timeout": "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT",
 }
+
+# NVFlare uses start_task_timeout as the timeout of a Task, which must be an int.
+_WHOLE_SECOND_TIME_LIMITS = frozenset({"start_task_timeout"})
+
+# start_task_timeout of a resumed job unless SWARMMEDHUB_SWARM_START_TASK_TIMEOUT is
+# set. The starting site confirms the start of the workflow only once it has sent
+# the first learn task to every other site. In a new run that task carries no model,
+# and the start took 1 to 2.4 s in a test across three hospitals, well within
+# NVFlare's 10 s. In a resumed run it carries the checkpoint: in the same test the
+# starting site took 110 s to send a 94 MB checkpoint to the two other sites, so the
+# 10 s default ended the run before it started.
+RESUME_START_TASK_TIMEOUT = 600
 
 
 def swarm_time_limits_from_env(log=None):
     """Return SwarmServerController time-limit overrides set in the environment.
+
+    The values are seconds. ``start_task_timeout`` takes only whole seconds,
+    as NVFlare requires: "120" and "120.0" both give 120, "120.5" is rejected.
 
     Args:
         log: Optional platform logger for rejected values.
@@ -77,19 +95,69 @@ def swarm_time_limits_from_env(log=None):
         raw = os.getenv(env_name, "").strip()
         if not raw:
             continue
+        whole_seconds = argument in _WHOLE_SECOND_TIME_LIMITS
         try:
             value = float(raw)
         except ValueError:
             value = 0.0
-        if value <= 0:
+        if value <= 0 or (whole_seconds and not value.is_integer()):
             if log is not None:
+                expected = "whole number" if whole_seconds else "number"
                 log.training.warning(
                     f"Ignoring {env_name}={raw!r}: "
-                    "expected a positive number of seconds"
+                    f"expected a positive {expected} of seconds"
                 )
             continue
-        limits[argument] = value
+        limits[argument] = int(value) if whole_seconds else value
     return limits
+
+
+def swarm_time_limits_for_job(*, resumed: bool, log=None) -> tuple[dict, str]:
+    """Return the SwarmServerController time limits of a new job.
+
+    The overrides set in the environment apply to every job. A resumed job
+    also waits RESUME_START_TASK_TIMEOUT seconds for the workflow to start,
+    unless SWARMMEDHUB_SWARM_START_TASK_TIMEOUT is set.
+
+    Args:
+        resumed: Whether the job resumes an interrupted run.
+        log: Optional platform logger for rejected values.
+
+    Returns:
+        tuple[dict, str]: Keyword arguments for SwarmServerController, empty
+        when NVFlare's defaults apply, and a note for the log on the limit that
+        SwarmMed chose itself ("" if there is none).
+    """
+    limits = swarm_time_limits_from_env(log)
+    if not resumed or "start_task_timeout" in limits:
+        return limits, ""
+    limits["start_task_timeout"] = RESUME_START_TASK_TIMEOUT
+    return limits, (
+        f" (start_task_timeout={RESUME_START_TASK_TIMEOUT} s is the default for a "
+        "resumed job, whose first learn task carries the checkpoint; "
+        "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT overrides it)"
+    )
+
+
+def resume_timeout_hint() -> str:
+    """Return the note that ``swarmed training resume`` prints, or "".
+
+    A resumed job ships its checkpoint to the starting site, and that site
+    sends it on to every other site when the workflow starts. Over a slow link
+    FLARE's deadlines for these two steps can expire: the FL server's
+    ``admin_timeout`` and the workflow's ``start_task_timeout``. The note is
+    left out once SWARMMEDHUB_FLARE_ADMIN_TIMEOUT holds a valid value.
+    """
+    if flare_admin_timeout_from_env() is not None:
+        return ""
+    start_timeout = swarm_time_limits_for_job(resumed=True)[0]["start_task_timeout"]
+    return (
+        "A resumed job ships its checkpoint to the starting site, which sends it "
+        "on to the other sites. Over slow links, set SWARMMEDHUB_FLARE_ADMIN_TIMEOUT "
+        "at the Hub that runs the FL server and restart the network there, and raise "
+        f"SWARMMEDHUB_SWARM_START_TASK_TIMEOUT (now {start_timeout} s) if the "
+        "workflow does not start; see Server failover in the documentation."
+    )
 
 
 def list_training_jobs(*, project=None, network=None):
@@ -1004,7 +1072,9 @@ def submit_training_job(
                 f"{num_rounds} rounds left."
             )
 
-        time_limits = swarm_time_limits_from_env(log)
+        time_limits, time_limit_note = swarm_time_limits_for_job(
+            resumed=resume is not None, log=log
+        )
         controller = SwarmServerController(
             num_rounds=num_rounds,
             start_round=start_round,
@@ -1020,7 +1090,7 @@ def submit_training_job(
             "Swarm controller config: "
             f"private_p2p={private_p2p}, starting_client={starting_client}, "
             f"participants={client_names}, "
-            f"time_limits={time_limits or 'NVFlare defaults'}"
+            f"time_limits={time_limits or 'NVFlare defaults'}{time_limit_note}"
         )
         for server_name in server_names:
             job_definition.to(controller, server_name)

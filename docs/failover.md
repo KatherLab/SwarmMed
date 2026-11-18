@@ -160,11 +160,43 @@ The checkpoint travels inside the job to the starting site. The new job records
 what it started from in `config/swarmmed_resume.json` of the starting site's app,
 and the Hub keeps a list in `workspaces/<project>/<network>/job/resumed_jobs.json`.
 
+### Resuming over a slow link
+
+A resumed job carries the checkpoint (94 MB for the MST model of the worked
+example), and two FLARE deadlines that a new run stays well within apply to
+moving it. In a test across three hospitals, both expired over a slow link:
+
+* **Deploying the job.** The FL server waits for each site to accept the job
+  for at most its `admin_timeout`, which provisioning sets to 10 s. The starting
+  site did not answer within 10 s, so the server started the job without it, and
+  the job failed (`invalid value 'node-A' in 'participating_clients'` in the
+  server's log). With 300 s the job was deployed. Set
+  `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` (seconds) for the Celery worker of the Hub
+  that runs the FL server, then stop and start the network there. Before it
+  starts the server, SwarmMed writes the value into the server's
+  `local/resources.json`, which FLARE reads in place of `resources.json.default`,
+  and keeps every other setting. The value stays in that file when the variable
+  is removed; set the variable to 10 to return to the provisioned value. Set it at
+  the standby site as well.
+* **Starting the workflow.** The FL server then waits `start_task_timeout`
+  (10 s in NVIDIA FLARE 2.7.1) for the starting site to start the workflow. The
+  starting site confirms only once it has sent the first learn task to every
+  other site, and in a resumed run that task carries the checkpoint: sending it
+  to the two other sites (about 180 MB) took 110 s, where new runs confirmed in
+  1 to 2.4 s. SwarmMed therefore gives a resumed job 600 s.
+  `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` (whole seconds, in the process that
+  submits the job) replaces that value, and also applies to new jobs.
+
+`swarmed training resume` names both settings after it submits the job, unless
+`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its environment.
+
 ## Settings
 
 | Variable | Process | Effect |
 |---|---|---|
 | `SWARMMEDHUB_RESUME_CHECKPOINTS` | the process that submits the job | `false` stops writing round-start checkpoints; `FL_global_model.pt` is still saved by the aggregating site |
+| `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` | the Celery worker of the Hub that starts the FL server; applies from the next server start | seconds the FL server waits for each site's reply, for example when it deploys a job (provisioned: 10 s); see [Resuming over a slow link](#resuming-over-a-slow-link) |
+| `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` | the process that submits the job | whole seconds the FL server waits for the starting site to start the workflow; without it, 600 s for a resumed job and the FLARE build's default for a new one (10 s in NVIDIA FLARE 2.7.1) |
 
 ## Testing status
 
