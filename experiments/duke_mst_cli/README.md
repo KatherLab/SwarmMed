@@ -62,10 +62,12 @@ own CPU quota), but at most `SWARMMED_MAX_LOADER_WORKERS`, 16 by default. A CPU
 quota set on an enclosing container or cgroup, as in that test, is not seen: the log
 then shows all the host's CPUs as available, so where such a limit is below 16,
 lower `SWARMMED_MAX_LOADER_WORKERS` yourself. The paper's runs used hosts with 16
-CPUs and so started 16 workers; the default reproduces them unchanged. Set the
-variable like the variables above, for example lower on a host with little memory;
-a value that is not a positive whole number is ignored with a warning. The client
-logs the result when it starts:
+CPUs and so started 16 workers; the default reproduces them unchanged. The runs in
+that test used an earlier form of this change, which capped the host's CPU count at
+16 without reading affinity or quotas; on those hosts both forms start 16 workers.
+Set the variable like the variables above, for example lower on a host with little
+memory; a value that is not a positive whole number is ignored with a warning. The
+client logs the result when it starts:
 
 ```text
 Data-loader workers: 16 (host CPUs: 36, available: 36, cap 16)
