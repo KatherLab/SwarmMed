@@ -68,8 +68,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data-root",
-        default=os.environ.get("DATA_DIR", "/mnt/dlhd0/DUKE_iid"),
-        help="DUKE_iid dataset root. Defaults to DATA_DIR or /mnt/dlhd0/DUKE_iid.",
+        default=os.environ.get("DATA_DIR", "/mnt/data/DUKE_iid"),
+        help="DUKE_iid dataset root. Defaults to DATA_DIR or /mnt/data/DUKE_iid.",
     )
     parser.add_argument(
         "--institution",

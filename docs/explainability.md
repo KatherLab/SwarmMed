@@ -421,9 +421,10 @@ It also recomputes each cohort's AUROC and compares it with the AUROC in
 `<cohort>_eval.json` under `--ref-json-dir` (the `--output-json` files of
 `evaluate_global_model.py` for that checkpoint, named `duke_test_eval.json` and
 `odelia_<cohort>_eval.json`), aborting if they differ by more than
-`--auroc-tolerance` (default 0.01). Pass `--ref-json-dir` explicitly: the default
-is a hard-coded path from the original run, and if the file is missing the check
-is skipped with only a warning. Only the AUROC is compared, not the checkpoint
+`--auroc-tolerance` (default 0.01). Pass `--ref-json-dir` explicitly: the default,
+`results/duke_mst_cli/repetition_1` in the working directory, is where the original
+run kept its files, and if the file is missing the check is skipped with only a
+warning. Only the AUROC is compared, not the checkpoint
 checksum, so a different checkpoint whose AUROC lies within the tolerance is not
 detected. The check runs per cohort, so the heatmaps of earlier cohorts are
 already written when a later cohort fails it.

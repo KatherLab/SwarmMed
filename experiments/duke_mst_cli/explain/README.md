@@ -8,7 +8,7 @@ the Duke MST federated checkpoint described in
 ## Why these methods
 
 MST is a DINOv2 ViT-S/14 backbone applied per slice with a transformer slice-fusion head
-(see [`/home/jeff/Projects/MediSwarm/application/jobs/_shared/custom/models/mst.py`](/home/jeff/Projects/MediSwarm/application/jobs/_shared/custom/models/mst.py)).
+(see `application/jobs/_shared/custom/models/mst.py` in MediSwarm).
 Because the backbone is a transformer, classic CAM hooks on a "last conv block" don't apply.
 Instead:
 
@@ -20,33 +20,31 @@ Instead:
   P(Malignant) versus the baseline. This is a black-box, model-agnostic attribution
   that complements gradient-based maps.
 
-## Where the data and checkpoint live
+## What the script needs
 
-Both Duke and ODELIA cohorts plus the Repetition 1 checkpoint live on the **dd-dl0** server:
-
-| Artefact | Path on dd-dl0 |
-|----------|----------------|
-| Repetition 1 checkpoint | `/home/swarm/Projects/SwarmCloud/workspaces/627f6350-…/…/37bc58d0-…/app_node-A/FL_global_model.pt` (MD5 `172f8bcf…`) |
-| Duke test set | `/mnt/dlhd0/DUKE_iid/test/{data_unilateral,metadata_unilateral}` |
-| ODELIA cohorts | `/mnt/dlhd0/medswarmdata/{MHA,RUMC,UKA,UMCU,CAM,RSH}/{data_unilateral,metadata_unilateral}` |
-| MediSwarm code | `/home/swarm/actions-runner/_work/MediSwarm/MediSwarm` |
+| Artefact | Where |
+|----------|-------|
+| Checkpoint | `FL_global_model.pt` in the job's app folder in a training site's FLARE workspace, `<job-id>/app_<site>/FL_global_model.pt` (Repetition 1's has MD5 `172f8bcf…`) |
+| Duke test set | `<duke-root>/test/{data_unilateral,metadata_unilateral}` |
+| ODELIA cohorts | `<odelia-root>/<cohort>/{data_unilateral,metadata_unilateral}` for the cohorts in `COHORT_ALIASES` in `run_explainability.py` |
+| MediSwarm code | a MediSwarm checkout, `<mediswarm-checkout>` |
+| Published AUROCs | the `--output-json` files of `evaluate_global_model.py` for the checkpoint, in `<eval-json-dir>` |
 
 ## Running
 
-On dd-dl0 (or any host with the same checkpoint, datasets, and the
-`/home/swarm/Projects/SwarmCloud/.venv` Python environment):
+On a host with a CUDA GPU, the checkpoint, the datasets and SwarmMed's Python
+environment, from the repository root:
 
 ```bash
-ssh dd-dl0
-cd /home/swarm/Projects/SwarmCloud
 .venv/bin/python -m pip install grad-cam captum torchio einops x-transformers
 
-MEDISWARM_PROJECT_ROOT=/home/swarm/actions-runner/_work/MediSwarm/MediSwarm \
+MEDISWARM_PROJECT_ROOT=<mediswarm-checkout> \
 PYTHONPATH=experiments/duke_mst_cli:experiments/duke_mst_cli/explain \
 .venv/bin/python experiments/duke_mst_cli/explain/run_explainability.py \
-    --checkpoint /home/swarm/Projects/SwarmCloud/workspaces/627f6350-4fa5-4caf-8658-89118e4cee6a/f93350f0-b4ed-4f3b-88b9-000c16b81e8f/workspace/duke_mst_iid_3_site_cli_2026_04_28/prod_00/node-A/37bc58d0-9425-4180-9846-7273cd55d2bf/app_node-A/FL_global_model.pt \
-    --duke-root /mnt/dlhd0/DUKE_iid \
-    --odelia-root /mnt/dlhd0/medswarmdata \
+    --checkpoint <checkpoint-path> \
+    --ref-json-dir <eval-json-dir> \
+    --duke-root <duke-root> \
+    --odelia-root <odelia-root> \
     --output-dir results/duke_mst_cli/explainability \
     --cohorts duke MHA
 ```
@@ -72,8 +70,9 @@ results/duke_mst_cli/explainability/
 ## Validation
 
 `run_explainability.py` reproduces the cohort AUROC and asserts it matches
-the value published in `results/duke_mst_cli/repetition_1/<cohort>_eval.json`
-within `--auroc-tolerance` (default 0.01). On the verified setup:
+the value published in `<cohort>_eval.json` under `--ref-json-dir` (by default
+`results/duke_mst_cli/repetition_1` in the working directory) within
+`--auroc-tolerance` (default 0.01). On the verified setup:
 
 | Cohort | Measured | Published | Δ |
 |--------|----------|-----------|---|

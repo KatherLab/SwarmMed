@@ -60,12 +60,12 @@ OUTCOME_TO_LABEL = {
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True, type=Path)
-    parser.add_argument("--duke-root", type=Path, default=Path("/mnt/dlhd0/DUKE_iid"))
-    parser.add_argument("--odelia-root", type=Path, default=Path("/mnt/dlhd0/medswarmdata"))
+    parser.add_argument("--duke-root", type=Path, default=Path("/mnt/data/DUKE_iid"))
+    parser.add_argument("--odelia-root", type=Path, default=Path("/mnt/data/medswarmdata"))
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--cohorts", nargs="+", default=["duke", "MHA"])
     parser.add_argument("--ref-json-dir", type=Path,
-                        default=Path("/home/swarm/Projects/SwarmCloud/results/duke_mst_cli/repetition_1"))
+                        default=Path("results/duke_mst_cli/repetition_1"))
     parser.add_argument("--auroc-tolerance", type=float, default=0.01)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--cases-per-outcome", type=int, default=2,

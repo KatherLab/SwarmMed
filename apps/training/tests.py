@@ -43,12 +43,12 @@ class FlareAdapterManifestTests(SimpleTestCase):
 
     def test_manifest_request_url_preserves_existing_manifest_path(self):
         url = _build_manifest_request_url(
-            "https://100.100.101.102:5085/data/manifest", "project-123"
+            "https://192.0.2.10:5085/data/manifest", "project-123"
         )
 
         self.assertEqual(
             url,
-            "https://100.100.101.102:5085/data/manifest?project_id=project-123",
+            "https://192.0.2.10:5085/data/manifest?project_id=project-123",
         )
 
     def test_manifest_discovery_targets_prioritize_explicit_url(self):
@@ -56,7 +56,7 @@ class FlareAdapterManifestTests(SimpleTestCase):
             "os.environ",
             {
                 "SWARMMEDHUB_MANIFEST_URL": "http://swarmmedhub:8000",
-                "SWARMMEDHUB_SERVER_HOST": "100.100.101.102",
+                "SWARMMEDHUB_SERVER_HOST": "192.0.2.10",
                 "DOCKER_HOST_IP": "172.17.0.1",
             },
             clear=False,
@@ -64,7 +64,7 @@ class FlareAdapterManifestTests(SimpleTestCase):
             targets = _get_manifest_discovery_targets()
 
         self.assertEqual(targets[0], "http://swarmmedhub:8000")
-        self.assertIn("https://100.100.101.102:5085", targets)
+        self.assertIn("https://192.0.2.10:5085", targets)
         self.assertIn("http://app:8000", targets)
 
     def test_manifest_verify_value_skips_tls_checks_for_http(self):
