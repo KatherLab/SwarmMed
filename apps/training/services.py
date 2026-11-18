@@ -220,7 +220,12 @@ def persist_training_job_state(
         update_fields.append("last_round_at")
     if not running:
         stall_warning = ""  # only a running job can stall
-    if stall_warning is not None and job.stall_warning != stall_warning:
+    if stall_warning is not None and (
+        job.stall_warning != stall_warning
+        # A job that ends here loses its warning even if this copy has none: the
+        # monitor may have set one since the copy was read.
+        or (not running and "status" in update_fields)
+    ):
         job.stall_warning = stall_warning
         update_fields.append("stall_warning")
 
@@ -409,7 +414,10 @@ def serialize_training_job_state(job: TrainingJob) -> dict:
     """Compact serialisation used by the inter-node training-state endpoint.
 
     Kept narrower than :func:`serialize_training_job` because the gossip
-    protocol consumers only need the canonical identity + progress fields.
+    protocol consumers only need the canonical identity + progress fields. It
+    also gives ``last_round_at`` and ``stall_warning`` (only the Hub that runs
+    the FL server can name a dropped-out site); the receiving Hubs do not merge
+    them yet.
     """
     return {
         "flare_job_id": job.flare_job_id,
@@ -418,6 +426,8 @@ def serialize_training_job_state(job: TrainingJob) -> dict:
         "total_rounds": job.total_rounds,
         "rounds_finished": job.rounds_finished,
         "progress_percent": job.progress_percent,
+        "last_round_at": _isoformat(job.last_round_at),
+        "stall_warning": job.stall_warning,
         "created_at": job.created_at.isoformat(),
     }
 

@@ -36,6 +36,7 @@ _DROPOUT_DETAILS = {
     DROPOUT_REPORTED: "the FL server reports its training job as dead",
 }
 _WARNING_TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC")
+_DROPPED_SITE_RE = re.compile(r"Site (\S+) dropped out at ")
 # Invalid values already reported, so that the monitor warns once per value
 # rather than every minute.
 _reported_invalid_values: set[str] = set()
@@ -122,12 +123,18 @@ def describe_stall(
 
 
 def same_stall(previous: str, current: str) -> bool:
-    """Return True when two stall warnings differ at most in the times they give.
+    """Return True when two stall warnings describe the same stall.
 
-    The monitor reads only the end of the logs, so after hours the first report
-    of a site's dropout may no longer be among the lines read; the monitor then
-    keeps the warning it gave first.
+    Warnings about dropped-out sites are the same when they name the same sites;
+    other warnings when they differ at most in the times they give. The monitor
+    reads only the end of the logs, so after hours the first report of a site's
+    dropout, or the one-time notice that gave the most specific reason, may no
+    longer be among the lines read; the monitor then keeps the warning it gave
+    first.
     """
-    return bool(previous) and _WARNING_TIME_RE.sub("", previous) == (
-        _WARNING_TIME_RE.sub("", current)
-    )
+    if not previous:
+        return False
+    previous_sites = _DROPPED_SITE_RE.findall(previous)
+    if previous_sites:
+        return previous_sites == _DROPPED_SITE_RE.findall(current)
+    return _WARNING_TIME_RE.sub("", previous) == _WARNING_TIME_RE.sub("", current)

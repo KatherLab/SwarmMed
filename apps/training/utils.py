@@ -10,7 +10,6 @@ import os
 import re
 import shutil
 import subprocess
-from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -222,23 +221,6 @@ def _log_line_time(line: str) -> datetime | None:
     return when.replace(tzinfo=UTC)
 
 
-def _line_at(text: str, index: int) -> str:
-    start = text.rfind("\n", 0, index) + 1
-    end = text.find("\n", index)
-    return text[start:] if end == -1 else text[start:end]
-
-
-def _latest_round_progress_time(log_text: str) -> datetime | None:
-    """Return the time of the latest line that reports round progress."""
-    latest = None
-    for pattern in TRAINING_ROUND_PATTERNS:
-        last_match = deque(pattern.finditer(log_text), maxlen=1)
-        if last_match:
-            line = _line_at(log_text, last_match[0].start())
-            latest = _later(latest, _log_line_time(line))
-    return latest
-
-
 @dataclass(frozen=True)
 class ClientDropout:
     """A site that the FL server reports as having dropped out of a job.
@@ -264,12 +246,10 @@ class ClientDropouts:
     Attributes:
         reports: Site -> the (time, reason) of each report that it dropped out.
         activity: Site -> the latest time it showed it takes part in the job.
-        last_progress_at: The time of the latest round progress in the job's logs.
     """
 
     reports: dict[str, list[tuple[datetime, str]]] = field(default_factory=dict)
     activity: dict[str, datetime] = field(default_factory=dict)
-    last_progress_at: datetime | None = None
 
     def add_report(self, client: str, when: datetime, reason: str) -> None:
         """Record a report that a site dropped out."""
@@ -287,17 +267,17 @@ class ClientDropouts:
             self.reports.setdefault(client, []).extend(reports)
         for client, when in other.activity.items():
             self.note_activity(client, when)
-        self.last_progress_at = _later(self.last_progress_at, other.last_progress_at)
         return self
 
     def dropped(self) -> list[ClientDropout]:
         """Return the sites that are out of the job now, earliest report first.
 
         A site counts when it has been reported since it last took part in the
-        job and no round progress came after its latest report. A site whose job
-        has gone is reported every 10 s, so its latest report stays later than the
-        progress of the sites that wait for it; rounds that advance again end the
-        dropout.
+        job. Only the site's own activity ends a dropout: its status updates, or
+        its job contacting the FL server again ("removed from watch list",
+        "reconnected"). Progress of the other sites does not: they can still
+        finish a round to which the site had already sent its result, and FLARE
+        reports a dead FL client only once.
         """
         dropouts = []
         for client, reports in self.reports.items():
@@ -308,8 +288,6 @@ class ClientDropouts:
             if not current:
                 continue
             last_reported_at = max(when for when, _reason in current)
-            if self.last_progress_at and last_reported_at <= self.last_progress_at:
-                continue
             _when, reason = max(
                 current, key=lambda item: (_DROPOUT_REASON_RANK[item[1]], item[0])
             )
@@ -344,9 +322,8 @@ def scan_client_dropouts(
             server's own log, of which only lines that name the job count.
 
     Returns:
-        ClientDropouts: The reports, the sites' activity and, for a job's own
-        log, the time of its latest round progress. Lines without a time are
-        skipped.
+        ClientDropouts: The reports and the sites' activity. Lines without a time
+        are skipped.
     """
     scan = ClientDropouts()
     wanted = str(job_uuid or "").lower()
@@ -371,8 +348,6 @@ def scan_client_dropouts(
                 if match := pattern.search(line):
                     scan.note_activity(match["client"], when)
                     break
-    if job_log:
-        scan.last_progress_at = _latest_round_progress_time(log_text)
     return scan
 
 

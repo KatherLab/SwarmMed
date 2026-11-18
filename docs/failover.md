@@ -180,13 +180,13 @@ warns about a running job when
 
 * **the FL server reports a site as dropped out**: its training job as missing
   (the site's FL client runs, but the job's process has ended) or its FL client
-  as dead (no heartbeat for 10 minutes, FLARE's default), and no round has made
-  progress since. The monitor reads this in the server's logs, so only the Hub
-  that runs the FL server gives this warning;
+  as dead (no heartbeat for 10 minutes, FLARE's default), and the site has not
+  taken part in the job since. The monitor reads this in the server's logs, so
+  only the Hub that runs the FL server gives this warning;
 * **no round has finished** for longer than `SWARMMEDHUB_STALL_WARNING_MINUTES`
   (default 60 minutes; `0` turns this check off). Every Hub checks this. A slow
-  first round, or a model whose rounds take longer than that, also triggers it;
-  raise the value for such a study.
+  first round, counted from the start of the job, or a model whose rounds take
+  longer than that, also triggers it; raise the value for such a study.
 
 The warning appears under the progress bar on the **Training** page, as a
 **Stalled** badge on the dashboard, on the job's page in the admin site, and in
@@ -194,8 +194,9 @@ The warning appears under the progress bar on the **Training** page, as a
 `--json` in `warnings` and as the job's `stall_warning`, next to `last_round_at`,
 the time a round last finished or the job started running. The monitor also
 writes it to the **Logs** page.
-The warning does not change the job's status, and it disappears when rounds
-advance again or the job ends.
+The warning does not change the job's status. A warning about a site disappears
+when the site takes part in the job again, one about rounds when a round
+finishes; both disappear when the job ends.
 
 What to do:
 

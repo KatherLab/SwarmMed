@@ -126,6 +126,9 @@ def _server_log_paths(workspace_base: str) -> list[str]:
 def _update_stall_warning(job, dropouts, *, previous, threshold_minutes, log):
     """Set or clear the stall warning of a job that is still running.
 
+    The warning is saved only while the job's row is still RUNNING, so that a
+    job stopped or ended during this pass does not get one.
+
     Args:
         job (TrainingJob): The running job, with the state persisted in this pass.
         dropouts (ClientDropouts): What the job's logs at this Hub say about sites
@@ -143,7 +146,12 @@ def _update_stall_warning(job, dropouts, *, previous, threshold_minutes, log):
     if same_stall(previous, warning):
         warning = previous
     if warning != job.stall_warning:
-        training_services.persist_training_job_state(job, stall_warning=warning)
+        # No audit entry, as for any save of progress fields (common.signals).
+        if not TrainingJob.objects.filter(pk=job.pk, status="RUNNING").update(
+            stall_warning=warning
+        ):
+            return
+        job.stall_warning = warning
     if warning and warning != previous:
         log.training.warning(
             f"Training job {job.identifier} has stalled: {warning}",
@@ -173,6 +181,13 @@ def monitor_training_jobs():
     local_addresses = get_local_addresses()
     log = logger.get_logger()
     stall_minutes = stall_warning_minutes(log)
+    # The warnings shown before this pass: the steps before Step 4 clear a job's
+    # warning when its rounds advance, and Step 4 decides whether it still holds.
+    shown_warnings = dict(
+        TrainingJob.objects.filter(status="RUNNING").values_list(
+            "pk", "stall_warning"
+        )
+    )
 
     # 1. DISCOVERY: Find jobs on the FLARE server that aren't in our local database.
     active_networks = SwarmNetwork.objects.filter(
@@ -269,7 +284,7 @@ def monitor_training_jobs():
 
     for job in jobs:
         try:
-            previous_warning = job.stall_warning
+            previous_warning = shown_warnings.get(job.pk, job.stall_warning)
             dropouts = None
             project_id = str(job.project.identifier)
             network_id = str(job.network.identifier)
@@ -331,7 +346,11 @@ def monitor_training_jobs():
 
             # Step 2: Progress from logs (a finished job's progress no longer changes)
             if job.status == "RUNNING":
-                rounds_finished = job.rounds_finished or 0
+                # -1 until a round has finished, so that finishing round 0 counts
+                # as progress and moves last_round_at.
+                rounds_finished = (
+                    job.rounds_finished if job.rounds_finished is not None else -1
+                )
                 total_rounds = job.total_rounds or _get_total_rounds(
                     workspace_base
                 )
