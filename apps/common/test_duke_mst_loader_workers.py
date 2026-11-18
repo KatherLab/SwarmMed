@@ -3,9 +3,9 @@
 MediSwarm's data module in the training image starts one DataLoader worker per CPU
 that ``torch.multiprocessing`` reports, which on hosts with many CPUs exceeded a
 client's memory. ``experiments/duke_mst_cli/training.py`` therefore caps that count
-with ``loader_workers.py`` before it imports MediSwarm's code. Both files are loaded
-by path here, as the FLARE job runs them; MediSwarm's module is replaced by a stand-in
-that records the CPU count it sees, so the training image is not needed.
+with ``swarmmed_loader_workers.py`` before it imports MediSwarm's code. Both files are
+loaded by path here, as the FLARE job runs them; MediSwarm's modules are replaced by
+stand-ins that record the CPU count they see, so the training image is not needed.
 """
 
 import importlib.util
@@ -24,9 +24,9 @@ from django.test import SimpleTestCase
 EXAMPLE_DIR = Path(__file__).resolve().parents[2] / "experiments" / "duke_mst_cli"
 VARIABLE = "SWARMMED_MAX_LOADER_WORKERS"
 
-# Stands in for MediSwarm's threedcnn_ptl: it records the CPU count when it is
-# imported, as the data module's default argument does, and when the data module
-# is built, then stops main() before any training.
+# Stands in for MediSwarm's threedcnn_ptl in the paper's image: it records the CPU
+# count when it is imported, as the data module's default argument does, and when
+# the data module is built, then stops main() before any training.
 FAKE_THREEDCNN_PTL = textwrap.dedent(
     """
     import logging
@@ -48,6 +48,37 @@ FAKE_THREEDCNN_PTL = textwrap.dedent(
     """
 )
 
+# MediSwarm 1.8.0 and later have a module loader_workers of their own (abridged
+# here). Their threedcnn_ptl imports it by that name and calls it when it builds the
+# data module, with at most 16 workers by default.
+FAKE_MEDISWARM_LOADER_WORKERS = textwrap.dedent(
+    """
+    def cap_loader_workers(configured, num_train_samples, min_samples_per_worker=4):
+        return min(
+            int(configured), max(1, int(num_train_samples) // min_samples_per_worker)
+        )
+    """
+)
+FAKE_THREEDCNN_PTL_1_8 = textwrap.dedent(
+    """
+    import logging
+    import torch.multiprocessing as mp
+    from loader_workers import cap_loader_workers
+
+
+    class StopBeforeTraining(Exception):
+        pass
+
+
+    def set_up_logging():
+        return logging.getLogger("fake_threedcnn_ptl")
+
+
+    def prepare_training(logger, **kwargs):
+        raise StopBeforeTraining(cap_loader_workers(min(mp.cpu_count(), 16), 416))
+    """
+)
+
 
 def _load(name, path):
     """Import a file of the example without writing __pycache__ into it."""
@@ -60,12 +91,14 @@ def _load(name, path):
 
 class _LoaderWorkersTestCase(SimpleTestCase):
     def setUp(self):
-        self.lw = _load("duke_mst_loader_workers", EXAMPLE_DIR / "loader_workers.py")
+        self.lw = _load(
+            "duke_mst_loader_workers", EXAMPLE_DIR / "swarmmed_loader_workers.py"
+        )
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         self.cgroup = Path(temp_dir.name) / "cgroup"
         self.cgroup.mkdir()
-        # cap_loader_workers replaces these for the rest of the process; restore them.
+        # limit_loader_workers replaces these for the rest of the process; restore them.
         for module in (multiprocessing, torch.multiprocessing):
             patcher = patch.object(module, "cpu_count", module.cpu_count)
             patcher.start()
@@ -182,17 +215,17 @@ class AvailableCpusTests(_LoaderWorkersTestCase):
             self.assertEqual(self.lw.available_cpus(self.cgroup), 12)
 
 
-class CapLoaderWorkersTests(_LoaderWorkersTestCase):
+class LimitLoaderWorkersTests(_LoaderWorkersTestCase):
     def test_paper_hosts_keep_16_workers(self):
         self.host(cpus=16, affinity=16)
-        result = self.lw.cap_loader_workers({}, self.cgroup)
+        result = self.lw.limit_loader_workers({}, self.cgroup)
         self.assertEqual(tuple(result), (16, 16, 16, 16))
         self.assertEqual(multiprocessing.cpu_count(), 16)
         self.assertEqual(torch.multiprocessing.cpu_count(), 16)
 
     def test_many_cpu_host_is_capped_at_16(self):
         self.host(cpus=36, affinity=36)
-        result = self.lw.cap_loader_workers({}, self.cgroup)
+        result = self.lw.limit_loader_workers({}, self.cgroup)
         self.assertEqual(multiprocessing.cpu_count(), 16)
         self.assertEqual(torch.multiprocessing.cpu_count(), 16)
         self.assertEqual(
@@ -203,7 +236,7 @@ class CapLoaderWorkersTests(_LoaderWorkersTestCase):
     def test_container_quota_below_the_cap(self):
         self.host(cpus=36, affinity=36)
         self.write("cpu.max", "400000 100000\n")
-        result = self.lw.cap_loader_workers({}, self.cgroup)
+        result = self.lw.limit_loader_workers({}, self.cgroup)
         self.assertEqual(torch.multiprocessing.cpu_count(), 4)
         self.assertEqual(
             result.summary(),
@@ -212,7 +245,7 @@ class CapLoaderWorkersTests(_LoaderWorkersTestCase):
 
     def test_cap_from_the_variable(self):
         self.host(cpus=36, affinity=36)
-        result = self.lw.cap_loader_workers({VARIABLE: "8"}, self.cgroup)
+        result = self.lw.limit_loader_workers({VARIABLE: "8"}, self.cgroup)
         self.assertEqual((result.workers, result.cap), (8, 8))
         self.assertEqual(multiprocessing.cpu_count(), 8)
 
@@ -224,11 +257,12 @@ class TrainingScriptTests(SimpleTestCase):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         self.temp = Path(temp_dir.name)
-        (self.temp / "mediswarm").mkdir()
-        (self.temp / "mediswarm" / "threedcnn_ptl.py").write_text(FAKE_THREEDCNN_PTL)
-        search_path = [str(self.temp / "mediswarm"), str(EXAMPLE_DIR), *sys.path]
+        self.mediswarm = self.temp / "mediswarm"
+        self.mediswarm.mkdir()
+        # As in the FLARE job, the job's custom folder (training.py and its helper)
+        # is on the path, and MediSwarm's folder is not until main() adds it.
         for patcher in (
-            patch.object(sys, "path", search_path),
+            patch.object(sys, "path", [*sys.path, str(EXAMPLE_DIR)]),
             patch.object(multiprocessing, "cpu_count", multiprocessing.cpu_count),
             patch.object(
                 torch.multiprocessing, "cpu_count", torch.multiprocessing.cpu_count
@@ -236,10 +270,16 @@ class TrainingScriptTests(SimpleTestCase):
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
-        for name in ("threedcnn_ptl", "loader_workers"):
+        for name in ("threedcnn_ptl", "loader_workers", "swarmmed_loader_workers"):
             self.addCleanup(sys.modules.pop, name, None)
 
-    def test_mediswarm_sees_the_capped_count_from_its_import_on(self):
+    def run_main(self):
+        """Run training.py's main() until MediSwarm's stand-in stops it.
+
+        Returns:
+            The stand-in threedcnn_ptl module, the arguments it stopped with and
+            the lines logged through its logger.
+        """
         training = _load("duke_mst_training", EXAMPLE_DIR / "training.py")
         environ = {
             "SITE_NAME": "node_A",
@@ -248,9 +288,14 @@ class TrainingScriptTests(SimpleTestCase):
             # 1 is never more than the CPUs available, so the result is known.
             VARIABLE: "1",
         }
+
+        def add_mediswarm_paths():
+            # Like _add_mediswarm_paths() in the image: MediSwarm's folder first.
+            sys.path.insert(0, str(self.mediswarm))
+
         with (
             patch.dict(os.environ, environ),
-            patch.object(training, "_add_mediswarm_paths"),
+            patch.object(training, "_add_mediswarm_paths", add_mediswarm_paths),
             patch.object(training.flare_util, "init"),
             patch.object(training.flare, "get_site_name", return_value="node-A"),
             self.assertLogs("fake_threedcnn_ptl", "INFO") as logs,
@@ -259,10 +304,27 @@ class TrainingScriptTests(SimpleTestCase):
             training.main()
 
         mediswarm = sys.modules["threedcnn_ptl"]
-        self.assertIsInstance(stopped.exception, mediswarm.StopBeforeTraining)
+        self.assertIsInstance(
+            stopped.exception, mediswarm.StopBeforeTraining, repr(stopped.exception)
+        )
+        return mediswarm, stopped.exception.args, logs.output
+
+    def test_mediswarm_sees_the_capped_count_from_its_import_on(self):
+        (self.mediswarm / "threedcnn_ptl.py").write_text(FAKE_THREEDCNN_PTL)
+        mediswarm, args, log = self.run_main()
         self.assertEqual(mediswarm.CPU_COUNT_AT_IMPORT, 1)
-        self.assertEqual(stopped.exception.args, (1,))
-        summary = [line for line in logs.output if "Data-loader workers" in line]
+        self.assertEqual(args, (1,))
+        summary = [line for line in log if "Data-loader workers" in line]
         self.assertEqual(len(summary), 1)
         self.assertIn("Data-loader workers: 1 (host CPUs: ", summary[0])
         self.assertTrue(summary[0].endswith(", cap 1)"))
+
+    def test_mediswarm_1_8_imports_its_own_loader_workers_module(self):
+        (self.mediswarm / "loader_workers.py").write_text(FAKE_MEDISWARM_LOADER_WORKERS)
+        (self.mediswarm / "threedcnn_ptl.py").write_text(FAKE_THREEDCNN_PTL_1_8)
+        _, args, _ = self.run_main()
+        self.assertEqual(
+            Path(sys.modules["loader_workers"].__file__).parent, self.mediswarm
+        )
+        # MediSwarm's own cap, applied to the CPU count training.py set.
+        self.assertEqual(args, (1,))

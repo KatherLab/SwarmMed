@@ -16,7 +16,7 @@ import nvflare.client as flare_util
 import nvflare.client.lightning as flare
 import torch  # lets SwarmCloud select the PyTorch FLARE persistor.
 
-from loader_workers import cap_loader_workers
+from swarmmed_loader_workers import limit_loader_workers
 
 SWARM_ROUNDS = 20
 
@@ -82,8 +82,8 @@ def main(project_id: str = "default_project") -> None:
     _add_mediswarm_paths()
     site_name = _normalize_env()
     # MediSwarm starts one data-loader worker per CPU that torch.multiprocessing
-    # reports; cap that count before its modules are imported (loader_workers.py).
-    loader_workers = cap_loader_workers()
+    # reports; cap that count before its code is imported (swarmmed_loader_workers.py).
+    loader_workers = limit_loader_workers()
 
     try:
         import threedcnn_ptl

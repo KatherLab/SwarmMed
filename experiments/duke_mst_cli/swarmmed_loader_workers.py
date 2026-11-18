@@ -3,10 +3,17 @@
 MediSwarm's data module in the training image starts one DataLoader worker per
 CPU of the host (``torch.multiprocessing.cpu_count()``). Every worker holds the
 volumes it is preparing, so on hosts with many CPUs the workers alone can exceed
-the memory available to the client. ``training.py`` calls ``cap_loader_workers``
+the memory available to the client. ``training.py`` calls ``limit_loader_workers``
 before it imports MediSwarm's code, so that the CPU count the data module reads is
 the number of workers to start: at most ``SWARMMED_MAX_LOADER_WORKERS`` (default
 16) and no more than the CPUs available to the process.
+
+MediSwarm 1.8.0 and later have a module ``loader_workers`` with a function
+``cap_loader_workers`` of their own, which their training code imports by that name.
+This module is shipped in the job's custom folder, which is on the module search
+path too, so a module ``loader_workers`` here would replace MediSwarm's when
+``training.py`` imported it first. This module and its function therefore have
+other names.
 
 The module needs neither NVFlare nor the training image, so it is tested on its own.
 """
@@ -152,7 +159,7 @@ def loader_worker_cap(environ: Mapping[str, str] | None = None) -> int:
     return cap
 
 
-def cap_loader_workers(
+def limit_loader_workers(
     environ: Mapping[str, str] | None = None, cgroup_root: Path = CGROUP_ROOT
 ) -> LoaderWorkers:
     """Make the CPU count that MediSwarm's data module reads the number of workers.
