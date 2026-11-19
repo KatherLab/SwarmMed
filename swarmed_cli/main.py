@@ -926,6 +926,9 @@ def run(args: argparse.Namespace):
                     force=args.force,
                 )
                 result = training_services.serialize_training_job(new_job)
+                timeout_hint = training_services.resume_timeout_hint()
+                if timeout_hint:
+                    state.warnings.append(timeout_hint)
 
         elif handler_name == "results_sync":
             project = resolve_project(state, args.project)

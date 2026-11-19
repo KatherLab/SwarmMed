@@ -13,11 +13,17 @@ switch;
 The switch is recorded per network in ``prod_00/.active_server.json``. That
 file takes precedence over ``SWARMMEDHUB_SERVER_HOST`` and over the kits'
 ``server_host.txt``, which keep the address the network was provisioned with.
+
+Every FL server that SwarmMed starts, the standby included, also gets the admin
+timeout set in ``SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`` (see
+:func:`apply_flare_admin_timeout`).
 """
 
 from __future__ import annotations
 
+import copy
 import json
+import math
 import os
 import re
 import shutil
@@ -33,7 +39,8 @@ ACTIVE_SERVER_FILE = ".active_server.json"
 _IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
 # The server's local resources as NVFlare 2.7.1 provisioning writes them. Used
-# only when a startup bundle predates the copy of the server's local folder.
+# when a startup bundle predates the copy of the server's local folder, and by
+# set_server_admin_timeout when a server's local folder has no resources file.
 _SERVER_RESOURCES = {
     "format_version": 2,
     "servers": [
@@ -291,6 +298,137 @@ def ensure_server_kit_complete(prod_dir) -> list[str]:
         (local_dir / file_name).write_text(content)
         written.append(str(local_dir / file_name))
     (server_dir / "transfer").mkdir(parents=True, exist_ok=True)
+    return written
+
+
+# The FL server waits admin_timeout seconds for each site's reply to an admin
+# request, such as deploying a job; provisioning sets 10 s. In a test across three
+# hospitals, a resumed job, which carries its checkpoint, did not reach the starting
+# site within 10 s over a slow link: the server started the job without that site,
+# and the job failed. 300 s fixed it.
+FLARE_ADMIN_TIMEOUT_ENV = "SWARMMEDHUB_FLARE_ADMIN_TIMEOUT"
+
+
+def flare_admin_timeout_from_env(logger=None) -> float | None:
+    """Return the FL server's admin timeout set in SWARMMEDHUB_FLARE_ADMIN_TIMEOUT.
+
+    Args:
+        logger: Optional platform logger; receives a warning for a value that is
+            not a positive number of seconds.
+
+    Returns:
+        float | None: Seconds, or None when the variable is unset or invalid.
+    """
+    raw = os.getenv(FLARE_ADMIN_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        value = math.nan
+    if not (math.isfinite(value) and value > 0):
+        if logger is not None:
+            logger.network.warning(
+                f"Ignoring {FLARE_ADMIN_TIMEOUT_ENV}={raw!r}: "
+                "expected a positive number of seconds"
+            )
+        return None
+    return value
+
+
+def set_server_admin_timeout(server_workspace, admin_timeout: float) -> bool:
+    """Set ``admin_timeout`` in an FL server workspace's ``local/resources.json``.
+
+    FLARE reads ``local/resources.json`` before ``local/resources.json.default``.
+    The new content starts from the first of these that exists: the file itself,
+    the ``.default`` file that provisioning writes, or _SERVER_RESOURCES. Only
+    ``servers[0]["admin_timeout"]`` changes. The server reads the file when it
+    starts.
+
+    Args:
+        server_workspace: The server's FLARE workspace, such as ``prod_00/server``.
+        admin_timeout: Seconds.
+
+    Returns:
+        bool: True if ``local/resources.json`` was written; False if the file
+        FLARE reads already has the value.
+
+    Raises:
+        OSError: If a file cannot be read or written.
+        ValueError: If the file to start from is not a FLARE resources file.
+    """
+    local_dir = Path(server_workspace) / "local"
+    target = local_dir / "resources.json"
+    source = next(
+        (
+            path
+            for path in (target, local_dir / "resources.json.default")
+            if path.exists()
+        ),
+        None,
+    )
+    if source is None:
+        resources = copy.deepcopy(_SERVER_RESOURCES)
+    else:
+        resources = json.loads(source.read_text())
+        if not isinstance(resources, dict):
+            raise ValueError(f"{source} does not hold a JSON object")
+    servers = resources.setdefault("servers", [])
+    if not isinstance(servers, list) or not all(
+        isinstance(server, dict) for server in servers
+    ):
+        raise ValueError(f"'servers' in {source} is not a list of objects")
+    if not servers:
+        servers.append({})
+    if source is not None and servers[0].get("admin_timeout") == admin_timeout:
+        return False
+    servers[0]["admin_timeout"] = admin_timeout
+    local_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(resources, indent=2) + "\n")
+    return True
+
+
+def apply_flare_admin_timeout(server_workspaces, logger=None) -> list[str]:
+    """Write SWARMMEDHUB_FLARE_ADMIN_TIMEOUT into an FL server's local settings.
+
+    Called before the server starts, which is when the value takes effect.
+    Nothing is written when the variable is unset or invalid; an invalid value
+    is logged as a warning. A path without a server kit is skipped, which
+    leaves client workspaces alone, as well as a Docker host's path that does
+    not exist where the Hub runs.
+
+    Args:
+        server_workspaces: The server's workspace as the Hub sees it and, if
+            different, as the Docker host sees it.
+        logger: Optional platform logger.
+
+    Returns:
+        list[str]: The files that were written.
+    """
+    admin_timeout = flare_admin_timeout_from_env(logger)
+    if admin_timeout is None:
+        return []
+    written = []
+    for workspace in dict.fromkeys(Path(path).absolute() for path in server_workspaces):
+        if not (workspace / "startup" / "fed_server.json").is_file():
+            continue
+        resources = workspace / "local" / "resources.json"
+        try:
+            changed = set_server_admin_timeout(workspace, admin_timeout)
+        except (OSError, ValueError) as exc:
+            if logger is not None:
+                logger.network.warning(
+                    f"Could not set admin_timeout in {resources}; the FL server "
+                    f"keeps its current value: {exc}"
+                )
+            continue
+        if changed:
+            written.append(str(resources))
+            if logger is not None:
+                logger.network.info(
+                    f"Set the FL server's admin_timeout to {admin_timeout:g} s in "
+                    f"{resources} ({FLARE_ADMIN_TIMEOUT_ENV})."
+                )
     return written
 
 

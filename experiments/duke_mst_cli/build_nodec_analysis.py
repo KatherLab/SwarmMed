@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Node C analysis: what a small centre contributes, and what it gains (task: Reviewer 2, item 6).
+"""Node C analysis: what a small centre contributes, and what it gains.
 
 Answers two questions a consortium actually asks:
 

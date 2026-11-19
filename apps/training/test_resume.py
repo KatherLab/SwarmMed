@@ -7,6 +7,8 @@ import os
 import shutil
 import tempfile
 import uuid
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +16,7 @@ import torch
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase, override_settings
+from swarmed_cli.main import main
 
 from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project
@@ -346,7 +349,12 @@ class SubmitHarness:
         environment = patch.dict(os.environ)
         environment.start()
         self.addCleanup(environment.stop)
-        for name in ("SWARMMEDHUB_SWARM_ROUNDS", "SWARMMEDHUB_RESUME_CHECKPOINTS"):
+        for name in (
+            "SWARMMEDHUB_SWARM_ROUNDS",
+            "SWARMMEDHUB_RESUME_CHECKPOINTS",
+            *training_services.SWARM_TIME_LIMIT_ENV.values(),
+            "SWARMMEDHUB_FLARE_ADMIN_TIMEOUT",
+        ):
             os.environ.pop(name, None)
 
         for target, value in {
@@ -449,6 +457,105 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
             (exported / f"app_{starting}/custom" / START_CHECKPOINT_FILE).exists()
         )
         self.assertEqual(job.total_rounds, 10)
+
+    def _plan_from_round(self, next_round=3):
+        source = self.base_dir / "ckpt"
+        _write_round_start_checkpoint(source, next_round, "node-B")
+        return ResumePlan(
+            checkpoint=ResumeCheckpoint(
+                path=str(source / CHECKPOINT_FILE),
+                next_round=next_round,
+                site="node-B",
+                source="round-start",
+            ),
+            start_round=next_round,
+            total_rounds=10,
+        )
+
+    def _controller_args(self):
+        server, _clients = self._configs(self.submitted[-1])
+        return server["workflows"][0]["args"]
+
+    def test_new_job_keeps_the_nvflare_start_timeout(self):
+        training_services.submit_training_job(actor=self.user, network=self.network)
+
+        args = self._controller_args()
+        self.assertNotIn("start_task_timeout", args)
+        self.assertNotIn("job_status_check_interval", args)
+
+    def test_resumed_job_waits_longer_for_the_workflow_to_start(self):
+        log = MagicMock()
+        with patch.object(training_services, "get_logger", return_value=log):
+            training_services.submit_training_job(
+                actor=self.user, network=self.network, resume=self._plan_from_round()
+            )
+
+        args = self._controller_args()
+        timeout = args["start_task_timeout"]
+        self.assertEqual(timeout, training_services.RESUME_START_TASK_TIMEOUT)
+        # The job's JSON keeps it an int, which NVFlare requires.
+        self.assertIs(type(timeout), int)
+        self.assertEqual(
+            args["job_status_check_interval"],
+            training_services.RESUME_JOB_STATUS_CHECK_INTERVAL,
+        )
+        config_line = next(
+            call.args[0]
+            for call in log.training.info.call_args_list
+            if call.args[0].startswith("Swarm controller config")
+        )
+        self.assertIn("'start_task_timeout': 600", config_line)
+        self.assertIn("'job_status_check_interval': 10.0", config_line)
+        self.assertIn("default for a resumed job", config_line)
+
+    def test_the_variable_sets_the_start_timeout_of_a_resumed_job(self):
+        os.environ["SWARMMEDHUB_SWARM_START_TASK_TIMEOUT"] = "120.0"
+
+        training_services.submit_training_job(
+            actor=self.user, network=self.network, resume=self._plan_from_round()
+        )
+
+        timeout = self._controller_args()["start_task_timeout"]
+        self.assertEqual((timeout, type(timeout)), (120, int))
+
+    def _set_limits_equal_to_nvflare_defaults(self):
+        # NVIDIA FLARE 2.7.1's defaults, which its job export leaves out; the FL
+        # server's image can have other defaults (100 h in the worked example's).
+        os.environ.update(
+            {
+                "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT": "10",
+                "SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL": "90",
+                "SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT": "3600",
+            }
+        )
+        return {
+            "start_task_timeout": 10,
+            "max_status_report_interval": 90.0,
+            "progress_timeout": 3600.0,
+        }
+
+    def test_limits_equal_to_nvflare_defaults_reach_a_new_job(self):
+        expected = self._set_limits_equal_to_nvflare_defaults()
+
+        training_services.submit_training_job(actor=self.user, network=self.network)
+
+        args = self._controller_args()
+        self.assertEqual({name: args.get(name) for name in expected}, expected)
+        self.assertIs(type(args["start_task_timeout"]), int)
+        self.assertNotIn("job_status_check_interval", args)
+
+    def test_limits_equal_to_nvflare_defaults_reach_a_resumed_job(self):
+        expected = self._set_limits_equal_to_nvflare_defaults()
+
+        training_services.submit_training_job(
+            actor=self.user, network=self.network, resume=self._plan_from_round()
+        )
+
+        args = self._controller_args()
+        self.assertEqual({name: args.get(name) for name in expected}, expected)
+        self.assertIs(type(args["start_task_timeout"]), int)
+        self.assertEqual(args["job_status_check_interval"], 10.0)
+        self.assertEqual((args["start_round"], args["num_rounds"]), (3, 7))
 
     def test_numpy_jobs_cannot_be_resumed(self):
         plan = ResumePlan(
@@ -581,3 +688,52 @@ class ResumeTrainingJobTests(SubmitHarness, TestCase):
                     self.network, self.old_job
                 )
             )
+
+
+class ResumeCommandTests(SubmitHarness, TestCase):
+    """`swarmed training resume`, with the FL server replaced by a fake session."""
+
+    def setUp(self):
+        super().setUp()
+        self.old_uuid = str(uuid.uuid4())
+        TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=self.old_uuid,
+            flare_job_uuid=self.old_uuid,
+            total_rounds=8,
+        )
+        app_dir = self.client_workspace("node-A") / self.old_uuid / "app_node-A"
+        _write_round_start_checkpoint(app_dir, 3, "node-A")
+
+    def _resume(self):
+        stdout = StringIO()
+        with (
+            patch.object(
+                training_services, "_job_active_on_current_server", return_value=False
+            ),
+            # Keep the checkout's .env, which the CLI loads, out of the test.
+            patch("swarmed_cli.bootstrap.load_dotenv"),
+            redirect_stdout(stdout),
+        ):
+            code = main(
+                ["training", "resume", self.old_uuid, "--user", "resumer", "--json"]
+            )
+        envelope = json.loads(stdout.getvalue())
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(len(self.submitted), 1)
+        return envelope
+
+    def test_points_to_the_timeouts_that_a_slow_link_needs(self):
+        warnings = self._resume()["warnings"]
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("ships its checkpoint", warnings[0])
+        self.assertIn("SWARMMEDHUB_FLARE_ADMIN_TIMEOUT", warnings[0])
+        self.assertIn("SWARMMEDHUB_SWARM_START_TASK_TIMEOUT", warnings[0])
+
+    def test_says_nothing_once_the_admin_timeout_is_set(self):
+        os.environ["SWARMMEDHUB_FLARE_ADMIN_TIMEOUT"] = "300"
+
+        self.assertEqual(self._resume()["warnings"], [])

@@ -2,82 +2,118 @@
 
 This module produces the explainability artefacts (per-case predictions,
 GradCAM / GradCAM++ / OCA heatmaps, and a composite multi-cohort figure) for
-the Duke MST federated checkpoint described in
-[`results/duke_mst_cli/duke_mst_full_runs_evaluation.xlsx`](../../../results/duke_mst_cli/duke_mst_full_runs_evaluation.xlsx).
+a Duke MST federated checkpoint. The checkpoint this page calls Repetition 1 is
+the second swarm repetition in [`docs/reproduce.md`](../../../docs/reproduce.md)
+(FLARE job `37bc58d0-9425-4180-9846-7273cd55d2bf`), as the Status section of
+[`docs/explainability.md`](../../../docs/explainability.md#status) explains.
 
 ## Why these methods
 
 MST is a DINOv2 ViT-S/14 backbone applied per slice with a transformer slice-fusion head
-(see [`/home/jeff/Projects/MediSwarm/application/jobs/_shared/custom/models/mst.py`](/home/jeff/Projects/MediSwarm/application/jobs/_shared/custom/models/mst.py)).
+(see `application/jobs/_shared/custom/models/mst.py` in MediSwarm).
 Because the backbone is a transformer, classic CAM hooks on a "last conv block" don't apply.
 Instead:
 
 - **GradCAM / GradCAM++** hook the LayerNorm before the last attention block
   (`model.mst.backbone.blocks[-1].norm1`). The 1+16×16 token sequence is reshaped
   back into a 16×16 patch grid and bilinearly upsampled to slice resolution.
-- **OCA (Occlusion Confidence Activation)** sweeps a 48×48 occlusion patch (stride 32,
-  fill = per-volume mean intensity) over each axial slice and records the drop in
-  P(Malignant) versus the baseline. This is a black-box, model-agnostic attribution
-  that complements gradient-based maps.
+- **OCA (Occlusion Confidence Activation)** sweeps a 16×16 occlusion patch (stride 8,
+  filled with the patch's own mean) over every fourth axial slice by default
+  (`--occlusion-patch`, `--occlusion-stride`, `--occlusion-fill`,
+  `--occlusion-slice-stride`) and records the drop in P(Malignant) versus the
+  baseline. This is a black-box, model-agnostic attribution that complements
+  gradient-based maps.
 
-## Where the data and checkpoint live
+## What the script needs
 
-Both Duke and ODELIA cohorts plus the Repetition 1 checkpoint live on the **dd-dl0** server:
-
-| Artefact | Path on dd-dl0 |
-|----------|----------------|
-| Repetition 1 checkpoint | `/home/swarm/Projects/SwarmCloud/workspaces/627f6350-…/…/37bc58d0-…/app_node-A/FL_global_model.pt` (MD5 `172f8bcf…`) |
-| Duke test set | `/mnt/dlhd0/DUKE_iid/test/{data_unilateral,metadata_unilateral}` |
-| ODELIA cohorts | `/mnt/dlhd0/medswarmdata/{MHA,RUMC,UKA,UMCU,CAM,RSH}/{data_unilateral,metadata_unilateral}` |
-| MediSwarm code | `/home/swarm/actions-runner/_work/MediSwarm/MediSwarm` |
+| Artefact | Where |
+|----------|-------|
+| Checkpoint | `FL_global_model.pt` in the job's app folder in a training site's FLARE workspace, `<job-id>/app_<site>/FL_global_model.pt` (Repetition 1's has MD5 `172f8bcf…`) |
+| Duke test set | `<duke-root>/test/{data_unilateral,metadata_unilateral}` |
+| ODELIA cohorts | `<odelia-root>/<cohort>/{data_unilateral,metadata_unilateral}` for the cohorts in `COHORT_ALIASES` in `run_explainability.py` |
+| MediSwarm code | a MediSwarm checkout, `<mediswarm-checkout>` |
+| Published AUROCs | the `--output-json` files of `evaluate_global_model.py` for the checkpoint, in `<eval-json-dir>` |
 
 ## Running
 
-On dd-dl0 (or any host with the same checkpoint, datasets, and the
-`/home/swarm/Projects/SwarmCloud/.venv` Python environment):
+On a host with a CUDA GPU, the checkpoint, the datasets and SwarmMed's Python
+environment, from the repository root:
 
 ```bash
-ssh dd-dl0
-cd /home/swarm/Projects/SwarmCloud
 .venv/bin/python -m pip install grad-cam captum torchio einops x-transformers
 
-MEDISWARM_PROJECT_ROOT=/home/swarm/actions-runner/_work/MediSwarm/MediSwarm \
+MEDISWARM_PROJECT_ROOT=<mediswarm-checkout> \
 PYTHONPATH=experiments/duke_mst_cli:experiments/duke_mst_cli/explain \
 .venv/bin/python experiments/duke_mst_cli/explain/run_explainability.py \
-    --checkpoint /home/swarm/Projects/SwarmCloud/workspaces/627f6350-4fa5-4caf-8658-89118e4cee6a/f93350f0-b4ed-4f3b-88b9-000c16b81e8f/workspace/duke_mst_iid_3_site_cli_2026_04_28/prod_00/node-A/37bc58d0-9425-4180-9846-7273cd55d2bf/app_node-A/FL_global_model.pt \
-    --duke-root /mnt/dlhd0/DUKE_iid \
-    --odelia-root /mnt/dlhd0/medswarmdata \
+    --checkpoint <checkpoint-path> \
+    --ref-json-dir <eval-json-dir> \
+    --duke-root <duke-root> \
+    --odelia-root <odelia-root> \
     --output-dir results/duke_mst_cli/explainability \
     --cohorts duke MHA
 ```
 
-Add `--skip-occlusion` for a CAM-only fast path (~2 min instead of ~20 min).
+Occlusion dominates the run time: in the recorded run of the default 16 cases
+(83 minutes on one NVIDIA Quadro RTX 6000) it took about 5 minutes per case, and
+everything else about 3 minutes in total. Add `--skip-occlusion` for a CAM-only pass.
+
+### One site's own cases
+
+A training site can explain cases of its own share with the global model it holds,
+for example its validation cases. `--site-institution` adds a cohort `site` for the
+site's folder under `--duke-root`, and `--split` picks the split (a site's share has
+`train` and `val`; the default is `test`):
+
+```bash
+MEDISWARM_PROJECT_ROOT=<mediswarm-checkout> \
+PYTHONPATH=experiments/duke_mst_cli:experiments/duke_mst_cli/explain \
+.venv/bin/python experiments/duke_mst_cli/explain/run_explainability.py \
+    --checkpoint <checkpoint-path> \
+    --duke-root <data-dir> \
+    --site-institution node_A --split val --cohorts site \
+    --output-dir results/duke_mst_cli/explainability_node_A_val
+```
+
+`<data-dir>` is the folder that holds the site's folder `node_A`, the site's
+`DATA_DIR`. The predictions go to `per_case_predictions/site_node_A_val.csv`, and
+the figures name the cohort `node_A`. These cases have no published AUROC, so the
+check under [Validation](#validation) is skipped with a warning; the script still
+computes their AUROC, so the split must hold malignant and other cases. `--split`
+applies to every cohort of a run, so explain a site's cases in a run of their own.
+`recompute_cam.py` and `render_from_npy.py`, which recompute a run's maps and redraw
+its composite figures, know only the cohorts in their `COHORT_TO_DATASET` and read
+the `test` split, so they cannot process such a run.
 
 ## What gets produced
 
 ```
 results/duke_mst_cli/explainability/
-├── README.md                  # provenance + methodology
 ├── report.md                  # per-case table + AUROC reproduction
 ├── metrics_check.json         # measured vs. published cohort AUROC
+├── selected_cases.csv         # the explained cases and their files
 ├── per_case_predictions/
 │   ├── duke_test.csv
 │   └── odelia_MHA.csv
 ├── attribution_maps/          # raw .npy heatmaps per case+method
 └── figures/
     ├── figure_main.png        # composite mirroring the reference layout
+    ├── figure_extended.png    # all four outcomes
     └── <cohort>_<uid>_{raw,gradcam,gradcampp,oca}.png
 ```
 
 ## Validation
 
 `run_explainability.py` reproduces the cohort AUROC and asserts it matches
-the value published in `results/duke_mst_cli/repetition_1/<cohort>_eval.json`
-within `--auroc-tolerance` (default 0.01). On the verified setup:
+the value published in `<cohort>_eval.json` under `--ref-json-dir` (by default
+`results/duke_mst_cli/repetition_1` in the working directory) within
+`--auroc-tolerance` (default 0.01). On the verified setup:
 
 | Cohort | Measured | Published | Δ |
 |--------|----------|-----------|---|
 | MHA    | 0.6082   | 0.6082    | 0.0000 |
 | Duke   | (filled in by `report.md`) | 0.9007 | (filled in) |
 
-If the AUROC mismatches, the run aborts before producing figures.
+The check runs per cohort, before that cohort's cases are explained. If a cohort's
+AUROC mismatches, the run stops with an error: the heatmaps and per-case figures of
+earlier cohorts are already written, but `selected_cases.csv`, the composite figures,
+`metrics_check.json` and `report.md` are not.

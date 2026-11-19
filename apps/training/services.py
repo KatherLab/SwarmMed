@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import json
+import math
 import os
 import re
 import shutil
@@ -18,6 +19,7 @@ from django.utils import timezone
 
 from common.utils import get_safe_slug
 from logs.logger import get_logger
+from network.failover import flare_admin_timeout_from_env
 from network.models import SwarmNetwork
 from results.artifacts import (
     GLOBAL_MODEL_FILENAME_CANDIDATES,
@@ -55,16 +57,47 @@ from .utils import (
 
 
 # Environment overrides for the swarm workflow's server-side time limits. NVFlare's
-# defaults are 90 s without a status report from a site and 3600 s without progress;
-# either one aborts the whole job, which large or slow consortia can hit.
+# defaults are 90 s without a status report from a site, 3600 s without progress and
+# 10 s for the starting site to start the workflow; each one aborts the whole job,
+# which large or slow consortia can hit.
 SWARM_TIME_LIMIT_ENV = {
     "max_status_report_interval": "SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL",
     "progress_timeout": "SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT",
+    "start_task_timeout": "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT",
 }
+
+# NVFlare uses start_task_timeout as the timeout of a Task, which must be an int.
+_WHOLE_SECOND_TIME_LIMITS = frozenset({"start_task_timeout"})
+
+# start_task_timeout of a resumed job unless SWARMMEDHUB_SWARM_START_TASK_TIMEOUT is
+# set. The starting site confirms the start of the workflow only once it has sent
+# the first learn task to every other site. In a new run that task carries no model,
+# and the start took 1 to 2.4 s in a test across three hospitals, well within
+# NVFlare's 10 s. In a resumed run it carries the checkpoint: in the same test the
+# starting site took 110 s to send a 94 MB checkpoint to the two other sites, so the
+# 10 s default ended the run before it started.
+RESUME_START_TASK_TIMEOUT = 600
+
+# job_status_check_interval of a resumed job. FLARE checks each site's last status
+# report job_status_check_interval seconds after the workflow has started (2 s by
+# default) and ends the job if a site has not reported for max_status_report_interval
+# (90 s in NVIDIA FLARE 2.7.1), counted from the start of the job. A site reports
+# only once its first learn task has started, and the starting site sends no task
+# request while it runs the start task. After a long start (a resumed job's start
+# carries the checkpoint) the default check can therefore end the job before the
+# starting site's first report arrives: in a test across three hospitals that report
+# arrived 0.26 s before the check. A later first check leaves every site time to
+# report; the status limit still applies for the rest of the job.
+RESUME_JOB_STATUS_CHECK_INTERVAL = 10.0
 
 
 def swarm_time_limits_from_env(log=None):
     """Return SwarmServerController time-limit overrides set in the environment.
+
+    The values are seconds, positive and finite: NVFlare accepts nan and inf,
+    but a deadline of either never expires. ``start_task_timeout`` takes only
+    whole seconds, as NVFlare requires: "120" and "120.0" both give 120, "120.5"
+    is rejected.
 
     Args:
         log: Optional platform logger for rejected values.
@@ -78,19 +111,129 @@ def swarm_time_limits_from_env(log=None):
         raw = os.getenv(env_name, "").strip()
         if not raw:
             continue
+        whole_seconds = argument in _WHOLE_SECOND_TIME_LIMITS
         try:
             value = float(raw)
         except ValueError:
             value = 0.0
-        if value <= 0:
+        if (
+            not math.isfinite(value)
+            or value <= 0
+            or (whole_seconds and not value.is_integer())
+        ):
             if log is not None:
+                expected = "whole number" if whole_seconds else "number"
                 log.training.warning(
                     f"Ignoring {env_name}={raw!r}: "
-                    "expected a positive number of seconds"
+                    f"expected a positive {expected} of seconds"
                 )
             continue
-        limits[argument] = value
+        limits[argument] = int(value) if whole_seconds else value
     return limits
+
+
+def swarm_time_limits_for_job(*, resumed: bool, log=None) -> tuple[dict, str]:
+    """Return the SwarmServerController time limits of a new job.
+
+    The overrides set in the environment apply to every job. A resumed job
+    also waits RESUME_START_TASK_TIMEOUT seconds for the workflow to start,
+    unless SWARMMEDHUB_SWARM_START_TASK_TIMEOUT is set, and FLARE checks its
+    sites' status reports every RESUME_JOB_STATUS_CHECK_INTERVAL seconds.
+
+    Args:
+        resumed: Whether the job resumes an interrupted run.
+        log: Optional platform logger for rejected values.
+
+    Returns:
+        tuple[dict, str]: Keyword arguments for SwarmServerController, empty
+        when NVFlare's defaults apply, and a note for the log on the values that
+        SwarmMed chose itself ("" if there are none).
+    """
+    limits = swarm_time_limits_from_env(log)
+    if not resumed:
+        return limits, ""
+    notes = []
+    if "start_task_timeout" not in limits:
+        limits["start_task_timeout"] = RESUME_START_TASK_TIMEOUT
+        notes.append(
+            f"start_task_timeout={RESUME_START_TASK_TIMEOUT} s is the default for a "
+            "resumed job, whose first learn task carries the checkpoint, and "
+            "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT overrides it"
+        )
+    limits["job_status_check_interval"] = RESUME_JOB_STATUS_CHECK_INTERVAL
+    notes.append(
+        f"job_status_check_interval={RESUME_JOB_STATUS_CHECK_INTERVAL:g} s lets "
+        "every site report its status after the start of a resumed job before "
+        "FLARE first checks the reports"
+    )
+    return limits, f" ({'; '.join(notes)})"
+
+
+def write_swarm_time_limits(job_path, time_limits: dict) -> list[str]:
+    """Write time limits into the swarm server controller of an exported job.
+
+    FLARE's job export leaves out every controller argument that equals the
+    default of the Hub's NVIDIA FLARE build (10 s, 90 s and 3 600 s in 2.7.1).
+    The FL server builds the controller with the defaults of the FLARE build in
+    its own image, which can differ (360 000 s in the worked example's image),
+    so every limit chosen for the job is written into its configuration.
+
+    Args:
+        job_path: Folder of the exported job.
+        time_limits: Keyword arguments for SwarmServerController.
+
+    Returns:
+        list[str]: The app folders that were changed.
+    """
+    if not time_limits:
+        return []
+    changed = []
+    for config_path in sorted(
+        Path(job_path).glob("app_*/config/config_fed_server.json")
+    ):
+        config = json.loads(config_path.read_text())
+        controllers = [
+            workflow
+            for workflow in config.get("workflows", [])
+            if isinstance(workflow, dict)
+            and str(workflow.get("path", "")).endswith("SwarmServerController")
+        ]
+        if not controllers:
+            continue
+        for workflow in controllers:
+            workflow.setdefault("args", {}).update(time_limits)
+        config_path.write_text(json.dumps(config, indent=4))
+        changed.append(config_path.parent.parent.name)
+    return changed
+
+
+def resume_timeout_hint() -> str:
+    """Return the note that ``swarmed training resume`` prints, or "".
+
+    A resumed job ships its checkpoint to the starting site, and that site
+    sends it on to every other site when the workflow starts. Over a slow link
+    FLARE's deadlines for these two steps can expire: the FL server's
+    ``admin_timeout`` and the workflow's ``start_task_timeout``.
+
+    The note follows the submission, so it says what to change if the job
+    fails: the admin timeout takes effect when the network at the Hub that runs
+    the FL server restarts, which would end the job just submitted. A resumed
+    job that fails before its first round leaves no checkpoint, so the note
+    points to the interrupted job. The note is left out once
+    SWARMMEDHUB_FLARE_ADMIN_TIMEOUT holds a valid value.
+    """
+    if flare_admin_timeout_from_env() is not None:
+        return ""
+    start_timeout = swarm_time_limits_for_job(resumed=True)[0]["start_task_timeout"]
+    return (
+        "A resumed job ships its checkpoint to the starting site, which sends it "
+        "on to the other sites. If this job fails over a slow link, resume the "
+        "interrupted job again after setting SWARMMEDHUB_FLARE_ADMIN_TIMEOUT at the "
+        "Hub that runs the FL server (then restart the network there the same way "
+        "as before, which ends running jobs) or raising "
+        "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT "
+        f"(now {start_timeout} s); see Server failover in the documentation."
+    )
 
 
 def list_training_jobs(*, project=None, network=None):
@@ -1042,7 +1185,9 @@ def submit_training_job(
                 f"{num_rounds} rounds left."
             )
 
-        time_limits = swarm_time_limits_from_env(log)
+        time_limits, time_limit_note = swarm_time_limits_for_job(
+            resumed=resume is not None, log=log
+        )
         controller = SwarmServerController(
             num_rounds=num_rounds,
             start_round=start_round,
@@ -1058,7 +1203,7 @@ def submit_training_job(
             "Swarm controller config: "
             f"private_p2p={private_p2p}, starting_client={starting_client}, "
             f"participants={client_names}, "
-            f"time_limits={time_limits or 'NVFlare defaults'}"
+            f"time_limits={time_limits or 'NVFlare defaults'}{time_limit_note}"
         )
         for server_name in server_names:
             job_definition.to(controller, server_name)
@@ -1097,6 +1242,8 @@ def submit_training_job(
         job_definition_path = os.path.abspath(
             os.path.join(generated_jobs_root, job_definition.name)
         )
+        # The export leaves out limits equal to the Hub's NVFlare defaults.
+        write_swarm_time_limits(job_definition_path, time_limits)
         if framework == "pt" and resume_checkpoints_enabled():
             # Round-start checkpoints at every site; only PyTorch runs can resume.
             add_resume_checkpoint_component(job_definition_path)

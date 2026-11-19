@@ -53,8 +53,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--duke-root", type=Path, default=Path("/mnt/dlhd0/DUKE_iid"))
-    parser.add_argument("--odelia-root", type=Path, default=Path("/mnt/dlhd0/medswarmdata"))
+    parser.add_argument("--duke-root", type=Path, default=Path("/mnt/data/DUKE_iid"))
+    parser.add_argument("--odelia-root", type=Path, default=Path("/mnt/data/medswarmdata"))
     parser.add_argument("--checkpoint", type=Path, required=True,
                         help="Used only for env/path side-effects; no inference.")
     args = parser.parse_args()

@@ -362,7 +362,10 @@ swarmed training resume --user alice <JOB_UUID>
 The interrupted job cannot continue on another server; `training resume` starts a
 new job at the interrupted round from the newest checkpoint at the site. See
 [Server failover](failover.md) for what each command does and what has to be in
-place beforehand.
+place beforehand. The resumed job carries the checkpoint, so over slow links it
+may need longer FLARE timeouts; `training resume` warns about the two settings
+unless `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its own environment (see
+[Resuming over a slow link](failover.md#resuming-over-a-slow-link)).
 
 ## Command Tree
 

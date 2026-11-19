@@ -315,7 +315,7 @@ def main() -> None:
             f"| {r['cohort']} | {r['comparison']} | {r['level']} | {r['delta_auroc']} | {r['ci95_low']} to {r['ci95_high']} | "
             f"{r['p_value_two_sided']} | {r['non_inferior_margin_0.03']} | {r['non_inferior_margin_0.05']} |"
         )
-    lines += ["", "Non-inferior at margin m if the lower 95% bound of delta exceeds −m. The margin must be", "pre-specified in the manuscript; both are shown for transparency.", ""]
+    lines += ["", "Non-inferior at margin m if the lower 95% bound of delta exceeds −m. The margin must be", "pre-specified before the analysis; both are shown for transparency.", ""]
     if gui_rows:
         lines += ["## Web interface (SwarmMedHub) versus command line", ""]
         lines += [
