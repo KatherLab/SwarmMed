@@ -160,11 +160,79 @@ The checkpoint travels inside the job to the starting site. The new job records
 what it started from in `config/swarmmed_resume.json` of the starting site's app,
 and the Hub keeps a list in `workspaces/<project>/<network>/job/resumed_jobs.json`.
 
+### Resuming over a slow link
+
+A resumed job carries the checkpoint (94 MB for the MST model of the worked
+example), and two FLARE deadlines that a new run stays well within apply to
+moving it. In a test across three hospitals, both expired over a slow link:
+
+* **Deploying the job.** The FL server waits for each site to accept the job
+  for at most its `admin_timeout`, which provisioning sets to 10 s. The starting
+  site did not answer within 10 s, so the server started the job without it, and
+  the job failed (`invalid value 'node-A' in 'participating_clients'` in the
+  server's log). With 300 s the job was deployed. Set
+  `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` (seconds) for the process that starts the FL
+  server, then stop the network at that Hub and start it again the same way as
+  before:
+
+    * For a start from the CLI or the web interface, that process is the Hub's
+      Celery worker. Put the variable in `docker-compose.override.yml` under
+      `celery_worker` and apply it with `docker compose up -d celery_worker`. Do
+      not put it in `.env`: `make env`, which every `make start` runs, drops
+      variables that `.env.template` does not list
+      ([Installation](installation.md#environment-variables)).
+    * For a server started as in the
+      [worked example](reproduce.md#4-start-the-fl-server-coordinating-host), add
+      `-e SWARMMEDHUB_FLARE_ADMIN_TIMEOUT=300` to that command.
+
+    The server also takes its image (`SWARMMEDHUB_FLARE_IMAGE`,
+    `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE`) and start mode
+    (`SWARMMEDHUB_SERVER_ONLY_MODE`) from that process. Without the image
+    settings it was started with, it comes back in another image with that
+    image's FLARE time limits (NVIDIA FLARE 2.7.1's 90 s, 3 600 s and 10 s in the
+    image SwarmMed builds). Without `SWARMMEDHUB_SERVER_ONLY_MODE`, a client for
+    every site is started at that host too
+    ([Networking](networking.md#what-the-platform-requires)). In the test across
+    three hospitals, the server had been started in the worked example's image
+    and was restarted through the CLI. That put it in SwarmMed's own image, which
+    is why the workflow's start (below) then had only 10 s.
+
+    Before it starts the server, SwarmMed writes the value into the server's
+    `local/resources.json`, which FLARE reads in place of
+    `resources.json.default`, and keeps every other setting. The value stays in
+    that file when the variable is removed; set the variable to 10 to return to
+    the provisioned value. Set it at the standby site as well.
+
+* **Starting the workflow.** The FL server then waits `start_task_timeout`
+  (10 s in NVIDIA FLARE 2.7.1) for the starting site to start the workflow. The
+  starting site confirms only once it has sent the first learn task to every
+  other site, and in a resumed run that task carries the checkpoint: sending it
+  to the two other sites (about 190 MB) took 110 s, where new runs confirmed in
+  1 to 2.4 s. SwarmMed therefore gives a resumed job 600 s.
+  `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` (whole seconds, in the process that
+  submits the job) replaces that value, and also applies to new jobs. A long
+  start also counts against FLARE's status-report limit (90 s in NVIDIA FLARE
+  2.7.1), which runs from the start of the job: a site reports only once its
+  first learn task has started, the starting site sends no report while it
+  starts the workflow, and FLARE checks the reports 2 s after the workflow has
+  started. In the test, the starting site's first report arrived 0.26 s before
+  that check, so SwarmMed has FLARE check a resumed job's status reports every
+  10 s instead of every 2 s, which leaves every site time to report first.
+
+`swarmed training resume` names both settings after it submits the job, unless
+`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its environment. Stopping the network
+at the Hub that runs the FL server ends the jobs on that server, so set the admin
+timeout before you resume, or once the resumed job has failed. Then resume the
+interrupted job again, not the failed one: a resumed job that fails before its
+first round leaves no checkpoint.
+
 ## Settings
 
 | Variable | Process | Effect |
 |---|---|---|
 | `SWARMMEDHUB_RESUME_CHECKPOINTS` | the process that submits the job | `false` stops writing round-start checkpoints; `FL_global_model.pt` is still saved by the aggregating site |
+| `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` | the process that starts the FL server: for a start from the CLI or the web interface, the Hub's Celery worker (`docker-compose.override.yml` under `celery_worker`, not `.env`); applies from the next server start | seconds the FL server waits for each site's reply, for example when it deploys a job (provisioned: 10 s); see [Resuming over a slow link](#resuming-over-a-slow-link) |
+| `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` | the process that submits the job (`docker exec -e` for the CLI, `docker-compose.override.yml` under `app` for the web interface) | whole seconds the FL server waits for the starting site to start the workflow; without it, 600 s for a resumed job and the FLARE build's default for a new one (10 s in NVIDIA FLARE 2.7.1) |
 
 ## Testing status
 

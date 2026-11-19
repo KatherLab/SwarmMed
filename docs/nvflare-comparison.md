@@ -86,20 +86,45 @@ coordinated consortium, not a leaderless network.
 
 ## Time limits and failure behaviour
 
-SwarmMed exposes two server-controller deadlines when constructing a job:
+SwarmMed exposes three server-controller deadlines when constructing a job, and
+the FL server's admin timeout:
 
 | Setting | What it limits | NVIDIA FLARE 2.7.1 default | MediSwarm build default (worked example) |
 |---|---|---|---|
 | `SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL` | Time since the server last received a status report from any individual client | 90 s | 360 000 s (100 h) |
 | `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT` | Time since the server last received a changed workflow status from any client | 3 600 s | 360 000 s (100 h) |
+| `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` | Time the server waits for the starting client to start the workflow; in a resumed run this includes sending the checkpoint to every other client | 10 s; SwarmMed sets 600 s for a resumed job | 360 000 s (100 h); SwarmMed sets 600 s for a resumed job |
+| `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` (the server's `admin_timeout`) | Time the server waits for each client's reply to an admin request, such as deploying a job | 10 s, written into the server's local resources at provisioning | the same, because the Hub provisions the kits with NVIDIA FLARE 2.7.1 |
 
-Set the values in seconds in the **job-submitting process**, before submission:
-the CLI process for a CLI submission, or the application process for a web
-submission. Setting them only on the Celery worker does not configure a job
-submitted by either interface. The generated server configuration records the
-overrides; existing jobs are unaffected. When a setting is absent, the runtime
-build's default applies. NVFlare 2.7.1 requires a status-report interval of at
-least 10 s and a progress timeout of at least 5 s.
+The defaults of the three controller deadlines are those of the NVIDIA FLARE
+build in the image the FL server runs in, which builds the controller from the
+job's configuration. The worked example's image, a MediSwarm build, sets
+360 000 s (100 h) for the status-report and progress limits; the image SwarmMed
+builds for a network uses NVIDIA FLARE 2.7.1's 90 s and 3 600 s.
+
+Set the controller deadlines in seconds in the **job-submitting process**, before
+submission: the CLI process for a CLI submission, or the application process for
+a web submission. Setting them only on the Celery worker does not configure a job
+submitted by either interface. The generated server configuration records every
+override, even one equal to NVIDIA FLARE 2.7.1's default, so that it also applies
+on a build with other defaults; existing jobs are unaffected. When a setting is
+absent, the runtime build's default applies, except that a resumed job waits
+600 s for the workflow to start: its first learn task carries the checkpoint (see
+[Server failover](failover.md#resuming-over-a-slow-link)). On a build with a
+longer default, such as the worked example's, those 600 s are shorter than the
+default; set the variable to keep a longer limit. For a resumed job, the server
+also checks the clients' status reports every 10 s instead of every 2 s
+(`job_status_check_interval`), so that after a long start every client has
+reported before the first check. NVFlare 2.7.1 requires a status-report interval
+of at least 10 s and a progress timeout of at least 5 s, and takes the start
+timeout only in whole seconds.
+
+The admin timeout is not part of the job. Set `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`
+for the process that starts the FL server, which for a start from the CLI or the
+web interface is the Hub's Celery worker: SwarmMed writes it into the server's
+`local/resources.json` before the server starts, and it applies from the next
+start of the server (see
+[Server failover](failover.md#resuming-over-a-slow-link)).
 
 For example, the completed 50-site benchmark raised only the status deadline:
 
@@ -124,10 +149,10 @@ aborts the job even if reports continue to arrive. Exceeding either server
 deadline aborts the whole workflow; it does not complete a round with fewer sites.
 
 Other controller deadlines are not exposed by SwarmMed. NVFlare 2.7.1 defaults
-to 300 s for accepting the workflow configuration, 10 s for starting the
-workflow and 10 s for acknowledging a learn task or training result; the
-MediSwarm build uses 360,000 s for each. The client-side `learn_task_timeout`
-defaults to `None` in both builds, and SwarmMed leaves it unset. There is no
+to 300 s for accepting the workflow configuration and 10 s for acknowledging a
+learn task or training result; the MediSwarm build uses 360,000 s for each. The
+client-side `learn_task_timeout` defaults to `None` in both builds, and SwarmMed
+leaves it unset. There is no
 separate local-training or gathering deadline configured, but the server
 deadlines still apply. SwarmMed sets `min_responses_required` to the number of
 participating clients, so every site's result is required. Raising a server
