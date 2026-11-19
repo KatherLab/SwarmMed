@@ -8,6 +8,8 @@ from unittest.mock import patch
 import numpy as np
 from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
 
 from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project
@@ -433,11 +435,32 @@ class TrainingViewServiceParityTests(TestCase):
                 "total_rounds",
                 "rounds_finished",
                 "progress_percent",
+                "last_round_at",
+                "stall_warning",
                 "created_at",
             },
         )
         self.assertEqual(payload["flare_job_uuid"], self.flare_uuid)
         self.assertEqual(payload["progress_percent"], 40)
+        self.assertIsNone(payload["last_round_at"])
+        self.assertEqual(payload["stall_warning"], "")
+
+    def test_training_api_state_gives_the_stall_warning(self):
+        last_round_at = timezone.now()
+        TrainingJob.objects.filter(pk=self.job.pk).update(
+            last_round_at=last_round_at, stall_warning="Site site-b dropped out."
+        )
+
+        response = self.client.get(
+            reverse("training:training_api_state", args=[self.network.identifier]),
+            HTTP_X_GOSSIP_PARTICIPANT=self.participant.participant_id,
+            HTTP_X_GOSSIP_TOKEN=self.participant.gossip_token,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        job = response.json()["job"]
+        self.assertEqual(job["stall_warning"], "Site site-b dropped out.")
+        self.assertEqual(job["last_round_at"], last_round_at.isoformat())
 
     def test_find_local_global_model_prefers_canonical_filename(self):
         with tempfile.TemporaryDirectory() as base_dir:

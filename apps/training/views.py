@@ -605,6 +605,7 @@ def training(request):
     training_logs = []
     duration_str = "-"
     eta_str = "-"
+    stall_warning = ""
 
     if current_network:
         training_job = TrainingJob.objects.filter(network=current_network).order_by("-created_at").first()
@@ -615,6 +616,8 @@ def training(request):
             duration_str = info["duration"]
             eta_str = info["eta"]
             is_training_running = info["is_running"]
+            if is_training_running:
+                stall_warning = training_job.stall_warning
             try:
                 job_uuid = (
                     training_job.flare_job_uuid
@@ -656,6 +659,7 @@ def training(request):
         "segment": "training", "current_network": current_network, "is_training_running": is_training_running,
         "training_status": training_status, "training_progress": training_progress, "training_logs": training_logs,
         "duration_str": duration_str, "eta_str": eta_str,
+        "stall_warning": stall_warning,
     }
     return render(request, "apps/training/training.html", context)
 

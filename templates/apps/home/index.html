@@ -119,6 +119,13 @@
             <div>
               <h2 id="DashboardTrainingStatus" class="text-4xl font-bold dark:text-white">{{ training_status }}</h2>
               <p class="text-lg font-medium text-gray-500 dark:text-gray-400">Training</p>
+              <!-- Stall warning; the full text is in the tooltip and on the Training page -->
+              <span id="dashboardStallWarning" title="{{ training_stall_warning }}" class="{% if not training_stall_warning %}hidden {% endif %}inline-flex items-center mt-2 px-2.5 py-0.5 text-xs font-medium text-yellow-800 bg-yellow-100 rounded dark:bg-yellow-900 dark:text-yellow-300">
+                <svg class="w-4 h-4 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z"/>
+                </svg>
+                Stalled
+              </span>
             </div>
           </div>
       
@@ -141,11 +148,18 @@
               var sEl=document.getElementById('DashboardTrainingStatus');
               var bar=document.getElementById('dashboardProgressBar');
               var pTxt=document.getElementById('dashboardProgressText');
+              var stallEl=document.getElementById('dashboardStallWarning');
               if(sEl && d.status){ sEl.textContent = d.status; }
               if(bar && typeof d.progress==="number"){
                 var pct=Math.max(0, Math.min(100, d.progress));
                 bar.style.width = pct + '%';
                 if(pTxt) pTxt.textContent = pct + '%';
+              }
+              if(stallEl){
+                var running=(d.status||'').toLowerCase()==='running';
+                var warning=running ? (d.stall_warning || '') : '';
+                stallEl.title = warning;
+                stallEl.classList.toggle('hidden', !warning);
               }
             }).catch(()=>{});
           // network status text (context rendered once per load)

@@ -145,6 +145,7 @@ def index(request):
     # progress by parsing logs on the filesystem.
     training_status = "Not started"
     training_progress = 0
+    training_stall_warning = ""
 
     try:
         if current_network_obj:
@@ -250,6 +251,7 @@ def index(request):
                     training_status = "Completed"
                 elif job.status == "RUNNING":
                     training_status = "Running"
+                    training_stall_warning = job.stall_warning
     except Exception as e:
         # Training tracking is secondary; if it fails, we just show "Not
         # started" and log the error for debugging.
@@ -281,6 +283,7 @@ def index(request):
         # Real-time training metrics.
         "training_status": training_status,
         "training_progress": training_progress,
+        "training_stall_warning": training_stall_warning,
     }
 
     return render(request, "apps/home/index.html", context)

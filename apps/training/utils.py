@@ -10,6 +10,8 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 
@@ -58,6 +60,63 @@ TRAINING_STOPPED_MARKERS = (
 )
 
 TERMINAL_TRAINING_STATUSES = {"COMPLETED", "FAILED", "STOPPED"}
+
+# NVIDIA FLARE 2.7.1 messages about a site that has dropped out of a job. The FL
+# server's own log (log.txt of its workspace) names the job and the reason, every
+# 10 s while the site's FL client runs without the job (its training process has
+# ended), and once when the site's FL client has missed its heartbeats:
+#   notified SJ of dead-job: job_id='<job>'; client_name='node-A';
+#     reason='missing job on client'   (or reason='client dead')
+# The job's server log has, for each notice,
+#   [identity=..., run=<job>, wf=...] - received dead job report for client node-A
+# and, 60 s after the first, "Client node-A is deemed disconnected!".
+DEAD_JOB_NOTICE_RE = re.compile(
+    r"notified SJ of dead-job: job_id='(?P<job>[^']*)'; "
+    r"client_name='(?P<client>[^']*)'; reason='(?P<reason>[^']*)'"
+)
+DEAD_JOB_REPORT_RE = re.compile(r"received dead job report for client (?P<client>\S+)")
+CLIENT_DISCONNECTED_RE = re.compile(r"Client (?P<client>\S+) is deemed disconnected!")
+# Messages that show a site taking part in the job (again).
+CLIENT_ACTIVITY_PATTERNS = (
+    re.compile(r"updated status of client (?P<client>\S+) on round \d+"),
+    re.compile(r"Client (?P<client>\S+) is removed from watch list"),
+    re.compile(r"Client (?P<client>\S+) is reconnected"),
+)
+# Every line matched above contains one of these; other lines are skipped unread.
+_CLIENT_STATE_MARKERS = (
+    "dead",
+    "deemed disconnected",
+    "updated status of client",
+    "watch list",
+    "is reconnected",
+)
+# The job a FLARE log line names, in its context ("run=<job>") or its message.
+_JOB_REFERENCE_RE = re.compile(r"(?:\brun=|job_id=')([0-9a-fA-F-]{36})")
+_LOG_LINE_TIME_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:,(\d{1,6}))?"
+)
+
+# Why the FL server counts a site as dropped out, most specific first.
+DROPOUT_MISSING = "missing"  # its FL client runs, but the job's process has ended
+DROPOUT_DEAD = "dead"  # its FL client has stopped sending heartbeats
+DROPOUT_DISCONNECTED = "disconnected"  # the job's server process counts it as gone
+DROPOUT_REPORTED = "reported"  # a dead-job report that does not give the reason
+_DROPOUT_REASON_RANK = {
+    DROPOUT_REPORTED: 0,
+    DROPOUT_DISCONNECTED: 1,
+    DROPOUT_MISSING: 2,
+    DROPOUT_DEAD: 2,
+}
+_DEAD_JOB_NOTICE_REASONS = {
+    "missing job on client": DROPOUT_MISSING,
+    "client dead": DROPOUT_DEAD,
+}
+# FLARE counts a site as alive for 60 s after the first report that its job is
+# missing (_dead_client_grace in NVIDIA FLARE 2.7.1): the report can come while
+# the site's job process is still starting. A site with no other report counts
+# once its reports span as long.
+DEAD_CLIENT_GRACE = timedelta(seconds=60)
+_REASONS_WITHIN_GRACE = {DROPOUT_MISSING, DROPOUT_REPORTED}
 
 
 def extract_flare_job_uuid(flare_job_id_raw: str | None) -> str | None:
@@ -142,11 +201,186 @@ def infer_training_terminal_status(log_text: str) -> str | None:
     return None
 
 
-def summarize_training_log(log_text: str) -> dict:
-    """Extract progress and terminal state from a training log blob."""
+def _later(first: datetime | None, second: datetime | None) -> datetime | None:
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return max(first, second)
+
+
+def _log_line_time(line: str) -> datetime | None:
+    """Return the time at the start of a FLARE log line, if it has one.
+
+    FLARE writes the time in its process's time zone without naming it; its
+    containers run in UTC unless their image sets another zone.
+    """
+    match = _LOG_LINE_TIME_RE.match(line)
+    if not match:
+        return None
+    try:
+        when = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    if match.group(2):
+        when = when.replace(microsecond=int(match.group(2).ljust(6, "0")))
+    return when.replace(tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class ClientDropout:
+    """A site that the FL server reports as having dropped out of a job.
+
+    Attributes:
+        client: The site's participant name.
+        reason: The most specific of the ``DROPOUT_*`` reasons reported.
+        first_reported_at: The first report since the site last took part in the
+            job, among the log lines read.
+        last_reported_at: The latest report.
+    """
+
+    client: str
+    reason: str
+    first_reported_at: datetime
+    last_reported_at: datetime
+
+
+@dataclass
+class ClientDropouts:
+    """What FLARE's logs of one job say about sites that dropped out of it.
+
+    Attributes:
+        reports: Site -> the (time, reason) of each report that it dropped out.
+        activity: Site -> the latest time it showed it takes part in the job.
+    """
+
+    reports: dict[str, list[tuple[datetime, str]]] = field(default_factory=dict)
+    activity: dict[str, datetime] = field(default_factory=dict)
+
+    def add_report(self, client: str, when: datetime, reason: str) -> None:
+        """Record a report that a site dropped out."""
+        self.reports.setdefault(client, []).append((when, reason))
+
+    def note_activity(self, client: str, when: datetime) -> None:
+        """Record that a site showed it takes part in the job."""
+        self.activity[client] = _later(self.activity.get(client), when)
+
+    def merge(self, other: "ClientDropouts | None") -> "ClientDropouts":
+        """Add what another log of the same job says; returns self."""
+        if other is None:
+            return self
+        for client, reports in other.reports.items():
+            self.reports.setdefault(client, []).extend(reports)
+        for client, when in other.activity.items():
+            self.note_activity(client, when)
+        return self
+
+    def dropped(self) -> list[ClientDropout]:
+        """Return the sites that are out of the job now, earliest report first.
+
+        A site counts when it has been reported since it last took part in the
+        job; a site whose job has only been reported as missing counts once
+        those reports span ``DEAD_CLIENT_GRACE``, so that a site whose job is
+        still starting is not named. Only the site's own activity ends a
+        dropout: its status updates, or its job contacting the FL server again
+        ("removed from watch list", "reconnected"). Progress of the other sites
+        does not: they can still finish a round to which the site had already
+        sent its result, and FLARE reports a dead FL client only once.
+        """
+        dropouts = []
+        for client, reports in self.reports.items():
+            active_at = self.activity.get(client)
+            current = [
+                item for item in reports if active_at is None or item[0] > active_at
+            ]
+            if not current:
+                continue
+            first_reported_at = min(when for when, _reason in current)
+            last_reported_at = max(when for when, _reason in current)
+            if (
+                all(reason in _REASONS_WITHIN_GRACE for _when, reason in current)
+                and last_reported_at - first_reported_at < DEAD_CLIENT_GRACE
+            ):
+                continue
+            _when, reason = max(
+                current, key=lambda item: (_DROPOUT_REASON_RANK[item[1]], item[0])
+            )
+            dropouts.append(
+                ClientDropout(
+                    client=client,
+                    reason=reason,
+                    first_reported_at=first_reported_at,
+                    last_reported_at=last_reported_at,
+                )
+            )
+        return sorted(dropouts, key=lambda item: (item.first_reported_at, item.client))
+
+
+def _concerns_job(line: str, job_uuid: str, job_log: bool) -> bool:
+    named = {reference.lower() for reference in _JOB_REFERENCE_RE.findall(line)}
+    if named:
+        return job_uuid in named
+    return job_log
+
+
+def scan_client_dropouts(
+    log_text: str, job_uuid: str | None = None, *, job_log: bool = True
+) -> ClientDropouts:
+    """Read FLARE's reports of sites that dropped out of a job from a log blob.
+
+    Args:
+        log_text: Log lines written by NVIDIA FLARE.
+        job_uuid: The job. Lines that name another job are skipped.
+        job_log: True for a log of the job itself, whose lines count unless they
+            name another job. False for a log of several jobs, such as the FL
+            server's own log, of which only lines that name the job count.
+
+    Returns:
+        ClientDropouts: The reports and the sites' activity. Lines without a time
+        are skipped.
+    """
+    scan = ClientDropouts()
+    wanted = str(job_uuid or "").lower()
+    log_text = str(log_text or "")
+    for line in log_text.splitlines():
+        if not any(marker in line for marker in _CLIENT_STATE_MARKERS):
+            continue
+        if wanted and not _concerns_job(line, wanted, job_log):
+            continue
+        when = _log_line_time(line)
+        if when is None:
+            continue
+        if match := DEAD_JOB_NOTICE_RE.search(line):
+            reason = _DEAD_JOB_NOTICE_REASONS.get(match["reason"], DROPOUT_REPORTED)
+            scan.add_report(match["client"], when, reason)
+        elif match := DEAD_JOB_REPORT_RE.search(line):
+            scan.add_report(match["client"], when, DROPOUT_REPORTED)
+        elif match := CLIENT_DISCONNECTED_RE.search(line):
+            scan.add_report(match["client"], when, DROPOUT_DISCONNECTED)
+        else:
+            for pattern in CLIENT_ACTIVITY_PATTERNS:
+                if match := pattern.search(line):
+                    scan.note_activity(match["client"], when)
+                    break
+    return scan
+
+
+def summarize_training_log(log_text: str, job_uuid: str | None = None) -> dict:
+    """Extract progress, terminal state and dropped-out sites from a training log blob.
+
+    Args:
+        log_text: The end of one log of the job.
+        job_uuid: The job the log belongs to; reports that name another job are
+            ignored.
+
+    Returns:
+        dict: ``rounds_finished`` (-1 if none), ``terminal_status`` (or None) and
+        ``client_dropouts`` (:class:`ClientDropouts`).
+    """
     return {
         "rounds_finished": extract_training_rounds(log_text),
         "terminal_status": infer_training_terminal_status(log_text),
+        "client_dropouts": scan_client_dropouts(log_text, job_uuid),
     }
 
 

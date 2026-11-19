@@ -85,3 +85,27 @@ class AuditHookTests(TestCase):
         job.save(update_fields=["status", "progress_percent"])
         self.assertEqual(len(self._messages()), 1)
         self.assertTrue(self._messages()[0].startswith("TrainingJob UPDATED"))
+
+    def test_stall_warning_saves_by_the_monitor_are_not_audited(self):
+        project = Project.objects.create(title="Stall Project", author=self.author)
+        network = SwarmNetwork.objects.create(
+            name="Stall Network",
+            project=project,
+            author=self.author,
+            status="RUNNING",
+        )
+        job = TrainingJob.objects.create(
+            project=project, network=network, status="RUNNING"
+        )
+        self.logger.log.reset_mock()
+
+        job.stall_warning = "Site node-A dropped out."
+        job.save(
+            update_fields=[
+                "rounds_finished",
+                "last_round_at",
+                "stall_warning",
+                "progress_updated_at",
+            ]
+        )
+        self.assertEqual(self._messages(), [])

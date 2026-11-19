@@ -265,6 +265,12 @@ unavailable. The number of rounds comes from `SWARMMEDHUB_SWARM_ROUNDS`, passed
 with `docker exec -e`, or else from `SWARM_ROUNDS` in `training.py`, and is 10 if
 neither is set ([Developer](developer.md#training-scripts-nvflare)).
 
+When the Hub's job monitor has flagged a running job as stalled, for example
+because a site dropped out, `training status`, `list` and `watch` print a
+`warning:` line; with `--json` the warning is in `warnings` and in the job's
+`stall_warning`, next to `last_round_at`
+([Server failover](failover.md#when-a-site-drops-out)).
+
 ### 8. Sync and export results
 
 ```bash

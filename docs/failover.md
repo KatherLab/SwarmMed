@@ -1,6 +1,6 @@
 ---
 title: Server Failover
-description: What happens when the FL server is lost, how a standby site takes over the server, and how an interrupted run is resumed.
+description: What happens when the FL server is lost, how a standby site takes over the server, how an interrupted run is resumed, and the warning when a site drops out.
 ---
 
 # Server failover and resuming a run
@@ -14,7 +14,9 @@ started by hand at a site agreed in advance, and resuming the interrupted run
 from a checkpoint. Together they make a run recoverable after the server is
 lost. They do not remove the server as a single point of failure: there is
 always exactly one server, and switching to another one interrupts the run and
-needs an operator at every site.
+needs an operator at every site. The page also describes the warning
+SwarmMedHub gives when a site drops out of a run
+([When a site drops out](#when-a-site-drops-out)).
 
 ## What happens when the server is lost
 
@@ -29,7 +31,7 @@ needs an operator at every site.
   return a result in every round (see
   [SwarmMed and NVFlare](nvflare-comparison.md#time-limits-and-failure-behaviour)).
   The tools on this page also help in that case: once the site is back, the
-  run can be resumed.
+  run can be resumed ([When a site drops out](#when-a-site-drops-out)).
 
 ## What SwarmMed provides
 
@@ -226,6 +228,62 @@ timeout before you resume, or once the resumed job has failed. Then resume the
 interrupted job again, not the failed one: a resumed job that fails before its
 first round leaves no checkpoint.
 
+## When a site drops out
+
+Every site must return its result in every round, so when one site's training
+process ends, for example because it was killed, or the site's FL client stops,
+the other sites wait for it. Whether FLARE then ends the job depends on the time
+limits of the FL server's FLARE build
+([time limits](nvflare-comparison.md#time-limits-and-failure-behaviour)). With
+NVIDIA FLARE 2.7.1's defaults the server aborts the job once the site has not
+reported its status for 90 s. With longer limits, such as the 100 h of the
+worked example's image, the job keeps running:
+in a test across three hospitals, the Hub showed a job as running for five hours
+after one site's training process had been killed.
+
+The Hub's job monitor, which runs every minute in the Celery worker, therefore
+warns about a running job when
+
+* **the FL server reports a site as dropped out**: its training job as missing
+  (the site's FL client runs, but the job's process has ended) or its FL client
+  as dead (no heartbeat for 10 minutes, FLARE's default), and the site has not
+  taken part in the job since. A site whose job is missing is named only once
+  the server's reports about it span a minute, as FLARE also waits a minute
+  before it counts the site as disconnected: a job that is still starting at a
+  site can be reported as missing once. The monitor reads this in the server's
+  logs, so only the Hub that runs the FL server gives this warning;
+* **no round has finished** for longer than `SWARMMEDHUB_STALL_WARNING_MINUTES`
+  (default 60 minutes; `0` turns this check off). Every Hub checks this. A slow
+  first round, counted from the start of the job, or a model whose rounds take
+  longer than that, also triggers it; raise the value for such a study.
+
+The warning appears under the progress bar on the **Training** page, as a
+**Stalled** badge on the dashboard, on the job's page in the admin site, and in
+`swarmed training status`, `list` and `watch`: a `warning:` line, and with
+`--json` in `warnings` and as the job's `stall_warning`, next to `last_round_at`,
+the time a round last finished or the job started running. The monitor also
+writes it to the **Logs** page.
+The warning does not change the job's status. A warning about a site disappears
+when the site takes part in the job again, one about rounds when a round
+finishes; both disappear when the job ends. The monitor reads only the end of
+each log, so in a stall of more than a few hours it can also name a site that
+FLARE counted as disconnected earlier in the job, although the site took part
+again.
+
+What to do:
+
+1. Check the site that the warning names: whether its FL client container is
+   running, and what the job's log at the site says.
+2. Stop the job, with **Stop Training** on the Training page or
+   `swarmed training stop <JOB_UUID>`. FLARE cannot take a site back into a
+   running swarm job.
+3. Once the site can train again, resume the run from the newest checkpoint as
+   described in [Resuming the run](#resuming-the-run). Only PyTorch jobs can be
+   resumed; start other jobs again. The resumed job's progress counts the rounds
+   of the whole run, so it shows 0 % until the job's first round has finished,
+   and its ETA is too short: the rounds of the interrupted job count as done in
+   the resumed job's time.
+
 ## Settings
 
 | Variable | Process | Effect |
@@ -233,6 +291,7 @@ first round leaves no checkpoint.
 | `SWARMMEDHUB_RESUME_CHECKPOINTS` | the process that submits the job | `false` stops writing round-start checkpoints; `FL_global_model.pt` is still saved by the aggregating site |
 | `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` | the process that starts the FL server: for a start from the CLI or the web interface, the Hub's Celery worker (`docker-compose.override.yml` under `celery_worker`, not `.env`); applies from the next server start | seconds the FL server waits for each site's reply, for example when it deploys a job (provisioned: 10 s); see [Resuming over a slow link](#resuming-over-a-slow-link) |
 | `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` | the process that submits the job (`docker exec -e` for the CLI, `docker-compose.override.yml` under `app` for the web interface) | whole seconds the FL server waits for the starting site to start the workflow; without it, 600 s for a resumed job and the FLARE build's default for a new one (10 s in NVIDIA FLARE 2.7.1) |
+| `SWARMMEDHUB_STALL_WARNING_MINUTES` | the Celery worker (set it in `.env`) | minutes without a finished round after which a running job is flagged as stalled; default `60`, `0` turns the check off, an invalid value means `60` and a warning in the log ([When a site drops out](#when-a-site-drops-out)) |
 
 ## Testing status
 

@@ -26,6 +26,10 @@ class TrainingJob(AbstractBaseModel):
         rounds_finished (PositiveIntegerField): Number of rounds completed.
         progress_percent (PositiveSmallIntegerField): Percentage of progress.
         progress_updated_at (DateTimeField): When progress was last updated.
+        last_round_at (DateTimeField): When a round last finished, or when the
+            job started running.
+        stall_warning (TextField): Why a running job looks stalled, and what to
+            do; empty otherwise.
     """
 
     # Possible states for a training job.
@@ -87,6 +91,20 @@ class TrainingJob(AbstractBaseModel):
     progress_percent = models.PositiveSmallIntegerField(null=True, blank=True)
     progress_updated_at = models.DateTimeField(
         null=True, blank=True, db_index=True
+    )
+    # Stall detection (see training.stall): the job monitor flags a running job
+    # whose sites stopped making progress. The warning leaves the status alone.
+    last_round_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a round last finished, or when the job started running.",
+    )
+    stall_warning = models.TextField(
+        blank=True,
+        default="",
+        # Code without this field, such as release 1.0.3, can still create jobs.
+        db_default="",
+        help_text="Why the running job looks stalled and what to do; empty otherwise.",
     )
 
     class Meta:

@@ -261,6 +261,8 @@ Once you have set up your project, data, and network, you can start the training
 
 Training can only be started while the network is running on this Hub.
 
+If a running job stops making progress, for example because a site dropped out, a warning appears under the progress bar and as a **Stalled** badge on the dashboard. The job keeps its status; [Server failover](failover.md#when-a-site-drops-out) describes the warning and what to do.
+
 !!! warning "The training code runs at every site"
     The project's training code runs at every participating site, with access to that site's data and network. Every site should review it before taking part ([Threat model](threat-model.md#4-adversaries-considered)).
 

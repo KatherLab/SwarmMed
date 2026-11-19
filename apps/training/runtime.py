@@ -925,10 +925,13 @@ def get_training_progress_info(training_job, current_network):
                 if total_rounds != 10:
                     break
 
-            rounds_finished = training_job.rounds_finished or 0
+            # -1 until a round has finished, as the job monitor records it.
+            rounds_finished = (
+                training_job.rounds_finished
+                if training_job.rounds_finished is not None
+                else -1
+            )
             terminal_status = None
-            if have_cached_progress:
-                rounds_finished = training_job.rounds_finished or 0
 
             def scan_log_tail(file_path: str) -> None:
                 nonlocal terminal_status, rounds_finished

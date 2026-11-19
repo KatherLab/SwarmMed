@@ -81,7 +81,8 @@ the network:
 * **Training-state mirroring.** When a user's browser polls the training status,
   the web interface asks the FL server's site and up to three other participants
   for their latest job state (`/training/api/state/<network>/`): job identifiers,
-  status, rounds finished and progress.
+  status, rounds, progress, when a round last finished, and the stall warning,
+  which can name a site that dropped out and when.
 * **Model download.** Each web interface serves the global model of the network's
   most recent completed job at `/training/api/results/<network>/`. Nothing in
   SwarmMed calls it automatically, but any token holder can.
