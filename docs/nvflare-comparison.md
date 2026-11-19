@@ -120,9 +120,11 @@ of at least 10 s and a progress timeout of at least 5 s, and takes the start
 timeout only in whole seconds.
 
 The admin timeout is not part of the job. Set `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`
-for the Celery worker of the Hub that starts the FL server: SwarmMed writes it
-into the server's `local/resources.json` before the server starts, and it applies
-from the next start of the server.
+for the process that starts the FL server, which for a start from the CLI or the
+web interface is the Hub's Celery worker: SwarmMed writes it into the server's
+`local/resources.json` before the server starts, and it applies from the next
+start of the server (see
+[Server failover](failover.md#resuming-over-a-slow-link)).
 
 For example, the completed 50-site benchmark raised only the status deadline:
 

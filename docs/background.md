@@ -167,9 +167,9 @@ status reports, `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT` limits time without a
 change in any client's reported workflow state, and
 `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` limits how long the starting client may
 take to start the workflow. Set them in the job-submitting CLI or app process.
-`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`, set for the Celery worker of the Hub that
-starts the FL server, limits how long the server waits for each client to accept
-a job. See [Timeout configuration](nvflare-comparison.md#time-limits-and-failure-behaviour).
+`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`, set for the process that starts the FL
+server, limits how long the server waits for each client to accept a job. See
+[Timeout configuration](nvflare-comparison.md#time-limits-and-failure-behaviour).
 
 In NVIDIA FLARE's client-controlled workflow, the `clients` run the training and the aggregation, and the `server` manages the job's life cycle: it deploys the job, starts the workflow, watches the clients' status reports, and aborts the job when a client reports an error or a time limit is exceeded ([What "fully decentralised" means here](nvflare-comparison.md#what-fully-decentralised-means-here)).
 
