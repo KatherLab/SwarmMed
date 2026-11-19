@@ -233,6 +233,8 @@ class ResumeTimeoutHintTests(SimpleTestCase):
 
         self.assertIn("If this job fails", hint)
         self.assertIn("which ends running jobs", hint)
+        # A restart with other settings can put the FL server in another image.
+        self.assertIn("the same way as before", hint)
         # A resumed job that failed before its first round has no checkpoint.
         self.assertIn("resume the interrupted job again", hint)
 

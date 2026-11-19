@@ -228,8 +228,9 @@ def resume_timeout_hint() -> str:
         "A resumed job ships its checkpoint to the starting site, which sends it "
         "on to the other sites. If this job fails over a slow link, resume the "
         "interrupted job again after setting SWARMMEDHUB_FLARE_ADMIN_TIMEOUT at the "
-        "Hub that runs the FL server (then restart the network there, which ends "
-        "running jobs) or raising SWARMMEDHUB_SWARM_START_TASK_TIMEOUT "
+        "Hub that runs the FL server (then restart the network there the same way "
+        "as before, which ends running jobs) or raising "
+        "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT "
         f"(now {start_timeout} s); see Server failover in the documentation."
     )
 
