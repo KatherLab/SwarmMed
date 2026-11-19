@@ -146,9 +146,10 @@ excluded from the completed-run table and figure.
 SwarmMed now exposes the server limits through
 `SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL` and
 `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT`, both in seconds, and also the workflow's
-start timeout and the FL server's admin timeout
-(`SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` and `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`;
-see [Time limits](nvflare-comparison.md#time-limits-and-failure-behaviour)).
+start timeout (`SWARMMEDHUB_SWARM_START_TASK_TIMEOUT`) and the FL server's admin
+timeout (`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`, which is set for the process that
+starts the FL server, not the one that submits the job; see
+[Time limits](nvflare-comparison.md#time-limits-and-failure-behaviour)).
 For the rerun, the generated
 server configuration contains `max_status_report_interval: 600.0`. All three
 rounds completed in 2,412 s, or 804 s per round. Only the status limit was raised;

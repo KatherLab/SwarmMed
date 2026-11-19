@@ -100,9 +100,10 @@ exposed by SwarmMed; server deadlines still apply during local training.
 
 **Large models over slow links.** A resumed run carries its checkpoint when the
 FL server deploys the job and when the starting site starts the workflow. Over a
-slow link, either step can outlast FLARE's 10 s defaults;
-`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` and `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` give
-them more time (see [Server failover](failover.md#resuming-over-a-slow-link)).
+slow link, either step can outlast FLARE's 10 s defaults. SwarmMed gives a
+resumed job 600 s to start the workflow (`SWARMMEDHUB_SWARM_START_TASK_TIMEOUT`
+changes that), and `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` gives the deployment more
+time (see [Server failover](failover.md#resuming-over-a-slow-link)).
 
 ### The worked example, in detail
 

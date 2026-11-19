@@ -207,7 +207,7 @@ moving it. In a test across three hospitals, both expired over a slow link:
   (10 s in NVIDIA FLARE 2.7.1) for the starting site to start the workflow. The
   starting site confirms only once it has sent the first learn task to every
   other site, and in a resumed run that task carries the checkpoint: sending it
-  to the two other sites (about 180 MB) took 110 s, where new runs confirmed in
+  to the two other sites (about 190 MB) took 110 s, where new runs confirmed in
   1 to 2.4 s. SwarmMed therefore gives a resumed job 600 s.
   `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` (whole seconds, in the process that
   submits the job) replaces that value, and also applies to new jobs. A long
