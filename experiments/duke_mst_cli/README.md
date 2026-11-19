@@ -75,6 +75,19 @@ when it starts:
 Data-loader workers: 16 (host CPUs: 36, available: 36, cap 16)
 ```
 
+Projects created from this folder before SwarmMed 1.0.4 keep the code stored with
+them, so their jobs still start one worker per CPU. To replace that code, run as the
+project's author:
+
+```bash
+docker exec -w /app swarmmedhub python3 -m swarmed_cli.main project update \
+  --user <hub-user> <PROJECT_UUID> \
+  --code-dir ./experiments/duke_mst_cli
+```
+
+This uploads `swarmmed_loader_workers.py` together with `training.py`; `training.py`
+no longer runs without it.
+
 `SWARM_ROUNDS = 20` is the default full run. For a 2-round wiring smoke test, set
 the variable in the process that submits the job:
 
