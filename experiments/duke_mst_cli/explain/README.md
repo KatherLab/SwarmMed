@@ -2,8 +2,10 @@
 
 This module produces the explainability artefacts (per-case predictions,
 GradCAM / GradCAM++ / OCA heatmaps, and a composite multi-cohort figure) for
-the Duke MST federated checkpoint described in
-[`results/duke_mst_cli/duke_mst_full_runs_evaluation.xlsx`](../../../results/duke_mst_cli/duke_mst_full_runs_evaluation.xlsx).
+a Duke MST federated checkpoint. The checkpoint this page calls Repetition 1 is
+the second swarm repetition in [`docs/reproduce.md`](../../../docs/reproduce.md)
+(FLARE job `37bc58d0-9425-4180-9846-7273cd55d2bf`), as the Status section of
+[`docs/explainability.md`](../../../docs/explainability.md#status) explains.
 
 ## Why these methods
 
