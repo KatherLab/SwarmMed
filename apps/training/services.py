@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import json
+import math
 import os
 import re
 import shutil
@@ -92,8 +93,10 @@ RESUME_JOB_STATUS_CHECK_INTERVAL = 10.0
 def swarm_time_limits_from_env(log=None):
     """Return SwarmServerController time-limit overrides set in the environment.
 
-    The values are seconds. ``start_task_timeout`` takes only whole seconds,
-    as NVFlare requires: "120" and "120.0" both give 120, "120.5" is rejected.
+    The values are seconds, positive and finite: NVFlare accepts nan and inf,
+    but a deadline of either never expires. ``start_task_timeout`` takes only
+    whole seconds, as NVFlare requires: "120" and "120.0" both give 120, "120.5"
+    is rejected.
 
     Args:
         log: Optional platform logger for rejected values.
@@ -112,7 +115,11 @@ def swarm_time_limits_from_env(log=None):
             value = float(raw)
         except ValueError:
             value = 0.0
-        if value <= 0 or (whole_seconds and not value.is_integer()):
+        if (
+            not math.isfinite(value)
+            or value <= 0
+            or (whole_seconds and not value.is_integer())
+        ):
             if log is not None:
                 expected = "whole number" if whole_seconds else "number"
                 log.training.warning(

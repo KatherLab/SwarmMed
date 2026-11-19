@@ -46,6 +46,25 @@ class SwarmTimeLimitTests(SimpleTestCase):
             self.assertEqual(swarm_time_limits_from_env(log), {})
         self.assertEqual(log.training.warning.call_count, 2)
 
+    def test_limits_that_never_expire_are_ignored_with_a_warning(self):
+        # NVFlare accepts nan and inf, and a deadline of either never fires.
+        for env_name in (
+            "SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL",
+            "SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT",
+        ):
+            for raw in ("nan", "inf"):
+                log = MagicMock()
+                with (
+                    self.subTest(env_name=env_name, raw=raw),
+                    patch.dict("os.environ", {env_name: raw}, clear=True),
+                ):
+                    self.assertEqual(swarm_time_limits_from_env(log), {})
+                    log.training.warning.assert_called_once()
+                    self.assertIn(
+                        "positive number of seconds",
+                        log.training.warning.call_args.args[0],
+                    )
+
     def test_start_timeout_is_a_whole_number_of_seconds(self):
         for raw in ("120", "120.0", " 120 ", "1.2e2"):
             with (
