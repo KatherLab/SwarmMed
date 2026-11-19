@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from .utils import (
     DROPOUT_DEAD,
@@ -112,7 +112,8 @@ def describe_stall(
     if (
         threshold_minutes
         and last_round_at is not None
-        and now - last_round_at > timedelta(minutes=threshold_minutes)
+        # In seconds: a timedelta of more than about 1.4e12 minutes overflows.
+        and (now - last_round_at).total_seconds() > threshold_minutes * 60
     ):
         return (
             f"No round has finished since {_format_time(last_round_at)} "
@@ -125,16 +126,22 @@ def describe_stall(
 def same_stall(previous: str, current: str) -> bool:
     """Return True when two stall warnings describe the same stall.
 
-    Warnings about dropped-out sites are the same when they name the same sites;
-    other warnings when they differ at most in the times they give. The monitor
-    reads only the end of the logs, so after hours the first report of a site's
-    dropout, or the one-time notice that gave the most specific reason, may no
-    longer be among the lines read; the monitor then keeps the warning it gave
+    Warnings about dropped-out sites are the same when they name the same sites,
+    in any order; other warnings when they differ at most in the times they give.
+    The monitor reads only the end of the logs, so after hours the first report
+    of a site's dropout, or the one-time notice that gave the most specific
+    reason, may no longer be among the lines read, and sites listed by their
+    first report can change places; the monitor then keeps the warning it gave
     first.
     """
     if not previous:
         return False
     previous_sites = _DROPPED_SITE_RE.findall(previous)
     if previous_sites:
-        return previous_sites == _DROPPED_SITE_RE.findall(current)
+        return sorted(previous_sites) == sorted(_DROPPED_SITE_RE.findall(current))
     return _WARNING_TIME_RE.sub("", previous) == _WARNING_TIME_RE.sub("", current)
+
+
+def is_site_warning(warning: str) -> bool:
+    """Return True for a warning that names a dropped-out site."""
+    return bool(_DROPPED_SITE_RE.search(warning or ""))

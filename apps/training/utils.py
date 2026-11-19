@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 
@@ -111,6 +111,12 @@ _DEAD_JOB_NOTICE_REASONS = {
     "missing job on client": DROPOUT_MISSING,
     "client dead": DROPOUT_DEAD,
 }
+# FLARE counts a site as alive for 60 s after the first report that its job is
+# missing (_dead_client_grace in NVIDIA FLARE 2.7.1): the report can come while
+# the site's job process is still starting. A site with no other report counts
+# once its reports span as long.
+DEAD_CLIENT_GRACE = timedelta(seconds=60)
+_REASONS_WITHIN_GRACE = {DROPOUT_MISSING, DROPOUT_REPORTED}
 
 
 def extract_flare_job_uuid(flare_job_id_raw: str | None) -> str | None:
@@ -273,11 +279,13 @@ class ClientDropouts:
         """Return the sites that are out of the job now, earliest report first.
 
         A site counts when it has been reported since it last took part in the
-        job. Only the site's own activity ends a dropout: its status updates, or
-        its job contacting the FL server again ("removed from watch list",
-        "reconnected"). Progress of the other sites does not: they can still
-        finish a round to which the site had already sent its result, and FLARE
-        reports a dead FL client only once.
+        job; a site whose job has only been reported as missing counts once
+        those reports span ``DEAD_CLIENT_GRACE``, so that a site whose job is
+        still starting is not named. Only the site's own activity ends a
+        dropout: its status updates, or its job contacting the FL server again
+        ("removed from watch list", "reconnected"). Progress of the other sites
+        does not: they can still finish a round to which the site had already
+        sent its result, and FLARE reports a dead FL client only once.
         """
         dropouts = []
         for client, reports in self.reports.items():
@@ -287,7 +295,13 @@ class ClientDropouts:
             ]
             if not current:
                 continue
+            first_reported_at = min(when for when, _reason in current)
             last_reported_at = max(when for when, _reason in current)
+            if (
+                all(reason in _REASONS_WITHIN_GRACE for _when, reason in current)
+                and last_reported_at - first_reported_at < DEAD_CLIENT_GRACE
+            ):
+                continue
             _when, reason = max(
                 current, key=lambda item: (_DROPOUT_REASON_RANK[item[1]], item[0])
             )
@@ -295,7 +309,7 @@ class ClientDropouts:
                 ClientDropout(
                     client=client,
                     reason=reason,
-                    first_reported_at=min(when for when, _reason in current),
+                    first_reported_at=first_reported_at,
                     last_reported_at=last_reported_at,
                 )
             )

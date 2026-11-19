@@ -43,6 +43,7 @@ from .runtime import (
     parse_nvflare_jobs,
     resolve_admin_session_target,
 )
+from .stall import is_site_warning
 from .utils import (
     TERMINAL_TRAINING_STATUSES,
     clamp_progress_percent,
@@ -170,8 +171,10 @@ def persist_training_job_state(
     """Persist one canonical training-job state transition.
 
     ``last_round_at`` is set when the job starts running and whenever
-    ``rounds_finished`` increases. The stall warning is cleared when rounds
-    advance or the job ends, unless the call sets a new one for a running job.
+    ``rounds_finished`` increases. Unless the call sets a new stall warning for a
+    running job, a warning about rounds is cleared when rounds advance. A warning
+    about a site is left to the job monitor, which clears it once the site takes
+    part again. Both are cleared when the job ends.
     """
     update_fields = []
     new_status = str(status or "").upper() or None
@@ -197,8 +200,8 @@ def persist_training_job_state(
         job.rounds_finished = rounds_finished
         job.last_round_at = timezone.now()
         update_fields.extend(["rounds_finished", "last_round_at"])
-        if stall_warning is None:
-            stall_warning = ""  # the rounds advance again
+        if stall_warning is None and not is_site_warning(job.stall_warning):
+            stall_warning = ""  # a warning about rounds ends when rounds advance
 
     if new_status:
         current_status = str(job.status or "").upper()

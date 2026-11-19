@@ -182,7 +182,8 @@ def monitor_training_jobs():
     log = logger.get_logger()
     stall_minutes = stall_warning_minutes(log)
     # The warnings shown before this pass: the steps before Step 4 clear a job's
-    # warning when its rounds advance, and Step 4 decides whether it still holds.
+    # warning about rounds when its rounds advance, and Step 4 decides whether it
+    # still holds.
     shown_warnings = dict(
         TrainingJob.objects.filter(status="RUNNING").values_list(
             "pk", "stall_warning"

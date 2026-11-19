@@ -181,8 +181,11 @@ warns about a running job when
 * **the FL server reports a site as dropped out**: its training job as missing
   (the site's FL client runs, but the job's process has ended) or its FL client
   as dead (no heartbeat for 10 minutes, FLARE's default), and the site has not
-  taken part in the job since. The monitor reads this in the server's logs, so
-  only the Hub that runs the FL server gives this warning;
+  taken part in the job since. A site whose job is missing is named only once
+  the server's reports about it span a minute, as FLARE also waits a minute
+  before it counts the site as disconnected: a job that is still starting at a
+  site can be reported as missing once. The monitor reads this in the server's
+  logs, so only the Hub that runs the FL server gives this warning;
 * **no round has finished** for longer than `SWARMMEDHUB_STALL_WARNING_MINUTES`
   (default 60 minutes; `0` turns this check off). Every Hub checks this. A slow
   first round, counted from the start of the job, or a model whose rounds take
@@ -196,7 +199,10 @@ the time a round last finished or the job started running. The monitor also
 writes it to the **Logs** page.
 The warning does not change the job's status. A warning about a site disappears
 when the site takes part in the job again, one about rounds when a round
-finishes; both disappear when the job ends.
+finishes; both disappear when the job ends. The monitor reads only the end of
+each log, so in a stall of more than a few hours it can also name a site that
+FLARE counted as disconnected earlier in the job, although the site took part
+again.
 
 What to do:
 

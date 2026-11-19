@@ -21,7 +21,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 from django.urls import reverse
 from django.utils import timezone
 
-from network.models import SwarmNetwork
+from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project, UserCurrentProject
 
 from swarmed_cli.main import main as cli_main
@@ -92,6 +92,7 @@ class DropoutLogParsingTests(SimpleTestCase):
             "\n".join(
                 [
                     _notice("2026-11-17 10:47:10,789", "node-A"),
+                    _notice("2026-11-17 10:48:10,861", "node-A"),
                     _notice("2026-11-17 10:52:01,123", "node-C", "client dead"),
                 ]
             ),
@@ -121,6 +122,7 @@ class DropoutLogParsingTests(SimpleTestCase):
                     "watch list",
                     _report("2026-11-17 10:47:30,000", "node-B"),
                     _disconnected("2026-11-17 10:48:10,861", "node-A"),
+                    _report("2026-11-17 10:48:30,000", "node-B"),
                 ]
             ),
             JOB,
@@ -143,6 +145,9 @@ class DropoutLogParsingTests(SimpleTestCase):
                     _notice("2026-11-17 10:47:10,789", "node-B", job=OTHER_JOB),
                     _report("2026-11-17 10:47:10,792", "node-C", job=OTHER_JOB),
                     _notice("2026-11-17 10:47:20,000", "node-A"),
+                    _notice("2026-11-17 10:48:20,000", "node-A"),
+                    _notice("2026-11-17 10:48:30,000", "node-B", job=OTHER_JOB),
+                    _report("2026-11-17 10:48:30,000", "node-C", job=OTHER_JOB),
                 ]
             ),
             JOB,
@@ -155,6 +160,7 @@ class DropoutLogParsingTests(SimpleTestCase):
             [
                 _disconnected("2026-11-17 10:48:10,861", "node-B"),
                 _notice("2026-11-17 10:47:10,789", "node-A"),
+                _notice("2026-11-17 10:48:20,882", "node-A"),
             ]
         )
 
@@ -174,14 +180,17 @@ class DropoutLogParsingTests(SimpleTestCase):
         self.assertEqual(scan.dropped(), [])
 
     def test_a_site_that_takes_part_again_is_not_dropped(self):
-        # A report while a site's job was still starting, then its first status.
+        # Reports for a minute while a site's job was still starting, then its
+        # first status.
         scan = scan_client_dropouts(
             "\n".join(
                 [
+                    _report("2026-11-17 08:59:05,000", "node-A"),
                     _report("2026-11-17 09:00:05,000", "node-A"),
                     _status("2026-11-17 09:00:30,000", "node-A", 0, "start_learn_task"),
-                    _report("2026-11-17 09:01:00,000", "node-B"),
-                    f"2026-11-17 09:01:20,000 - WFCommServer - INFO - {CONTEXT} - "
+                    _report("2026-11-17 09:00:40,000", "node-B"),
+                    _report("2026-11-17 09:01:40,000", "node-B"),
+                    f"2026-11-17 09:01:50,000 - WFCommServer - INFO - {CONTEXT} - "
                     "Client node-B is removed from watch list: getTask",
                     _disconnected("2026-11-17 09:02:00,000", "node-C"),
                     f"2026-11-17 09:03:00,000 - WFCommServer - INFO - {CONTEXT} - "
@@ -192,6 +201,31 @@ class DropoutLogParsingTests(SimpleTestCase):
         )
 
         self.assertEqual(scan.dropped(), [])
+
+    def test_a_missing_job_counts_once_its_reports_span_a_minute(self):
+        # FLARE can report a site's job as missing once while the job's process
+        # is still starting, and deems the site disconnected only 60 s later.
+        def dropped(*lines):
+            scan = scan_client_dropouts("\n".join(lines), JOB)
+            return [item.client for item in scan.dropped()]
+
+        first = _notice("2026-11-17 10:47:10,789", "node-A")
+
+        self.assertEqual(dropped(first), [])
+        self.assertEqual(
+            dropped(first, _report("2026-11-17 10:48:10,788", "node-A")), []
+        )
+        self.assertEqual(
+            dropped(first, _report("2026-11-17 10:48:10,789", "node-A")), ["node-A"]
+        )
+        # A dead FL client, or a site that FLARE deems disconnected, counts at once.
+        self.assertEqual(
+            dropped(_notice("2026-11-18 01:02:01,123", "node-C", "client dead")),
+            ["node-C"],
+        )
+        self.assertEqual(
+            dropped(_disconnected("2026-11-17 10:48:10,861", "node-A")), ["node-A"]
+        )
 
     def test_a_round_the_site_had_sent_its_result_for_does_not_end_its_dropout(self):
         # node-C's FL client stops after node-C has sent its result for round 4.
@@ -228,6 +262,7 @@ class DropoutLogParsingTests(SimpleTestCase):
             "\n".join(
                 [
                     _status("2026-11-17 10:46:53,214", "node-B", 1, "start_learn_task"),
+                    _report("2026-11-17 10:47:10,792", "node-A"),
                     _report("2026-11-17 10:52:21,000", "node-A"),
                 ]
             ),
@@ -285,6 +320,8 @@ class DropoutLogParsingTests(SimpleTestCase):
                     _status("2026-11-17 10:44:56,873", "node-B", 3),
                     _report("2026-11-17 10:47:10,792", "node-A"),
                     _report("2026-11-17 10:47:10,800", "node-C", job=OTHER_JOB),
+                    _report("2026-11-17 10:48:20,885", "node-A"),
+                    _report("2026-11-17 10:48:20,890", "node-C", job=OTHER_JOB),
                 ]
             ),
             JOB,
@@ -388,6 +425,17 @@ class StallRuleTests(SimpleTestCase):
             "",
         )
 
+    def test_a_threshold_longer_than_a_timedelta_can_hold(self):
+        self.assertEqual(
+            stall.describe_stall(
+                dropouts=[],
+                last_round_at=self.now - timedelta(days=2),
+                now=self.now,
+                threshold_minutes=1e13,
+            ),
+            "",
+        )
+
     def test_warnings_that_differ_only_in_their_times_are_the_same(self):
         first = stall.describe_stall(
             dropouts=[self._dropout("node-A", DROPOUT_MISSING, "2026-11-17 10:47:10")],
@@ -441,6 +489,25 @@ class StallRuleTests(SimpleTestCase):
                 ),
             )
         )
+
+    def test_warnings_about_the_same_sites_in_another_order_are_the_same_stall(self):
+        # Sites are listed by their first report among the lines read, and which
+        # site's early reports leave the end of the logs first can vary.
+        node_a = self._dropout("node-A", DROPOUT_MISSING, "2026-11-17 10:47:10")
+        node_b = self._dropout("node-B", DROPOUT_MISSING, "2026-11-17 10:47:40")
+
+        def warning(*dropouts):
+            return stall.describe_stall(
+                dropouts=list(dropouts),
+                last_round_at=None,
+                now=self.now,
+                threshold_minutes=60,
+            )
+
+        first = warning(node_a, node_b)
+
+        self.assertTrue(stall.same_stall(first, warning(node_b, node_a)))
+        self.assertFalse(stall.same_stall(first, warning(node_b)))
 
 
 class StallWarningMinutesTests(SimpleTestCase):
@@ -513,6 +580,26 @@ class PersistStallStateTests(TestCase):
         self.assertGreater(
             self.job.last_round_at, timezone.now() - timedelta(minutes=1)
         )
+
+    def test_a_new_round_leaves_a_warning_about_a_site_to_the_monitor(self):
+        # The other sites can finish a round for which the site had sent its
+        # result; only the job monitor can tell that the site takes part again.
+        warning = (
+            "Site node-C dropped out at 2026-11-18 01:02 UTC: the FL server has "
+            "lost contact with its FL client."
+        )
+        training_services.persist_training_job_state(
+            self.job, status="RUNNING", rounds_finished=3, stall_warning=warning
+        )
+
+        training_services.persist_training_job_state(self.job, rounds_finished=4)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.rounds_finished, 4)
+        self.assertEqual(self.job.stall_warning, warning)
+
+        training_services.persist_training_job_state(self.job, status="STOPPED")
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.stall_warning, "")
 
     def test_an_ended_job_has_no_warning(self):
         training_services.persist_training_job_state(
@@ -594,8 +681,8 @@ class PersistStallStateTests(TestCase):
         self.assertEqual(payload["stall_warning"], "")
 
 
-class MonitorStallWarningTests(TestCase):
-    """The periodic monitor sets and clears the warning from the logs at a Hub."""
+class MonitorTestCase(TestCase):
+    """A Hub with the FL server's logs of a running job, and its job monitor."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -672,6 +759,10 @@ class MonitorStallWarningTests(TestCase):
         with patch("django.utils.timezone.now", return_value=when):
             self._run_monitor()
 
+
+class MonitorStallWarningTests(MonitorTestCase):
+    """The periodic monitor sets and clears the warning from the logs at a Hub."""
+
     def test_a_dropped_out_site_sets_the_warning_and_keeps_the_status(self):
         job = self._job()
         self._write_job_log(
@@ -719,12 +810,57 @@ class MonitorStallWarningTests(TestCase):
             "site, then stop this job and resume it (swarmed training resume)."
         )
         job = self._job(stall_warning=shown)
-        self._write_server_log(_notice("2026-11-17 14:35:24,155", "node-A"))
+        self._write_server_log(
+            _notice("2026-11-17 14:34:24,155", "node-A"),
+            _notice("2026-11-17 14:35:24,155", "node-A"),
+        )
 
         self._run_monitor()
         job.refresh_from_db()
 
         self.assertEqual(job.stall_warning, shown)
+        self.log.training.warning.assert_not_called()
+
+    def test_the_warning_given_first_is_kept_when_its_sites_change_places(self):
+        shown = (
+            "Site node-A dropped out at 2026-11-17 10:47 UTC: the FL server reports "
+            "its training job as missing. Site node-B dropped out at 2026-11-17 "
+            "10:47 UTC: the FL server reports its training job as missing. The "
+            "other sites are waiting; check these sites, then stop this job and "
+            "resume it (swarmed training resume)."
+        )
+        job = self._job(stall_warning=shown)
+        # Hours later the earliest report left among the lines read is node-B's.
+        self._write_server_log(
+            _notice("2026-11-17 14:34:20,000", "node-B"),
+            _notice("2026-11-17 14:34:24,155", "node-A"),
+            _notice("2026-11-17 14:35:20,000", "node-B"),
+            _notice("2026-11-17 14:35:24,155", "node-A"),
+        )
+
+        self._run_monitor()
+        job.refresh_from_db()
+
+        self.assertEqual(job.stall_warning, shown)
+        self.log.training.warning.assert_not_called()
+
+    def test_a_site_whose_job_is_still_starting_is_not_named(self):
+        # FLARE can report a site's job as missing once before the job's process
+        # at the site is up.
+        job = self._job(rounds_finished=None)
+        self._write_server_log(_notice("2026-11-17 10:20:23,837", "node-B"))
+
+        self._run_monitor()
+        job.refresh_from_db()
+        self.assertEqual(job.stall_warning, "")
+
+        self._write_job_log(
+            _status("2026-11-17 10:20:35,000", "node-B", 0, "start_learn_task")
+        )
+        self._run_monitor()
+        job.refresh_from_db()
+
+        self.assertEqual(job.stall_warning, "")
         self.log.training.warning.assert_not_called()
 
     def test_no_round_for_longer_than_the_threshold(self):
@@ -761,6 +897,7 @@ class MonitorStallWarningTests(TestCase):
         )
         self._write_job_log(
             _report("2026-11-17 10:47:10,792", "node-A"),
+            _report("2026-11-17 10:48:10,861", "node-A"),
             _status("2026-11-17 11:30:00,000", "node-A", 4, "start_learn_task"),
             _status("2026-11-17 11:35:00,000", "node-B", 4),
         )
@@ -908,7 +1045,10 @@ class MonitorStallWarningTests(TestCase):
 
     def test_a_job_stopped_during_the_pass_gets_no_warning(self):
         job = self._job()
-        self._write_job_log(_report("2026-11-17 10:47:10,792", "node-A"))
+        self._write_job_log(
+            _report("2026-11-17 10:47:10,792", "node-A"),
+            _report("2026-11-17 10:48:10,861", "node-A"),
+        )
 
         def stopped_meanwhile(**kwargs):
             # Stop Training is pressed while the monitor reads the logs.
@@ -966,6 +1106,128 @@ class MonitorStallWarningTests(TestCase):
                 f"{round_0_seen_at.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
             )
         )
+
+
+class StatusAPIStallWarningTests(MonitorTestCase):
+    """The Training page's status polls leave a warning about a site in place.
+
+    The page and the dashboard poll the training status API every few seconds. It
+    records the rounds that the local containers and the other Hubs report, and a
+    round can finish after a site has dropped out: the other sites can still finish
+    a round for which the site had sent its result.
+    """
+
+    WARNING = (
+        "Site node-C dropped out at 2026-11-18 01:02 UTC: the FL server has lost "
+        "contact with its FL client. The other sites are waiting; check the site, "
+        "then stop this job and resume it (swarmed training resume)."
+    )
+    BEFORE_THE_ROUND_ENDS = (
+        _status("2026-11-18 00:50:43,000", "node-C", 4, "start_learn_task"),
+        _report("2026-11-18 01:02:01,126", "node-C"),
+        _disconnected("2026-11-18 01:03:01,200", "node-C"),
+    )
+
+    def setUp(self):
+        super().setUp()
+        environ = patch.dict(os.environ, {"SWARMMEDHUB_DISABLE_ASYNC_LOGGING": "1"})
+        environ.start()
+        self.addCleanup(environ.stop)
+        self.user = User.objects.get(username="monitor")
+        self.user.profile.accepted_terms = True
+        self.user.profile.accepted_policy = True
+        self.user.profile.save(update_fields=["accepted_terms", "accepted_policy"])
+        UserCurrentProject.objects.create(user=self.user, project=self.project)
+        # This Hub runs the FL server, the only Hub that can name a site.
+        SwarmParticipant.objects.create(
+            network=self.network,
+            user=self.user,
+            role="SERVER",
+            participant_id="server",
+            ip="127.0.0.1",
+        )
+        self.client.force_login(self.user)
+
+        self.job = self._job()
+        self._write_job_log(*self.BEFORE_THE_ROUND_ENDS)
+        self._write_server_log(
+            _notice("2026-11-18 01:02:01,123", "node-C", "client dead")
+        )
+        self._run_monitor()
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.stall_warning, self.WARNING)
+
+    def _poll(self, *, scraped=(), peer_job=None):
+        peer_response = MagicMock(status_code=200)
+        peer_response.json.return_value = {"job": peer_job}
+        with override_settings(BASE_DIR=self.tmp.name), patch(
+            "training.utils.scrape_docker_progress", return_value=list(scraped)
+        ), patch(
+            "training.runtime.summarize_runtime_container_logs", return_value=None
+        ), patch(
+            "training.views._nvflare_status_payload", return_value=None
+        ), patch(
+            "training.views.requests.get", return_value=peer_response
+        ) as peer_get:
+            response = self.client.get(reverse("training:training_status_api"))
+        return response, peer_get
+
+    def _assert_the_warning_stays_and_is_logged_once(self, response):
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.rounds_finished, 4)
+        self.assertEqual(self.job.stall_warning, self.WARNING)
+        self.assertEqual(response.json()["stall_warning"], self.WARNING)
+
+        self._run_monitor()
+        self.job.refresh_from_db()
+
+        self.assertEqual(self.job.stall_warning, self.WARNING)
+        self.assertEqual(
+            [
+                call.args[0]
+                for call in self.log.training.warning.call_args_list
+                if "has stalled" in call.args[0]
+            ],
+            [f"Training job {self.job.identifier} has stalled: {self.WARNING}"],
+        )
+
+    def test_a_round_seen_in_the_local_containers(self):
+        # node-A and node-B finish round 4, for which node-C had sent its result.
+        response, _peer_get = self._poll(
+            scraped=[{"job_id": JOB, "rounds_finished": 4, "terminal_status": None}]
+        )
+        self._write_job_log(
+            *self.BEFORE_THE_ROUND_ENDS,
+            _status("2026-11-18 01:04:00,000", "node-A", 4),
+            _status("2026-11-18 01:04:05,000", "node-B", 4),
+        )
+
+        self._assert_the_warning_stays_and_is_logged_once(response)
+
+    def test_a_round_reported_by_another_hub(self):
+        # node-B's Hub has recorded its own finished round 4.
+        SwarmParticipant.objects.create(
+            network=self.network,
+            user=self.user,
+            role="CLIENT",
+            participant_id="node-B",
+            ip="100.64.0.10",
+        )
+        self.network.gossip_token = "t" * 64
+        self.network.save(update_fields=["gossip_token"])
+
+        response, peer_get = self._poll(
+            peer_job={
+                "flare_job_id": JOB,
+                "status": "RUNNING",
+                "total_rounds": 10,
+                "rounds_finished": 4,
+                "progress_percent": 50,
+            }
+        )
+
+        peer_get.assert_called_once()
+        self._assert_the_warning_stays_and_is_logged_once(response)
 
 
 class FirstRoundProgressTests(TestCase):
