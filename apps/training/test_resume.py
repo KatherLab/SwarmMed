@@ -518,6 +518,45 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
         timeout = self._controller_args()["start_task_timeout"]
         self.assertEqual((timeout, type(timeout)), (120, int))
 
+    def _set_limits_equal_to_nvflare_defaults(self):
+        # NVIDIA FLARE 2.7.1's defaults, which its job export leaves out; the FL
+        # server's image can have other defaults (100 h in the worked example's).
+        os.environ.update(
+            {
+                "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT": "10",
+                "SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL": "90",
+                "SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT": "3600",
+            }
+        )
+        return {
+            "start_task_timeout": 10,
+            "max_status_report_interval": 90.0,
+            "progress_timeout": 3600.0,
+        }
+
+    def test_limits_equal_to_nvflare_defaults_reach_a_new_job(self):
+        expected = self._set_limits_equal_to_nvflare_defaults()
+
+        training_services.submit_training_job(actor=self.user, network=self.network)
+
+        args = self._controller_args()
+        self.assertEqual({name: args.get(name) for name in expected}, expected)
+        self.assertIs(type(args["start_task_timeout"]), int)
+        self.assertNotIn("job_status_check_interval", args)
+
+    def test_limits_equal_to_nvflare_defaults_reach_a_resumed_job(self):
+        expected = self._set_limits_equal_to_nvflare_defaults()
+
+        training_services.submit_training_job(
+            actor=self.user, network=self.network, resume=self._plan_from_round()
+        )
+
+        args = self._controller_args()
+        self.assertEqual({name: args.get(name) for name in expected}, expected)
+        self.assertIs(type(args["start_task_timeout"]), int)
+        self.assertEqual(args["job_status_check_interval"], 10.0)
+        self.assertEqual((args["start_round"], args["num_rounds"]), (3, 7))
+
     def test_numpy_jobs_cannot_be_resumed(self):
         plan = ResumePlan(
             checkpoint=ResumeCheckpoint(

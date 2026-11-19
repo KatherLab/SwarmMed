@@ -161,6 +161,44 @@ def swarm_time_limits_for_job(*, resumed: bool, log=None) -> tuple[dict, str]:
     return limits, f" ({'; '.join(notes)})"
 
 
+def write_swarm_time_limits(job_path, time_limits: dict) -> list[str]:
+    """Write time limits into the swarm server controller of an exported job.
+
+    FLARE's job export leaves out every controller argument that equals the
+    default of the Hub's NVIDIA FLARE build (10 s, 90 s and 3 600 s in 2.7.1).
+    The FL server builds the controller with the defaults of the FLARE build in
+    its own image, which can differ (360 000 s in the worked example's image),
+    so every limit chosen for the job is written into its configuration.
+
+    Args:
+        job_path: Folder of the exported job.
+        time_limits: Keyword arguments for SwarmServerController.
+
+    Returns:
+        list[str]: The app folders that were changed.
+    """
+    if not time_limits:
+        return []
+    changed = []
+    for config_path in sorted(
+        Path(job_path).glob("app_*/config/config_fed_server.json")
+    ):
+        config = json.loads(config_path.read_text())
+        controllers = [
+            workflow
+            for workflow in config.get("workflows", [])
+            if isinstance(workflow, dict)
+            and str(workflow.get("path", "")).endswith("SwarmServerController")
+        ]
+        if not controllers:
+            continue
+        for workflow in controllers:
+            workflow.setdefault("args", {}).update(time_limits)
+        config_path.write_text(json.dumps(config, indent=4))
+        changed.append(config_path.parent.parent.name)
+    return changed
+
+
 def resume_timeout_hint() -> str:
     """Return the note that ``swarmed training resume`` prints, or "".
 
@@ -1158,6 +1196,8 @@ def submit_training_job(
         job_definition_path = os.path.abspath(
             os.path.join(generated_jobs_root, job_definition.name)
         )
+        # The export leaves out limits equal to the Hub's NVFlare defaults.
+        write_swarm_time_limits(job_definition_path, time_limits)
         if framework == "pt" and resume_checkpoints_enabled():
             # Round-start checkpoints at every site; only PyTorch runs can resume.
             add_resume_checkpoint_component(job_definition_path)

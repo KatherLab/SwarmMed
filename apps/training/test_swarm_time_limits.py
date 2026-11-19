@@ -1,5 +1,8 @@
 """Tests for the environment overrides of the swarm workflow's time limits."""
 
+import json
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -10,9 +13,11 @@ from .services import (
     resume_timeout_hint,
     swarm_time_limits_for_job,
     swarm_time_limits_from_env,
+    write_swarm_time_limits,
 )
 
 START_TIMEOUT_ENV = "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT"
+SWARM_CONTROLLER = "nvflare.app_common.ccwf.swarm_server_ctl.SwarmServerController"
 
 
 class SwarmTimeLimitTests(SimpleTestCase):
@@ -149,6 +154,46 @@ class JobTimeLimitTests(SimpleTestCase):
                 "job_status_check_interval": RESUME_JOB_STATUS_CHECK_INTERVAL,
             },
         )
+
+
+class ExportedJobTimeLimitTests(SimpleTestCase):
+    """write_swarm_time_limits, which edits the server app of an exported job."""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.job = Path(temp_dir.name)
+        self.config_path = self.job / "app_server/config/config_fed_server.json"
+        self.config_path.parent.mkdir(parents=True)
+        self.config = {
+            "format_version": 2,
+            "workflows": [
+                {"id": "swarm", "path": SWARM_CONTROLLER, "args": {"num_rounds": 5}},
+                {"id": "other", "path": "custom.OtherController", "args": {}},
+            ],
+        }
+        self.config_path.write_text(json.dumps(self.config, indent=4))
+
+    def test_every_limit_is_written_to_the_swarm_controller(self):
+        # Values equal to NVIDIA FLARE 2.7.1's defaults, which its export leaves out.
+        limits = {
+            "start_task_timeout": 10,
+            "max_status_report_interval": 90.0,
+            "progress_timeout": 3600.0,
+        }
+
+        self.assertEqual(write_swarm_time_limits(self.job, limits), ["app_server"])
+
+        workflows = json.loads(self.config_path.read_text())["workflows"]
+        self.assertEqual(workflows[0]["args"], {"num_rounds": 5, **limits})
+        self.assertIs(type(workflows[0]["args"]["start_task_timeout"]), int)
+        self.assertEqual(workflows[1], self.config["workflows"][1])
+
+    def test_nothing_chosen_leaves_the_job_as_exported(self):
+        before = self.config_path.read_text()
+
+        self.assertEqual(write_swarm_time_limits(self.job, {}), [])
+        self.assertEqual(self.config_path.read_text(), before)
 
 
 class ResumeTimeoutHintTests(SimpleTestCase):

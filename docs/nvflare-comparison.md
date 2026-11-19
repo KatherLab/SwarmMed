@@ -105,10 +105,11 @@ builds for a network uses NVIDIA FLARE 2.7.1's 90 s and 3 600 s.
 Set the controller deadlines in seconds in the **job-submitting process**, before
 submission: the CLI process for a CLI submission, or the application process for
 a web submission. Setting them only on the Celery worker does not configure a job
-submitted by either interface. The generated server configuration records the
-overrides; existing jobs are unaffected. When a setting is absent, the runtime
-build's default applies, except that a resumed job waits 600 s for the workflow
-to start: its first learn task carries the checkpoint (see
+submitted by either interface. The generated server configuration records every
+override, even one equal to NVIDIA FLARE 2.7.1's default, so that it also applies
+on a build with other defaults; existing jobs are unaffected. When a setting is
+absent, the runtime build's default applies, except that a resumed job waits
+600 s for the workflow to start: its first learn task carries the checkpoint (see
 [Server failover](failover.md#resuming-over-a-slow-link)). On a build with a
 longer default, such as the worked example's, those 600 s are shorter than the
 default; set the variable to keep a longer limit. For a resumed job, the server
