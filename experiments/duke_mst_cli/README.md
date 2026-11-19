@@ -56,18 +56,20 @@ than the client has. In a test across three hospitals, on servers with 20 to 36
 CPUs and an installation limited to 16 CPUs and 28 GiB of memory, this stopped a
 training process for running out of memory. Before it imports MediSwarm's code,
 `training.py` (with `swarmmed_loader_workers.py`) therefore sets the CPU count that
-MediSwarm reads to the number of workers to start: the CPUs available to the process
-(the host's CPUs, limited by the process's CPU affinity and the client container's
-own CPU quota), but at most `SWARMMED_MAX_LOADER_WORKERS`, 16 by default. A CPU
-quota set on an enclosing container or cgroup, as in that test, is not seen: the log
-then shows all the host's CPUs as available, so where such a limit is below 16,
-lower `SWARMMED_MAX_LOADER_WORKERS` yourself. The paper's runs used hosts with 16
-CPUs and so started 16 workers; the default reproduces them unchanged. The runs in
-that test used an earlier form of this change, which capped the host's CPU count at
-16 without reading affinity or quotas; on those hosts both forms start 16 workers.
-Set the variable like the variables above, for example lower on a host with little
-memory; a value that is not a positive whole number is ignored with a warning. The
-client logs the result when it starts:
+MediSwarm reads to the number of workers to start: the CPUs available to the
+process, but at most `SWARMMED_MAX_LOADER_WORKERS`, 16 by default. The CPUs
+available are the host's CPUs, limited by the process's CPU affinity and the client
+container's own CPU quota as Docker shows it by default (with a private cgroup
+namespace on cgroup v2, or on cgroup v1). A CPU quota set on an enclosing container
+or cgroup, as in that test, is not seen: the log then shows all the host's CPUs as
+available, so where such a limit is below 16, lower `SWARMMED_MAX_LOADER_WORKERS`
+yourself. The paper's runs used hosts with 16 CPUs and so started 16 workers; the
+default reproduces them unchanged. The runs in that test used an earlier form of
+this change, which capped the host's CPU count at 16 without reading affinity or
+quotas; on those hosts both forms start 16 workers. Set the variable like the
+variables above, for example lower on a host with little memory; a value that is
+not a positive whole number is ignored with a warning. The client logs the result
+when it starts:
 
 ```text
 Data-loader workers: 16 (host CPUs: 36, available: 36, cap 16)
