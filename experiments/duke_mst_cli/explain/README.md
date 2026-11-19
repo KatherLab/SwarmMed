@@ -74,6 +74,9 @@ the figures name the cohort `node_A`. These cases have no published AUROC, so th
 check under [Validation](#validation) is skipped with a warning; the script still
 computes their AUROC, so the split must hold malignant and other cases. `--split`
 applies to every cohort of a run, so explain a site's cases in a run of their own.
+`recompute_cam.py` and `render_from_npy.py`, which recompute a run's maps and redraw
+its composite figures, know only the cohorts in their `COHORT_TO_DATASET` and read
+the `test` split, so they cannot process such a run.
 
 ## What gets produced
 
