@@ -15,10 +15,12 @@ Instead:
 - **GradCAM / GradCAM++** hook the LayerNorm before the last attention block
   (`model.mst.backbone.blocks[-1].norm1`). The 1+16×16 token sequence is reshaped
   back into a 16×16 patch grid and bilinearly upsampled to slice resolution.
-- **OCA (Occlusion Confidence Activation)** sweeps a 48×48 occlusion patch (stride 32,
-  fill = per-volume mean intensity) over each axial slice and records the drop in
-  P(Malignant) versus the baseline. This is a black-box, model-agnostic attribution
-  that complements gradient-based maps.
+- **OCA (Occlusion Confidence Activation)** sweeps a 16×16 occlusion patch (stride 8,
+  filled with the patch's own mean) over every fourth axial slice by default
+  (`--occlusion-patch`, `--occlusion-stride`, `--occlusion-fill`,
+  `--occlusion-slice-stride`) and records the drop in P(Malignant) versus the
+  baseline. This is a black-box, model-agnostic attribution that complements
+  gradient-based maps.
 
 ## What the script needs
 
@@ -49,7 +51,9 @@ PYTHONPATH=experiments/duke_mst_cli:experiments/duke_mst_cli/explain \
     --cohorts duke MHA
 ```
 
-Add `--skip-occlusion` for a CAM-only fast path (~2 min instead of ~20 min).
+Occlusion dominates the run time: in the recorded run of the default 16 cases
+(83 minutes on one NVIDIA Quadro RTX 6000) it took about 5 minutes per case, and
+everything else about 3 minutes in total. Add `--skip-occlusion` for a CAM-only pass.
 
 ### One site's own cases
 
@@ -106,4 +110,7 @@ the value published in `<cohort>_eval.json` under `--ref-json-dir` (by default
 | MHA    | 0.6082   | 0.6082    | 0.0000 |
 | Duke   | (filled in by `report.md`) | 0.9007 | (filled in) |
 
-If the AUROC mismatches, the run aborts before producing figures.
+The check runs per cohort, before that cohort's cases are explained. If a cohort's
+AUROC mismatches, the run stops with an error: the heatmaps and per-case figures of
+earlier cohorts are already written, but `selected_cases.csv`, the composite figures,
+`metrics_check.json` and `report.md` are not.
