@@ -86,15 +86,16 @@ the `test` split, so they cannot process such a run.
 
 ```
 results/duke_mst_cli/explainability/
-├── README.md                  # provenance + methodology
 ├── report.md                  # per-case table + AUROC reproduction
 ├── metrics_check.json         # measured vs. published cohort AUROC
+├── selected_cases.csv         # the explained cases and their files
 ├── per_case_predictions/
 │   ├── duke_test.csv
 │   └── odelia_MHA.csv
 ├── attribution_maps/          # raw .npy heatmaps per case+method
 └── figures/
     ├── figure_main.png        # composite mirroring the reference layout
+    ├── figure_extended.png    # all four outcomes
     └── <cohort>_<uid>_{raw,gradcam,gradcampp,oca}.png
 ```
 
