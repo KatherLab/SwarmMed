@@ -5,6 +5,171 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-11-19
+
+### Added
+
+- A warning in SwarmMedHub and the CLI when a running training job has stalled
+  ([Server failover](docs/failover.md#when-a-site-drops-out)). The job monitor
+  flags a running job when the FL server reports a site as dropped out (its
+  training job as missing in reports that span a minute, or its FL client as dead
+  or disconnected) and the site has not taken part in the job since, which only
+  the Hub that runs the FL server can read in the server's logs, or when no round
+  has finished for `SWARMMEDHUB_STALL_WARNING_MINUTES` (default 60; `0` turns this
+  check off; an invalid value means 60 and a warning in the log). The warning names
+  the site and what to do: check the site, then stop the job and resume it
+  (`swarmed training resume`). It does not change the job's status. A warning
+  about a site disappears when the site takes part in the job again, one about
+  rounds when a round finishes; both disappear when the job ends.
+  `.env.template` sets the variable to 60.
+- The warning appears under the progress bar on the Training page, as a "Stalled"
+  badge on the dashboard, in the admin's list and page of training jobs, on the
+  Logs page, and in `swarmed training status`, `list` and `watch` (a `warning:`
+  line; with `--json` in `warnings` and in the job's `stall_warning`). The
+  training status API and the CLI's job output also give `last_round_at`, the time
+  a round last finished or the job started running. The training-state endpoint
+  that Hubs read from each other gives both fields; the Hubs that read it do not
+  show them yet.
+- `TrainingJob.last_round_at` and `TrainingJob.stall_warning` (migration
+  `training/0003`). `stall_warning` has a database default, so that code without
+  the field, such as 1.0.3, can still create training jobs after the migration.
+- `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` (seconds) sets the FL server's
+  `admin_timeout`: how long the server waits for each site's reply, for example
+  when it deploys a job (10 s as provisioned). Before SwarmMed starts an FL
+  server, the standby server included, it writes the value into the server's
+  `local/resources.json`, which FLARE reads before `resources.json.default`. The
+  file is made from itself, from `resources.json.default` or from the
+  provisioning defaults, and keeps every other setting. Set the variable for the
+  process that starts the FL server. For a start from the CLI or the web
+  interface, that is the Hub's Celery worker: put the variable in
+  `docker-compose.override.yml` under `celery_worker`, not in `.env`, from which
+  `make env` drops variables that `.env.template` does not list. It applies from
+  the next start of the server. Start the server the same way as before, or it
+  can come back in another image with other time limits
+  ([Server failover](docs/failover.md#resuming-over-a-slow-link)).
+- `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` (whole seconds) sets how long the FL
+  server waits for the starting site to start the swarm workflow
+  (`start_task_timeout`, 10 s in NVIDIA FLARE 2.7.1). Like the other time limits,
+  it is read by the process that submits the job.
+- `swarmed training resume` warns that a resumed job ships its checkpoint and,
+  should the job fail over a slow link, names the two settings to change before
+  resuming the interrupted job again. The warning is left out when
+  `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in the environment of the command
+  itself.
+- `experiments/duke_mst_cli/explain/run_explainability.py` takes `--split` and
+  `--site-institution`, so that a training site can explain cases of its own share,
+  for example its validation cases, with the global model it holds
+  (`--site-institution node_A --split val --cohorts site`). These cases have no
+  published AUROC, so the AUROC check is skipped with a warning. A test across
+  three hospitals used these options to explain each site's validation cases. The
+  script checks the cohorts before it loads the model (`site` needs
+  `--site-institution`), and stops with a message that names the split when a
+  cohort has no cases in it.
+
+### Changed
+
+- A resumed job waits 600 s for the swarm workflow to start instead of the default
+  of the FL server's NVIDIA FLARE build. That is longer than NVIDIA FLARE 2.7.1's
+  10 s but shorter than the 360 000 s of the worked example's image; set
+  `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` to keep a longer limit. The FL server
+  also checks a resumed job's status reports every 10 s instead of every 2 s
+  (`job_status_check_interval`), so that after a long start every site has
+  reported before the first check: the status-report limit (90 s in NVIDIA FLARE
+  2.7.1) counts from the start of the job, a site reports only once its first
+  learn task has started, and in a test across three hospitals the starting
+  site's first report arrived 0.26 s before FLARE's default first check, 2 s after
+  the start.
+- `docs/nvflare-comparison.md` lists `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` and
+  `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` with the other time limits and states that the
+  defaults of the workflow's deadlines come from the NVIDIA FLARE build in the
+  image the FL server runs in: 360 000 s (100 h) for the status-report and
+  progress limits in the worked example's image, and NVIDIA FLARE 2.7.1's 90 s and
+  3 600 s in the image SwarmMed builds.
+- `swarmed training watch` reads the job again before every poll, so that it shows
+  what the worker's job monitor records, the stall warning included.
+- The breast-MRI worked example's scripts (`evaluate_global_model.py`,
+  `explain/run_explainability.py`, `explain/recompute_cam.py` and
+  `explain/render_from_npy.py`) default to `/mnt/data/DUKE_iid` and
+  `/mnt/data/medswarmdata` instead of folders of the host they were first run on,
+  and `run_explainability.py --ref-json-dir` defaults to
+  `results/duke_mst_cli/repetition_1` in the working directory.
+  `experiments/duke_mst_cli/explain/README.md` describes the inputs with
+  placeholders. Tests use an address from the documentation range (`192.0.2.10`)
+  for example hosts.
+
+### Fixed
+
+- Resuming a run could fail over a slow link, because a resumed job carries its
+  checkpoint (94 MB for the breast MRI model). In a test across three hospitals,
+  the starting site did not accept the job within the FL server's 10 s
+  `admin_timeout`, so the job started without it and failed (`invalid value ...
+  in 'participating_clients'`); 300 s fixed this. The server, restarted through
+  the CLI for that setting, now ran in SwarmMed's own image with NVIDIA FLARE
+  2.7.1's limits (the worked example's image waits 360 000 s), and the workflow
+  did not start within its 10 s `start_task_timeout`: the starting site confirms
+  the start only once it has sent the first learn task to the other sites, and in
+  a resumed run that task carries the checkpoint (110 s there; new runs take 1 to
+  2.4 s). A resumed job now waits 600 s for the workflow to start unless
+  `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` is set; for the deployment, set
+  `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` and restart the server, with the settings it
+  was started with, before resuming
+  ([Server failover](docs/failover.md#resuming-over-a-slow-link)).
+- A time limit set to NVIDIA FLARE 2.7.1's default
+  (`SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL=90` or
+  `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT=3600`) did not reach the job: FLARE's job
+  export leaves out arguments equal to the Hub's defaults, so the FL server used
+  the default of its own image, 360 000 s in the worked example's image. SwarmMed
+  now writes every time limit it sets, the new start timeout included, into the
+  job's server configuration.
+- `SWARMMEDHUB_SWARM_MAX_STATUS_REPORT_INTERVAL` and
+  `SWARMMEDHUB_SWARM_PROGRESS_TIMEOUT` accepted `nan` and `inf`, which NVIDIA
+  FLARE takes as limits that never expire. Such values are now ignored with a
+  warning, like other invalid values.
+- A running job that a site had dropped out of showed no sign of it. In a test
+  across three hospitals, one site's training process was killed and the other
+  sites waited for it; the FL server reported the site's job as missing every
+  10 s, its time limits did not end the job, and SwarmMedHub showed the job as
+  "Running" for five hours. Such a job now carries the warning above.
+- On the Training page and in the CLI, a running job's progress counted its first
+  round as finished before it had finished: a job of 10 rounds showed 10 % from
+  the start, with an ETA based on that. Its progress now stays at 0 %, with the
+  ETA "Calculating...", until the first round has finished. `rounds_finished` in
+  the CLI's `--json` job output and the training-state endpoint stays empty
+  (null) until the job's first round has finished; the job monitor used to set it
+  to 0 on its first pass.
+- The breast-MRI worked example could run out of memory on hosts with many CPUs.
+  MediSwarm's data module in the training image starts one data-loader worker per
+  CPU of the host, and in a test across three hospitals, on servers with 20 to 36
+  CPUs and an installation limited to 16 CPUs and 28 GiB, a training process was
+  stopped for running out of memory. `experiments/duke_mst_cli/training.py` now
+  starts no more workers than the CPUs available to the process and at most
+  `SWARMMED_MAX_LOADER_WORKERS` (default 16), and logs the count when it starts
+  (`Data-loader workers: 16 (host CPUs: 36, available: 36, cap 16)`). The CPUs
+  available are the host's CPUs, limited by the process's CPU affinity and the
+  client container's own CPU quota as Docker shows it by default (with a private
+  cgroup namespace on cgroup v2, or on cgroup v1); a quota on an enclosing
+  container is not seen. The paper's runs used hosts with 16 CPUs and so 16
+  workers, which the default reproduces. The runs in that test used an earlier
+  form of the cap, which gave 16 workers on those hosts too. SwarmMed passes
+  `SWARMMED_MAX_LOADER_WORKERS` to the FL client containers like the example's
+  other site settings. The helper that does this is `swarmmed_loader_workers.py`,
+  named so that it does not replace the `loader_workers` module of MediSwarm 1.8.0
+  and later. Projects created from `experiments/duke_mst_cli` before 1.0.4 keep the
+  code stored with them. Replace it, as the project's author, with
+  `swarmed project update --user <hub-user> <PROJECT_UUID>
+  --code-dir ./experiments/duke_mst_cli`, which uploads `swarmmed_loader_workers.py`
+  together with `training.py`; `training.py` no longer runs without it.
+- `experiments/duke_mst_cli/explain/README.md` gave the occlusion settings of the
+  first round of explanations (48×48 patches at stride 32 on every slice) and
+  about 20 minutes for a run, and said that a failed AUROC check stops the run
+  before any figures are produced. Like the explainability guide, it now gives the
+  defaults (16×16 patches at stride 8 on every fourth slice), the 83 minutes of the
+  recorded run of 16 cases, and that the maps and figures of the cohorts checked
+  before a failed check are already written. It also says that
+  `recompute_cam.py` and `render_from_npy.py` cannot process a run of a site's own
+  cases, its output tree lists the files the script writes, and it names its
+  checkpoint's FLARE job instead of linking to a file outside the repository.
+
 ## [1.0.3] - 2026-11-16
 
 ### Added
