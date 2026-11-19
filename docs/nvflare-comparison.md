@@ -111,9 +111,12 @@ build's default applies, except that a resumed job waits 600 s for the workflow
 to start: its first learn task carries the checkpoint (see
 [Server failover](failover.md#resuming-over-a-slow-link)). On a build with a
 longer default, such as the worked example's, those 600 s are shorter than the
-default; set the variable to keep a longer limit. NVFlare 2.7.1 requires a
-status-report interval of at least 10 s and a progress timeout of at least 5 s,
-and takes the start timeout only in whole seconds.
+default; set the variable to keep a longer limit. For a resumed job, the server
+also checks the clients' status reports every 10 s instead of every 2 s
+(`job_status_check_interval`), so that after a long start every client has
+reported before the first check. NVFlare 2.7.1 requires a status-report interval
+of at least 10 s and a progress timeout of at least 5 s, and takes the start
+timeout only in whole seconds.
 
 The admin timeout is not part of the job. Set `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`
 for the Celery worker of the Hub that starts the FL server: SwarmMed writes it

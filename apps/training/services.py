@@ -76,6 +76,18 @@ _WHOLE_SECOND_TIME_LIMITS = frozenset({"start_task_timeout"})
 # 10 s default ended the run before it started.
 RESUME_START_TASK_TIMEOUT = 600
 
+# job_status_check_interval of a resumed job. FLARE checks each site's last status
+# report job_status_check_interval seconds after the workflow has started (2 s by
+# default) and ends the job if a site has not reported for max_status_report_interval
+# (90 s in NVIDIA FLARE 2.7.1), counted from the start of the job. A site reports
+# only once its first learn task has started, and the starting site sends no task
+# request while it runs the start task. After a long start (a resumed job's start
+# carries the checkpoint) the default check can therefore end the job before the
+# starting site's first report arrives: in a test across three hospitals that report
+# arrived 0.26 s before the check. A later first check leaves every site time to
+# report; the status limit still applies for the rest of the job.
+RESUME_JOB_STATUS_CHECK_INTERVAL = 10.0
+
 
 def swarm_time_limits_from_env(log=None):
     """Return SwarmServerController time-limit overrides set in the environment.
@@ -117,7 +129,8 @@ def swarm_time_limits_for_job(*, resumed: bool, log=None) -> tuple[dict, str]:
 
     The overrides set in the environment apply to every job. A resumed job
     also waits RESUME_START_TASK_TIMEOUT seconds for the workflow to start,
-    unless SWARMMEDHUB_SWARM_START_TASK_TIMEOUT is set.
+    unless SWARMMEDHUB_SWARM_START_TASK_TIMEOUT is set, and FLARE checks its
+    sites' status reports every RESUME_JOB_STATUS_CHECK_INTERVAL seconds.
 
     Args:
         resumed: Whether the job resumes an interrupted run.
@@ -125,18 +138,27 @@ def swarm_time_limits_for_job(*, resumed: bool, log=None) -> tuple[dict, str]:
 
     Returns:
         tuple[dict, str]: Keyword arguments for SwarmServerController, empty
-        when NVFlare's defaults apply, and a note for the log on the limit that
-        SwarmMed chose itself ("" if there is none).
+        when NVFlare's defaults apply, and a note for the log on the values that
+        SwarmMed chose itself ("" if there are none).
     """
     limits = swarm_time_limits_from_env(log)
-    if not resumed or "start_task_timeout" in limits:
+    if not resumed:
         return limits, ""
-    limits["start_task_timeout"] = RESUME_START_TASK_TIMEOUT
-    return limits, (
-        f" (start_task_timeout={RESUME_START_TASK_TIMEOUT} s is the default for a "
-        "resumed job, whose first learn task carries the checkpoint; "
-        "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT overrides it)"
+    notes = []
+    if "start_task_timeout" not in limits:
+        limits["start_task_timeout"] = RESUME_START_TASK_TIMEOUT
+        notes.append(
+            f"start_task_timeout={RESUME_START_TASK_TIMEOUT} s is the default for a "
+            "resumed job, whose first learn task carries the checkpoint, and "
+            "SWARMMEDHUB_SWARM_START_TASK_TIMEOUT overrides it"
+        )
+    limits["job_status_check_interval"] = RESUME_JOB_STATUS_CHECK_INTERVAL
+    notes.append(
+        f"job_status_check_interval={RESUME_JOB_STATUS_CHECK_INTERVAL:g} s lets "
+        "every site report its status after the start of a resumed job before "
+        "FLARE first checks the reports"
     )
+    return limits, f" ({'; '.join(notes)})"
 
 
 def resume_timeout_hint() -> str:

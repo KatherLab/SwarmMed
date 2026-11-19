@@ -185,7 +185,14 @@ moving it. In a test across three hospitals, both expired over a slow link:
   to the two other sites (about 180 MB) took 110 s, where new runs confirmed in
   1 to 2.4 s. SwarmMed therefore gives a resumed job 600 s.
   `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` (whole seconds, in the process that
-  submits the job) replaces that value, and also applies to new jobs.
+  submits the job) replaces that value, and also applies to new jobs. A long
+  start also counts against FLARE's status-report limit (90 s in NVIDIA FLARE
+  2.7.1), which runs from the start of the job: a site reports only once its
+  first learn task has started, the starting site sends no report while it
+  starts the workflow, and FLARE checks the reports 2 s after the workflow has
+  started. In the test, the starting site's first report arrived 0.26 s before
+  that check, so SwarmMed has FLARE check a resumed job's status reports every
+  10 s instead of every 2 s, which leaves every site time to report first.
 
 `swarmed training resume` names both settings after it submits the job, unless
 `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its environment. Stopping the network

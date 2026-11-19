@@ -479,7 +479,9 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
     def test_new_job_keeps_the_nvflare_start_timeout(self):
         training_services.submit_training_job(actor=self.user, network=self.network)
 
-        self.assertNotIn("start_task_timeout", self._controller_args())
+        args = self._controller_args()
+        self.assertNotIn("start_task_timeout", args)
+        self.assertNotIn("job_status_check_interval", args)
 
     def test_resumed_job_waits_longer_for_the_workflow_to_start(self):
         log = MagicMock()
@@ -488,16 +490,22 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
                 actor=self.user, network=self.network, resume=self._plan_from_round()
             )
 
-        timeout = self._controller_args()["start_task_timeout"]
+        args = self._controller_args()
+        timeout = args["start_task_timeout"]
         self.assertEqual(timeout, training_services.RESUME_START_TASK_TIMEOUT)
         # The job's JSON keeps it an int, which NVFlare requires.
         self.assertIs(type(timeout), int)
+        self.assertEqual(
+            args["job_status_check_interval"],
+            training_services.RESUME_JOB_STATUS_CHECK_INTERVAL,
+        )
         config_line = next(
             call.args[0]
             for call in log.training.info.call_args_list
             if call.args[0].startswith("Swarm controller config")
         )
         self.assertIn("'start_task_timeout': 600", config_line)
+        self.assertIn("'job_status_check_interval': 10.0", config_line)
         self.assertIn("default for a resumed job", config_line)
 
     def test_the_variable_sets_the_start_timeout_of_a_resumed_job(self):

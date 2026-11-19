@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from .services import (
+    RESUME_JOB_STATUS_CHECK_INTERVAL,
     RESUME_START_TASK_TIMEOUT,
     resume_timeout_hint,
     swarm_time_limits_for_job,
@@ -87,16 +88,31 @@ class JobTimeLimitTests(SimpleTestCase):
             limits, note = swarm_time_limits_for_job(resumed=True)
 
         self.assertEqual(RESUME_START_TASK_TIMEOUT, 600)
-        self.assertEqual(limits, {"start_task_timeout": 600})
+        self.assertEqual(
+            limits, {"start_task_timeout": 600, "job_status_check_interval": 10.0}
+        )
         self.assertIs(type(limits["start_task_timeout"]), int)
         self.assertIn("default for a resumed job", note)
 
+    def test_resumed_job_checks_the_status_reports_after_every_site_can_report(self):
+        # FLARE checks every site's last status report 2 s after the workflow has
+        # started; the starting site cannot report while it starts the workflow.
+        with patch.dict("os.environ", {}, clear=True):
+            limits, note = swarm_time_limits_for_job(resumed=True)
+
+        self.assertEqual(RESUME_JOB_STATUS_CHECK_INTERVAL, 10.0)
+        self.assertEqual(limits["job_status_check_interval"], 10.0)
+        self.assertIn("job_status_check_interval=10 s", note)
+
     def test_the_variable_wins_over_the_resume_default(self):
         with patch.dict("os.environ", {START_TIMEOUT_ENV: "120"}, clear=True):
-            self.assertEqual(
-                swarm_time_limits_for_job(resumed=True),
-                ({"start_task_timeout": 120}, ""),
-            )
+            limits, note = swarm_time_limits_for_job(resumed=True)
+
+        self.assertEqual(
+            limits, {"start_task_timeout": 120, "job_status_check_interval": 10.0}
+        )
+        self.assertNotIn("start_task_timeout", note)
+        self.assertIn("job_status_check_interval", note)
 
     def test_the_variable_also_sets_a_new_job(self):
         with patch.dict("os.environ", {START_TIMEOUT_ENV: "30"}, clear=True):
@@ -110,8 +126,14 @@ class JobTimeLimitTests(SimpleTestCase):
         with patch.dict("os.environ", {START_TIMEOUT_ENV: "1.5"}, clear=True):
             limits, note = swarm_time_limits_for_job(resumed=True, log=log)
 
-        self.assertEqual(limits, {"start_task_timeout": RESUME_START_TASK_TIMEOUT})
-        self.assertTrue(note)
+        self.assertEqual(
+            limits,
+            {
+                "start_task_timeout": RESUME_START_TASK_TIMEOUT,
+                "job_status_check_interval": RESUME_JOB_STATUS_CHECK_INTERVAL,
+            },
+        )
+        self.assertIn("default for a resumed job", note)
         log.training.warning.assert_called_once()
 
     def test_the_other_limits_apply_to_a_resumed_job_as_well(self):
@@ -124,6 +146,7 @@ class JobTimeLimitTests(SimpleTestCase):
             {
                 "progress_timeout": 7200.0,
                 "start_task_timeout": RESUME_START_TASK_TIMEOUT,
+                "job_status_check_interval": RESUME_JOB_STATUS_CHECK_INTERVAL,
             },
         )
 
