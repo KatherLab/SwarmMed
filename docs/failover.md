@@ -213,7 +213,10 @@ What to do:
    running swarm job.
 3. Once the site can train again, resume the run from the newest checkpoint as
    described in [Resuming the run](#resuming-the-run). Only PyTorch jobs can be
-   resumed; start other jobs again.
+   resumed; start other jobs again. The resumed job's progress counts the rounds
+   of the whole run, so it shows 0 % until the job's first round has finished,
+   and its ETA is too short: the rounds of the interrupted job count as done in
+   the resumed job's time.
 
 ## Settings
 
