@@ -173,8 +173,11 @@ class DropoutLogParsingTests(SimpleTestCase):
         self.assertEqual([item.client for item in shared_log.dropped()], ["node-A"])
 
     def test_lines_without_a_time_are_skipped(self):
+        # A disconnect counts at once, so a line read without its time would show.
         scan = scan_client_dropouts(
-            "received dead job report for client node-A\n", JOB
+            "received dead job report for client node-A\n"
+            "Client node-A is deemed disconnected!\n",
+            JOB,
         )
 
         self.assertEqual(scan.dropped(), [])
@@ -221,6 +224,14 @@ class DropoutLogParsingTests(SimpleTestCase):
         # A dead FL client, or a site that FLARE deems disconnected, counts at once.
         self.assertEqual(
             dropped(_notice("2026-11-18 01:02:01,123", "node-C", "client dead")),
+            ["node-C"],
+        )
+        # FLARE writes the job log's dead job report at the same moment.
+        self.assertEqual(
+            dropped(
+                _notice("2026-11-18 01:02:01,123", "node-C", "client dead"),
+                _report("2026-11-18 01:02:01,126", "node-C"),
+            ),
             ["node-C"],
         )
         self.assertEqual(
@@ -776,6 +787,9 @@ class MonitorStallWarningTests(MonitorTestCase):
             _notice("2026-11-17 10:47:10,789", "node-A"),
             _notice("2026-11-17 10:47:15,000", "node-B", job=OTHER_JOB),
             _notice("2026-11-17 10:47:20,882", "node-A"),
+            # The other job's reports span a minute, so only the job filter keeps
+            # node-B out of this job's warning.
+            _notice("2026-11-17 10:48:15,000", "node-B", job=OTHER_JOB),
         )
 
         self._run_monitor()
