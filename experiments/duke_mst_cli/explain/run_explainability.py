@@ -60,12 +60,15 @@ OUTCOME_TO_LABEL = {
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True, type=Path)
-    parser.add_argument("--duke-root", type=Path, default=Path("/mnt/dlhd0/DUKE_iid"))
-    parser.add_argument("--odelia-root", type=Path, default=Path("/mnt/dlhd0/medswarmdata"))
+    parser.add_argument("--duke-root", type=Path, default=Path("/mnt/data/DUKE_iid"))
+    parser.add_argument("--odelia-root", type=Path, default=Path("/mnt/data/medswarmdata"))
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--cohorts", nargs="+", default=["duke", "MHA"])
+    parser.add_argument("--split", default="test", help="Split of the cohort to explain (a site's own share has train/val).")
+    parser.add_argument("--site-institution", default=None,
+                        help="Register a cohort 'site' for this institution folder under --duke-root (e.g. node_A).")
     parser.add_argument("--ref-json-dir", type=Path,
-                        default=Path("/home/swarm/Projects/SwarmCloud/results/duke_mst_cli/repetition_1"))
+                        default=Path("results/duke_mst_cli/repetition_1"))
     parser.add_argument("--auroc-tolerance", type=float, default=0.01)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--cases-per-outcome", type=int, default=2,
@@ -104,7 +107,12 @@ def _check_against_published(
     args: argparse.Namespace,
     metrics_check: dict,
 ) -> None:
-    ref_path = args.ref_json_dir / COHORT_ALIASES[cohort]["ref_json"]
+    ref_name = COHORT_ALIASES[cohort]["ref_json"]
+    if ref_name is None:
+        LOGGER.warning("No published AUROC for %s; skipping the AUROC check", cohort)
+        metrics_check[cohort] = {"measured": measured_auroc, "published": None, "delta": None}
+        return
+    ref_path = args.ref_json_dir / ref_name
     if not ref_path.exists():
         LOGGER.warning("No reference JSON at %s; skipping AUROC check for %s", ref_path, cohort)
         metrics_check[cohort] = {"measured": measured_auroc, "published": None, "delta": None}
@@ -288,6 +296,21 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = _parse_args()
+    if args.site_institution:
+        COHORT_ALIASES["site"] = {
+            "data_root_key": "duke", "institution": args.site_institution,
+            "csv_name": f"site_{args.site_institution}_{args.split}.csv",
+            "ref_json": None, "display": args.site_institution,
+        }
+    unknown = [cohort for cohort in args.cohorts if cohort not in COHORT_ALIASES]
+    if unknown:
+        hint = ""
+        if "site" in unknown:
+            hint = " (the cohort 'site' needs --site-institution)"
+        raise SystemExit(
+            f"Unknown cohort(s): {', '.join(unknown)}{hint}. "
+            f"Known: {list(COHORT_ALIASES)}"
+        )
     _ensure_dirs(args.output_dir)
 
     LOGGER.info("Loading model from %s", args.checkpoint)
@@ -314,15 +337,21 @@ def main() -> None:
     selected_rows: list[dict[str, Any]] = []
 
     for cohort in args.cohorts:
-        if cohort not in COHORT_ALIASES:
-            raise SystemExit(f"Unknown cohort: {cohort}. Known: {list(COHORT_ALIASES)}")
-
         LOGGER.info("=== Cohort %s ===", cohort)
         cohort_root = _data_root(cohort, args)
         institution = COHORT_ALIASES[cohort]["institution"]
         dataset, loader = build_dataloader(
-            cohort_root, institution=institution, num_workers=args.num_workers
+            cohort_root, institution=institution, split=args.split, num_workers=args.num_workers
         )
+        if len(dataset) == 0:
+            # MediSwarm's loader selects the split's rows without checking for any.
+            hint = ""
+            if cohort == "site":
+                hint = "; a site's own share has the splits train and val (--split val)"
+            raise SystemExit(
+                f"No '{args.split}' cases for cohort {cohort} under "
+                f"{cohort_root / institution}{hint}"
+            )
 
         records = predict_per_case(model, loader, positive_class=2)
         csv_path = args.output_dir / "per_case_predictions" / COHORT_ALIASES[cohort]["csv_name"]

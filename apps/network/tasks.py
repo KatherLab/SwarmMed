@@ -179,6 +179,8 @@ CLIENT_RUNTIME_ENV_KEYS = (
     "MEDISWARM_VERSION",
     "LOG_DATASET_DETAILS",
     "SWARMMEDHUB_MST_EXPORT_PREDICTIONS",
+    # The cap on data-loader workers in experiments/duke_mst_cli/training.py.
+    "SWARMMED_MAX_LOADER_WORKERS",
 )
 
 

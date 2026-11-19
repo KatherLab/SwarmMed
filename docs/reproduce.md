@@ -41,8 +41,10 @@ that did not train, and one GPU at each training site.
   cannot be ruled out. The image of the web-interface run and of the ablation
   was not recorded.
 * **Code.** Repetition 3, the web-interface run, the ablation and the negative
-  control ran this repository's `experiments/duke_mst_cli/training.py`; only the
-  project id, which the Hub writes into the script, differs. The copy kept for
+  control ran this repository's `experiments/duke_mst_cli/training.py` as it was
+  before the cap on data-loader workers was added (see
+  [Training code and settings](#training-code-and-settings)); apart from the cap,
+  only the project id, which the Hub writes into the script, differs. The copy kept for
   repetition 2 differs in one respect: it always wrote per-round prediction CSVs.
   The coordinating host's copy for repetition 1 was overwritten. Repetitions 2
   and 3, the web-interface run and the negative control generated a
@@ -156,6 +158,14 @@ Settings at each training host:
 `SWARM_ROUNDS = 20` is a constant in `training.py`. The Hub reads it when it
 builds the job; `SWARMMEDHUB_SWARM_ROUNDS` in the environment of the process
 that submits the job overrides it.
+
+MediSwarm's code in the image starts one data-loader worker per CPU it is told of.
+`training.py` tells it the number of CPUs available to the client, but at most
+`SWARMMED_MAX_LOADER_WORKERS` (default 16), because on hosts with many CPUs one
+worker per CPU can use more memory than a client has
+(`experiments/duke_mst_cli/README.md`). The recorded runs predate this cap.
+SwarmMed sets no CPU limit on client containers, so on the recorded hosts, with 16
+logical CPUs each, they started 16 workers, as the cap's default does.
 
 MediSwarm sets each site's local epochs per round from the size of its training
 split: round(`EPOCHS_PER_ROUND` × 500 / n), clamped to between 1 and

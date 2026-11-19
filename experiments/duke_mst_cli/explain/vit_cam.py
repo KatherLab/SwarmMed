@@ -6,9 +6,9 @@ slice resolution, and finally applies percentile clipping + a small Gaussian
 blur for visual quality.
 
 Multi-layer averaging (a la pytorch-grad-cam) and post-hoc smoothing follow
-the conventions used in /home/jeff/Projects/odelia_breast_mri/scripts: stable
-spatial signal, per-case (volume-wide) normalisation, no class collapse from
-the very last block.
+the conventions of earlier breast-MRI attribution scripts: stable spatial
+signal, per-case (volume-wide) normalisation, no class collapse from the very
+last block.
 """
 
 from __future__ import annotations

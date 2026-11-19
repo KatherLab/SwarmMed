@@ -176,7 +176,7 @@ def _internal_host(workspace: Path) -> str:
 
 class ServerHostTests(SimpleTestCase):
     def test_valid_hosts(self):
-        for host in ("100.64.4.103", " 10.0.0.1 "):
+        for host in ("192.0.2.10", " 10.0.0.1 "):
             with self.subTest(host=host):
                 self.assertTrue(is_valid_server_host(host))
         # Docker's --add-host takes only an IP address, so host names are refused.
@@ -198,7 +198,7 @@ class ActiveServerFileTests(SimpleTestCase):
         self.addCleanup(temp_dir.cleanup)
         self.prod_dir = Path(temp_dir.name) / "workspace" / "demo" / "prod_00"
         _make_kits(self.prod_dir)
-        _write_json(self.prod_dir / ACTIVE_SERVER_FILE, {"server_host": "100.64.4.103"})
+        _write_json(self.prod_dir / ACTIVE_SERVER_FILE, {"server_host": "192.0.2.10"})
 
     def test_found_from_every_kit_layout(self):
         for startup in (
@@ -213,7 +213,7 @@ class ActiveServerFileTests(SimpleTestCase):
         ):
             with self.subTest(startup=startup):
                 self.assertEqual(
-                    active_server_host_for_startup(startup), "100.64.4.103"
+                    active_server_host_for_startup(startup), "192.0.2.10"
                 )
 
     def test_ignored_outside_a_provisioning_folder(self):
@@ -227,7 +227,7 @@ class ActiveServerFileTests(SimpleTestCase):
         startup = str(self.prod_dir / "node-A" / "startup")
         with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
             self.assertEqual(
-                network_tasks._configured_server_host(startup), "100.64.4.103"
+                network_tasks._configured_server_host(startup), "192.0.2.10"
             )
         (self.prod_dir / ACTIVE_SERVER_FILE).unlink()
         with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
@@ -247,7 +247,7 @@ class ActiveServerFileTests(SimpleTestCase):
         )
         with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
             _name, _session_dir, host = resolve_admin_session_target(network)
-        self.assertEqual(host, "100.64.4.103")
+        self.assertEqual(host, "192.0.2.10")
 
 
 class ServerKitTests(SimpleTestCase):
@@ -487,16 +487,16 @@ class NetworkFixture:
 class WriteActiveServerTests(NetworkFixture, TestCase):
     def test_record_names_the_previous_server(self):
         record = write_active_server(
-            self.network, "100.64.4.103", started_server=True, actor=self.user
+            self.network, "192.0.2.10", started_server=True, actor=self.user
         )
 
         self.assertEqual(record["previous_server_host"], "100.64.0.1")
         self.assertTrue(record["server_started_here"])
         stored = json.loads((self.prod_dir / ACTIVE_SERVER_FILE).read_text())
-        self.assertEqual(stored["server_host"], "100.64.4.103")
+        self.assertEqual(stored["server_host"], "192.0.2.10")
 
         second = write_active_server(self.network, "100.64.0.1", started_server=False)
-        self.assertEqual(second["previous_server_host"], "100.64.4.103")
+        self.assertEqual(second["previous_server_host"], "192.0.2.10")
 
     def test_rejects_a_bad_address(self):
         with self.assertRaises(ValueError):
@@ -547,7 +547,7 @@ class FailoverTaskTests(NetworkFixture, TestCase):
             network_tasks.failover_network_task(
                 str(self.network.identifier),
                 self.user.id,
-                "100.64.4.103",
+                "192.0.2.10",
                 start_server,
                 previous_status,
             )
@@ -587,7 +587,7 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         self.assertEqual(self.status_at_start[1], "STARTING")
         self.assertEqual(self.network.status, "RUNNING")
         record = json.loads((self.prod_dir / ACTIVE_SERVER_FILE).read_text())
-        self.assertEqual(record["server_host"], "100.64.4.103")
+        self.assertEqual(record["server_host"], "192.0.2.10")
 
     def test_other_sites_only_restart_their_clients(self):
         self.assertEqual(self._run(start_server=False), [("client", ["node-A"])])
@@ -693,7 +693,7 @@ class StartRoleTests(NetworkFixture, TestCase):
         self.assertIn("swarmmedhub.role=server", runs[0])
 
     def test_client_role_with_participants_uses_the_switched_server(self):
-        write_active_server(self.network, "100.64.4.103", started_server=False)
+        write_active_server(self.network, "192.0.2.10", started_server=False)
 
         runs = self._start(role="client", participants=["node-B"])
 
@@ -701,8 +701,8 @@ class StartRoleTests(NetworkFixture, TestCase):
         run = runs[0]
         self.assertIn("swarmmedhub.role=client", run)
         self.assertTrue(run[run.index("--name") + 1].endswith("node-B"))
-        self.assertIn("server:100.64.4.103", run)
-        self.assertIn("SWARMMEDHUB_SERVER_HOST=100.64.4.103", run)
+        self.assertIn("server:192.0.2.10", run)
+        self.assertIn("SWARMMEDHUB_SERVER_HOST=192.0.2.10", run)
 
     def test_unknown_participant_is_an_error(self):
         self._start(role="client", participants=["node-Z"])
@@ -1096,14 +1096,14 @@ class CLIParserTests(SimpleTestCase):
                 "failover",
                 "net-1",
                 "--server-host",
-                "100.64.4.103",
+                "192.0.2.10",
                 "--start-server",
                 "--wait",
             ]
         )
         self.assertEqual(
             (args.handler, args.server_host, args.start_server, args.wait),
-            ("network_failover", "100.64.4.103", True, True),
+            ("network_failover", "192.0.2.10", True, True),
         )
         args = parser.parse_args(
             [
