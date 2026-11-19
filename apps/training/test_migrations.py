@@ -184,6 +184,27 @@ class StallWarningMigrationTests(TransactionTestCase):
         self.assertIsNone(job.last_round_at)
         self.assertEqual(job.rounds_finished, 3)
 
+    def test_code_without_the_new_fields_can_still_create_jobs(self):
+        # As release 1.0.3 does, or a worker that still runs it during an update.
+        OldTrainingJob = (
+            MigrationExecutor(connection)
+            .loader.project_state(self.migrate_from)
+            .apps.get_model("training", "TrainingJob")
+        )
+        existing = OldTrainingJob.objects.get(id=self.job_id)
+
+        created_id = OldTrainingJob.objects.create(
+            project_id=existing.project_id,
+            network_id=existing.network_id,
+            status="PENDING",
+        ).id
+
+        job = self.apps.get_model("training", "TrainingJob").objects.get(
+            id=created_id
+        )
+        self.assertEqual(job.stall_warning, "")
+        self.assertIsNone(job.last_round_at)
+
     def test_migration_can_be_reversed(self):
         self.assertTrue({"last_round_at", "stall_warning"} <= self._columns())
 

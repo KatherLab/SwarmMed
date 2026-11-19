@@ -18,6 +18,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='trainingjob',
             name='stall_warning',
-            field=models.TextField(blank=True, default='', help_text='Why the running job looks stalled and what to do; empty otherwise.'),
+            field=models.TextField(blank=True, db_default='', default='', help_text='Why the running job looks stalled and what to do; empty otherwise.'),
         ),
     ]

@@ -102,6 +102,8 @@ class TrainingJob(AbstractBaseModel):
     stall_warning = models.TextField(
         blank=True,
         default="",
+        # Code without this field, such as release 1.0.3, can still create jobs.
+        db_default="",
         help_text="Why the running job looks stalled and what to do; empty otherwise.",
     )
 
