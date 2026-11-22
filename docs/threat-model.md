@@ -156,14 +156,20 @@ site (`node-A.zip`, `node-B.zip`, …), each containing:
 
 | Path in a site's kit | Contents |
 |---|---|
-| `startup/` | The site's own client certificate and private key, and a second key pair in the site's name, which NVFlare creates because SwarmMed gives each client a listening address |
+| `startup/` | The site's own client certificate and private key (`client.crt`, `client.key`), the root CA certificate, the client's configuration and start scripts, and the FL server's address (`server_host.txt`). Kits provisioned by version 1.0.0 or earlier also hold a second key pair in the site's name, which NVFlare created because that version gave each client a listening address |
+| `local/` | The site's NVFlare defaults for authorization, resources, privacy and logging; no keys |
 | `admin_startup/` | The site's admin identity, `admin-<site>@nvidia.com`, with NVFlare's `project_admin` role, and its private key |
 | `server_startup/` | The FL server's certificate and private key, identical in every kit |
 | `server_local/` | The FL server's local settings (resources, logging, authorization and privacy policies, internal communication; no keys), so that a site can start the server as a standby (see [Server failover](failover.md)). Kits exported by version 1.0.2 or earlier lack it |
 | `.gossip_token` | The network token for the hub-to-hub channel |
 | `.participants.json` | Every participant's name, organisation and IP address |
+| `manifest.json` | The SHA-256 of every other file in the package and the trust material the sites share; its SHA-256 is the network fingerprint ([Verifying the startup package](networking.md#verifying-the-startup-package)) |
 
-The root CA certificate is included; its private key is not.
+The root CA certificate is included; its private key is not. Next to the kits, the
+package holds the same metadata files and `manifest.json`, the provisioning
+definition `project.yml` and `runtime_requirements.txt`. Packages exported by
+version 1.0.4 or earlier lack `manifest.json`, `project.yml` and
+`runtime_requirements.txt`.
 
 Every site imports the whole package, and the import unpacks every kit, so each
 site ends up holding every client's private key, every admin identity and the FL
@@ -190,13 +196,21 @@ Consequences:
   SwarmMed does not change).
 * Any member of the project at a site that holds the network can export the whole
   package again from the web interface. Exports from the web interface are written
-  to the audit log; exports with `swarmed network export-package` are not.
+  to the audit log, with the package's network fingerprint and SHA-256; exports
+  with `swarmed network export-package` are not.
 
 What an operator should do until SwarmMed can export per-site kits:
 
 1. Treat the package as the study's master credential. Move it only over an
    encrypted, authenticated channel to a named person at each site, and delete
    every copy outside the web interface's workspace once it has been imported.
+   Before the first start, have every site check the network fingerprint, at
+   import with `--expect-fingerprint` or by comparing it among all sites in one
+   call ([Verifying the startup package](networking.md#verifying-the-startup-package)).
+   This shows that the sites received the same package, not altered, substituted,
+   stale or corrupted. It does not show that nobody else copied the package, and
+   it does not protect against a dishonest or compromised coordinating site, which
+   holds the root CA's key and every other key.
 2. Restrict access to the `workspaces/` directory on every host that holds the
    network, and limit project membership to people who may hold the study's keys.
 3. Record in the consortium agreement that every participant holds every identity,

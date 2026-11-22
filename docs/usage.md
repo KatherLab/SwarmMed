@@ -205,7 +205,7 @@ A network defines the participants in your decentralized learning experiment.
     *   **Test in local environment:** This option is for testing purposes only. It allows you to run the training locally without setting up a real network.
 
 !!! warning "One site creates the startup package"
-    Only one site creates the startup package of a network, with `Create New Startup Package`. It exports the package and gives it to the other network members, who choose `Import Startup Package`.
+    Only one site creates the startup package of a network, with `Create New Startup Package`. It exports the package and gives it to the other network members, who choose `Import Startup Package`. After the export, and at every site after the import, the Network page shows the package's network fingerprint, which all sites compare by phone or video call before the network is started ([Verifying the startup package](networking.md#verifying-the-startup-package)).
 
 !!! danger "The startup package is the study's master credential"
     The package contains every participant's private key, the FL server's private key and, for each site, an admin identity with NVFlare's `project_admin` role, which may run code at every site. Every site that imports it holds all of them. Move the package only over an encrypted, authenticated channel to a named person at each site, and delete copies once they are imported ([Key custody](threat-model.md#key-custody-what-the-startup-package-contains)).
@@ -214,7 +214,7 @@ A network defines the participants in your decentralized learning experiment.
     *   **Hostname:** A unique name for the participant, displayed on the Network page of the participant.
     *   **IP Address:** The IPv4 address of the participant's machine, which must stay assigned to it for the study. The Network page of the participant displays the machine's overlay address (NetBird or Tailscale). A participant without a valid IPv4 address gets no startup kit.
 
-6. If `Import Startup Package` was selected: Import the startup package file provided by another network partner.
+6. If `Import Startup Package` was selected: Import the startup package file provided by another network partner. In **Expected fingerprint**, enter the network fingerprint that the coordinating site read out to you; a package with another fingerprint, or without one, is not imported. Without it, compare the fingerprint shown after the import with every other site.
 7. Click on the **Create Network** button to save your network.
 
 !!! info "Networks created in the web interface"
