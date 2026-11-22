@@ -19,11 +19,14 @@ from swarmed_cli.main import build_parser
 
 from project.models import Project
 
+from training import runtime as training_runtime
+
 from . import tasks as network_tasks
 from .failover import (
     ACTIVE_SERVER_FILE,
     FLARE_ADMIN_TIMEOUT_ENV,
     active_server_host_for_startup,
+    admin_session_pin,
     apply_flare_admin_timeout,
     ensure_server_kit_complete,
     is_valid_server_host,
@@ -32,7 +35,7 @@ from .failover import (
     write_active_server,
 )
 from .models import SwarmNetwork, SwarmParticipant
-from .services import import_network
+from .services import describe_server_switch, import_network
 from .utils import create_startup_kits_zip
 
 
@@ -248,6 +251,187 @@ class ActiveServerFileTests(SimpleTestCase):
         with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
             _name, _session_dir, host = resolve_admin_session_target(network)
         self.assertEqual(host, "192.0.2.10")
+
+
+# The order in which the admin session tries addresses without a switch: the
+# kit's server name, the configured address, the network's server container and
+# local addresses.
+_UNPINNED_ORDER = [
+    "server",
+    "192.0.2.10",
+    "swarm-0123456789ab-server",
+    "172.17.0.1",
+    "host.docker.internal",
+    "127.0.0.1",
+    "localhost",
+]
+
+# A switch record as versions 1.0.3 and 1.0.4 write it at a site.
+_RECORD_FROM_1_0_4 = {
+    "server_host": "192.0.2.10",
+    "previous_server_host": "100.64.0.1",
+    "provisioned_server_host": "100.64.0.1",
+    "server_started_here": False,
+    "changed_at": "2026-01-01T00:00:00+00:00",
+    "changed_by": "operator",
+}
+
+
+class AdminSessionAfterSwitchTests(SimpleTestCase):
+    """The Hub's admin session follows the switch record, not a local server."""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.prod_dir = Path(temp_dir.name) / "workspace" / "demo" / "prod_00"
+        _make_kits(self.prod_dir)
+        self.admin_dir = self.prod_dir / "admin-node-A@nvidia.com"
+        environment = patch.dict(os.environ, {"DOCKER_HOST_IP": "172.17.0.1"})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def _switch(self, **fields):
+        _write_json(
+            self.prod_dir / ACTIVE_SERVER_FILE, {**_RECORD_FROM_1_0_4, **fields}
+        )
+
+    def _connect(self, answering, only_host=""):
+        """Open an admin session where an FL server answers at ``answering``.
+
+        Returns:
+            tuple: The addresses tried in order, and the one the session is
+            connected to (None if it could not connect).
+        """
+        attempts = []
+
+        class FakeSession:
+            def __init__(self, username, startup_path, secure_mode=True, debug=False):
+                self.api = SimpleNamespace(
+                    host="server",
+                    port=8003,
+                    cell=None,
+                    closed=False,
+                    authenticate_msg_timeout=5.0,
+                    check_command=lambda _name: SimpleNamespace(name="submit_job"),
+                )
+
+            def try_connect(self, _timeout):
+                attempts.append(self.api.host)
+                if self.api.host not in answering:
+                    raise ConnectionError(f"no FL server at {self.api.host}")
+                self.api.cell = object()
+
+            def close(self):
+                self.api.closed = True
+
+        def dial(address, timeout=None):
+            if address[0] not in answering:
+                raise OSError("connection refused")
+            return MagicMock()
+
+        with (
+            patch("nvflare.fuel.flare_api.flare_api.Session", FakeSession),
+            patch.object(
+                training_runtime.socket, "create_connection", side_effect=dial
+            ),
+            patch.object(training_runtime.time, "sleep"),
+            patch.object(training_runtime, "_ensure_grpc_ssl_patched"),
+        ):
+            try:
+                session = training_runtime.new_secure_session_with_host(
+                    username="admin-node-A@nvidia.com",
+                    startup_kit_location=str(self.admin_dir),
+                    host="192.0.2.10",
+                    timeout=1.0,
+                    network_id="0123456789abcdef",
+                    only_host=only_host,
+                )
+            except RuntimeError:
+                return attempts, None
+        return attempts, session.api.host
+
+    def test_without_a_switch_the_order_is_unchanged(self):
+        self.assertEqual(
+            training_runtime.admin_host_candidates(
+                str(self.admin_dir), "192.0.2.10", network_id="0123456789abcdef"
+            ),
+            _UNPINNED_ORDER,
+        )
+        # The kit's server name still comes first, so a local server answers.
+        self.assertEqual(
+            self._connect({"server", "192.0.2.10"}), (["server"], "server")
+        )
+
+    def test_after_a_switch_a_local_server_gets_no_admin_session(self):
+        self._switch()
+        # A stale server of the network at this Hub answers to 'server' and on
+        # the Docker gateway; only the recorded server may get the session.
+        attempts, connected = self._connect({"server", "172.17.0.1", "192.0.2.10"})
+
+        self.assertEqual((attempts, connected), (["192.0.2.10"], "192.0.2.10"))
+
+    def test_after_a_switch_no_local_address_is_tried_when_the_server_is_down(self):
+        self._switch()
+        attempts, connected = self._connect({"server", "172.17.0.1", "127.0.0.1"})
+
+        self.assertEqual((attempts, connected), (["192.0.2.10"], None))
+
+    def test_records_from_earlier_versions_pin_the_session(self):
+        for record in (
+            _RECORD_FROM_1_0_4,
+            # A record that only names the server.
+            {"server_host": "192.0.2.10"},
+        ):
+            with self.subTest(record=record):
+                _write_json(self.prod_dir / ACTIVE_SERVER_FILE, record)
+                self.assertEqual(admin_session_pin(record), "192.0.2.10")
+                self.assertEqual(
+                    training_runtime.admin_host_candidates(
+                        str(self.admin_dir), "100.64.0.1", network_id="0123456789abcdef"
+                    ),
+                    ["192.0.2.10"],
+                )
+
+    def test_the_standby_that_started_the_server_keeps_its_local_addresses(self):
+        self._switch(server_started_here=True)
+
+        self.assertEqual(
+            training_runtime.admin_host_candidates(
+                str(self.admin_dir), "192.0.2.10", network_id="0123456789abcdef"
+            ),
+            _UNPINNED_ORDER,
+        )
+        self.assertEqual(self._connect({"server"}), (["server"], "server"))
+
+    def test_a_given_address_is_the_only_one_tried(self):
+        self._switch()
+
+        self.assertEqual(
+            self._connect({"192.0.2.10", "100.64.0.1"}, only_host="100.64.0.1"),
+            (["100.64.0.1"], "100.64.0.1"),
+        )
+
+    def test_pre_submit_probes_reach_only_the_recorded_server(self):
+        self._switch()
+        session = MagicMock()
+        session.api.host = "server"
+        session.api.port = 8003
+        session.api.cell = None
+        log = MagicMock()
+        with (
+            patch.dict(os.environ, {"SWARMMEDHUB_FLARE_ADMIN_PORT": ""}),
+            patch("nvflare.fuel.flare_api.flare_api.Session", return_value=session),
+            patch.object(
+                training_runtime.socket,
+                "create_connection",
+                side_effect=OSError("refused"),
+            ) as dial,
+        ):
+            training_runtime.log_flare_pre_submit_diagnostics(
+                log, "admin-node-A@nvidia.com", str(self.admin_dir), "192.0.2.10"
+            )
+
+        self.assertEqual({c.args[0][0] for c in dial.call_args_list}, {"192.0.2.10"})
 
 
 class ServerKitTests(SimpleTestCase):
@@ -501,6 +685,71 @@ class WriteActiveServerTests(NetworkFixture, TestCase):
     def test_rejects_a_bad_address(self):
         with self.assertRaises(ValueError):
             write_active_server(self.network, "not a host", started_server=False)
+
+
+class ServerSwitchStatusTests(NetworkFixture, TestCase):
+    """'swarmed network status' names the addresses of the Hub's admin session."""
+
+    def setUp(self):
+        super().setUp()
+        self.network.admin_startup_dir = str(
+            self.prod_dir / "admin-node-A@nvidia.com" / "startup"
+        )
+        self.network.save(update_fields=["admin_startup_dir"])
+        environment = patch.dict(os.environ, {"DOCKER_HOST_IP": "172.17.0.1"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("SWARMMEDHUB_SERVER_HOST", None)
+
+    def test_after_a_switch_only_the_recorded_server(self):
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        status = describe_server_switch(self.network)
+
+        self.assertEqual(status["server_host"], "192.0.2.10")
+        self.assertEqual(status["admin_session_hosts"], ["192.0.2.10"])
+
+    def test_at_the_standby_its_own_server_first(self):
+        write_active_server(self.network, "192.0.2.10", started_server=True)
+
+        hosts = describe_server_switch(self.network)["admin_session_hosts"]
+
+        self.assertEqual(hosts[:2], ["server", "192.0.2.10"])
+        self.assertIn("127.0.0.1", hosts)
+
+    def test_without_a_switch_the_order_is_unchanged(self):
+        status = describe_server_switch(self.network)
+
+        self.assertFalse(status["switched"])
+        self.assertEqual(
+            status["admin_session_hosts"],
+            [
+                "server",
+                "100.64.0.1",
+                f"swarm-{str(self.network.identifier)[:12]}-server",
+                "172.17.0.1",
+                "host.docker.internal",
+                "127.0.0.1",
+                "localhost",
+            ],
+        )
+
+    def test_without_a_switch_the_address_set_in_the_environment(self):
+        with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
+            status = describe_server_switch(self.network)
+
+        self.assertEqual(status["server_host"], "100.64.0.7")
+        self.assertEqual(status["provisioned_server_host"], "100.64.0.1")
+        self.assertEqual(status["admin_session_hosts"][1], "100.64.0.7")
+
+    def test_empty_without_an_admin_kit(self):
+        shutil.rmtree(self.prod_dir / "admin-node-A@nvidia.com")
+        self.network.admin_startup_dir = ""
+        self.network.save(update_fields=["admin_startup_dir"])
+
+        status = describe_server_switch(self.network)
+
+        self.assertEqual(status["admin_session_hosts"], [])
 
 
 class FailoverTaskTests(NetworkFixture, TestCase):

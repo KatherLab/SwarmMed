@@ -24,6 +24,7 @@ from .failover import (
     is_valid_server_host,
     move_kit_folder,
     provisioned_server_host,
+    unswitched_server_host,
 )
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .overlay import resolve_server_address
@@ -752,14 +753,22 @@ def failover_network(
 
 
 def describe_server_switch(network: SwarmNetwork) -> dict:
-    """Return which FL server this Hub uses for a network."""
+    """Return which FL server this Hub uses for a network.
+
+    ``admin_session_hosts`` lists the addresses that the Hub's admin session,
+    which submits and monitors jobs, tries in this order. After a switch that is
+    the recorded server alone, except at the Hub that started that server.
+    """
+    from training.runtime import admin_session_hosts
+
     record = active_server_record(network)
     provisioned = provisioned_server_host(network)
     return {
-        "server_host": record.get("server_host") or provisioned,
+        "server_host": record.get("server_host") or unswitched_server_host(network),
         "provisioned_server_host": provisioned,
         "switched": bool(record.get("server_host")),
         "switch": record or None,
+        "admin_session_hosts": admin_session_hosts(network),
     }
 
 
