@@ -627,7 +627,9 @@ class ExportTests(ProvisionedNetworkTestCase):
         self.assertEqual(self.network.package_fingerprint, self.fingerprint)
 
     def test_serialized_network_has_the_package_values(self):
-        serialized = network_services.serialize_network(self.network)
+        # As stored at the export, not as set on the exported instance.
+        network = SwarmNetwork.objects.get(pk=self.network.pk)
+        serialized = network_services.serialize_network(network)
 
         self.assertEqual(serialized["package_fingerprint"], self.fingerprint)
         self.assertEqual(
