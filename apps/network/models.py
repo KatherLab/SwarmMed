@@ -121,7 +121,9 @@ class SwarmNetwork(AbstractBaseModel):
         blank=True,
         default="",
         db_default="",
-        help_text="SHA-256 of the startup package file this Hub last exported or imported.",
+        help_text=(
+            "SHA-256 of the startup package file this Hub last exported or imported."
+        ),
     )
 
     class Meta:

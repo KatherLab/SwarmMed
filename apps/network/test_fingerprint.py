@@ -52,7 +52,10 @@ from .fingerprint import (
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .test_failover import NetworkFixture, _add_flare_files, _certificates, _make_kits
 
-SITES = [{"name": "site-a", "ip": "100.64.0.11"}, {"name": "site-b", "ip": "100.64.0.12"}]
+SITES = [
+    {"name": "site-a", "ip": "100.64.0.11"},
+    {"name": "site-b", "ip": "100.64.0.12"},
+]
 SERVER_IP = "100.64.0.10"
 
 
@@ -230,8 +233,18 @@ class ManifestTests(SimpleTestCase):
         _make_kits(self.prod_dir)
         _add_flare_files(self.prod_dir)
         participants = [
-            {"participant_id": "node-A", "role": "CLIENT", "ip": "-", "org": "org_node_A"},
-            {"participant_id": "server", "role": "SERVER", "ip": "100.64.0.1", "org": "x"},
+            {
+                "participant_id": "node-A",
+                "role": "CLIENT",
+                "ip": "-",
+                "org": "org_node_A",
+            },
+            {
+                "participant_id": "server",
+                "role": "SERVER",
+                "ip": "100.64.0.1",
+                "org": "x",
+            },
         ]
         self.top = {
             ".network_id": b"network-1",
@@ -266,12 +279,17 @@ class ManifestTests(SimpleTestCase):
             for site, files in reversed(list(kits.items()))
         }
         first = self._manifest(kits)
-        self.assertEqual(canonical_bytes(first), canonical_bytes(self._manifest(reordered)))
+        self.assertEqual(
+            canonical_bytes(first), canonical_bytes(self._manifest(reordered))
+        )
         # Nothing about the time, the exporting host or the SwarmMed version.
-        self.assertEqual(set(first), {"format", "network_id", "project", "trust", "files"})
+        self.assertEqual(
+            set(first), {"format", "network_id", "project", "trust", "files"}
+        )
         self.assertEqual(first["trust"]["server_address"], "100.64.0.1")
         self.assertEqual(
-            (first["trust"]["fed_learn_port"], first["trust"]["admin_port"]), (8002, 8003)
+            (first["trust"]["fed_learn_port"], first["trust"]["admin_port"]),
+            (8002, 8003),
         )
         self.assertEqual(
             [participant["name"] for participant in first["trust"]["participants"]],
@@ -320,7 +338,9 @@ class ManifestTests(SimpleTestCase):
         self.assertEqual(caught.exception.path, "node-B.zip/admin_startup/rootCA.pem")
 
 
-@unittest.skipUnless(os.name == "posix", "runs nvflare provision through a shell script")
+@unittest.skipUnless(
+    os.name == "posix", "runs nvflare provision through a shell script"
+)
 class ProvisionedNetworkTestCase(TestCase):
     """A network provisioned with NVIDIA FLARE at this, the coordinating, Hub."""
 
@@ -405,8 +425,9 @@ class ProvisionedNetworkTestCase(TestCase):
     def other_hub(self):
         """Another Hub: a folder of its own, and no record of the network."""
         SwarmNetwork.objects.filter(identifier=self.network.identifier).delete()
-        with tempfile.TemporaryDirectory() as folder, override_settings(
-            BASE_DIR=Path(folder)
+        with (
+            tempfile.TemporaryDirectory() as folder,
+            override_settings(BASE_DIR=Path(folder)),
         ):
             yield Path(folder)
 
@@ -420,7 +441,7 @@ class ProvisionedNetworkTestCase(TestCase):
         )
 
     def assert_refused(self, package: bytes, *expected_text, **kwargs) -> str:
-        """Import ``package`` at another Hub; it must be refused with nothing written."""
+        """Import ``package`` at another Hub: refused, with nothing written."""
         with self.other_hub() as hub:
             with self.assertRaises(ValueError) as caught:
                 self.import_package(package, **kwargs)
@@ -435,10 +456,13 @@ class ProvisionedNetworkTestCase(TestCase):
 
     def provision_again(self) -> bytes:
         """The same network provisioned again (a new root CA and keys), exported."""
-        rows = list(self.network.participants.values("role", "participant_id", "org", "ip"))
+        rows = list(
+            self.network.participants.values("role", "participant_id", "org", "ip")
+        )
         SwarmNetwork.objects.filter(identifier=self.network.identifier).delete()
-        with tempfile.TemporaryDirectory() as folder, override_settings(
-            BASE_DIR=Path(folder)
+        with (
+            tempfile.TemporaryDirectory() as folder,
+            override_settings(BASE_DIR=Path(folder)),
         ):
             network = SwarmNetwork.objects.create(
                 identifier=self.network.identifier,
@@ -460,19 +484,31 @@ class ProvisionedNetworkTestCase(TestCase):
 class ProvisionedKitTests(ProvisionedNetworkTestCase):
     def test_fresh_kits_pass_flares_verifier_and_start_check(self):
         kits = sorted(
-            path for path in self.prod_dir.iterdir() if (path / "startup" / "signature.json").is_file()
+            path
+            for path in self.prod_dir.iterdir()
+            if (path / "startup" / "signature.json").is_file()
         )
         self.assertEqual(
             [path.name for path in kits],
-            ["admin-site-a@nvidia.com", "admin-site-b@nvidia.com", "server", "site-a", "site-b"],
+            [
+                "admin-site-a@nvidia.com",
+                "admin-site-b@nvidia.com",
+                "server",
+                "site-a",
+                "site-b",
+            ],
         )
         for kit in kits:
             with self.subTest(kit=kit.name):
                 # SwarmMed's own files are in the folder, and covered.
-                self.assertEqual((kit / "startup" / "server_host.txt").read_text(), SERVER_IP)
+                self.assertEqual(
+                    (kit / "startup" / "server_host.txt").read_text(), SERVER_IP
+                )
                 self.assertTrue((kit / "startup" / ".all_participants.json").is_file())
                 self.assertTrue(_verify_startup(kit / "startup"))
-        self.assertTrue((self.prod_dir / "site-a" / "startup" / "server_aliases.txt").is_file())
+        self.assertTrue(
+            (self.prod_dir / "site-a" / "startup" / "server_aliases.txt").is_file()
+        )
 
         site = self.prod_dir / "site-a" / "startup"
         verifier = subprocess.run(  # nosec B603
@@ -520,7 +556,9 @@ class ProvisionedKitTests(ProvisionedNetworkTestCase):
 
             self.assertEqual(signed, [str(startup)])
             self.assertTrue(_verify_startup(startup))
-            self.assertFalse((prod_dir / "notes" / "startup" / "signature.json").exists())
+            self.assertFalse(
+                (prod_dir / "notes" / "startup" / "signature.json").exists()
+            )
 
 
 class ExportTests(ProvisionedNetworkTestCase):
@@ -541,7 +579,9 @@ class ExportTests(ProvisionedNetworkTestCase):
                 "site-b.zip",
             ],
         )
-        self.assertEqual(entries["project.yml"], (network_dir / "project.yml").read_bytes())
+        self.assertEqual(
+            entries["project.yml"], (network_dir / "project.yml").read_bytes()
+        )
         self.assertEqual(
             entries["runtime_requirements.txt"],
             (network_dir / "runtime_requirements.txt").read_bytes(),
@@ -551,7 +591,9 @@ class ExportTests(ProvisionedNetworkTestCase):
         self.assertEqual(manifest_bytes, canonical_bytes(manifest))
         self.assertEqual(self.fingerprint, hashlib.sha256(manifest_bytes).hexdigest())
         self.assertEqual(self.fingerprint, network_fingerprint(manifest))
-        self.assertEqual(self.network.package_sha256, hashlib.sha256(self.package).hexdigest())
+        self.assertEqual(
+            self.network.package_sha256, hashlib.sha256(self.package).hexdigest()
+        )
         self.assertEqual(manifest["format"], MANIFEST_FORMAT)
         self.assertEqual(manifest["network_id"], str(self.network.identifier))
         self.assertEqual(manifest["project"], "demo_study")
@@ -585,7 +627,11 @@ class ExportTests(ProvisionedNetworkTestCase):
         )
 
         files = manifest["files"]
-        for path in ("project.yml", "site-a.zip/startup/rootCA.pem", "site-b.zip/server_startup/server.key"):
+        for path in (
+            "project.yml",
+            "site-a.zip/startup/rootCA.pem",
+            "site-b.zip/server_startup/server.key",
+        ):
             self.assertIn(path, files)
         self.assertFalse([path for path in files if path.endswith(MANIFEST_NAME)])
         for kit in ("site-a.zip", "site-b.zip"):
@@ -610,7 +656,9 @@ class ExportTests(ProvisionedNetworkTestCase):
             os.utime(path, (1_000_000_000, 1_000_000_000))
         (self.prod_dir / "site-a" / "readme.txt").chmod(0o666)
         rows = list(
-            self.network.participants.values("user_id", "role", "participant_id", "org", "ip")
+            self.network.participants.values(
+                "user_id", "role", "participant_id", "org", "ip"
+            )
         )
         self.network.participants.all().delete()
         for row in reversed(rows):
@@ -618,7 +666,9 @@ class ExportTests(ProvisionedNetworkTestCase):
         later = time.time() + 3 * 86400
 
         with patch.object(
-            zipfile, "time", SimpleNamespace(time=lambda: later, localtime=time.localtime)
+            zipfile,
+            "time",
+            SimpleNamespace(time=lambda: later, localtime=time.localtime),
         ):
             second = network_services.export_startup_package(self.network).getvalue()
 
@@ -667,7 +717,9 @@ class ImportTests(ProvisionedNetworkTestCase):
         with self.other_hub():
             imported = self.import_package(self.package)
             prod_dir = network_prod_dir(imported)
-            with patch("network.tasks.get_local_addresses", return_value={"100.64.0.12"}):
+            with patch(
+                "network.tasks.get_local_addresses", return_value={"100.64.0.12"}
+            ):
                 names = _resolve_local_client_names(
                     str(prod_dir.parents[2] / "project.yml"), str(prod_dir)
                 )
@@ -676,7 +728,10 @@ class ImportTests(ProvisionedNetworkTestCase):
         self.assertNotIn("site-a", names)
 
     def test_a_server_address_from_the_environment_is_reported_by_flares_verifier(self):
-        with self.other_hub(), patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "192.0.2.10"}):
+        with (
+            self.other_hub(),
+            patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "192.0.2.10"}),
+        ):
             imported = self.import_package(self.package)
             startup = network_prod_dir(imported) / "site-a" / "startup"
 
@@ -699,7 +754,8 @@ class ImportTests(ProvisionedNetworkTestCase):
         files = _entries(_entries(self.package)["site-b.zip"])
         files["startup/server_host.txt"] = b"192.0.2.66"
         self.assert_refused(
-            _zip(files), "site-b.zip/startup/server_host.txt does not match manifest.json"
+            _zip(files),
+            "site-b.zip/startup/server_host.txt does not match manifest.json",
         )
 
     def test_a_single_kit_that_matches_no_site_is_refused(self):
@@ -733,7 +789,9 @@ class ImportTests(ProvisionedNetworkTestCase):
 
     def test_the_root_cas_fingerprint_as_expected_value_is_refused_with_a_hint(self):
         self.assert_refused(
-            self.package, "root CA certificate's fingerprint", expect_fingerprint=self.root_ca
+            self.package,
+            "root CA certificate's fingerprint",
+            expect_fingerprint=self.root_ca,
         )
 
     def test_a_malformed_expected_fingerprint_is_refused(self):
@@ -747,13 +805,17 @@ class ImportTests(ProvisionedNetworkTestCase):
             imported = self.import_package(legacy)
 
             self.assertEqual(imported.package_fingerprint, "")
-            self.assertEqual(imported.package_sha256, hashlib.sha256(legacy).hexdigest())
+            self.assertEqual(
+                imported.package_sha256, hashlib.sha256(legacy).hexdigest()
+            )
             warnings_shown = network_services.import_warnings(imported)
             self.assertEqual(len(warnings_shown), 1)
             self.assertIn("no manifest.json", warnings_shown[0])
             self.assertIn(imported.package_sha256, warnings_shown[0])
             self.assertTrue(
-                (network_prod_dir(imported) / "site-a" / "startup" / "client.crt").is_file()
+                (
+                    network_prod_dir(imported) / "site-a" / "startup" / "client.crt"
+                ).is_file()
             )
 
     def test_a_package_without_manifest_is_refused_with_an_expected_fingerprint(self):
@@ -768,8 +830,12 @@ class ImportTests(ProvisionedNetworkTestCase):
         # agrees with its own manifest; only its fingerprint differs.
         substitute = self.provision_again()
         substitute_fingerprint = json.loads(_entries(substitute)[MANIFEST_NAME])
-        self.assertNotEqual(network_fingerprint(substitute_fingerprint), self.fingerprint)
-        self.assertNotEqual(substitute_fingerprint["trust"]["root_ca_sha256"], self.root_ca)
+        self.assertNotEqual(
+            network_fingerprint(substitute_fingerprint), self.fingerprint
+        )
+        self.assertNotEqual(
+            substitute_fingerprint["trust"]["root_ca_sha256"], self.root_ca
+        )
         with self.other_hub():
             imported = self.import_package(substitute)
             self.assertNotEqual(imported.package_fingerprint, self.fingerprint)
@@ -783,7 +849,7 @@ class ImportTests(ProvisionedNetworkTestCase):
 
 
 class TamperedPackageTests(ProvisionedNetworkTestCase):
-    """Every tampered package is refused at its first offending path, with nothing written."""
+    """Each tampered package is refused at its first offending path; nothing written."""
 
     def test_a_changed_file(self):
         def change(files):
@@ -837,13 +903,16 @@ class TamperedPackageTests(ProvisionedNetworkTestCase):
 
         self.assert_refused(
             _change_kit(self.package, "site-a.zip", change),
-            "site-a.zip/local/resources.json.default is listed in manifest.json but missing",
+            "site-a.zip/local/resources.json.default is listed in manifest.json "
+            "but missing",
         )
 
     def test_a_removed_site_kit(self):
         entries = _entries(self.package)
         del entries["site-b.zip"]
-        self.assert_refused(_zip(entries), "site-b.zip is listed in manifest.json but missing")
+        self.assert_refused(
+            _zip(entries), "site-b.zip is listed in manifest.json but missing"
+        )
 
     def test_a_kit_whose_manifest_differs(self):
         manifest = json.loads(_entries(self.package)[MANIFEST_NAME])
@@ -862,7 +931,8 @@ class TamperedPackageTests(ProvisionedNetworkTestCase):
             del files[MANIFEST_NAME]
 
         self.assert_refused(
-            _change_kit(self.package, "site-a.zip", change), "site-a.zip/manifest.json is missing"
+            _change_kit(self.package, "site-a.zip", change),
+            "site-a.zip/manifest.json is missing",
         )
 
     def test_a_package_whose_manifest_was_removed_but_not_its_kits(self):
@@ -1001,7 +1071,13 @@ class CLITests(ProvisionedNetworkTestCase):
         stdout = StringIO()
         with redirect_stdout(stdout):
             code = cli_main(
-                ["network", *args, "--user", "coordinator", *(["--json"] if json_output else [])]
+                [
+                    "network",
+                    *args,
+                    "--user",
+                    "coordinator",
+                    *(["--json"] if json_output else []),
+                ]
             )
         output = stdout.getvalue()
         return code, (json.loads(output) if json_output else output)
@@ -1032,7 +1108,9 @@ class CLITests(ProvisionedNetworkTestCase):
             )
 
         self.assertEqual(code, 0, output)
-        self.assertIn(f"Network fingerprint: {group_fingerprint(self.fingerprint)}\n", output)
+        self.assertIn(
+            f"Network fingerprint: {group_fingerprint(self.fingerprint)}\n", output
+        )
         self.assertIn("by phone or video call", output)
 
     @patch("network.runtime.get_local_participant_status", return_value={})
@@ -1041,7 +1119,9 @@ class CLITests(ProvisionedNetworkTestCase):
             with self.subTest(command=command):
                 code, payload = self._cli(command, str(self.network.identifier))
                 self.assertEqual(code, 0, payload)
-                self.assertEqual(payload["result"]["package_fingerprint"], self.fingerprint)
+                self.assertEqual(
+                    payload["result"]["package_fingerprint"], self.fingerprint
+                )
                 self.assertEqual(
                     payload["result"]["package_sha256"],
                     hashlib.sha256(self.package).hexdigest(),
@@ -1071,7 +1151,9 @@ class CLITests(ProvisionedNetworkTestCase):
     def test_import_with_the_expected_fingerprint(self):
         with self.other_hub():
             code, payload = self._import(
-                self.package, "--expect-fingerprint", group_fingerprint(self.fingerprint)
+                self.package,
+                "--expect-fingerprint",
+                group_fingerprint(self.fingerprint),
             )
             self.assertEqual(code, 0, payload)
             self.assertEqual(payload["result"]["package_fingerprint"], self.fingerprint)
@@ -1082,11 +1164,15 @@ class CLITests(ProvisionedNetworkTestCase):
         with self.other_hub():
             code, output = self._import(self.package, json_output=False)
         self.assertEqual(code, 0, output)
-        self.assertIn(f"Network fingerprint: {group_fingerprint(self.fingerprint)}", output)
+        self.assertIn(
+            f"Network fingerprint: {group_fingerprint(self.fingerprint)}", output
+        )
 
     def test_import_with_another_fingerprint_is_refused(self):
         with self.other_hub() as hub:
-            code, payload = self._import(self.package, "--expect-fingerprint", "ab" * 32)
+            code, payload = self._import(
+                self.package, "--expect-fingerprint", "ab" * 32
+            )
             self.assertEqual(code, 2)
             self.assertIn("not the expected", payload["errors"][0])
             self.assertFalse(SwarmNetwork.objects.exists())
@@ -1138,15 +1224,21 @@ class WebTests(ProvisionedNetworkTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, self.package)
         grouped = group_fingerprint(self.fingerprint)
-        logged = [call.args[0] for call in get_logger.return_value.network.info.call_args_list]
-        self.assertTrue(logged[0].startswith("User exported startup kits for network 'Demo'"))
+        logged = [
+            call.args[0] for call in get_logger.return_value.network.info.call_args_list
+        ]
+        self.assertTrue(
+            logged[0].startswith("User exported startup kits for network 'Demo'")
+        )
         self.assertIn(grouped, logged[1])
         self.assertIn(hashlib.sha256(self.package).hexdigest(), logged[1])
 
         page = self._network_page()
         self.assertIn(f"Network fingerprint: {grouped}", page)  # the message
         self.assertIn('id="packageFingerprint"', page)
-        self.assertIn(f'<span class="font-mono text-base font-semibold">{grouped}</span>', page)
+        self.assertIn(
+            f'<span class="font-mono text-base font-semibold">{grouped}</span>', page
+        )
         self.assertIn(self.root_ca, page)
         self.assertIn(
             "Compare this value with every other site by phone or video call, not "
@@ -1170,18 +1262,26 @@ class WebTests(ProvisionedNetworkTestCase):
 
     def test_import_form_checks_the_expected_fingerprint(self):
         with self.other_hub():
-            response = self._post_import(self.package, group_fingerprint(self.fingerprint))
-            self.assertRedirects(response, reverse("network:network"), fetch_redirect_response=False)
+            response = self._post_import(
+                self.package, group_fingerprint(self.fingerprint)
+            )
+            self.assertRedirects(
+                response, reverse("network:network"), fetch_redirect_response=False
+            )
             imported = SwarmNetwork.objects.get(identifier=self.network.identifier)
             self.assertEqual(imported.package_fingerprint, self.fingerprint)
             UserCurrentNetwork.objects.create(user=self.user, network=imported)
             page = self._network_page()
-        self.assertIn(f"Network fingerprint: {group_fingerprint(self.fingerprint)}", page)
+        self.assertIn(
+            f"Network fingerprint: {group_fingerprint(self.fingerprint)}", page
+        )
 
     def test_import_form_refuses_another_fingerprint(self):
         with self.other_hub() as hub:
             response = self._post_import(self.package, "ab" * 32)
-            self.assertRedirects(response, reverse("network:network"), fetch_redirect_response=False)
+            self.assertRedirects(
+                response, reverse("network:network"), fetch_redirect_response=False
+            )
             self.assertFalse(SwarmNetwork.objects.exists())
             self.assertFalse((hub / "workspaces").exists())
             page = self._network_page()
@@ -1212,7 +1312,9 @@ class ExportRefusalTests(NetworkFixture, TestCase):
         self.user.profile.save(update_fields=["accepted_terms", "accepted_policy"])
 
     def test_kits_naming_different_servers(self):
-        (self.prod_dir / "node-B" / "startup" / "server_host.txt").write_text("192.0.2.66")
+        (self.prod_dir / "node-B" / "startup" / "server_host.txt").write_text(
+            "192.0.2.66"
+        )
 
         with self.assertRaises(ValueError) as caught:
             network_services.export_startup_package(self.network)
@@ -1228,10 +1330,14 @@ class ExportRefusalTests(NetworkFixture, TestCase):
         with self.assertRaises(ValueError) as caught:
             network_services.export_startup_package(self.network)
 
-        self.assertIn("SERVER participant the address 192.0.2.66", str(caught.exception))
+        self.assertIn(
+            "SERVER participant the address 192.0.2.66", str(caught.exception)
+        )
 
     def test_the_web_export_shows_why(self):
-        (self.prod_dir / "node-B" / "startup" / "server_host.txt").write_text("192.0.2.66")
+        (self.prod_dir / "node-B" / "startup" / "server_host.txt").write_text(
+            "192.0.2.66"
+        )
         UserCurrentProject.objects.create(user=self.user, project=self.project)
         client = Client()
         client.force_login(self.user)
@@ -1240,7 +1346,9 @@ class ExportRefusalTests(NetworkFixture, TestCase):
             reverse("network:download_startup_kits", args=[self.network.identifier])
         )
 
-        self.assertRedirects(response, reverse("network:network"), fetch_redirect_response=False)
+        self.assertRedirects(
+            response, reverse("network:network"), fetch_redirect_response=False
+        )
         with patch("network.views._get_local_participant_status", return_value={}):
             page = client.get(reverse("network:network")).content.decode()
         self.assertIn("node-B.zip/startup/server_host.txt", page)

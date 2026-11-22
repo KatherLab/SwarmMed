@@ -82,16 +82,20 @@ def _certificates(*names):
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - timedelta(days=1))
             .not_valid_after(now + timedelta(days=30))
-            .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+            .add_extension(
+                x509.BasicConstraints(ca=ca, path_length=None), critical=True
+            )
             .sign(signing_key, hashes.SHA256())
         )
         return certificate.public_bytes(serialization.Encoding.PEM).decode()
 
-    root_key = ec.generate_private_key(ec.SECP256R1())
+    def new_key():
+        return ec.generate_private_key(ec.SECP256R1())
+
+    root_key = new_key()
     root = issue("root", root_key.public_key(), root_key, True)
     return root, {
-        name: issue(name, ec.generate_private_key(ec.SECP256R1()).public_key(), root_key, False)
-        for name in names
+        name: issue(name, new_key().public_key(), root_key, False) for name in names
     }
 
 

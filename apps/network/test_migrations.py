@@ -15,7 +15,7 @@ from project.models import Project
 
 
 class PackageFingerprintMigrationTests(TransactionTestCase):
-    """Migration 0004 adds package_fingerprint and package_sha256, and can be reversed."""
+    """Migration 0004 adds the two package fields and can be reversed."""
 
     migrate_from = [("network", "0003_alter_swarmnetwork_options_and_more")]
     migrate_to = [("network", "0004_swarmnetwork_package_fingerprint")]
@@ -27,7 +27,9 @@ class PackageFingerprintMigrationTests(TransactionTestCase):
         OldSwarmNetwork = old_apps.get_model("network", "SwarmNetwork")
 
         user = User.objects.create(username="fingerprint-migration-user")
-        project = Project.objects.create(title="Fingerprint Migration Project", author=user)
+        project = Project.objects.create(
+            title="Fingerprint Migration Project", author=user
+        )
         self.network_id = OldSwarmNetwork.objects.create(
             name="Fingerprint Migration Network",
             project_id=project.id,

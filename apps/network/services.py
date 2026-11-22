@@ -29,6 +29,7 @@ from .failover import (
 )
 from .fingerprint import (
     MANIFEST_NAME,
+    NOT_SITE_KITS,
     PackageCheck,
     PackageVerificationError,
     certificate_fingerprint,
@@ -335,7 +336,13 @@ def verify_startup_package(
         raise ValueError(
             f"Refused to import the startup package: {exc}. Nothing was imported."
         ) from exc
-    except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as exc:
+    except (
+        zipfile.BadZipFile,
+        zlib.error,
+        EOFError,
+        NotImplementedError,
+        RuntimeError,
+    ) as exc:
         raise ValueError(
             f"The startup package cannot be read as a ZIP file ({exc}). Nothing was "
             "imported."
@@ -490,7 +497,7 @@ def import_network(
     client_archives = [
         path
         for path in Path(provision_dir).glob("*.zip")
-        if path.name not in {"startup-kits.zip", "startup_kits.zip"}
+        if path.name not in NOT_SITE_KITS
     ]
     if client_archives:
         os.makedirs(prod_00_dir, exist_ok=True)

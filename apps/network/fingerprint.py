@@ -69,6 +69,7 @@ class PackageVerificationError(ValueError):
     """
 
     def __init__(self, path: str, problem: str):
+        """Name the offending path and what is wrong with it."""
         self.path = path
         self.problem = problem
         super().__init__(f"{path} {problem}")
@@ -274,7 +275,8 @@ def derive_trust(
         _values(kit_files, "rootCA.pem", _certificate), "root CA fingerprint"
     )
     server_certificate, sources["server_certificate_sha256"] = _agreed(
-        _values(kit_files, "server.crt", _certificate), "FL server certificate fingerprint"
+        _values(kit_files, "server.crt", _certificate),
+        "FL server certificate fingerprint",
     )
     server_address, sources["server_address"] = _agreed(
         _values(kit_files, "server_host.txt", _text), "FL server address"
@@ -291,7 +293,8 @@ def derive_trust(
         address = str(row.get("ip") or "")
         if role == "SERVER":
             certificate = server_certificate or ""
-            if server_address and address not in ("", "-") and address != server_address:
+            named = address not in ("", "-")
+            if server_address and named and address != server_address:
                 raise PackageVerificationError(
                     sources["server_address"],
                     f"names the FL server {server_address}, but {participants_path} "
@@ -308,7 +311,7 @@ def derive_trust(
                 "certificate_sha256": certificate,
             }
         )
-    participants.sort(key=lambda participant: (participant["name"], participant["role"]))
+    participants.sort(key=lambda entry: (entry["name"], entry["role"]))
 
     trust = {
         "root_ca_sha256": root_ca or "",
@@ -387,7 +390,9 @@ def parse_manifest(data: bytes) -> dict:
     try:
         canonical = canonical_bytes(manifest)
     except ValueError as exc:
-        raise PackageVerificationError(MANIFEST_NAME, "holds a value JSON does not allow") from exc
+        raise PackageVerificationError(
+            MANIFEST_NAME, "holds a value JSON does not allow"
+        ) from exc
     if canonical != data:
         raise PackageVerificationError(
             MANIFEST_NAME, "is not in the canonical form SwarmMed writes"
@@ -396,7 +401,10 @@ def parse_manifest(data: bytes) -> dict:
     trust = manifest.get("trust")
     if (
         not isinstance(files, dict)
-        or not all(isinstance(value, str) and _HEX64.fullmatch(value) for value in files.values())
+        or not all(
+            isinstance(value, str) and _HEX64.fullmatch(value)
+            for value in files.values()
+        )
         or not isinstance(trust, dict)
         or not isinstance(trust.get("participants"), list)
         or not isinstance(manifest.get("network_id"), str)
@@ -427,7 +435,9 @@ def _compare_files(actual: dict[str, str], listed: dict[str, str]) -> None:
             if kit and kit not in present_kits:
                 # The whole kit is missing; name it rather than its first file.
                 path = kit
-            raise PackageVerificationError(path, f"is listed in {MANIFEST_NAME} but missing")
+            raise PackageVerificationError(
+                path, f"is listed in {MANIFEST_NAME} but missing"
+            )
         if actual[path] != listed[path]:
             raise PackageVerificationError(
                 path,
@@ -456,7 +466,8 @@ def _compare_trust(manifest: dict, trust: dict, sources: dict) -> None:
     for derived, entry in zip(trust["participants"], listed, strict=True):
         if not isinstance(entry, dict):
             raise PackageVerificationError(
-                MANIFEST_NAME, "has an entry in trust.participants that is not an object"
+                MANIFEST_NAME,
+                "has an entry in trust.participants that is not an object",
             )
         for field in _PARTICIPANT_FIELDS:
             value = derived[field]
@@ -527,7 +538,9 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
         for inner in kit.infolist():
             problem = unsafe_entry_problem(inner)
             if problem:
-                raise PackageVerificationError(f"{info.filename}/{inner.filename}", problem)
+                raise PackageVerificationError(
+                    f"{info.filename}/{inner.filename}", problem
+                )
         kits[info.filename] = kit
 
     names = [info.filename for info in infos]
@@ -552,7 +565,7 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
 
     def add(path: str, data: bytes) -> None:
         if path in actual:
-            # A top-level entry such as node-A.zip/startup/x next to node-A.zip.
+            # Two entries for one path; the checks above should have refused them.
             raise PackageVerificationError(path, "appears more than once")
         actual[path] = sha256_hex(data)
         contents[path] = data
@@ -563,7 +576,9 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
         for info in infos:
             if info.filename != MANIFEST_NAME:
                 add(prefix + info.filename, package.read(info))
-        listed = {path: value for path, value in listed.items() if path.startswith(prefix)}
+        listed = {
+            path: value for path, value in listed.items() if path.startswith(prefix)
+        }
         participants_path = prefix + ".participants.json"
         network_id_path = prefix + ".network_id"
         complete = False
@@ -575,7 +590,8 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
                 raise PackageVerificationError(f"{name}/{MANIFEST_NAME}", "is missing")
             if kits[name].read(MANIFEST_NAME) != manifest_bytes:
                 raise PackageVerificationError(
-                    f"{name}/{MANIFEST_NAME}", f"differs from the package's {MANIFEST_NAME}"
+                    f"{name}/{MANIFEST_NAME}",
+                    f"differs from the package's {MANIFEST_NAME}",
                 )
         for info in infos:
             name = info.filename
@@ -584,7 +600,8 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
             if "/" in name and name.split("/", 1)[0] in kits:
                 # It would be extracted into a folder named like the kit next to it.
                 raise PackageVerificationError(
-                    name, f"lies in a folder named like the site kit {name.split('/', 1)[0]}"
+                    name,
+                    f"lies in a folder named like the site kit {name.split('/', 1)[0]}",
                 )
             if name in kits and name in listed_kits:
                 for inner in kits[name].infolist():
@@ -623,7 +640,7 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
 
 
 def package_fingerprint(package_bytes: bytes) -> str:
-    """Return the network fingerprint of an exported package, or "" without a manifest."""
+    """Return an exported package's network fingerprint; "" without a manifest."""
     with zipfile.ZipFile(io.BytesIO(package_bytes)) as package:
         if MANIFEST_NAME not in package.namelist():
             return ""
