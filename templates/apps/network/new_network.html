@@ -135,6 +135,16 @@
                 <!-- File info will be inserted here by JavaScript -->
               </div>
             </div>
+            <div>
+              <label for="expected-fingerprint" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Expected fingerprint (optional)</label>
+              <input type="text" id="expected-fingerprint" name="expected_fingerprint" autocomplete="off" spellcheck="false"
+                placeholder="64 hexadecimal characters, in groups of four"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm font-mono rounded-lg focus:ring-purple-700 focus:border-purple-700 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+              />
+              <p class="mt-2 text-sm text-gray-500 dark:text-gray-400" id="expected-fingerprint-help">
+                The network fingerprint that the coordinating site read out to every site. A package with another fingerprint, or without one, is not imported; spaces, colons, dashes and case do not matter. Without it, compare the fingerprint shown after the import with every other site instead.
+              </p>
+            </div>
           </div>
 
           <!-- Submit Button -->

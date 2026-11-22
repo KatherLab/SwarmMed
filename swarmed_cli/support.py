@@ -25,6 +25,8 @@ class CLIState:
     user: User
     json_output: bool
     warnings: list[str] = field(default_factory=list)
+    # Lines printed after the result in text mode only; JSON has them in the result.
+    notes: list[str] = field(default_factory=list)
 
 
 def json_default(value):
@@ -46,8 +48,12 @@ def render_output(
     warnings: list[str] | None = None,
     errors: list[str] | None = None,
     json_output: bool = False,
+    notes: list[str] | None = None,
 ) -> None:
-    """Render a command response in human or JSON form."""
+    """Render a command response in human or JSON form.
+
+    ``notes`` are printed after the result in human form only.
+    """
     warnings = warnings or []
     errors = errors or []
     if json_output:
@@ -69,6 +75,8 @@ def render_output(
     if ok:
         if result is not None:
             print(json.dumps(result, indent=2, default=json_default))
+        for note in notes or []:
+            print(note)
         for warning in warnings:
             print(f"warning: {warning}")
     else:

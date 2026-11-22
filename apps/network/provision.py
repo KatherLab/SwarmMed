@@ -55,6 +55,42 @@ def is_valid_ip(ip):
     return bool(re.match(pattern, ip))
 
 
+def sign_startup_folders(prod_dir, cert_state_file) -> list[str]:
+    """Sign every kit's startup folder again with the study's root CA key.
+
+    NVIDIA FLARE's SignatureBuilder signs each kit's ``startup`` and ``local``
+    folders while ``nvflare provision`` runs. SwarmMed then adds its own files to
+    ``startup`` (``.all_participants.json``, ``server_host.txt`` and
+    ``server_aliases.txt``), which those signatures do not cover, so FLARE's
+    verifier (``python -m nvflare.tool.verify_startup_kits``) rejected every kit.
+    Each ``startup`` folder that FLARE signed is signed again here with FLARE's
+    own helper, as SignatureBuilder does. FLARE's start-up check in secure mode
+    reads the same ``signature.json``.
+
+    Args:
+        prod_dir: The provisioned ``prod_00`` folder.
+        cert_state_file: FLARE's ``state/cert.json``, which holds the root CA's
+            private key (``root_pri_key``).
+
+    Returns:
+        list[str]: The ``startup`` folders that were signed.
+    """
+    from nvflare.lighter.constants import ProvFileName
+    from nvflare.lighter.utils import load_private_key, sign_folders
+
+    state = json.loads(Path(cert_state_file).read_text())
+    root_key = load_private_key(state["root_pri_key"])
+    signed = []
+    for item in sorted(os.scandir(str(prod_dir)), key=lambda entry: entry.name):
+        startup_dir = Path(item.path) / "startup"
+        if item.is_dir() and (startup_dir / ProvFileName.SIGNATURE_JSON).is_file():
+            sign_folders(
+                str(startup_dir), root_key, signature_file=ProvFileName.SIGNATURE_JSON
+            )
+            signed.append(str(startup_dir))
+    return signed
+
+
 def safe_participant_name(name: str, default: str = "client") -> str:
     """Return an NVFlare-safe participant name.
 
@@ -433,6 +469,23 @@ def generate_flare_startup_kit(
                 logger.network.warning(
                     f"Failed to write server_host.txt into kits: {e}"
                 )
+
+        # FLARE signed the kits before SwarmMed added its files to them.
+        try:
+            sign_startup_folders(
+                base_prod_path,
+                Path(provision_dir)
+                / "workspace"
+                / project_name_safe
+                / "state"
+                / "cert.json",
+            )
+        except Exception as e:
+            logger.network.warning(
+                "Could not sign the startup kits again after adding SwarmMed's "
+                "files, so FLARE's verifier (nvflare.tool.verify_startup_kits) "
+                f"will report those files: {e}"
+            )
 
         # Update network status in the database
         network.status = "PROVISIONED"

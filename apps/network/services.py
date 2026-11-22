@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import zipfile
+import zlib
 from pathlib import Path
 
 import yaml
@@ -23,7 +24,19 @@ from .failover import (
     bundled_kit_destinations,
     is_valid_server_host,
     move_kit_folder,
+    network_prod_dir,
     provisioned_server_host,
+)
+from .fingerprint import (
+    MANIFEST_NAME,
+    PackageCheck,
+    PackageVerificationError,
+    certificate_fingerprint,
+    check_package,
+    group_fingerprint,
+    normalize_fingerprint,
+    package_fingerprint,
+    sha256_hex,
 )
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .overlay import resolve_server_address
@@ -249,6 +262,89 @@ def _reset_package_source(package_source) -> None:
         package_source.seek(0)
 
 
+def _read_package_bytes(package_source) -> bytes:
+    """Read a startup package, given as a path or a file object, into memory."""
+    try:
+        if isinstance(package_source, (str, os.PathLike)):
+            return Path(package_source).read_bytes()
+        if hasattr(package_source, "chunks"):
+            # An upload (Django's UploadedFile); chunks() starts at the beginning.
+            return b"".join(package_source.chunks())
+        _reset_package_source(package_source)
+        return package_source.read()
+    except OSError as exc:
+        raise ValueError(f"Could not read the startup package: {exc}") from exc
+
+
+def legacy_package_warning(package_sha256: str = "") -> str:
+    """The warning for an imported package that has no manifest."""
+    checksum = f" ({package_sha256})" if package_sha256 else ""
+    return (
+        "The startup package has no manifest.json, as packages exported by SwarmMed "
+        "1.0.4 or earlier do, so it has no network fingerprint. Verify it by other "
+        f"means, for example by comparing its SHA-256{checksum} with the sender's "
+        "by phone or video call."
+    )
+
+
+def import_warnings(network: SwarmNetwork) -> list[str]:
+    """Warnings to show after importing ``network``."""
+    if network.creation_method == "IMPORTED" and not network.package_fingerprint:
+        return [legacy_package_warning(network.package_sha256)]
+    return []
+
+
+def _check_expected_fingerprint(check: PackageCheck, expected: str) -> None:
+    """Refuse a package whose fingerprint is not ``expected`` (normalized)."""
+    if not check.fingerprint:
+        raise ValueError(
+            "The startup package has no manifest.json (packages exported by SwarmMed "
+            "1.0.4 or earlier have none), so it has no network fingerprint to "
+            "compare with the expected one. Nothing was imported."
+        )
+    if check.fingerprint == expected:
+        return
+    hint = ""
+    root_ca = str(check.manifest["trust"].get("root_ca_sha256") or "")
+    if root_ca.replace(":", "").lower() == expected:
+        hint = (
+            " The expected value is the root CA certificate's fingerprint, not the "
+            "network fingerprint."
+        )
+    raise ValueError(
+        "The startup package's network fingerprint is "
+        f"{group_fingerprint(check.fingerprint)}, not the expected "
+        f"{group_fingerprint(expected)}.{hint} Nothing was imported."
+    )
+
+
+def verify_startup_package(
+    package_bytes: bytes, *, expect_fingerprint: str | None = None
+) -> PackageCheck:
+    """Check a startup package before anything of it is written.
+
+    Raises:
+        ValueError: If it is not a readable ZIP file, has unsafe entries, does not
+            agree with its manifest, or does not have the expected fingerprint.
+    """
+    expected = normalize_fingerprint(expect_fingerprint) if expect_fingerprint else ""
+    try:
+        with zipfile.ZipFile(io.BytesIO(package_bytes)) as package:
+            check = check_package(package)
+    except PackageVerificationError as exc:
+        raise ValueError(
+            f"Refused to import the startup package: {exc}. Nothing was imported."
+        ) from exc
+    except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as exc:
+        raise ValueError(
+            f"The startup package cannot be read as a ZIP file ({exc}). Nothing was "
+            "imported."
+        ) from exc
+    if expected:
+        _check_expected_fingerprint(check, expected)
+    return check
+
+
 def _read_zip_namelist(package_source) -> tuple[str | None, list[str]]:
     original_network_id = None
     with zipfile.ZipFile(package_source, "r") as zip_peek:
@@ -274,9 +370,52 @@ def import_network(
     name: str,
     description: str = "",
     package_source,
+    expect_fingerprint: str | None = None,
 ) -> SwarmNetwork:
-    """Import a network from a startup package zip."""
+    """Import a network from a startup package zip.
+
+    The package, or a single site's kit taken out of it, is read into memory and
+    checked before anything is written (see ``network.fingerprint``): entries
+    with absolute paths, ``..`` or symbolic links are refused, and a package with
+    a ``manifest.json`` must agree with it. A package without one, as SwarmMed
+    1.0.4 and earlier export, is imported as before, without a fingerprint
+    (``import_warnings`` then returns a warning).
+
+    Args:
+        project: The project to import the network into.
+        actor: The importing user.
+        name: The network's name at this Hub.
+        description: Its description.
+        package_source: The package, as a path or a file object.
+        expect_fingerprint: The network fingerprint agreed among the sites; spaces,
+            colons, dashes and case are ignored. A package with another
+            fingerprint, or without one, is refused.
+
+    Raises:
+        ValueError: If the package cannot be read, is unsafe, does not agree with
+            its manifest or has another fingerprint than expected. Nothing is
+            written then.
+    """
     log = get_logger(user=actor, project=project)
+    package_bytes = _read_package_bytes(package_source)
+    package_sha256 = sha256_hex(package_bytes)
+    try:
+        check = verify_startup_package(
+            package_bytes, expect_fingerprint=expect_fingerprint
+        )
+    except ValueError as exc:
+        log.network.warning(f"Startup package for network '{name}' refused: {exc}")
+        raise
+    if check.fingerprint:
+        kit = f" (the kit of site {check.site})" if check.site else ""
+        log.network.info(
+            f"The startup package{kit} agrees with its manifest; network fingerprint "
+            f"{group_fingerprint(check.fingerprint)}, package SHA-256 {package_sha256}."
+        )
+    else:
+        log.network.warning(legacy_package_warning(package_sha256))
+    # The rest reads the checked copy, not the source again.
+    package_source = io.BytesIO(package_bytes)
     original_network_id = None
 
     try:
@@ -294,6 +433,8 @@ def import_network(
         "description": description,
         "author": actor,
         "creation_method": "IMPORTED",
+        "package_fingerprint": check.fingerprint,
+        "package_sha256": package_sha256,
     }
     if original_network_id:
         try:
@@ -360,6 +501,10 @@ def import_network(
             with zipfile.ZipFile(archive_path, "r") as participant_zip:
                 abs_participant_dir = os.path.abspath(participant_dir)
                 for nested_member in participant_zip.infolist():
+                    if nested_member.filename == MANIFEST_NAME:
+                        # A copy of the package's manifest, which stays in the
+                        # network's folder; the site's folder is its workspace.
+                        continue
                     nested_path = os.path.normpath(nested_member.filename)
                     if nested_path.startswith("/") or nested_path.startswith(".."):
                         continue
@@ -389,7 +534,7 @@ def import_network(
     if os.path.exists(os.path.join(provision_dir, "startup")):
         os.makedirs(prod_00_dir, exist_ok=True)
         for item in os.listdir(provision_dir):
-            if item in {"workspaces", "runtime_requirements.txt"}:
+            if item in {"workspaces", "runtime_requirements.txt", MANIFEST_NAME}:
                 continue
             if item in SERVER_KIT_FOLDERS:
                 # A single site's kit: prod_00 becomes the site's FLARE
@@ -672,13 +817,53 @@ def import_network(
 
 
 def export_startup_package(network: SwarmNetwork) -> io.BytesIO:
-    """Build the startup package ZIP for a network."""
-    zip_buffer = create_startup_kits_zip(network)
-    if len(zip_buffer.getvalue()) <= 22:
+    """Build the startup package ZIP for a network, and record its fingerprint.
+
+    The network fingerprint (the SHA-256 of the package's ``manifest.json``) and
+    the SHA-256 of the ZIP are stored on the network, so that this Hub shows the
+    values the sites compare.
+
+    Raises:
+        LookupError: If this Hub holds no startup kits for the network.
+        ValueError: If the kits disagree with each other or with the network's
+            SERVER participant, for example about the FL server's address.
+    """
+    try:
+        zip_buffer = create_startup_kits_zip(network)
+    except PackageVerificationError as exc:
+        raise ValueError(
+            f"The startup package of network '{network.name}' was not exported: {exc}."
+        ) from exc
+    package_bytes = zip_buffer.getvalue()
+    if len(package_bytes) <= 22:
         raise LookupError(
             "Startup kits were not found. The network may not have been provisioned correctly."
         )
+    network.package_fingerprint = package_fingerprint(package_bytes)
+    network.package_sha256 = sha256_hex(package_bytes)
+    network.save(update_fields=["package_fingerprint", "package_sha256"])
     return zip_buffer
+
+
+def root_ca_fingerprint(network: SwarmNetwork) -> str:
+    """Return the SHA-256 fingerprint of the network's root CA certificate here, or ''.
+
+    The format is OpenSSL's, as ``openssl x509 -noout -fingerprint -sha256`` prints
+    it for ``rootCA.pem`` in any of the network's kits.
+    """
+    prod_dir = network_prod_dir(network)
+    candidates = [
+        prod_dir / "server" / "startup" / "rootCA.pem",
+        *sorted(prod_dir.glob("*/startup/rootCA.pem")),
+        # A single site's kit imported on its own.
+        prod_dir / "startup" / "rootCA.pem",
+    ]
+    for path in candidates:
+        try:
+            return certificate_fingerprint(path.read_bytes())
+        except (OSError, ValueError):
+            continue
+    return ""
 
 
 def start_network(network: SwarmNetwork, actor: User) -> SwarmNetwork:
@@ -809,6 +994,10 @@ def serialize_network(
         "creation_method": network.creation_method,
         "project_identifier": str(network.project.identifier),
         "is_current": bool(current_network and current_network.id == network.id),
+        # The startup package this Hub last exported or imported.
+        "package_fingerprint": network.package_fingerprint,
+        "package_sha256": network.package_sha256,
+        "root_ca_sha256": root_ca_fingerprint(network),
         "participants": participant_rows,
         "created_at": network.created_at.isoformat(),
         "updated_at": network.updated_at.isoformat(),

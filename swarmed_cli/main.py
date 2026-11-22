@@ -202,6 +202,16 @@ def build_parser() -> argparse.ArgumentParser:
     network_import.add_argument("--name", required=True)
     network_import.add_argument("--description", default="")
     network_import.add_argument("--package", required=True)
+    network_import.add_argument(
+        "--expect-fingerprint",
+        metavar="VALUE",
+        help=(
+            "The network fingerprint agreed among the sites. The import is refused, "
+            "and nothing is written, if the package has another fingerprint or none "
+            "(packages exported by SwarmMed 1.0.4 or earlier). Spaces, colons, "
+            "dashes and case are ignored."
+        ),
+    )
     network_import.set_defaults(handler="network_import", command_name="network import")
 
     network_list = network_subparsers.add_parser("list", parents=[common_parent])
@@ -454,6 +464,18 @@ def _refresh(instance):
     return model.objects.get(pk=instance.pk)
 
 
+def _fingerprint_note(fingerprint: str) -> list[str]:
+    """The text-mode line that shows a network fingerprint for reading aloud."""
+    if not fingerprint:
+        return []
+    from network.fingerprint import COMPARE_FINGERPRINT_ADVICE, group_fingerprint
+
+    return [
+        f"Network fingerprint: {group_fingerprint(fingerprint)}",
+        COMPARE_FINGERPRINT_ADVICE,
+    ]
+
+
 def run(args: argparse.Namespace):
     """Run the selected CLI command."""
     bootstrap_django()
@@ -642,10 +664,13 @@ def run(args: argparse.Namespace):
                 name=args.name,
                 description=args.description,
                 package_source=str(Path(args.package).expanduser().resolve()),
+                expect_fingerprint=args.expect_fingerprint,
             )
             result = network_services.serialize_network(
                 network, current_for=state.user, include_participants=True
             )
+            state.warnings.extend(network_services.import_warnings(network))
+            state.notes.extend(_fingerprint_note(network.package_fingerprint))
 
         elif handler_name == "network_list":
             project = resolve_project(state, args.project)
@@ -664,6 +689,7 @@ def run(args: argparse.Namespace):
             result = network_services.serialize_network(
                 network, current_for=state.user, include_participants=True
             )
+            state.notes.extend(_fingerprint_note(network.package_fingerprint))
 
         elif handler_name == "network_use":
             network = resolve_network(state, network_identifier=args.network_identifier)
@@ -673,6 +699,8 @@ def run(args: argparse.Namespace):
             )
 
         elif handler_name == "network_export_package":
+            import hashlib
+
             network = resolve_network(state, network_identifier=args.network_identifier)
             zip_buffer = network_services.export_startup_package(network)
             out_path = (
@@ -681,11 +709,15 @@ def run(args: argparse.Namespace):
                 else Path.cwd() / f"{network.name.replace(' ', '_')}_startup_kits.zip"
             )
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_bytes(zip_buffer.getvalue())
+            package_bytes = zip_buffer.getvalue()
+            out_path.write_bytes(package_bytes)
             result = {
                 "network_identifier": str(network.identifier),
                 "output_path": str(out_path),
+                "fingerprint": network.package_fingerprint,
+                "package_sha256": hashlib.sha256(package_bytes).hexdigest(),
             }
+            state.notes.extend(_fingerprint_note(network.package_fingerprint))
 
         elif handler_name == "network_start":
             network = resolve_network(state, network_identifier=args.network_identifier)
@@ -741,6 +773,7 @@ def run(args: argparse.Namespace):
             except Exception:
                 pass
             result = serialized
+            state.notes.extend(_fingerprint_note(network.package_fingerprint))
 
         elif handler_name == "network_failover":
             network = resolve_network(state, network_identifier=args.network_identifier)
@@ -1045,6 +1078,7 @@ def run(args: argparse.Namespace):
             result=result,
             warnings=state.warnings,
             json_output=state.json_output,
+            notes=state.notes,
         )
         return 0
     except (ValueError, LookupError, PermissionError) as exc:

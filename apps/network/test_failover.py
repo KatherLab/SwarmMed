@@ -60,6 +60,41 @@ def _make_kits(prod_dir: Path, clients=("node-A", "node-B"), server_host="100.64
     (admin / "server_host.txt").write_text(server_host)
 
 
+def _certificates(*names):
+    """A root CA certificate and one certificate it issued per name, as PEM text.
+
+    An export reads the certificates' fingerprints into the package's manifest.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    def issue(subject, public_key, signing_key, ca):
+        now = datetime.now(UTC)
+        certificate = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)]))
+            .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "root")]))
+            .public_key(public_key)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(days=1))
+            .not_valid_after(now + timedelta(days=30))
+            .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+            .sign(signing_key, hashes.SHA256())
+        )
+        return certificate.public_bytes(serialization.Encoding.PEM).decode()
+
+    root_key = ec.generate_private_key(ec.SECP256R1())
+    root = issue("root", root_key.public_key(), root_key, True)
+    return root, {
+        name: issue(name, ec.generate_private_key(ec.SECP256R1()).public_key(), root_key, False)
+        for name in names
+    }
+
+
 def _comm_config(internal_host):
     return {
         "allow_adhoc_conns": False,
@@ -73,16 +108,15 @@ def _comm_config(internal_host):
 
 def _add_flare_files(prod_dir: Path) -> None:
     """Give the kits of _make_kits the other files NVFlare 2.7.1 provisioning writes."""
+    root_ca, certificates = _certificates(
+        "server", "node-A", "node-B", "admin-node-A@nvidia.com"
+    )
+    server_host = (prod_dir / "node-A" / "startup" / "server_host.txt").read_text()
     server = prod_dir / "server"
-    for name in (
-        "rootCA.pem",
-        "server.crt",
-        "server_host.txt",
-        "signature.json",
-        "start.sh",
-        "stop_fl.sh",
-        "sub_start.sh",
-    ):
+    (server / "startup" / "rootCA.pem").write_text(root_ca)
+    (server / "startup" / "server.crt").write_text(certificates["server"])
+    (server / "startup" / "server_host.txt").write_text(server_host)
+    for name in ("signature.json", "start.sh", "stop_fl.sh", "sub_start.sh"):
         (server / "startup" / name).write_text("server")
     # The server runs its jobs in its own container, where 'server' is itself.
     _write_json(server / "local" / "comm_config.json", _comm_config("server"))
@@ -94,10 +128,10 @@ def _add_flare_files(prod_dir: Path) -> None:
     ):
         _write_json(server / "local" / name, {"role": "server"})
     for site in ("node-A", "node-B"):
+        (prod_dir / site / "startup" / "rootCA.pem").write_text(root_ca)
+        (prod_dir / site / "startup" / "client.crt").write_text(certificates[site])
         for name in (
-            "client.crt",
             "client.key",
-            "rootCA.pem",
             "signature.json",
             "start.sh",
             "stop_fl.sh",
@@ -117,7 +151,9 @@ def _add_flare_files(prod_dir: Path) -> None:
         prod_dir / "node-A" / "local" / "comm_config.json", _comm_config("localhost")
     )
     admin = prod_dir / "admin-node-A@nvidia.com" / "startup"
-    for name in ("client.crt", "client.key", "rootCA.pem", "fl_admin.sh"):
+    (admin / "rootCA.pem").write_text(root_ca)
+    (admin / "client.crt").write_text(certificates["admin-node-A@nvidia.com"])
+    for name in ("client.key", "fl_admin.sh"):
         (admin / name).write_text("admin")
     _write_json(
         prod_dir / ".client_admin_map.json", {"node-A": "admin-node-A@nvidia.com"}
@@ -918,8 +954,9 @@ class BundleTests(NetworkFixture, TestCase):
         for site in ("node-A", "node-B"):
             _leave_kits_in_site_folder(prod_dir, site)
         # The copies can differ: an import writes the server's address it
-        # resolved into the Hub's copy, not into the one it left there.
-        (prod_dir / "server/startup/server_host.txt").write_text("resolved")
+        # resolved into the kits the Hub uses, not into the copies it left there.
+        for host_file in prod_dir.glob("*/startup/server_host.txt"):
+            host_file.write_text("192.0.2.10")
 
         kits = _site_kits(imported)
 
@@ -933,7 +970,7 @@ class BundleTests(NetworkFixture, TestCase):
                     sorted(names), sorted(name for name, _content in expected[site])
                 )
                 self.assertIn((".gossip_token", b"network-token"), files)
-                self.assertIn(("server_startup/server_host.txt", b"resolved"), files)
+                self.assertIn(("server_startup/server_host.txt", b"192.0.2.10"), files)
 
     def test_a_single_sites_kit_keeps_the_server_kit_outside_its_workspace(self):
         with zipfile.ZipFile(create_startup_kits_zip(self.network)) as bundle:
