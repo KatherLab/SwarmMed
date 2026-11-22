@@ -594,10 +594,62 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
         self.assertEqual(TrainingJob.objects.count(), 0)
 
 
-class ResumeTrainingJobTests(SubmitHarness, TestCase):
+class ServerRouting:
+    """Routes the admin sessions of a resume: the current server is the harness's
+    fake session, which lists no job; a session for one address alone
+    (``only_host``) goes to the previous server.
+
+    ``self.session_calls`` collects the ``only_host`` of every session, "" for
+    the current server, and ``self.session_timeouts`` their timeouts.
+    """
+
     def setUp(self):
         super().setUp()
+        os.environ.pop("SWARMMEDHUB_SERVER_HOST", None)
+        os.environ.pop(training_services.FLARE_CONNECT_TIMEOUT_ENV, None)
+        self.session_calls: list[str] = []
+        self.session_timeouts: list[float] = []
+        self.previous_server_state = None
+        training_services.new_secure_session_with_host.side_effect = self._session_for
+
+    def _session_for(self, *_args, **kwargs):
+        only_host = kwargs.get("only_host", "")
+        self.session_calls.append(only_host)
+        self.session_timeouts.append(kwargs.get("timeout"))
+        if not only_host:
+            return self.session
+        if self.previous_server_state is None:
+            raise RuntimeError(
+                f"cannot connect to FLARE admin API. Attempts: host={only_host} "
+                "port=8003: connection refused"
+            )
+        previous = MagicMock()
+        previous.api.do_command.return_value = {
+            "jobs": [{"job_id": self.old_uuid, "status": self.previous_server_state}]
+        }
+        return previous
+
+    def switch_servers(self, **fields):
+        """Write a switch record as 'swarmed network failover' does at a site."""
+        prod_dir = self.client_workspace("node-A").parent
+        prod_dir.mkdir(parents=True, exist_ok=True)
+        (prod_dir / ".active_server.json").write_text(
+            json.dumps(
+                {
+                    "server_host": "192.0.2.10",
+                    "previous_server_host": "100.64.0.1",
+                    "provisioned_server_host": "100.64.0.1",
+                    "server_started_here": False,
+                    **fields,
+                }
+            )
+        )
+
+
+class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
+    def setUp(self):
         self.old_uuid = str(uuid.uuid4())
+        super().setUp()
         self.old_job = TrainingJob.objects.create(
             project=self.project,
             network=self.network,
@@ -611,16 +663,18 @@ class ResumeTrainingJobTests(SubmitHarness, TestCase):
         app_dir = self.client_workspace(client) / self.old_uuid / f"app_{client}"
         return _write_round_start_checkpoint(app_dir, next_round, client)
 
+    def _assert_not_resumed(self):
+        self.assertEqual(self.submitted, [])
+        self.old_job.refresh_from_db()
+        self.assertEqual(self.old_job.status, "RUNNING")
+
     def test_resumes_from_the_newest_checkpoint_and_fails_the_old_job(self):
         self._checkpoint_at("node-A", 2)
         self._checkpoint_at("node-B", 3)
 
-        with patch.object(
-            training_services, "_job_active_on_current_server", return_value=False
-        ):
-            new_job = training_services.resume_training_job(
-                actor=self.user, network=self.network
-            )
+        new_job = training_services.resume_training_job(
+            actor=self.user, network=self.network
+        )
 
         server = json.loads(
             (self.submitted[0] / "app_server/config/config_fed_server.json").read_text()
@@ -639,17 +693,146 @@ class ResumeTrainingJobTests(SubmitHarness, TestCase):
 
     def test_refuses_while_the_server_still_runs_the_job(self):
         self._checkpoint_at("node-A", 2)
+        self.session.api.do_command.return_value = {
+            "jobs": [{"job_id": self.old_uuid, "status": "RUNNING"}]
+        }
+
+        with self.assertRaisesRegex(
+            ValueError, "still active on the network's FL server"
+        ):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_refuses_when_the_server_cannot_be_asked(self):
+        self._checkpoint_at("node-A", 2)
+        training_services.new_secure_session_with_host.side_effect = RuntimeError(
+            "cannot connect to FLARE admin API"
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, r"Could not ask the network's FL server .* --force"
+        ):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_refuses_when_this_hub_has_no_admin_kit(self):
+        self._checkpoint_at("node-A", 2)
 
         with (
             patch.object(
-                training_services, "_job_active_on_current_server", return_value=True
+                training_services, "resolve_admin_session_target", return_value=None
             ),
-            self.assertRaisesRegex(ValueError, "still active"),
+            self.assertRaisesRegex(ValueError, "no admin startup kit"),
         ):
             training_services.resume_training_job(actor=self.user, network=self.network)
-        self.assertEqual(self.submitted, [])
-        self.old_job.refresh_from_db()
-        self.assertEqual(self.old_job.status, "RUNNING")
+        self._assert_not_resumed()
+
+    def test_the_server_gets_as_long_to_answer_as_a_submission(self):
+        self._checkpoint_at("node-A", 2)
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+        os.environ[training_services.FLARE_CONNECT_TIMEOUT_ENV] = "45"
+        training_services.resume_training_job(
+            actor=self.user, network=self.network, from_job=self.old_job
+        )
+
+        # Each resume: the check, then the submission.
+        self.assertEqual(self.session_timeouts, [20.0, 20.0, 45.0, 45.0])
+
+    def test_force_submits_without_asking_any_server(self):
+        self._checkpoint_at("node-A", 2)
+        self.switch_servers()
+        self.previous_server_state = "RUNNING"
+
+        training_services.resume_training_job(
+            actor=self.user, network=self.network, force=True
+        )
+
+        self.assertEqual(len(self.submitted), 1)
+        # Only the submission's session.
+        self.assertEqual(self.session_calls, [""])
+
+    def test_without_a_switch_only_the_current_server_is_asked(self):
+        self._checkpoint_at("node-A", 2)
+        self.previous_server_state = "RUNNING"
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+
+        self.assertEqual(self.session_calls, ["", ""])
+        self.assertEqual(len(self.submitted), 1)
+
+    def test_after_a_switch_refuses_while_the_previous_server_runs_the_job(self):
+        self._checkpoint_at("node-A", 2)
+        self.switch_servers()
+        self.previous_server_state = "RUNNING"
+
+        with self.assertRaisesRegex(
+            ValueError, r"still active on the FL server at 100\.64\.0\.1.*--force"
+        ):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        # The standby has an empty job store; only the previous server knows.
+        self.assertEqual(self.session_calls, ["", "100.64.0.1"])
+        self._assert_not_resumed()
+
+    def test_the_standby_also_asks_the_previous_server(self):
+        self._checkpoint_at("node-A", 2)
+        self.switch_servers(server_started_here=True)
+        self.previous_server_state = "RUNNING"
+
+        with self.assertRaisesRegex(ValueError, r"100\.64\.0\.1"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_after_a_switch_an_unreachable_previous_server_gives_a_warning(self):
+        self._checkpoint_at("node-A", 2)
+        self.switch_servers()
+        warnings = []
+
+        new_job = training_services.resume_training_job(
+            actor=self.user, network=self.network, warnings=warnings
+        )
+
+        self.assertEqual(new_job.status, "RUNNING")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("FL server at 100.64.0.1", warnings[0])
+        self.assertIn("Keep that server down", warnings[0])
+
+    def test_after_a_switch_no_warning_once_the_previous_server_ended_the_job(self):
+        self._checkpoint_at("node-A", 2)
+        self.switch_servers()
+        self.previous_server_state = "FINISHED:ABANDONED"
+        warnings = []
+
+        training_services.resume_training_job(
+            actor=self.user, network=self.network, warnings=warnings
+        )
+
+        self.assertEqual(self.session_calls, ["", "100.64.0.1", ""])
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(self.submitted), 1)
+
+    def test_a_record_without_the_previous_server_asks_the_address_used_before(self):
+        self._checkpoint_at("node-A", 2)
+        # As in a record that names only the server; the Hub used
+        # SWARMMEDHUB_SERVER_HOST before the switch.
+        prod_dir = self.client_workspace("node-A").parent
+        (prod_dir / ".active_server.json").write_text(
+            json.dumps({"server_host": "192.0.2.10"})
+        )
+        os.environ["SWARMMEDHUB_SERVER_HOST"] = "100.64.0.7"
+        self.previous_server_state = "RUNNING"
+
+        with self.assertRaisesRegex(ValueError, r"100\.64\.0\.7"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+
+    def test_a_network_that_is_not_running_is_refused_before_asking(self):
+        self._checkpoint_at("node-A", 2)
+        SwarmNetwork.objects.filter(pk=self.network.pk).update(status="STOPPED")
+        self.network.refresh_from_db()
+
+        with self.assertRaisesRegex(ValueError, "is not running"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self.assertEqual(self.session_calls, [])
 
     def test_without_checkpoint_points_to_the_other_sites(self):
         with self.assertRaisesRegex(LookupError, "training checkpoints"):
@@ -673,29 +856,32 @@ class ResumeTrainingJobTests(SubmitHarness, TestCase):
             "parse_nvflare_jobs",
             return_value=[{"job_id": self.old_uuid, "status": "RUNNING"}],
         ):
-            self.assertTrue(
-                training_services._job_active_on_current_server(
-                    self.network, self.old_job
-                )
+            self.assertEqual(
+                training_services._job_active_on_server(self.network, self.old_job),
+                (True, ""),
             )
         with patch.object(
             training_services,
             "parse_nvflare_jobs",
             return_value=[{"job_id": self.old_uuid, "status": "FINISHED:ABANDONED"}],
         ):
-            self.assertFalse(
-                training_services._job_active_on_current_server(
-                    self.network, self.old_job
-                )
+            self.assertEqual(
+                training_services._job_active_on_server(self.network, self.old_job),
+                (False, ""),
             )
+        self.session.api.do_command.side_effect = RuntimeError("session closed")
+        active, reason = training_services._job_active_on_server(
+            self.network, self.old_job
+        )
+        self.assertEqual((active, reason), (None, "list_jobs failed: session closed"))
 
 
-class ResumeCommandTests(SubmitHarness, TestCase):
+class ResumeCommandTests(ServerRouting, SubmitHarness, TestCase):
     """`swarmed training resume`, with the FL server replaced by a fake session."""
 
     def setUp(self):
-        super().setUp()
         self.old_uuid = str(uuid.uuid4())
+        super().setUp()
         TrainingJob.objects.create(
             project=self.project,
             network=self.network,
@@ -710,9 +896,6 @@ class ResumeCommandTests(SubmitHarness, TestCase):
     def _resume(self):
         stdout = StringIO()
         with (
-            patch.object(
-                training_services, "_job_active_on_current_server", return_value=False
-            ),
             # Keep the checkout's .env, which the CLI loads, out of the test.
             patch("swarmed_cli.bootstrap.load_dotenv"),
             redirect_stdout(stdout),
@@ -737,3 +920,13 @@ class ResumeCommandTests(SubmitHarness, TestCase):
         os.environ["SWARMMEDHUB_FLARE_ADMIN_TIMEOUT"] = "300"
 
         self.assertEqual(self._resume()["warnings"], [])
+
+    def test_names_a_previous_server_that_could_not_be_asked(self):
+        os.environ["SWARMMEDHUB_FLARE_ADMIN_TIMEOUT"] = "300"
+        self.switch_servers()
+
+        warnings = self._resume()["warnings"]
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("FL server at 100.64.0.1", warnings[0])
+        self.assertIn("Keep that server down", warnings[0])

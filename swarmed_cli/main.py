@@ -345,7 +345,10 @@ def build_parser() -> argparse.ArgumentParser:
     training_resume.add_argument(
         "--force",
         action="store_true",
-        help="Submit even if the current FL server still lists the job as running.",
+        help=(
+            "Submit without asking the FL server, and after a server switch the "
+            "previous one, whether it still runs the job."
+        ),
     )
     training_resume.set_defaults(
         handler="training_resume", command_name="training resume"
@@ -924,6 +927,7 @@ def run(args: argparse.Namespace):
                     start_round=args.start_round,
                     total_rounds=args.rounds,
                     force=args.force,
+                    warnings=state.warnings,
                 )
                 result = training_services.serialize_training_job(new_job)
                 timeout_hint = training_services.resume_timeout_hint()

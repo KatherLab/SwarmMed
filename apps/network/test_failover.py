@@ -31,6 +31,7 @@ from .failover import (
     ensure_server_kit_complete,
     is_valid_server_host,
     network_prod_dir,
+    previous_server_host,
     set_server_admin_timeout,
     write_active_server,
 )
@@ -685,6 +686,70 @@ class WriteActiveServerTests(NetworkFixture, TestCase):
     def test_rejects_a_bad_address(self):
         with self.assertRaises(ValueError):
             write_active_server(self.network, "not a host", started_server=False)
+
+    def test_switching_again_to_the_same_server_keeps_the_one_before(self):
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        again = write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        self.assertEqual(again["previous_server_host"], "100.64.0.1")
+
+    def test_the_previous_server_can_come_from_the_environment(self):
+        # Without a switch, the Hub used SWARMMEDHUB_SERVER_HOST, not the kits'
+        # address.
+        with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
+            record = write_active_server(
+                self.network, "192.0.2.10", started_server=False
+            )
+
+        self.assertEqual(record["previous_server_host"], "100.64.0.7")
+        self.assertEqual(record["provisioned_server_host"], "100.64.0.1")
+
+
+class PreviousServerTests(NetworkFixture, TestCase):
+    """The server a Hub used before its switch, which a resume also asks."""
+
+    def setUp(self):
+        super().setUp()
+        environment = patch.dict(os.environ)
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("SWARMMEDHUB_SERVER_HOST", None)
+
+    def _record(self, **fields):
+        _write_json(
+            self.prod_dir / ACTIVE_SERVER_FILE, {"server_host": "192.0.2.10", **fields}
+        )
+
+    def test_none_without_a_switch(self):
+        self.assertEqual(previous_server_host(self.network), "")
+
+    def test_named_in_the_record(self):
+        self._record(previous_server_host="100.64.0.9")
+
+        self.assertEqual(previous_server_host(self.network), "100.64.0.9")
+
+    def test_a_record_without_it_falls_back_to_the_address_used_before(self):
+        self._record()
+
+        self.assertEqual(previous_server_host(self.network), "100.64.0.1")
+        with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
+            self.assertEqual(previous_server_host(self.network), "100.64.0.7")
+
+    def test_a_record_naming_the_current_server_falls_back(self):
+        # Versions 1.0.3 and 1.0.4 wrote this after a second switch to the same
+        # server.
+        self._record(previous_server_host="192.0.2.10")
+
+        self.assertEqual(previous_server_host(self.network), "100.64.0.1")
+
+    def test_none_when_only_the_current_server_is_known(self):
+        _write_json(
+            self.prod_dir / ACTIVE_SERVER_FILE,
+            {"server_host": "100.64.0.1", "previous_server_host": "100.64.0.1"},
+        )
+
+        self.assertEqual(previous_server_host(self.network), "")
 
 
 class ServerSwitchStatusTests(NetworkFixture, TestCase):

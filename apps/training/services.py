@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from common.utils import get_safe_slug
 from logs.logger import get_logger
-from network.failover import flare_admin_timeout_from_env
+from network.failover import flare_admin_timeout_from_env, previous_server_host
 from network.models import SwarmNetwork
 from results.artifacts import (
     GLOBAL_MODEL_FILENAME_CANDIDATES,
@@ -205,6 +205,23 @@ def write_swarm_time_limits(job_path, time_limits: dict) -> list[str]:
         config_path.write_text(json.dumps(config, indent=4))
         changed.append(config_path.parent.parent.name)
     return changed
+
+
+FLARE_CONNECT_TIMEOUT_ENV = "SWARMMEDHUB_FLARE_CONNECT_TIMEOUT"
+
+
+def flare_connect_timeout() -> float:
+    """Return the seconds an admin session gets to log in to the FL server.
+
+    20 s unless SWARMMEDHUB_FLARE_CONNECT_TIMEOUT holds a number. Used for
+    submitting a job and for asking a server whether it still runs one.
+    """
+    timeout = 20.0
+    env_timeout = os.getenv(FLARE_CONNECT_TIMEOUT_ENV, "").strip()
+    if env_timeout:
+        with contextlib.suppress(ValueError):
+            timeout = float(env_timeout)
+    return timeout
 
 
 def resume_timeout_hint() -> str:
@@ -1016,11 +1033,8 @@ def submit_training_job(
             )
 
     try:
-        submit_connect_timeout = 20.0
-        env_timeout = os.getenv("SWARMMEDHUB_FLARE_CONNECT_TIMEOUT", "").strip()
-        if env_timeout:
-            with contextlib.suppress(ValueError):
-                submit_connect_timeout = float(env_timeout)
+        submit_connect_timeout = flare_connect_timeout()
+        env_timeout = os.getenv(FLARE_CONNECT_TIMEOUT_ENV, "").strip()
 
         log.training.info(
             "FLARE submit timeout config: "
@@ -1323,41 +1337,104 @@ def list_resume_checkpoints(job: TrainingJob) -> list[dict]:
 _ACTIVE_FLARE_JOB_STATES = ("SUBMITTED", "APPROVED", "DISPATCHED", "RUNNING")
 
 
-def _job_active_on_current_server(network: SwarmNetwork, job: TrainingJob):
-    """Ask the network's current FL server whether it still runs a job.
+def _short_reason(exc: Exception, limit: int = 300) -> str:
+    text = " ".join(str(exc).split()) or type(exc).__name__
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str = ""):
+    """Ask an FL server whether it still runs a job.
+
+    Args:
+        network: The job's network.
+        job: The job.
+        host: Ask the server at this address and no other. By default the
+            network's current server is asked, at the addresses the Hub's admin
+            session uses.
 
     Returns:
-        bool | None: True if the server lists the job as active, False if it
-        does not, None if the server could not be asked.
+        tuple[bool | None, str]: True if the server lists the job as active,
+        False if it does not, None if the server could not be asked; and why it
+        could not be asked ("" otherwise).
     """
     admin_target = resolve_admin_session_target(network)
     if not admin_target:
-        return None
+        return None, "this Hub has no admin startup kit for the network"
     admin_username, admin_dir, server_ip = admin_target
     try:
         session = new_secure_session_with_host(
             username=admin_username,
             startup_kit_location=admin_dir,
             host=server_ip,
-            timeout=10.0,
+            timeout=flare_connect_timeout(),
             network_id=network.identifier,
+            only_host=host,
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, _short_reason(exc)
     try:
         jobs = parse_nvflare_jobs(
             session.api.do_command(f"list_jobs {_flare_uuid_of(job)}")
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, f"list_jobs failed: {_short_reason(exc)}"
     finally:
         with contextlib.suppress(Exception):
             session.close()
     for item in jobs:
         state = str(item.get("status") or item.get("state") or "").upper()
         if state in _ACTIVE_FLARE_JOB_STATES:
-            return True
-    return False
+            return True, ""
+    return False, ""
+
+
+def _check_no_server_runs_job(network: SwarmNetwork, job: TrainingJob) -> list[str]:
+    """Refuse to resume a job that an FL server may still run.
+
+    The network's current server is asked first. After a server switch the
+    server this Hub used before it is asked as well: the standby starts with an
+    empty job store, so only the previous server can show that the job still
+    runs there, which would leave the sites split between two jobs.
+
+    Returns:
+        list[str]: Warnings; one if the previous server could not be asked.
+
+    Raises:
+        ValueError: If a server still runs the job, or the current server
+            cannot be asked.
+    """
+    flare_uuid = _flare_uuid_of(job)
+    active, reason = _job_active_on_server(network, job)
+    if active is None:
+        raise ValueError(
+            f"Could not ask the network's FL server whether job {flare_uuid} is "
+            f"still active ({reason}). Resume once the server answers ('swarmed "
+            "network status' lists the addresses this Hub uses for it), or pass "
+            "--force if you are sure that no FL server still runs the job."
+        )
+    if active:
+        raise ValueError(
+            f"Job {flare_uuid} is still active on the network's FL server. Stop it "
+            "first, or pass --force to start a second job next to it."
+        )
+    previous_host = previous_server_host(network)
+    if not previous_host:
+        return []
+    active, reason = _job_active_on_server(network, job, host=previous_host)
+    if active:
+        raise ValueError(
+            f"Job {flare_uuid} is still active on the FL server at {previous_host}, "
+            "which this Hub used before switching servers. Stop that server and "
+            "keep it down, or pass --force to start a second job next to it."
+        )
+    if active is None:
+        return [
+            f"Could not ask the FL server at {previous_host}, which this Hub used "
+            f"before switching servers, whether it still runs job {flare_uuid} "
+            f"({reason}). Keep that server down: two FL servers must never run for "
+            "one network at the same time."
+        ]
+    return []
 
 
 def _append_resume_record(network: SwarmNetwork, record: dict) -> None:
@@ -1390,6 +1467,7 @@ def resume_training_job(
     start_round: int | None = None,
     total_rounds: int | None = None,
     force: bool = False,
+    warnings: list[str] | None = None,
 ) -> TrainingJob:
     """Continue an interrupted swarm run as a new job.
 
@@ -1398,6 +1476,10 @@ def resume_training_job(
     round from the newest checkpoint at this site (see :mod:`training.resume`).
     Run it at a site that holds the newest checkpoint; with round-start
     checkpoints every training site does.
+
+    Before it submits, it asks the network's current FL server, and after a
+    server switch also the server this Hub used before, whether the job still
+    runs there (see :func:`_check_no_server_runs_job`).
 
     Args:
         actor: The user submitting the job.
@@ -1409,7 +1491,10 @@ def resume_training_job(
             round is unknown.
         total_rounds: Rounds of the whole run; defaults to the interrupted
             job's count, then to the count a new job would get.
-        force: Submit even if the current server still lists the job as running.
+        force: Submit without asking the FL servers whether they still run
+            the job.
+        warnings: Receives warnings for the caller to show, such as that the
+            previous server could not be asked.
 
     Returns:
         TrainingJob: The new job. The interrupted job is marked FAILED.
@@ -1441,11 +1526,19 @@ def resume_training_job(
     if checkpoint.next_round < 0:
         raise ValueError("The start round cannot be negative.")
 
-    if not force and _job_active_on_current_server(network, from_job):
+    log = get_logger(user=actor, project=network.project)
+    if network.status != "RUNNING":
+        # Checked here as well, so that no server is asked for a network that
+        # this Hub does not run.
         raise ValueError(
-            f"Job {flare_uuid} is still active on the network's FL server. Stop it "
-            "first, or pass --force to start a second job next to it."
+            f"Network '{network.name}' is not running. Start the network before "
+            "training."
         )
+    if not force:
+        for warning in _check_no_server_runs_job(network, from_job):
+            log.training.warning(warning)
+            if warnings is not None:
+                warnings.append(warning)
 
     plan = ResumePlan(
         checkpoint=checkpoint,
@@ -1456,7 +1549,6 @@ def resume_training_job(
     )
     new_job = submit_training_job(actor=actor, network=network, resume=plan)
 
-    log = get_logger(user=actor, project=network.project)
     if new_job.status != "FAILED":
         if from_job.status not in TERMINAL_TRAINING_STATUSES:
             persist_training_job_state(

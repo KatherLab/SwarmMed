@@ -226,10 +226,36 @@ def unswitched_server_host(network) -> str:
     return env_host or provisioned_server_host(network)
 
 
+def previous_server_host(network) -> str:
+    """Return the server this Hub used for a network before its recorded switch.
+
+    The record names it in ``previous_server_host``. Where it does not, or names
+    the server switched to, the address the Hub uses without a switch is taken
+    (:func:`unswitched_server_host`).
+
+    Returns:
+        str: The address, or '' without a switch or when it is not known.
+    """
+    record = active_server_record(network)
+    current = str(record.get("server_host") or "").strip()
+    if not current:
+        return ""
+    for host in (record.get("previous_server_host"), unswitched_server_host(network)):
+        host = str(host or "").strip()
+        if host and host != current:
+            return host
+    return ""
+
+
 def write_active_server(
     network, server_host: str, *, started_server: bool, actor=None
 ) -> dict:
-    """Record that a network's sites at this Hub now use ``server_host``."""
+    """Record that a network's sites at this Hub now use ``server_host``.
+
+    The record keeps the server used before (``previous_server_host``), which
+    ``swarmed training resume`` asks whether it still runs the interrupted job.
+    A repeated switch to the same server keeps the server used before that.
+    """
     server_host = str(server_host or "").strip()
     if not is_valid_server_host(server_host):
         raise ValueError(f"Not an IPv4 address: {server_host!r}")
@@ -239,11 +265,12 @@ def write_active_server(
             f"No startup kits for network '{network.name}' at this Hub ({prod_dir})."
         )
     previous = _read_record(prod_dir)
+    previous_host = str(previous.get("server_host") or "").strip()
+    if previous_host == server_host:
+        previous_host = str(previous.get("previous_server_host") or "").strip()
     record = {
         "server_host": server_host,
-        "previous_server_host": str(
-            previous.get("server_host") or provisioned_server_host(network) or ""
-        ),
+        "previous_server_host": previous_host or unswitched_server_host(network),
         "provisioned_server_host": provisioned_server_host(network),
         "server_started_here": bool(started_server),
         "changed_at": timezone.now().isoformat(),
