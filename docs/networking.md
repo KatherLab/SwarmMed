@@ -379,7 +379,8 @@ server's address as the kits' `server_host.txt` give it, the FL and admin ports,
 and the participants with their addresses and certificate fingerprints. Every
 site's kit in the package holds the same `manifest.json`. The **network
 fingerprint** is the SHA-256 of that file, shown as 16 groups of four characters
-so that it can be read out.
+so that it can be read out; `unzip -p <package>.zip manifest.json | sha256sum`
+prints it too.
 
 A Hub checks a package before it writes anything from it. Every file that the
 manifest lists must be there with that SHA-256, no other file may be there, every
