@@ -658,6 +658,21 @@ class ImportTests(ProvisionedNetworkTestCase):
             self.assertTrue(_verify_startup(prod_dir / "site-a" / "startup"))
             self.assertTrue(_verify_startup(prod_dir / "server" / "startup"))
 
+    def test_an_importing_hub_recognises_its_site_by_its_address(self):
+        # The package carries project.yml, which gives each client's address.
+        from .tasks import _resolve_local_client_names
+
+        with self.other_hub():
+            imported = self.import_package(self.package)
+            prod_dir = network_prod_dir(imported)
+            with patch("network.tasks.get_local_addresses", return_value={"100.64.0.12"}):
+                names = _resolve_local_client_names(
+                    str(prod_dir.parents[2] / "project.yml"), str(prod_dir)
+                )
+
+        self.assertIn("site-b", names)
+        self.assertNotIn("site-a", names)
+
     def test_a_server_address_from_the_environment_is_reported_by_flares_verifier(self):
         with self.other_hub(), patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "192.0.2.10"}):
             imported = self.import_package(self.package)
