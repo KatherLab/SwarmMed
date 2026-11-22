@@ -947,9 +947,15 @@ class TamperedPackageTests(ProvisionedNetworkTestCase):
         )
 
     def test_a_duplicate_entry(self):
-        entries = list(_entries(self.package).items())
-        entries.append((".gossip_token", b"another token"))
-        self.assert_refused(_zip(entries), ".gossip_token appears more than once")
+        package = _entries(self.package)
+        for name, content in (
+            (".gossip_token", b"another token"),
+            # Read as the last of the two; the check reads one manifest only.
+            (MANIFEST_NAME, package[MANIFEST_NAME]),
+        ):
+            with self.subTest(name=name):
+                entries = [*package.items(), (name, content)]
+                self.assert_refused(_zip(entries), f"{name} appears more than once")
 
     def test_an_entry_in_a_folder_named_like_a_kit(self):
         entries = _entries(self.package)
@@ -1083,6 +1089,21 @@ class CLITests(ProvisionedNetworkTestCase):
             self.assertIn("not the expected", payload["errors"][0])
             self.assertFalse(SwarmNetwork.objects.exists())
             self.assertFalse((hub / "workspaces").exists())
+
+    def test_import_of_a_missing_file_is_an_error(self):
+        with self.other_hub() as hub:
+            code, payload = self._cli(
+                "import",
+                "--project",
+                str(self.project.identifier),
+                "--name",
+                "Imported",
+                "--package",
+                str(hub / "no-such-package.zip"),
+            )
+            self.assertEqual(code, 2, payload)
+            self.assertIn("Could not read the startup package", payload["errors"][0])
+            self.assertFalse(SwarmNetwork.objects.exists())
 
     def test_import_of_a_package_without_manifest_warns(self):
         with self.other_hub():
