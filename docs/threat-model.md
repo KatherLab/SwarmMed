@@ -167,8 +167,9 @@ site (`node-A.zip`, `node-B.zip`, …), each containing:
 
 The root CA certificate is included; its private key is not. Next to the kits, the
 package holds the same metadata files and `manifest.json`, the provisioning
-definition `project.yml` and `runtime_requirements.txt`. Packages exported by
-version 1.0.4 or earlier lack `manifest.json`, `project.yml` and
+definition `project.yml`, which also gives the path of the network's folder on the
+coordinating host, and `runtime_requirements.txt`. Packages exported by version
+1.0.4 or earlier lack `manifest.json`, `project.yml` and
 `runtime_requirements.txt`.
 
 Every site imports the whole package, and the import unpacks every kit, so each
