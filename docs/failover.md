@@ -67,6 +67,18 @@ was restarted, start the server again at the same host:
    restarted server has marked the job as abandoned and told the sites to abort
    it.
 
+If the server runs at a standby site after a switch, restart it there with the
+command that started it. As at the coordinating Hub, the site's Celery worker
+must have the image settings that the server was started with.
+
+```bash
+swarmed network failover <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --start-server --wait
+```
+
+A site's worker runs in client-only mode, so `swarmed network start` would
+start only the site's clients there, and `swarmed network stop` would stop the
+server as well.
+
 Use the standby server only when the server's host or its network is lost.
 
 ## What SwarmMed provides

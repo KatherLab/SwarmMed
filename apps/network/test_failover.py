@@ -18,7 +18,6 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from swarmed_cli.main import build_parser
 
 from project.models import Project
-
 from training import runtime as training_runtime
 
 from . import tasks as network_tasks
@@ -902,6 +901,18 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         self.assertEqual(self.network.status, "RUNNING")
         record = json.loads((self.prod_dir / ACTIVE_SERVER_FILE).read_text())
         self.assertEqual(record["server_host"], "192.0.2.10")
+
+    def test_running_it_again_at_the_standby_restarts_the_server(self):
+        # How the guide restarts a standby's server that has stopped.
+        self._run(start_server=True)
+
+        calls = self._run(start_server=True)
+
+        self.assertEqual(calls, [("server", None), ("client", ["node-A"])])
+        record = json.loads((self.prod_dir / ACTIVE_SERVER_FILE).read_text())
+        self.assertEqual(record["server_host"], "192.0.2.10")
+        self.assertEqual(record["previous_server_host"], "100.64.0.1")
+        self.assertTrue(record["server_started_here"])
 
     def test_other_sites_only_restart_their_clients(self):
         self.assertEqual(self._run(start_server=False), [("client", ["node-A"])])
