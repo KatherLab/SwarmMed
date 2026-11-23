@@ -37,11 +37,11 @@
         </div>
       </div>
 
-      {% if messages %}
+      {% if page_messages %}
       <div class="space-y-2" id="pageMessages">
-        {% for message in messages %}
+        {% for message in page_messages %}
         {# MESSAGE_TAGS (core/settings/base.py) gives each level its colours. #}
-        <div class="p-4 text-sm rounded-lg dark:bg-gray-700 {{ message.tags }}" role="alert">{{ message }}</div>
+        <div class="p-4 text-sm rounded-lg dark:bg-gray-700 {{ message.level_tag }}" role="alert">{{ message }}</div>
         {% endfor %}
       </div>
       {% endif %}

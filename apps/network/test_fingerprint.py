@@ -2006,6 +2006,24 @@ class WebTests(ProvisionedNetworkTestCase):
             page,
         )
 
+    def test_the_page_shows_only_the_network_views_messages(self):
+        # Other views queue messages for pages that show none; the Network page
+        # does not show them later, out of context.
+        UserCurrentNetwork.objects.create(user=self.user, network=self.network)
+        stop = reverse("training:stop_training", args=[self.network.identifier])
+        self.assertEqual(self.client.get(stop).status_code, 302)
+        self.client.get(
+            reverse("network:download_startup_kits", args=[self.network.identifier])
+        )
+
+        page = self._network_page()
+
+        self.assertNotIn("No running job found to stop.", page)
+        grouped = group_fingerprint(self.fingerprint)
+        self.assertIn(f"Network fingerprint: {grouped}", page)
+        # Each message is shown once.
+        self.assertNotIn('id="pageMessages"', self._network_page())
+
     def _post_import(self, package: bytes, expected=""):
         return self.client.post(
             reverse("network:new_network"),
