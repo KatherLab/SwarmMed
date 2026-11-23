@@ -900,13 +900,22 @@ def export_startup_package(network: SwarmNetwork) -> io.BytesIO:
         LookupError: If this Hub holds no site's startup kit for the network, as at
             a Hub that imported a single site's kit; nothing is stored then.
         ValueError: If the kits disagree with each other or with the network's
-            SERVER participant, for example about the FL server's address.
+            SERVER participant, for example about the FL server's address, as
+            after an import with SWARMMEDHUB_SERVER_HOST set to another address.
     """
     try:
         zip_buffer = create_startup_kits_zip(network)
     except PackageVerificationError as exc:
+        # At the coordinating site, SWARMMEDHUB_SERVER_HOST never rewrites kits.
+        hint = (
+            " An import with SWARMMEDHUB_SERVER_HOST set writes that address into "
+            "the kits; export the package at the coordinating site."
+            if network.creation_method == "IMPORTED"
+            else ""
+        )
         raise ValueError(
-            f"The startup package of network '{network.name}' was not exported: {exc}."
+            f"The startup package of network '{network.name}' was not exported: "
+            f"{exc}.{hint}"
         ) from exc
     package_bytes = zip_buffer.getvalue()
     if len(package_bytes) <= 22:

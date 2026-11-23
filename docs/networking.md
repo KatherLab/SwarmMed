@@ -409,7 +409,8 @@ Hand the package over like this:
    Export before the network first starts there: once it has run, the kits at the
    coordinating site can hold logs, job folders or changed settings, which a later
    export carries, so that export has another fingerprint. A Hub that imported a
-   single site's kit cannot export the package.
+   single site's kit cannot export the package, nor can one that imported it with
+   `SWARMMEDHUB_SERVER_HOST` set to another address than the packaged one.
 2. It sends that one file, over an encrypted channel, to a named person at every
    site.
 3. Each site imports it with the fingerprint, which the coordinating site reads out

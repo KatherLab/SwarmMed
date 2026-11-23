@@ -954,6 +954,22 @@ class ImportTests(ProvisionedNetworkTestCase):
             self.assertEqual((startup / "server_host.txt").read_text(), "192.0.2.10")
             self.assertFalse(_verify_startup(startup))
 
+    def test_an_export_refused_after_an_import_with_a_server_address_says_why(self):
+        with (
+            self.other_hub(),
+            patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "192.0.2.10"}),
+        ):
+            imported = self.import_package(self.package)
+            with self.assertRaises(ValueError) as caught:
+                network_services.export_startup_package(imported)
+        message = str(caught.exception)
+        self.assertIn("names the FL server 192.0.2.10", message)
+        self.assertIn(
+            "An import with SWARMMEDHUB_SERVER_HOST set writes that address into the "
+            "kits; export the package at the coordinating site.",
+            message,
+        )
+
     def test_a_single_sites_kit_shows_the_same_fingerprint(self):
         kit = _entries(self.package)["site-b.zip"]
         with self.other_hub():
@@ -2152,6 +2168,8 @@ class ExportRefusalTests(NetworkFixture, TestCase):
 
         self.assertIn("node-B.zip/startup/server_host.txt", str(caught.exception))
         self.assertIn("was not exported", str(caught.exception))
+        # The hint about imports is for imported networks only.
+        self.assertNotIn("SWARMMEDHUB_SERVER_HOST", str(caught.exception))
         self.network.refresh_from_db()
         self.assertEqual(self.network.package_fingerprint, "")
 
