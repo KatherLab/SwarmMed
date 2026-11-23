@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 import sys
@@ -130,6 +131,16 @@ def _declared_sizes(package: bytes) -> list[int]:
                 with zipfile.ZipFile(io.BytesIO(archive.read(info))) as kit:
                     sizes.extend(inner.file_size for inner in kit.infolist())
     return sizes
+
+
+def _alert_classes(page: str, text: str) -> str:
+    """The classes of the message on ``page`` that contains ``text``."""
+    for classes, message in re.findall(
+        r'<div class="([^"]*)" role="alert">(.*?)</div>', page, re.S
+    ):
+        if text in message:
+            return classes
+    raise AssertionError(f"No message on the page contains {text!r}")
 
 
 def _verify_startup(startup: Path) -> bool:
@@ -1478,6 +1489,7 @@ class WebTests(ProvisionedNetworkTestCase):
 
         page = self._network_page()
         self.assertIn(f"Network fingerprint: {grouped}", page)  # the message
+        self.assertIn("text-green-800", _alert_classes(page, "Network fingerprint:"))
         self.assertIn('id="packageFingerprint"', page)
         self.assertIn(
             f'<span class="font-mono text-base font-semibold">{grouped}</span>', page
@@ -1518,6 +1530,7 @@ class WebTests(ProvisionedNetworkTestCase):
         self.assertIn(
             f"Network fingerprint: {group_fingerprint(self.fingerprint)}", page
         )
+        self.assertIn("text-green-800", _alert_classes(page, "Network fingerprint:"))
 
     def test_import_form_refuses_another_fingerprint(self):
         with self.other_hub() as hub:
@@ -1529,6 +1542,8 @@ class WebTests(ProvisionedNetworkTestCase):
             self.assertFalse((hub / "workspaces").exists())
             page = self._network_page()
         self.assertIn("not the expected", page)
+        # Shown as an error, not as information.
+        self.assertIn("text-red-800", _alert_classes(page, "not the expected"))
 
     def test_import_form_warns_about_a_package_without_manifest(self):
         with self.other_hub():
@@ -1537,6 +1552,7 @@ class WebTests(ProvisionedNetworkTestCase):
             UserCurrentNetwork.objects.create(user=self.user, network=imported)
             page = self._network_page()
         self.assertIn("The startup package has no manifest.json", page)
+        self.assertIn("text-yellow-800", _alert_classes(page, "has no manifest.json"))
         self.assertIn("None: the package had no <code>manifest.json</code>", page)
 
     def test_import_form_has_the_expected_fingerprint_field(self):

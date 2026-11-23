@@ -40,7 +40,8 @@
       {% if messages %}
       <div class="space-y-2" id="pageMessages">
         {% for message in messages %}
-        <div class="p-4 text-sm rounded-lg border dark:bg-gray-700 {% if message.level_tag == 'error' %}text-red-800 bg-red-50 border-red-300 dark:text-red-400 dark:border-red-800{% elif message.level_tag == 'warning' %}text-yellow-800 bg-yellow-50 border-yellow-300 dark:text-yellow-300 dark:border-yellow-800{% elif message.level_tag == 'success' %}text-green-800 bg-green-50 border-green-300 dark:text-green-400 dark:border-green-800{% else %}text-blue-800 bg-blue-50 border-blue-100 dark:text-blue-400 dark:border-blue-800{% endif %}" role="alert">{{ message }}</div>
+        {# MESSAGE_TAGS (core/settings/base.py) gives each level its colours. #}
+        <div class="p-4 text-sm rounded-lg dark:bg-gray-700 {{ message.tags }}" role="alert">{{ message }}</div>
         {% endfor %}
       </div>
       {% endif %}
