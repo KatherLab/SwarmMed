@@ -699,8 +699,12 @@ NetBird.
 * The coordinator's address is stored in each kit's `startup/server_host.txt` and
   applied as a hosts entry for the name `server` when the client container
   starts. If the address changes, set `SWARMMEDHUB_SERVER_HOST=<new IPv4>` for
-  the process that starts the client (normally the site's Celery worker) and
-  restart the client in client-only mode; the variable takes precedence over
+  both the `app` and the `celery_worker` service, under both services in
+  `docker-compose.override.yml`: the worker starts the client, and in the `app`
+  container the CLI and the web interface submit jobs through an admin session
+  that tries that address, and `swarmed network status` reports it. Recreate
+  both containers (`docker compose up -d app celery_worker`) and restart the
+  client in client-only mode; the variable takes precedence over
   `server_host.txt`. Re-provisioning also works, but it issues new certificates
   that must be redistributed to every site.
 * Job submission uses only the admin port, which the coordinating Hub reaches
