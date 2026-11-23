@@ -26,6 +26,7 @@ from .failover import (
     move_kit_folder,
     network_prod_dir,
     provisioned_server_host,
+    unswitched_server_host,
 )
 from .fingerprint import (
     MANIFEST_NAME,
@@ -992,7 +993,8 @@ def failover_network(
     server_host = str(server_host or "").strip()
     if not is_valid_server_host(server_host):
         raise ValueError(
-            f"--server-host must be an IPv4 address, got {server_host!r}."
+            "--server-host must be an IPv4 address without leading zeros, such as "
+            f"192.0.2.10, got {server_host!r}."
         )
     log = get_logger(user=actor, project=network.project)
     log.network.info(
@@ -1024,14 +1026,22 @@ def failover_network(
 
 
 def describe_server_switch(network: SwarmNetwork) -> dict:
-    """Return which FL server this Hub uses for a network."""
+    """Return which FL server this Hub uses for a network.
+
+    ``admin_session_hosts`` lists the addresses that the Hub's admin session,
+    which submits and monitors jobs, tries in this order. After a switch that is
+    the recorded server alone, except at the Hub that started that server.
+    """
+    from training.runtime import admin_session_hosts
+
     record = active_server_record(network)
     provisioned = provisioned_server_host(network)
     return {
-        "server_host": record.get("server_host") or provisioned,
+        "server_host": record.get("server_host") or unswitched_server_host(network),
         "provisioned_server_host": provisioned,
         "switched": bool(record.get("server_host")),
         "switch": record or None,
+        "admin_session_hosts": admin_session_hosts(network),
     }
 
 

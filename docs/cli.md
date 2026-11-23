@@ -379,6 +379,11 @@ reachable through `results explanations`.
 
 ### 11. Recover from the loss of the FL server
 
+If only the FL server stopped and its host is still there, stop and start the network
+at the coordinating Hub the same way as before, then resume the run
+([Restarting the server](failover.md#restarting-the-server-where-it-ran)). If the
+host or its network is lost:
+
 ```bash
 # at the standby site
 swarmed network failover --user alice <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --start-server --wait

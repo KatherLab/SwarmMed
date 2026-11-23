@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from common.utils import get_safe_slug
 from logs.logger import get_logger
+from network.failover import active_server_record_for_startup, admin_session_pin
 
 from .utils import (
     clamp_progress_percent,
@@ -356,6 +357,98 @@ def _build_flare_host_candidates(requested_host: str, default_host: str = ""):
     return dedupe_keep_order([candidate for candidate in seed_candidates if candidate])
 
 
+def pinned_admin_host(startup_kit_location) -> str:
+    """Return the only address an admin kit's session may use, or ''.
+
+    After a server switch recorded with ``swarmed network failover``, the Hub's
+    admin session connects only to the recorded server, except at the Hub that
+    started it (see ``network.failover.admin_session_pin``).
+
+    Args:
+        startup_kit_location: The admin kit's folder, which holds ``startup``.
+    """
+    if not startup_kit_location:
+        return ""
+    return admin_session_pin(
+        active_server_record_for_startup(os.path.join(startup_kit_location, "startup"))
+    )
+
+
+def admin_host_candidates(
+    startup_kit_location,
+    requested_host: str = "",
+    *,
+    canonical_host: str = "",
+    network_id=None,
+    only_host: str = "",
+) -> list[str]:
+    """Return the addresses an admin session tries, in this order.
+
+    With ``only_host``, that address alone. After a server switch, the recorded
+    server's address alone (see :func:`pinned_admin_host`). Otherwise the kit's
+    server name (``canonical_host``, ``server`` by default), which inside the
+    Hub's containers reaches an FL server container of the network at this Hub
+    if one runs, then ``requested_host``, the network's server container and
+    local addresses. The session reaches every address with the TLS server name
+    of the kit.
+
+    Args:
+        startup_kit_location: The admin kit's folder, which holds ``startup``.
+        requested_host: The server address configured for the network.
+        canonical_host: The server host in the kit's ``fed_admin.json``.
+        network_id: The network's identifier, for its server container's name.
+        only_host: Try this address and no other.
+    """
+    only_host = str(only_host or "").strip()
+    if only_host:
+        return [only_host]
+    pinned_host = pinned_admin_host(startup_kit_location)
+    if pinned_host:
+        return [pinned_host]
+    candidates = [canonical_host or "server", str(requested_host or "").strip()]
+    if network_id:
+        candidates.append(f"swarm-{str(network_id)[:12]}-server")
+    docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
+    candidates.extend(
+        [docker_host_ip, "host.docker.internal", "127.0.0.1", "localhost"]
+    )
+    return dedupe_keep_order([candidate for candidate in candidates if candidate])
+
+
+def _kit_admin_host(startup_kit_location) -> str:
+    """Return the server host in an admin kit's ``fed_admin.json``, or ''."""
+    try:
+        with open(
+            os.path.join(startup_kit_location, "startup", "fed_admin.json")
+        ) as handle:
+            admin_config = json.load(handle).get("admin") or {}
+        return str(admin_config.get("host") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def admin_session_hosts(current_network) -> list[str]:
+    """Return the addresses the Hub's admin session tries for a network, in order.
+
+    Built as for :func:`new_secure_session_with_host`, with the kit's server
+    host read from its ``fed_admin.json``. Empty when this Hub has no admin kit
+    for the network or the addresses cannot be worked out.
+    """
+    try:
+        admin_target = resolve_admin_session_target(current_network)
+        if not admin_target:
+            return []
+        _admin_name, session_dir, server_ip = admin_target
+        return admin_host_candidates(
+            session_dir,
+            server_ip,
+            canonical_host=_kit_admin_host(session_dir),
+            network_id=current_network.identifier,
+        )
+    except Exception:
+        return []
+
+
 def _build_flare_port_candidates(default_port: int = 0):
     env_admin_port = os.getenv("SWARMMEDHUB_FLARE_ADMIN_PORT", "").strip()
     candidates = []
@@ -400,7 +493,13 @@ def log_flare_pre_submit_diagnostics(
             except Exception:
                 default_port = 0
 
-        host_candidates = _build_flare_host_candidates(requested_host, default_host)
+        # After a server switch, probe only the server the session will use.
+        pinned_host = pinned_admin_host(startup_kit_location)
+        host_candidates = (
+            [pinned_host]
+            if pinned_host
+            else _build_flare_host_candidates(requested_host, default_host)
+        )
         port_candidates = _build_flare_port_candidates(default_port)
 
         log.training.info(
@@ -546,8 +645,14 @@ def new_secure_session_with_host(
     debug: bool = False,
     timeout: float = 20.0,
     network_id=None,
+    only_host: str = "",
 ):
-    """Create a secure NVFlare admin session with host fallback probing."""
+    """Create a secure NVFlare admin session with host fallback probing.
+
+    The addresses come from :func:`admin_host_candidates`: after a server switch
+    only the recorded server's, except at the Hub that started that server, and
+    with ``only_host`` only that address.
+    """
     from nvflare.fuel.flare_api.flare_api import Session
 
     canonical_host = ""
@@ -579,16 +684,13 @@ def new_secure_session_with_host(
             admin_port = int(os.getenv("SWARMMEDHUB_ADMIN_PORT", "") or 0)
     admin_port = admin_port if admin_port > 0 else 8003
 
-    requested_host = (host or "").strip()
-    ip_candidates = [canonical_host, requested_host]
-    if network_id:
-        ip_candidates.append(f"swarm-{str(network_id)[:12]}-server")
-
-    docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
-    ip_candidates.extend(
-        [docker_host_ip, "host.docker.internal", "127.0.0.1", "localhost"]
+    ip_candidates = admin_host_candidates(
+        startup_kit_location,
+        host,
+        canonical_host=canonical_host,
+        network_id=network_id,
+        only_host=only_host,
     )
-    ip_candidates = dedupe_keep_order([candidate for candidate in ip_candidates if candidate])
 
     _ensure_grpc_ssl_patched(canonical_host)
 

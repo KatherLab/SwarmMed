@@ -13,6 +13,8 @@ switch;
 The switch is recorded per network in ``prod_00/.active_server.json``. That
 file takes precedence over ``SWARMMEDHUB_SERVER_HOST`` and over the kits'
 ``server_host.txt``, which keep the address the network was provisioned with.
+After a switch the Hub's admin session connects only to the recorded server,
+unless this Hub started that server (see :func:`admin_session_pin`).
 
 Every FL server that SwarmMed starts, the standby included, also gets the admin
 timeout set in ``SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`` (see
@@ -22,6 +24,7 @@ timeout set in ``SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`` (see
 from __future__ import annotations
 
 import copy
+import ipaddress
 import json
 import math
 import os
@@ -35,8 +38,6 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 ACTIVE_SERVER_FILE = ".active_server.json"
-
-_IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
 # The server's local resources as NVFlare 2.7.1 provisioning writes them. Used
 # when a startup bundle predates the copy of the server's local folder, and by
@@ -111,10 +112,14 @@ def is_valid_server_host(host: str) -> bool:
 
     Host names are not accepted: the address reaches the FL client containers
     as ``docker run --add-host server:<address>``, which takes only an IP
-    address.
+    address. Nor are leading zeros, which the C library reads as octal
+    (``010.0.0.1`` is not 10.0.0.1 there), or digits other than ASCII ones.
     """
-    match = _IPV4_RE.match(str(host or "").strip())
-    return bool(match) and all(0 <= int(part) <= 255 for part in match.groups())
+    try:
+        ipaddress.IPv4Address(str(host or "").strip())
+    except ValueError:
+        return False
+    return True
 
 
 def network_prod_dir(network) -> Path:
@@ -139,25 +144,59 @@ def _read_record(prod_dir: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def active_server_host_for_startup(startup_dir) -> str:
-    """Return the switched-to server host for a kit's startup folder, or ''.
+def active_server_record_for_startup(startup_dir) -> dict:
+    """Return the switch record that applies to a kit's startup folder, or {}.
 
     ``startup_dir`` is ``prod_00/startup``, ``prod_00/<participant>/startup``
     (site, server and admin kits) or, for the admin kit of a single site's kit
     imported on its own, ``prod_00/admin_startup/startup``.
     """
     if not startup_dir:
-        return ""
+        return {}
     startup = Path(str(startup_dir)).absolute()
     for prod_dir in list(startup.parents)[:3]:
         # Kits always live in a provisioning folder such as prod_00.
         if not prod_dir.name.startswith("prod_"):
             continue
         record = _read_record(prod_dir)
-        host = str(record.get("server_host") or "").strip()
-        if host:
-            return host
-    return ""
+        if str(record.get("server_host") or "").strip():
+            return record
+    return {}
+
+
+def active_server_host_for_startup(startup_dir) -> str:
+    """Return the switched-to server host for a kit's startup folder, or ''.
+
+    See :func:`active_server_record_for_startup` for the folders.
+    """
+    record = active_server_record_for_startup(startup_dir)
+    return str(record.get("server_host") or "").strip()
+
+
+def admin_session_pin(record: dict) -> str:
+    """Return the only address the Hub's admin session may use after a switch.
+
+    The admin session submits and monitors the network's jobs. Without a switch
+    it tries the kit's server name ``server`` first, which inside the Hub's
+    containers reaches an FL server container of the network at this Hub if one
+    runs, then the configured address and local addresses. After a switch such
+    a server is a stale one, for example the coordinator's server started again
+    or one that a site started without client-only mode, so the session connects
+    only to the recorded server. The standby that started the recorded server
+    runs it here and keeps the local addresses; the record says so in
+    ``server_started_here``, which every record since version 1.0.3 has.
+
+    Args:
+        record: The network's switch record ({} if there is none).
+
+    Returns:
+        str: The recorded server address, or '' without a switch and at the Hub
+        that started the recorded server.
+    """
+    host = str(record.get("server_host") or "").strip()
+    if not host or record.get("server_started_here") is True:
+        return ""
+    return host
 
 
 def active_server_record(network) -> dict:
@@ -180,10 +219,46 @@ def provisioned_server_host(network) -> str:
     return ""
 
 
+def unswitched_server_host(network) -> str:
+    """Return the server address this Hub uses for a network without a switch.
+
+    As for the FL clients: ``SWARMMEDHUB_SERVER_HOST``, else the address in the
+    kits' ``server_host.txt``.
+    """
+    env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
+    return env_host or provisioned_server_host(network)
+
+
+def previous_server_host(network) -> str:
+    """Return the server this Hub used for a network before its recorded switch.
+
+    The record names it in ``previous_server_host``. Where it does not, or names
+    the server switched to, the address the Hub uses without a switch is taken
+    (:func:`unswitched_server_host`).
+
+    Returns:
+        str: The address, or '' without a switch or when it is not known.
+    """
+    record = active_server_record(network)
+    current = str(record.get("server_host") or "").strip()
+    if not current:
+        return ""
+    for host in (record.get("previous_server_host"), unswitched_server_host(network)):
+        host = str(host or "").strip()
+        if host and host != current:
+            return host
+    return ""
+
+
 def write_active_server(
     network, server_host: str, *, started_server: bool, actor=None
 ) -> dict:
-    """Record that a network's sites at this Hub now use ``server_host``."""
+    """Record that a network's sites at this Hub now use ``server_host``.
+
+    The record keeps the server used before (``previous_server_host``), which
+    ``swarmed training resume`` asks whether it still runs the interrupted job.
+    A repeated switch to the same server keeps the server used before that.
+    """
     server_host = str(server_host or "").strip()
     if not is_valid_server_host(server_host):
         raise ValueError(f"Not an IPv4 address: {server_host!r}")
@@ -193,11 +268,12 @@ def write_active_server(
             f"No startup kits for network '{network.name}' at this Hub ({prod_dir})."
         )
     previous = _read_record(prod_dir)
+    previous_host = str(previous.get("server_host") or "").strip()
+    if previous_host == server_host:
+        previous_host = str(previous.get("previous_server_host") or "").strip()
     record = {
         "server_host": server_host,
-        "previous_server_host": str(
-            previous.get("server_host") or provisioned_server_host(network) or ""
-        ),
+        "previous_server_host": previous_host or unswitched_server_host(network),
         "provisioned_server_host": provisioned_server_host(network),
         "server_started_here": bool(started_server),
         "changed_at": timezone.now().isoformat(),
