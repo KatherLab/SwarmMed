@@ -938,6 +938,8 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         for status in ("STOPPED", "PROVISIONED"):
             with self.subTest(status=status):
                 SwarmNetwork.objects.filter(pk=self.network.pk).update(status=status)
+                # Each subtest must write its own switch record.
+                (self.prod_dir / ACTIVE_SERVER_FILE).unlink(missing_ok=True)
                 stdout = io.StringIO()
                 with (
                     patch.dict(os.environ, {"SWARMMEDHUB_RUN_TASKS_INLINE": "1"}),
