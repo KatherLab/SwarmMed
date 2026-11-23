@@ -669,6 +669,10 @@ def run(args: argparse.Namespace):
             result = network_services.serialize_network(
                 network, current_for=state.user, include_participants=True
             )
+            # The site whose kit was imported on its own; "" for a whole package.
+            result["package_site"] = getattr(network, "package_site", "")
+            if result["package_site"]:
+                state.notes.append(f"This is the kit of site {result['package_site']}.")
             state.warnings.extend(network_services.import_warnings(network))
             state.notes.extend(_fingerprint_note(network.package_fingerprint))
 

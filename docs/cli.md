@@ -260,7 +260,10 @@ that passes an unset variable does not import an unchecked package. A refused
 import exits with code 2, names the first offending file and writes nothing.
 Without the option, compare the fingerprint that the command prints with every
 other site. A package exported by SwarmMed 1.0.4 or earlier has no manifest and
-is imported with a warning. `network show` and `network status` give
+is imported with a warning. When the package is a single site's kit, the command
+names that site, also as `result.package_site` with `--json` (empty for a whole
+package), and warns if `SWARMMEDHUB_LOCAL_PARTICIPANT` names another site.
+`network show` and `network status` give
 `package_fingerprint` and `package_sha256`, of the package this Hub last exported
 or imported, and `root_ca_sha256`, the root CA certificate's fingerprint as
 `openssl x509 -noout -fingerprint -sha256` prints it.

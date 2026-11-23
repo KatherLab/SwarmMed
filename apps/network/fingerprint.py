@@ -140,8 +140,8 @@ class PackageCheck:
             exported by SwarmMed 1.0.4 or earlier.
         fingerprint: The network fingerprint (64 hex characters); "" without a
             manifest.
-        site: The site whose kit was checked on its own, such as ``node-A``; ""
-            for a whole package.
+        site: The site whose kit was checked on its own, such as ``node-A``,
+            escaped with :func:`printable`; "" for a whole package.
     """
 
     manifest: dict | None
@@ -883,7 +883,7 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
     return PackageCheck(
         manifest=manifest,
         fingerprint=sha256_hex(manifest_bytes),
-        site=site.removesuffix(".zip"),
+        site=printable(site.removesuffix(".zip")),
     )
 
 

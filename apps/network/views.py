@@ -583,9 +583,12 @@ def new_network(request):
                     messages.error(request, str(exc))
                 else:
                     if imported.package_fingerprint:
+                        site = getattr(imported, "package_site", "")
                         messages.success(
                             request,
-                            f"Imported network '{imported.name}'. Network fingerprint: "
+                            f"Imported network '{imported.name}'"
+                            + (f", the kit of site {site}" if site else "")
+                            + ". Network fingerprint: "
                             f"{group_fingerprint(imported.package_fingerprint)}. "
                             + COMPARE_FINGERPRINT_ADVICE,
                         )

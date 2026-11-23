@@ -965,6 +965,34 @@ class ImportTests(ProvisionedNetworkTestCase):
             self.assertFalse((prod_dir / MANIFEST_NAME).exists())
             self.assertTrue((prod_dir.parents[2] / MANIFEST_NAME).is_file())
 
+    def test_a_single_sites_kit_is_named_after_its_site(self):
+        kit = _entries(self.package)["site-b.zip"]
+        for local, warned in (("", False), ("SITE_B", False), ("site-a", True)):
+            with (
+                self.subTest(local=local),
+                self.other_hub(),
+                patch.dict(os.environ, {"SWARMMEDHUB_LOCAL_PARTICIPANT": local}),
+            ):
+                imported = self.import_package(kit)
+                self.assertEqual(imported.package_site, "site-b")
+                shown = network_services.import_warnings(imported)
+                # Not a refusal: the Hub may rightly take part as another site.
+                self.assertEqual(len(shown), int(warned))
+                if warned:
+                    self.assertIn(
+                        "This is the kit of site site-b, but "
+                        "SWARMMEDHUB_LOCAL_PARTICIPANT names site-a; with this kit, "
+                        "this Hub takes part as site-b.",
+                        shown[0],
+                    )
+        with (
+            self.other_hub(),
+            patch.dict(os.environ, {"SWARMMEDHUB_LOCAL_PARTICIPANT": "site-a"}),
+        ):
+            imported = self.import_package(self.package)
+            self.assertEqual(imported.package_site, "")
+            self.assertEqual(network_services.import_warnings(imported), [])
+
     def test_a_changed_single_sites_kit_is_refused(self):
         files = _entries(_entries(self.package)["site-b.zip"])
         files["startup/server_host.txt"] = b"192.0.2.66"
@@ -1824,6 +1852,37 @@ class CLITests(ProvisionedNetworkTestCase):
             f"Network fingerprint: {group_fingerprint(self.fingerprint)}", output
         )
 
+    def test_import_of_a_single_sites_kit_names_its_site(self):
+        kit = _entries(self.package)["site-b.zip"]
+        for local in ("site-a", ""):
+            with (
+                self.other_hub(),
+                patch.dict(os.environ, {"SWARMMEDHUB_LOCAL_PARTICIPANT": local}),
+            ):
+                json_code, payload = self._import(kit)
+            with (
+                self.other_hub(),
+                patch.dict(os.environ, {"SWARMMEDHUB_LOCAL_PARTICIPANT": local}),
+            ):
+                text_code, output = self._import(kit, json_output=False)
+            with self.subTest(local=local):
+                self.assertEqual((json_code, text_code), (0, 0), (payload, output))
+                self.assertEqual(payload["result"]["package_site"], "site-b")
+                self.assertIn("This is the kit of site site-b.\n", output)
+                warned = (
+                    "This is the kit of site site-b, but "
+                    "SWARMMEDHUB_LOCAL_PARTICIPANT names site-a"
+                )
+                if local:
+                    self.assertEqual(len(payload["warnings"]), 1)
+                    self.assertIn(warned, payload["warnings"][0])
+                    self.assertIn(f"warning: {warned}", output)
+                else:
+                    self.assertEqual(payload["warnings"], [])
+        with self.other_hub():
+            code, payload = self._import(self.package)
+        self.assertEqual(payload["result"]["package_site"], "")
+
     def test_import_with_another_fingerprint_is_refused(self):
         with self.other_hub() as hub:
             code, payload = self._import(
@@ -1990,6 +2049,24 @@ class WebTests(ProvisionedNetworkTestCase):
         self.assertIn("not the expected", page)
         # Shown as an error, not as information.
         self.assertIn("text-red-800", _alert_classes(page, "not the expected"))
+
+    def test_import_form_names_the_site_of_a_single_kit(self):
+        kit = _entries(self.package)["site-b.zip"]
+        with (
+            self.other_hub(),
+            patch.dict(os.environ, {"SWARMMEDHUB_LOCAL_PARTICIPANT": "site-a"}),
+        ):
+            self._post_import(kit)
+            imported = SwarmNetwork.objects.get(identifier=self.network.identifier)
+            UserCurrentNetwork.objects.create(user=self.user, network=imported)
+            page = self._network_page()
+        self.assertIn(
+            ", the kit of site site-b. Network fingerprint: "
+            f"{group_fingerprint(self.fingerprint)}",
+            page,
+        )
+        warning = _alert_classes(page, "SWARMMEDHUB_LOCAL_PARTICIPANT names site-a")
+        self.assertIn("text-yellow-800", warning)
 
     def test_import_form_refuses_a_network_that_exists(self):
         with self.other_hub():

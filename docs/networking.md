@@ -417,7 +417,11 @@ Hand the package over like this:
    '<fingerprint>'`, or **Expected fingerprint** in the import form. A package with
    another fingerprint, or without one, is not imported. Alternatively, every site
    imports the package without it, and all sites compare the fingerprint shown
-   after the import in one joint call before anyone starts the network.
+   after the import in one joint call before anyone starts the network. A site
+   that imports only its own kit, taken out of the package, gets the same
+   fingerprint; the import also names the kit's site, so check that it is yours.
+   If `SWARMMEDHUB_LOCAL_PARTICIPANT` names another site, the import warns: with
+   the kit of another site, the Hub takes part as that site.
 4. Optionally, each site also compares the root CA certificate's fingerprint, which
    the Network page and `swarmed network show` give, with the output of
    `openssl x509 -noout -fingerprint -sha256 -in <kit>/startup/rootCA.pem`, and

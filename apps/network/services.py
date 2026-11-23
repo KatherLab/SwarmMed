@@ -311,11 +311,29 @@ def legacy_package_warning(package_sha256: str = "") -> str:
     )
 
 
+def _same_participant(first: str, second: str) -> bool:
+    """Whether two names are of the same site, '_' and '-' and case aside.
+
+    NVIDIA FLARE does not accept '_' in a participant's name, so provisioning
+    writes it as '-' (see provision.safe_participant_name).
+    """
+    return first.replace("_", "-").lower() == second.replace("_", "-").lower()
+
+
 def import_warnings(network: SwarmNetwork) -> list[str]:
-    """Warnings to show after importing ``network``."""
+    """Warnings to show after importing ``network``, as import_network returns it."""
+    warnings = []
     if network.creation_method == "IMPORTED" and not network.package_fingerprint:
-        return [legacy_package_warning(network.package_sha256)]
-    return []
+        warnings.append(legacy_package_warning(network.package_sha256))
+    site = getattr(network, "package_site", "")
+    local = os.getenv("SWARMMEDHUB_LOCAL_PARTICIPANT", "").strip()
+    if site and local and not _same_participant(site, local):
+        warnings.append(
+            f"This is the kit of site {site}, but SWARMMEDHUB_LOCAL_PARTICIPANT "
+            f"names {local}; with this kit, this Hub takes part as {site}. Check "
+            "that you were sent your site's kit."
+        )
+    return warnings
 
 
 def _check_expected_fingerprint(check: PackageCheck, expected: str) -> None:
@@ -502,6 +520,8 @@ def import_network(
         raise ValueError(message)
 
     swarm_network = SwarmNetwork.objects.create(**create_args)
+    # Not stored: the site whose kit was imported on its own, for the messages.
+    swarm_network.package_site = check.site
     log.network.info(
         f"Initialized imported network record: {name} (ID: {swarm_network.identifier})"
     )
