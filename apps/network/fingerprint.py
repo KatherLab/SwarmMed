@@ -53,9 +53,12 @@ _HEX64 = re.compile(r"[0-9a-f]{64}")
 
 # The most a check reads, as the ZIP declares the sizes: zipfile returns no more
 # than an entry's declared size and refuses content that does not match its CRC.
-# A package exported before its network first ran is far smaller.
+# It decompresses bzip2 and LZMA data whole, whatever size an entry declares, so
+# only the methods that SwarmMed writes are accepted (_ACCEPTED_METHODS). A
+# package exported before its network first ran is far smaller.
 MAX_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
+_ACCEPTED_METHODS = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
 
 # The files whose content the checks read (derive_trust and the network's
 # identifier); every other file is only hashed, a chunk at a time.
@@ -198,12 +201,20 @@ def unsafe_entry_problem(info: zipfile.ZipInfo) -> str:
 def _check_sizes(infos: list[zipfile.ZipInfo], prefix: str, budget: int) -> int:
     """Refuse an entry over MAX_ENTRY_BYTES, or one that exhausts ``budget``.
 
-    Only the sizes the ZIP declares are read, nothing of the content.
+    Only the sizes the ZIP declares are read, nothing of the content. An entry
+    compressed with another method than stored or deflated is refused as well:
+    zipfile would decompress it whole, beyond the size it declares.
 
     Returns:
         int: What is left of ``budget``.
     """
     for info in infos:
+        if info.compress_type not in _ACCEPTED_METHODS:
+            raise PackageVerificationError(
+                prefix + info.filename,
+                f"is compressed with method {info.compress_type}; an import accepts "
+                "only stored and deflated entries, as SwarmMed writes them",
+            )
         if info.file_size > MAX_ENTRY_BYTES:
             raise PackageVerificationError(
                 prefix + info.filename,
@@ -575,13 +586,13 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
     """Check a startup package, or a single site's kit, before it is imported.
 
     Every entry, and every entry of every site's kit in the package, must be safe to
-    extract, and no larger than MAX_ENTRY_BYTES unpacked; all of them together
-    must stay within MAX_PACKAGE_BYTES. A package with ``manifest.json`` must then
-    agree with it: every file it lists is there with that SHA-256, nothing else is
-    there, every site's kit holds the identical manifest, and the trust section
-    agrees with the files it sums up. A file that the manifest does not list is
-    refused before it is read. A single site's kit is checked against the
-    manifest's entries for that kit.
+    extract, stored or deflated, and no larger than MAX_ENTRY_BYTES unpacked; all
+    of them together must stay within MAX_PACKAGE_BYTES. A package with
+    ``manifest.json`` must then agree with it: every file it lists is there with
+    that SHA-256, nothing else is there, every site's kit holds the identical
+    manifest, and the trust section agrees with the files it sums up. A file that
+    the manifest does not list is refused before it is read. A single site's kit
+    is checked against the manifest's entries for that kit.
 
     Args:
         package: The package, opened for reading.

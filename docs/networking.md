@@ -387,12 +387,15 @@ manifest lists must be there with that SHA-256, no other file may be there, ever
 site's kit must hold the same manifest, and the manifest's summary must agree with
 the files it sums up. In any package, entries that are symbolic links or whose path
 is absolute or has a `..`, `.` or empty component (such as `./node-A.zip`) are
-refused. So is a package of more than 1 GiB, packed or unpacked, or with a file of
-more than 256 MiB, before its files are read; a package exported before the
-network first starts is far smaller. If anything differs, the import names the
-first file that does and writes nothing. A single site's kit, taken out of the
-package, is checked against the manifest's entries for that kit and shows the same
-fingerprint as the whole package.
+refused, and so are entries compressed with another method than deflate, unless
+stored uncompressed: SwarmMed writes deflate, and Python's zipfile decompresses
+other methods whole, whatever size an entry declares. So is a package of more
+than 1 GiB, packed or unpacked, or with a file of more than 256 MiB, before its
+files are read; a package exported before the network first starts is far
+smaller. If anything differs, the import names the first file that does and
+writes nothing. A single site's kit, taken out of the package, is checked against
+the manifest's entries for that kit and shows the same fingerprint as the whole
+package.
 
 Hand the package over like this:
 

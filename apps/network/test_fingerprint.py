@@ -68,7 +68,8 @@ def _entries(package: bytes) -> dict[str, bytes]:
         return {info.filename: archive.read(info) for info in archive.infolist()}
 
 
-def _zip(entries: dict[str, bytes], *, symlinks=()) -> bytes:
+def _zip(entries: dict[str, bytes], *, symlinks=(), methods=None) -> bytes:
+    """A ZIP of ``entries``, deflated unless ``methods`` gives a name another method."""
     buffer = io.BytesIO()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # duplicate names, on purpose
@@ -78,7 +79,7 @@ def _zip(entries: dict[str, bytes], *, symlinks=()) -> bytes:
             ):
                 info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
                 # writestr() takes the compression from the ZipInfo, not the archive.
-                info.compress_type = zipfile.ZIP_DEFLATED
+                info.compress_type = (methods or {}).get(name, zipfile.ZIP_DEFLATED)
                 mode = 0o120777 if name in symlinks else 0o100644
                 info.external_attr = mode << 16
                 archive.writestr(info, content)
@@ -1207,6 +1208,33 @@ class SizeLimitTests(ProvisionedNetworkTestCase):
                 self.assert_refused(
                     _zip(entries), f"takes the package over the {total} bytes unpacked"
                 )
+
+    def test_entries_compressed_with_other_methods_are_refused(self):
+        # zipfile decompresses bzip2 and LZMA data whole, whatever size an entry
+        # declares. These entries are honest: their content agrees with the
+        # manifest.
+        for package_kind, package in (
+            ("with manifest", self.package),
+            ("without manifest", _without_manifests(self.package)),
+        ):
+            for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+                entries = _entries(package)
+                at_top = _zip(entries, methods={"runtime_requirements.txt": method})
+                kit = _zip(
+                    _entries(entries["site-a.zip"]),
+                    methods={"startup/fed_client.json": method},
+                )
+                in_kit = _zip({**entries, "site-a.zip": kit})
+                for tampered, path in (
+                    (at_top, "runtime_requirements.txt"),
+                    (in_kit, "site-a.zip/startup/fed_client.json"),
+                ):
+                    with self.subTest(package=package_kind, method=method, path=path):
+                        self.assert_refused(
+                            tampered,
+                            f"{path} is compressed with method {method}; an import "
+                            "accepts only stored and deflated entries",
+                        )
 
     def test_a_package_file_larger_than_an_import_accepts_is_refused(self):
         limit = len(self.package) - 1
