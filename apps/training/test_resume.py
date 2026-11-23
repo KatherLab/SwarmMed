@@ -1121,6 +1121,33 @@ class FlareListJobsReplyTests(SimpleTestCase):
             self.assertEqual(self._ask(api), (True, ""))
         self.assertEqual(timeouts, [45.0])
 
+    def test_the_logout_keeps_the_admin_api_timeout(self):
+        # A server that accepted the login but does not answer: the logout after
+        # list_jobs waits FLARE's own 5 s, not the longer time list_jobs got.
+        api = flare_admin_api({self.job_uuid: "RUNNING"}, answers=False)
+        answer = api.cell.send_request
+        timeouts = []
+
+        def send_request(**kwargs):
+            timeouts.append(kwargs["timeout"])
+            return answer(**kwargs)
+
+        api.cell = SimpleNamespace(send_request=send_request, stop=lambda: None)
+        api.closed = False
+        api.server_sess_active = True
+        api.shutdown_streamer = lambda: None
+        self.session.api.set_command_timeout.side_effect = api.set_command_timeout
+        self.session.api.unset_command_timeout.side_effect = (
+            api.unset_command_timeout
+        )
+        self.session.close.side_effect = api.logout  # as FLARE's Session.close
+        environment = {training_services.FLARE_CONNECT_TIMEOUT_ENV: "45"}
+
+        with patch.dict(os.environ, environment):
+            self._ask(api)
+        # list_jobs, then the logout.
+        self.assertEqual(timeouts, [45.0, 5.0])
+
     def test_a_server_that_does_not_answer_in_time_cannot_be_asked(self):
         api = flare_admin_api({self.job_uuid: "RUNNING"}, answers=False)
 

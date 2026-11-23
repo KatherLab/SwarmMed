@@ -1416,6 +1416,10 @@ def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str 
     except Exception as exc:
         return None, f"list_jobs failed: {_short_reason(exc)}"
     finally:
+        # The logout keeps the admin API's own 5 s, so that a server that does
+        # not answer does not hold the check up for longer.
+        with contextlib.suppress(Exception):
+            session.api.unset_command_timeout()
         with contextlib.suppress(Exception):
             session.close()
     jobs, problem = _listed_flare_jobs(reply)
