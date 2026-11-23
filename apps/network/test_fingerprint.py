@@ -1045,6 +1045,38 @@ class ImportTests(ProvisionedNetworkTestCase):
                 ).is_file()
             )
 
+    def test_a_network_that_exists_at_this_hub_is_refused(self):
+        # As when a site imports the package of a network again, to get the
+        # fingerprint of a network it imported from a package without one.
+        with self.other_hub() as hub:
+            first = self.import_package(_without_manifests(self.package))
+            self.assertEqual(first.package_fingerprint, "")
+            files = {path: path.stat().st_mtime_ns for path in hub.rglob("*")}
+
+            with self.assertRaises(ValueError) as caught:
+                self.import_package(self.package, expect_fingerprint=self.fingerprint)
+
+            self.assertEqual(
+                list(SwarmNetwork.objects.values_list("pk", "package_fingerprint")),
+                [(first.pk, "")],
+            )
+            self.assertEqual(
+                {path: path.stat().st_mtime_ns for path in hub.rglob("*")}, files
+            )
+            # Once the network is deleted, its package is imported.
+            SwarmNetwork.objects.filter(pk=first.pk).delete()
+            imported = self.import_package(
+                self.package, expect_fingerprint=self.fingerprint
+            )
+            self.assertEqual(imported.package_fingerprint, self.fingerprint)
+        message = str(caught.exception)
+        self.assertIn(
+            f"The network of this startup package ({self.network.identifier}) "
+            "already exists at this Hub. Delete it first to import the package again",
+            message,
+        )
+        self.assertIn("Nothing was imported.", message)
+
     def test_a_package_without_manifest_is_refused_with_an_expected_fingerprint(self):
         self.assert_refused(
             _without_manifests(self.package),
@@ -1766,6 +1798,15 @@ class CLITests(ProvisionedNetworkTestCase):
             self.assertFalse(SwarmNetwork.objects.exists())
             self.assertFalse((hub / "workspaces").exists())
 
+    def test_import_of_a_network_that_exists_is_refused(self):
+        with self.other_hub():
+            code, payload = self._import(self.package)
+            self.assertEqual(code, 0, payload)
+            code, payload = self._import(self.package)
+            self.assertEqual(code, 2, payload)
+            self.assertIn("already exists at this Hub", payload["errors"][0])
+            self.assertEqual(SwarmNetwork.objects.count(), 1)
+
     def test_import_of_a_missing_file_is_an_error(self):
         with self.other_hub() as hub:
             code, payload = self._cli(
@@ -1878,6 +1919,23 @@ class WebTests(ProvisionedNetworkTestCase):
         self.assertIn("not the expected", page)
         # Shown as an error, not as information.
         self.assertIn("text-red-800", _alert_classes(page, "not the expected"))
+
+    def test_import_form_refuses_a_network_that_exists(self):
+        with self.other_hub():
+            self._post_import(self.package)
+            imported = SwarmNetwork.objects.get(identifier=self.network.identifier)
+            UserCurrentNetwork.objects.create(user=self.user, network=imported)
+            self._network_page()  # shows the first import's message
+
+            response = self._post_import(self.package)
+
+            self.assertRedirects(
+                response, reverse("network:network"), fetch_redirect_response=False
+            )
+            self.assertEqual(SwarmNetwork.objects.count(), 1)
+            page = self._network_page()
+        refusal = _alert_classes(page, "already exists at this Hub")
+        self.assertIn("text-red-800", refusal)
 
     def test_import_form_warns_about_a_package_without_manifest(self):
         with self.other_hub():

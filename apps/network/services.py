@@ -436,8 +436,8 @@ def import_network(
 
     Raises:
         ValueError: If the package cannot be read, is unsafe, does not agree with
-            its manifest or has another fingerprint than expected. Nothing is
-            written then.
+            its manifest, has another fingerprint than expected, or holds a
+            network that already exists at this Hub. Nothing is written then.
     """
     log = get_logger(user=actor, project=project)
     package_bytes = _read_package_bytes(package_source)
@@ -490,6 +490,16 @@ def import_network(
             )
         except Exception:
             pass
+    identifier = create_args.get("identifier")
+    if identifier and SwarmNetwork.objects.filter(identifier=identifier).exists():
+        message = (
+            f"The network of this startup package ({identifier}) already exists at "
+            "this Hub. Delete it first to import the package again, for example to "
+            "get the network fingerprint of a network imported from a package "
+            "without one. Nothing was imported."
+        )
+        log.network.warning(f"Startup package for network '{name}' refused: {message}")
+        raise ValueError(message)
 
     swarm_network = SwarmNetwork.objects.create(**create_args)
     log.network.info(
