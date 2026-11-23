@@ -727,6 +727,13 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
         problem = unsafe_entry_problem(info)
         if problem:
             raise PackageVerificationError(info.filename, problem)
+        folder = info.filename.split("/", 1)[0]
+        if folder != info.filename and is_site_kit_name(folder):
+            # An import would unpack it into a folder that it then takes for a
+            # site's kit, whether or not the package has that kit too.
+            raise PackageVerificationError(
+                info.filename, f"lies in a folder named like the site kit {folder}"
+            )
     budget = _check_sizes(infos, "", MAX_PACKAGE_BYTES)
     kits: dict[str, zipfile.ZipFile] = {}
     for info in infos:
@@ -810,12 +817,6 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
             name = info.filename
             if name == MANIFEST_NAME:
                 continue
-            if "/" in name and name.split("/", 1)[0] in kits:
-                # It would be extracted into a folder named like the kit next to it.
-                raise PackageVerificationError(
-                    name,
-                    f"lies in a folder named like the site kit {name.split('/', 1)[0]}",
-                )
             if name in kits and name in listed_kits:
                 for inner in kits[name].infolist():
                     if inner.filename != MANIFEST_NAME:

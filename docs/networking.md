@@ -385,8 +385,9 @@ prints it too.
 A Hub checks a package before it writes anything from it. Every file that the
 manifest lists must be there with that SHA-256, no other file may be there, every
 site's kit must hold the same manifest, and the manifest's summary must agree with
-the files it sums up. In any package, entries that are symbolic links or whose path
-is absolute or has a `..`, `.` or empty component (such as `./node-A.zip`) are
+the files it sums up. In any package, entries that are symbolic links, whose path
+is absolute or has a `..`, `.` or empty component (such as `./node-A.zip`), or
+that lie in a folder named like a site's kit (such as `node-A.zip/startup/`) are
 refused, and so are entries compressed with another method than deflate, unless
 stored uncompressed: SwarmMed writes deflate, and Python's zipfile decompresses
 other methods whole, whatever size an entry declares. So is a package of more

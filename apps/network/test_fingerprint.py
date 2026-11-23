@@ -1298,6 +1298,24 @@ class UnsafeEntryTests(ProvisionedNetworkTestCase):
                 with self.subTest(package=package_kind, name=f"another {name}"):
                     self.assert_refused(_zip(entries), text)
 
+    def test_a_kit_given_as_a_folder_is_refused(self):
+        # site-a.zip's files in a folder named site-a.zip, without the kit's copy
+        # of the manifest: an import would take the folder for the kit.
+        for package_kind, package in (
+            ("with manifest", self.package),
+            ("without manifest", _without_manifests(self.package)),
+        ):
+            entries = _entries(package)
+            kit = _entries(entries.pop("site-a.zip"))
+            kit.pop(MANIFEST_NAME, None)
+            entries.update((f"site-a.zip/{name}", data) for name, data in kit.items())
+            with self.subTest(package=package_kind):
+                self.assert_refused(
+                    _zip(entries),
+                    "site-a.zip/",
+                    "lies in a folder named like the site kit site-a.zip",
+                )
+
 
 class SizeLimitTests(ProvisionedNetworkTestCase):
     """What an import reads is bounded by the sizes and entries the package declares."""
