@@ -5,6 +5,228 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-11-23
+
+### Added
+
+- A network fingerprint, so that every site can check that it received the same
+  startup package
+  ([Networking](docs/networking.md#verifying-the-startup-package)). The export
+  writes `manifest.json` into the package and the identical file into every site's
+  kit: the SHA-256 of every other file in the package, and a summary of what the
+  sites share (the SHA-256 fingerprints of the root CA and FL server certificates
+  in OpenSSL's format, the FL server's address as the kits' `server_host.txt` give
+  it, the FL and admin ports from the signed `fed_server.json`, and the
+  participants with their addresses and certificate fingerprints). The network
+  fingerprint is the SHA-256 of `manifest.json`, which is canonical JSON and holds
+  nothing that depends on when or where it is exported (no time stamp, no name of
+  the exporting Hub, no SwarmMed version), so the same network exported twice has
+  the same fingerprint. An export whose kits name different FL server addresses,
+  or another address than the network's SERVER participant, is refused.
+- An import checks the package before it writes anything: every file that the
+  manifest lists must be there with that SHA-256, no other file may be there,
+  every site's kit must hold the same manifest, and the manifest's summary must
+  agree with the files it sums up. A file that the manifest does not list is
+  refused before its content is hashed; a `.zip` at the top of the package is
+  unpacked first, within the limits, to check its entries. A single site's kit is
+  checked against the manifest's entries for that kit and shows the same
+  fingerprint; the import names the kit's site, and warns, without refusing the
+  kit, when `SWARMMEDHUB_LOCAL_PARTICIPANT` names another site. A refused import
+  names the first offending file, with control characters escaped, and writes
+  nothing.
+- `swarmed network import --expect-fingerprint VALUE` and the import form's
+  **Expected fingerprint** refuse a package with another fingerprint, or without
+  one; spaces, colons, dashes and case are ignored. An empty `--expect-fingerprint`
+  is an error, not a skipped check, so that a script that passes an unset variable
+  does not import an unchecked package; an empty form field means no expected
+  fingerprint.
+- The fingerprint, as 16 groups of four characters: in the message after a web
+  export or import and on the Network page, with the package's SHA-256 and the
+  root CA certificate's fingerprint (after a download with **Kits**, both show
+  once the page is reloaded); and in the text output of
+  `swarmed network export-package`, `import`, `show` and `status`.
+  `export-package --json` gives `package_fingerprint` and `package_sha256` (of the
+  file written); `show`, `status`, `list` and `import` give `package_fingerprint`,
+  `package_sha256` and `root_ca_sha256`, and `import` also `package_site`, the site
+  of a kit imported on its own. A web export writes the fingerprint and the
+  package's SHA-256 to the audit log.
+- `SwarmNetwork.package_fingerprint` and `SwarmNetwork.package_sha256` (migration
+  `network/0004`). Both have a database default, so that code without them, such
+  as 1.0.4, can still create networks after the migration. Each Hub stores the
+  values of the package it last exported or imported.
+- `swarmed network status` and `swarmed network failover` list the addresses that
+  the Hub's admin session, which submits and monitors jobs, tries for the network,
+  in order (`fl_server.admin_session_hosts`). After a server switch that is the
+  recorded server alone, except at the standby that started it.
+- [Server failover](docs/failover.md#restarting-the-server-where-it-ran) now
+  describes the simplest recovery first: when the FL server's process or container
+  has stopped but its host and the host's network are fine, stop and start the
+  network at the coordinating Hub the same way as it was started, with the same
+  image settings and `SWARMMEDHUB_SERVER_ONLY_MODE`, and resume the run. The sites
+  need do nothing: their FL clients keep trying to reach the server and are taken
+  back on the tokens it signed before. In a test across three hospitals, the
+  clients reconnected to a restarted server without any action at the sites. A
+  server whose FLARE build keeps listing the interrupted job as running after the
+  restart, as the one in MediSwarm 1.9.3's image does, needs `--force` for the
+  resume. A server that runs at a standby site after a switch is restarted there
+  with the command that started it (`swarmed network failover ... --start-server`),
+  since `swarmed network start` at a site in client-only mode starts only its
+  clients. The standby server is for the loss of the host or its network. The
+  guide also names moving the server's IPv4 address to another machine at the
+  coordinating institution, for example as a floating IP, as an option that needs
+  no switch at the sites but has not been tested: the run still has to be resumed,
+  and the old machine must not come back with the same address. The CLI guide
+  points to the restart, and the failover guide lists
+  `SWARMMEDHUB_FLARE_CONNECT_TIMEOUT`.
+
+### Changed
+
+- Exporting the same network twice gives the same file, as long as its kits have
+  not changed: entries are sorted and get the time stamp 1980-01-01 00:00 and
+  mode 644, or 755 for files that their owner may execute, and the participants
+  are listed by role and name.
+- An import refuses entries that are symbolic links or whose path is absolute or
+  has a `..`, `.` or empty component, in the package or in any copy of a site's
+  kit in it, and entries in a folder named like a site's kit, which it would take
+  for that kit, whether or not the package has a manifest. It used to skip only
+  entries that resolved outside the network's folder, and wrote symbolic links as
+  regular files. A file that is not a ZIP file, or has an entry that cannot be
+  read, is refused before a network record is created.
+- An import reads the package into memory and refuses a package of more than
+  1 GiB, as a file or unpacked, or with a file of more than 256 MiB, before it
+  reads the files in it; the sizes are those the package declares, and the import
+  unpacks no more of a file than that, a chunk at a time. It also refuses entries
+  compressed with another method than deflate, unless stored, since Python's
+  zipfile decompresses bzip2 and LZMA data whole, and a package with more than
+  100,000 entries, counting those of its site kits, before zipfile reads their
+  list. A package exported before its network first runs is far smaller.
+- A package exported by SwarmMed 1.0.4 or earlier, which has no manifest, is
+  imported as before, with a warning that it has no fingerprint and should be
+  verified by other means. A package that SwarmMed 1.0.4 or earlier exported
+  again, from a network imported from a later version, carries a manifest in its
+  kits but not at the top and is refused, with a message that names this cause;
+  import the package that the coordinating site exported.
+- A Hub that imported a package with `SWARMMEDHUB_SERVER_HOST` set to another
+  address than the packaged one can no longer export it, as 1.0.4 could: its kits
+  name another FL server than the network's SERVER participant. The message says
+  so and to export the package at the coordinating site.
+- The import keeps the package's `manifest.json` in the network's folder, out of
+  the sites' FLARE workspaces.
+- The Network page shows the outcome of an export, an import or a deletion, which
+  it did not show before; a web export that fails shows the reason there instead
+  of an error page.
+- `swarmed training resume` refuses, unless `--force` is given, when it cannot ask
+  the network's FL server whether the interrupted job is still active, and says
+  why; it used to go ahead without a word. Its admin session gets as long to log
+  in to each server it asks as a job submission does (20 s, or
+  `SWARMMEDHUB_FLARE_CONNECT_TIMEOUT`, instead of 10 s), and the server as long
+  again to answer `list_jobs` (instead of the admin API's 5 s). It refuses a
+  network that the Hub does not run before it asks any server.
+- After a server switch, `swarmed training resume` also asks the server the Hub
+  used before: `previous_server_host` in `prod_00/.active_server.json` or, for a
+  record without it, the address in `SWARMMEDHUB_SERVER_HOST` or the kits'
+  `server_host.txt`. It refuses while that server still runs the job, and resumes
+  with a warning (a `warning:` line, with `--json` in `warnings`, and in the Hub's
+  log) to keep that server down when it cannot be reached. `--force` skips both
+  checks. Without a switch only the current server is asked, as before.
+- A switch record names `SWARMMEDHUB_SERVER_HOST` as the previous server when the
+  Hub used that address before the switch, and switching again to the same server
+  keeps the server used before it instead of naming the same server as previous.
+  When no switch is recorded, `fl_server.server_host` in `swarmed network status`
+  names `SWARMMEDHUB_SERVER_HOST` as set where the CLI runs (the `app` container),
+  whose admin session uses it too; the FL clients use the variable as set for the
+  Celery worker.
+
+### Fixed
+
+- Startup packages now include `project.yml` and `runtime_requirements.txt`. The
+  export looked for them in `<network>/workspace/`, but provisioning writes them to
+  `<network>/`. With `project.yml`, a participating site's Hub recognises its own
+  site by the host's address, as [Networking](docs/networking.md) describes, also
+  without `SWARMMEDHUB_LOCAL_PARTICIPANT`.
+- `swarmed network export-package` at a Hub that imported a single site's kit
+  wrote a package without any kit. It now exits with an error that says to export
+  the package at the coordinating site, and leaves the stored fingerprint as it
+  was.
+- An import of a package that had a site's kit as a folder named like it, or,
+  without a manifest, an entry that could not be read (a wrong CRC-32, a local
+  header that names another file), failed after it had created the network
+  record: the record and part of the files stayed, the CLI reported an unexpected
+  failure and the web form an error page. Such a package is now refused before
+  anything is written.
+- Importing a network that already exists at the Hub failed with a database error
+  after the package had been checked. It is now refused before anything is
+  written; delete the network first to import its package again, for example to
+  get the fingerprint of a network imported from a package of SwarmMed 1.0.4 or
+  earlier.
+- A manifest that agreed with its package could list a site's kit as one file, or
+  a ZIP archive at the top of a single site's kit. The import then unpacked it as
+  a site's kit without checking it, and failed after creating the network record
+  when one of its entries could not be read. Such a package, whose fingerprint
+  differs from the coordinating site's, is now refused before anything is
+  written.
+- Deleting a network queues the removal of its containers and folder. A network
+  imported again before that ran lost its newly imported kits; the removal now
+  leaves a network that exists again alone. Import a network's package again only
+  once its old folder is gone.
+- NVIDIA FLARE's verifier (`python -m nvflare.tool.verify_startup_kits`) passes on
+  the `startup` folders of newly provisioned kits. FLARE signs each kit's `startup`
+  folder before SwarmMed adds `.all_participants.json`, `server_host.txt` and
+  `server_aliases.txt`, so the verifier rejected every kit; provisioning now signs
+  those folders again with the root CA's key, with FLARE's own helper. FLARE's
+  start-up check in secure mode still passes. An import with
+  `SWARMMEDHUB_SERVER_HOST` set to another address than the packaged one changes
+  `server_host.txt`, after which the verifier fails for those kits.
+- The threat model no longer says that a site's `startup` folder holds a second key
+  pair: since 1.0.1, clients are provisioned without a listening address, and
+  NVFlare creates that pair only for one.
+- After `swarmed network failover`, a Hub's admin session could submit and monitor
+  jobs on a stale FL server at that Hub while `swarmed network status` showed the
+  standby. The session tried the kits' server name `server` first, which inside
+  the Hub's containers reaches an FL server container of the network at the Hub,
+  such as the coordinator's own server started again or one that a site started
+  without client-only mode, and when the standby did not answer it fell back to
+  the network's server container, the Docker gateway, `host.docker.internal`,
+  `127.0.0.1` and `localhost`. With a switch record the session now connects only
+  to the recorded server, and the probes logged before a submission reach only
+  that server, except at the standby, which runs the server and keeps its local
+  addresses (`server_started_here`, which records since 1.0.3 carry, so records
+  written by 1.0.3 and 1.0.4 are read as they are). Without a switch the order is
+  unchanged.
+- After a failover, `swarmed training resume` could start a second job while the
+  old server still ran the interrupted one: it asked only the server the admin
+  session reached, which after a switch is the standby, whose job store starts
+  empty. It now also asks the previous server (see Changed).
+- `swarmed training resume` never saw that an FL server still ran the interrupted
+  job. It looked for the job list in the data of NVIDIA FLARE's reply to
+  `list_jobs`, which holds a table for display, while FLARE 2.7.1 gives the list
+  in the reply's meta. The refusal while the server still runs the job, there
+  since 1.0.3, therefore never applied, and a reply without a job list, such as
+  FLARE's "Server did not respond" when the server did not answer within the
+  admin API's 5 s, counted as a server that no longer runs the job. The check now
+  reads the job list from the reply's meta and takes a reply without one as a
+  server that it could not ask.
+- `swarmed network failover --wait` returned only once the network was running or
+  had failed. A Hub without client containers keeps a stopped or provisioned
+  network's status, so there the command waited until `--timeout`, or for ever
+  without one. It now returns once the switch is recorded.
+- `swarmed network failover --server-host` accepted IPv4 addresses with leading
+  zeros, such as `010.0.0.1`, which the C library reads as octal and so not as
+  `10.0.0.1`, and digits that are not ASCII. It now refuses both, as it does for a
+  new network's server address.
+- `docs/failover.md` said that after a switch the Hub's job submission and status
+  polling use the new address; in 1.0.3 and 1.0.4 they tried a local server of the
+  network first. It now describes the admin session as it is.
+- `docs/failover.md` now says that the standby needs the network's whole startup
+  package, since a Hub that imported only its own site's kit cannot start the
+  server, and that `swarmed training resume` leaves an interrupted job that has
+  already ended as it is (`swarmed network stop` marks it as stopped) instead of
+  marking it as failed.
+- `docs/networking.md` said to set `SWARMMEDHUB_SERVER_HOST` for the Celery worker
+  when the coordinator's address changes. The `app` container, where the CLI and
+  the web interface submit jobs and `swarmed network status` reports the address,
+  needs it as well.
+
 ## [1.0.4] - 2026-11-19
 
 ### Added
