@@ -9,13 +9,14 @@ import shutil
 import subprocess  # nosec B404
 import tempfile
 import zipfile
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase, override_settings
-from swarmed_cli.main import build_parser
+from swarmed_cli.main import build_parser, main
 
 from project.models import Project
 from training import runtime as training_runtime
@@ -925,6 +926,48 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         self._run(start_server=False, clients=(), previous_status="STOPPED")
         self.assertEqual(self.network.status, "STOPPED")
         self.assertTrue((self.prod_dir / ACTIVE_SERVER_FILE).exists())
+
+    def test_wait_returns_when_a_hub_without_clients_keeps_the_status(self):
+        # As at a coordinating Hub that stopped the network to keep its server
+        # down and then switches with --wait.
+        for status in ("STOPPED", "PROVISIONED"):
+            with self.subTest(status=status):
+                SwarmNetwork.objects.filter(pk=self.network.pk).update(status=status)
+                stdout = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"SWARMMEDHUB_RUN_TASKS_INLINE": "1"}),
+                    # Keep the checkout's .env, which the CLI loads, out of the test.
+                    patch("swarmed_cli.bootstrap.load_dotenv"),
+                    patch.object(
+                        network_tasks, "_local_runtime_participants", return_value=[]
+                    ),
+                    patch.object(network_tasks, "start_swarm_network_task") as start,
+                    patch.object(
+                        network_tasks.subprocess, "run", side_effect=AssertionError
+                    ),
+                    # A wait that does not return polls again.
+                    patch("swarmed_cli.support.time.sleep", side_effect=AssertionError),
+                    redirect_stdout(stdout),
+                ):
+                    code = main(
+                        [
+                            "network",
+                            "failover",
+                            str(self.network.identifier),
+                            "--server-host",
+                            "192.0.2.10",
+                            "--wait",
+                            "--user",
+                            "operator",
+                            "--json",
+                        ]
+                    )
+
+                self.assertEqual(code, 0, stdout.getvalue())
+                start.assert_not_called()
+                self.network.refresh_from_db()
+                self.assertEqual(self.network.status, status)
+                self.assertTrue((self.prod_dir / ACTIVE_SERVER_FILE).exists())
 
     def test_failed_server_start_stops_the_switch(self):
         calls = self._run(start_server=True, start_status="ERROR")

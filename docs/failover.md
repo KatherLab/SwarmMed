@@ -169,7 +169,8 @@ At each Hub the command:
 * restarts the network's FL client containers at this Hub so that the name
   `server` resolves to the new address. With `--wait`, the command returns once
   the clients have restarted. A Hub without client containers only switches its
-  own connection to the server and keeps the network's status.
+  own connection to the server and keeps the network's status, and `--wait`
+  returns once the switch is recorded.
 
 As with `swarmed network start`, the Hub's Celery worker carries out the
 command, so client-only mode and the site's training variables (for example

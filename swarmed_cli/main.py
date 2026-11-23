@@ -754,10 +754,12 @@ def run(args: argparse.Namespace):
                 start_server=args.start_server,
             )
             if args.wait:
+                # failover_network sets STARTING. A Hub without client containers
+                # then keeps a stopped or provisioned network's status.
                 network = wait_for_state(
                     fetch=lambda: _refresh(network),
                     status_of=lambda item: item.status,
-                    terminal_statuses={"RUNNING", "ERROR"},
+                    terminal_statuses={"RUNNING", "ERROR", "STOPPED", "PROVISIONED"},
                     interval_seconds=args.interval,
                     timeout_seconds=args.timeout,
                 )
