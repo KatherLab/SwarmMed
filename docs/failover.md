@@ -233,6 +233,9 @@ server-only mode, has none: copy a site's checkpoint file to it and pass it with
   the job still runs there. If it does, the command refuses; if that server
   cannot be reached, the command resumes and warns that the server must stay
   down;
+* gives the Hub's admin session 20 s (`SWARMMEDHUB_FLARE_CONNECT_TIMEOUT`) to
+  log in to each server, as a job submission does, and each server as long
+  again to answer;
 * skips these checks with `--force`;
 * submits a job with FLARE's `start_round` set to the checkpoint's round and runs
   the rounds left of the interrupted job's total (`--rounds` sets the total);
@@ -371,7 +374,7 @@ What to do:
 | `SWARMMEDHUB_RESUME_CHECKPOINTS` | the process that submits the job | `false` stops writing round-start checkpoints; `FL_global_model.pt` is still saved by the aggregating site |
 | `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` | the process that starts the FL server: for a start from the CLI or the web interface, the Hub's Celery worker (`docker-compose.override.yml` under `celery_worker`, not `.env`); applies from the next server start | seconds the FL server waits for each site's reply, for example when it deploys a job (provisioned: 10 s); see [Resuming over a slow link](#resuming-over-a-slow-link) |
 | `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` | the process that submits the job (`docker exec -e` for the CLI, `docker-compose.override.yml` under `app` for the web interface) | whole seconds the FL server waits for the starting site to start the workflow; without it, 600 s for a resumed job and the FLARE build's default for a new one (10 s in NVIDIA FLARE 2.7.1) |
-| `SWARMMEDHUB_FLARE_CONNECT_TIMEOUT` | the process that submits the job | seconds the Hub's admin session gets to log in to an FL server when it submits a job and when `swarmed training resume` asks a server whether it still runs the job; default 20 |
+| `SWARMMEDHUB_FLARE_CONNECT_TIMEOUT` | the process that submits the job | seconds the Hub's admin session gets to log in to an FL server when it submits a job and when `swarmed training resume` asks a server whether it still runs the job; in the latter case also the seconds the server gets to answer; default 20 |
 | `SWARMMEDHUB_STALL_WARNING_MINUTES` | the Celery worker (set it in `.env`) | minutes without a finished round after which a running job is flagged as stalled; default `60`, `0` turns the check off, an invalid value means `60` and a warning in the log ([When a site drops out](#when-a-site-drops-out)) |
 
 ## Testing status

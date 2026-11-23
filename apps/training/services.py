@@ -213,7 +213,8 @@ def flare_connect_timeout() -> float:
     """Return the seconds an admin session gets to log in to the FL server.
 
     20 s unless SWARMMEDHUB_FLARE_CONNECT_TIMEOUT holds a number. Used for
-    submitting a job and for asking a server whether it still runs one.
+    submitting a job and for asking a server whether it still runs one; there
+    the server also gets this long to answer.
     """
     timeout = 20.0
     env_timeout = os.getenv(FLARE_CONNECT_TIMEOUT_ENV, "").strip()
@@ -1376,6 +1377,9 @@ def _listed_flare_jobs(reply) -> tuple[list | None, str]:
 def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str = ""):
     """Ask an FL server whether it still runs a job.
 
+    The admin session gets :func:`flare_connect_timeout` seconds to log in, as
+    for a job submission, and the server as long again to answer ``list_jobs``.
+
     Args:
         network: The job's network.
         job: The job.
@@ -1405,6 +1409,9 @@ def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str 
         return None, _short_reason(exc)
     flare_uuid = _flare_uuid_of(job)
     try:
+        # FLARE's admin API gives each command 5 s unless told otherwise.
+        with contextlib.suppress(Exception):
+            session.api.set_command_timeout(flare_connect_timeout())
         reply = session.api.do_command(f"list_jobs {flare_uuid}")
     except Exception as exc:
         return None, f"list_jobs failed: {_short_reason(exc)}"

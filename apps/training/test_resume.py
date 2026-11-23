@@ -853,6 +853,11 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
 
         # Each resume: the check, then the submission.
         self.assertEqual(self.session_timeouts, [20.0, 20.0, 45.0, 45.0])
+        # The check's list_jobs gets as long again, not the admin API's 5 s.
+        self.assertEqual(
+            [call.args for call in self.session.api.set_command_timeout.call_args_list],
+            [(20.0,), (45.0,)],
+        )
 
     def test_force_submits_without_asking_any_server(self):
         self._checkpoint_at("node-A", 2)
@@ -1072,6 +1077,28 @@ class FlareListJobsReplyTests(SimpleTestCase):
         ):
             with self.subTest(jobs=jobs):
                 self.assertEqual(self._ask(flare_admin_api(jobs)), (False, ""))
+
+    def test_a_server_gets_the_connect_timeout_to_answer(self):
+        # FLARE's admin API waits 5 s for the answer to a command unless the
+        # session sets another time. This server needs 8 s to answer.
+        api = flare_admin_api({self.job_uuid: "RUNNING"})
+        answer = api.cell.send_request
+        timeouts = []
+
+        def send_request(**kwargs):
+            timeouts.append(kwargs["timeout"])
+            if kwargs["timeout"] < 8.0:
+                # FLARE's cell gives up before the answer arrives.
+                return SimpleNamespace(payload=None)
+            return answer(**kwargs)
+
+        api.cell = SimpleNamespace(send_request=send_request)
+        self.session.api.set_command_timeout.side_effect = api.set_command_timeout
+        environment = {training_services.FLARE_CONNECT_TIMEOUT_ENV: "45"}
+
+        with patch.dict(os.environ, environment):
+            self.assertEqual(self._ask(api), (True, ""))
+        self.assertEqual(timeouts, [45.0])
 
     def test_a_server_that_does_not_answer_in_time_cannot_be_asked(self):
         api = flare_admin_api({self.job_uuid: "RUNNING"}, answers=False)
