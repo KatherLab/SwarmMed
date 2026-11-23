@@ -1555,6 +1555,19 @@ class WebTests(ProvisionedNetworkTestCase):
         self.assertIn("text-yellow-800", _alert_classes(page, "has no manifest.json"))
         self.assertIn("None: the package had no <code>manifest.json</code>", page)
 
+    def test_before_an_export_the_page_says_where_the_fingerprint_appears(self):
+        # A download with Kits leaves the page as it was.
+        SwarmNetwork.objects.filter(pk=self.network.pk).update(
+            package_fingerprint="", package_sha256=""
+        )
+        UserCurrentNetwork.objects.create(user=self.user, network=self.network)
+        page = self._network_page()
+        self.assertIn(
+            "None yet: shown once the package has been exported. After downloading "
+            "it with <strong>Kits</strong>, reload this page.",
+            page,
+        )
+
     def test_import_form_has_the_expected_fingerprint_field(self):
         response = self.client.get(reverse("network:new_network"))
         self.assertContains(response, 'name="expected_fingerprint"')

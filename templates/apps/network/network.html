@@ -196,7 +196,7 @@
         <dl class="mt-2 space-y-2 text-sm">
             <div>
                 <dt class="font-medium text-gray-500 dark:text-gray-400">Network fingerprint</dt>
-                <dd class="text-gray-900 dark:text-white" id="packageFingerprint">{% if package_fingerprint_grouped %}<span class="font-mono text-base font-semibold">{{ package_fingerprint_grouped }}</span>{% elif current_network.creation_method == 'IMPORTED' %}None: the package had no <code>manifest.json</code>, as packages exported by SwarmMed 1.0.4 or earlier do. Verify it by other means.{% else %}None yet: shown once the package has been exported.{% endif %}</dd>
+                <dd class="text-gray-900 dark:text-white" id="packageFingerprint">{% if package_fingerprint_grouped %}<span class="font-mono text-base font-semibold">{{ package_fingerprint_grouped }}</span>{% elif current_network.creation_method == 'IMPORTED' %}None: the package had no <code>manifest.json</code>, as packages exported by SwarmMed 1.0.4 or earlier do. Verify it by other means.{% else %}None yet: shown once the package has been exported. After downloading it with <strong>Kits</strong>, reload this page.{% endif %}</dd>
             </div>
             {% if current_network.package_sha256 %}
             <div>

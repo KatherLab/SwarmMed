@@ -397,9 +397,10 @@ fingerprint as the whole package.
 Hand the package over like this:
 
 1. The coordinating site exports the package once (**Kits** on the Network page,
-   or `swarmed network export-package`) and notes the network fingerprint, which
-   the export shows, as does the Network page for the current network. Export
-   before the network first starts there: once it has run, the kits at the
+   or `swarmed network export-package`) and notes the network fingerprint:
+   `swarmed network export-package` prints it, and the Network page shows it for
+   the current network (after a download with **Kits**, reload the page).
+   Export before the network first starts there: once it has run, the kits at the
    coordinating site can hold logs, job folders or changed settings, which a later
    export carries, so that export has another fingerprint. A Hub that imported a
    single site's kit cannot export the package.
