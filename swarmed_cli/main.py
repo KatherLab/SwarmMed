@@ -718,7 +718,7 @@ def run(args: argparse.Namespace):
             result = {
                 "network_identifier": str(network.identifier),
                 "output_path": str(out_path),
-                "fingerprint": network.package_fingerprint,
+                "package_fingerprint": network.package_fingerprint,
                 "package_sha256": hashlib.sha256(package_bytes).hexdigest(),
             }
             state.notes.extend(_fingerprint_note(network.package_fingerprint))

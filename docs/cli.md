@@ -222,10 +222,11 @@ swarmed network export-package --user alice <NETWORK_UUID> --out tmp/startup-kit
 
 The command also prints the network fingerprint, the SHA-256 of the package's
 `manifest.json`, as 16 groups of four characters. With `--json`,
-`result.fingerprint` gives it as plain hex, and `result.package_sha256` the
-SHA-256 of the file written. As long as the network's kits do not change,
-exporting it again gives the same file. Read the fingerprint out to every other
-site by phone or video call, not through the channel that carries the package
+`result.package_fingerprint` gives it as plain hex, as `network show` does, and
+`result.package_sha256` the SHA-256 of the file written. As long as the network's
+kits do not change, exporting it again gives the same file. Read the fingerprint
+out to every other site by phone or video call, not through the channel that
+carries the package
 ([Verifying the startup package](networking.md#verifying-the-startup-package)).
 At a Hub that imported a single site's kit, the command exits with code 2: the
 package can only be exported where every site's kit is.

@@ -1775,7 +1775,8 @@ class CLITests(ProvisionedNetworkTestCase):
             written = out.read_bytes()
 
         self.assertEqual(code, 0, payload)
-        self.assertEqual(payload["result"]["fingerprint"], self.fingerprint)
+        self.assertEqual(payload["result"]["package_fingerprint"], self.fingerprint)
+        self.assertNotIn("fingerprint", payload["result"])
         self.assertEqual(
             payload["result"]["package_sha256"], hashlib.sha256(written).hexdigest()
         )
