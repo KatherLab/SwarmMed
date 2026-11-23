@@ -622,8 +622,11 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
             if MANIFEST_NAME in kits[name].namelist():
                 raise PackageVerificationError(
                     MANIFEST_NAME,
-                    f"is missing, although {name}/{MANIFEST_NAME} is there; the "
-                    "package was changed after it was exported",
+                    f"is missing, although {name}/{MANIFEST_NAME} is there: the "
+                    "package was changed after it was exported, or SwarmMed 1.0.4 "
+                    "or earlier exported it again from a network imported from a "
+                    "later version; use the package that the coordinating site "
+                    "exported",
                 )
         return PackageCheck(manifest=None, fingerprint="")
 

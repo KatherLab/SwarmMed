@@ -991,6 +991,21 @@ class TamperedPackageTests(ProvisionedNetworkTestCase):
         del entries[MANIFEST_NAME]
         self.assert_refused(_zip(entries), "manifest.json is missing, although")
 
+    def test_a_package_that_an_older_version_exported_again(self):
+        # As SwarmMed 1.0.4 exports a network imported from this package: the kits
+        # carry the manifest it extracted into them, the package itself has none.
+        entries = _entries(self.package)
+        for name in (MANIFEST_NAME, "project.yml", "runtime_requirements.txt"):
+            del entries[name]
+        self.assert_refused(
+            _zip(entries),
+            "manifest.json is missing, although site-a.zip/manifest.json is there",
+            "SwarmMed 1.0.4 or earlier exported it again from a network imported "
+            "from a later version",
+            "use the package that the coordinating site exported. Nothing was "
+            "imported.",
+        )
+
     def test_a_trust_section_that_disagrees_with_the_files(self):
         other_root_ca, _ = _certificates()
 

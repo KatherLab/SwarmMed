@@ -455,7 +455,10 @@ imported as before, with a warning that it has no fingerprint; with
 `--expect-fingerprint` it is refused. Verify it by other means: send the same file
 to every site, and have all sites compare its SHA-256 (`sha256sum <file>`) and the
 root CA's fingerprint in one joint call before importing. To compare fingerprints,
-every site needs a SwarmMed version that checks the manifest.
+every site needs a SwarmMed version that checks the manifest. A package that
+SwarmMed 1.0.4 or earlier exported again, from a network imported from a later
+version, is refused: its kits carry a manifest that the package lacks. Use the
+package that the coordinating site exported.
 
 ### NVIDIA FLARE's signatures
 
