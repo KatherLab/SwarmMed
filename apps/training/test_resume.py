@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import datetime
 import json
 import os
 import shutil
@@ -10,6 +12,7 @@ import uuid
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import torch
@@ -288,6 +291,98 @@ class _Opaque:
     """A class torch's weights-only loader refuses."""
 
 
+def flare_list_jobs_reply(jobs: list[dict]) -> dict:
+    """An FL server's reply to ``list_jobs`` as NVIDIA FLARE 2.7.1's admin API
+    returns it: the jobs in ``meta["jobs"]``, a table for display in ``data``.
+
+    FlareListJobsReplyTests compares it with the reply that FLARE's own code makes.
+    """
+    rows = [[job["job_id"], "swarm_job", job["status"]] for job in jobs]
+    return {
+        "time": "2026-01-01 00:00:00.000000",
+        "data": [
+            {"type": "table", "rows": [["JOB ID", "NAME", "STATUS"], *rows]}
+            if jobs
+            else {"type": "string", "data": "No jobs found."},
+            {"type": "success", "data": ""},
+        ],
+        "meta": {"jobs": [dict(job) for job in jobs], "status": "ok", "info": ""},
+        "status": "SUCCESS",
+    }
+
+
+def flare_admin_api(
+    jobs: dict[str, str | dict] | None = None,
+    *,
+    answers: bool = True,
+    store_error: Exception | None = None,
+):
+    """NVIDIA FLARE 2.7.1's admin API client, connected to a stand-in FL server.
+
+    The server runs FLARE's own ``list_jobs`` command over a job store that holds
+    ``jobs`` (job ID -> status, or -> fields of the job's meta), and the client's
+    own processing turns the server's answer into what ``do_command`` returns.
+    Only the network connection is replaced; with ``answers=False`` the server
+    does not answer in time, and with ``store_error`` reading the job store
+    raises that error.
+    """
+    from nvflare.apis.job_def import Job
+    from nvflare.apis.job_def_manager_spec import JobDefManagerSpec
+    from nvflare.fuel.hci.client.api import AdminAPI
+    from nvflare.fuel.hci.conn import Connection
+    from nvflare.fuel.hci.proto import validate_proto
+    from nvflare.fuel.hci.server.reg import ServerCommandRegister
+    from nvflare.private.fed.server.job_cmds import JobCommandModule
+
+    submitted = datetime.datetime.now()
+    store = [
+        Job(
+            job_id=job_id,
+            resource_spec={},
+            deploy_map={},
+            meta={
+                "job_id": job_id,
+                "name": "swarm_job",
+                "submit_time": submitted.timestamp(),
+                "submit_time_iso": submitted.isoformat(),
+                "start_time": submitted.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                **(job if isinstance(job, dict) else {"status": job}),
+            },
+        )
+        for job_id, job in (jobs or {}).items()
+    ]
+    engine = MagicMock()
+    engine.job_def_manager = MagicMock(spec=JobDefManagerSpec)
+    engine.job_def_manager.get_all_jobs.return_value = store
+    engine.job_def_manager.get_all_jobs.side_effect = store_error
+    engine.new_context.side_effect = lambda: contextlib.nullcontext(MagicMock())
+    commands = ServerCommandRegister(app_ctx=engine)
+    commands.register_module(JobCommandModule())
+    commands.finalize()
+
+    def send_request(*, request, **_kwargs):
+        if not answers:
+            return SimpleNamespace(payload=None)
+        command = next(
+            item["data"]
+            for item in validate_proto(request.payload)["data"]
+            if item["type"] == "command"
+        )
+        connection = Connection()
+        commands.process_command(connection, command)
+        return SimpleNamespace(payload=connection.close())
+
+    api = AdminAPI.__new__(AdminAPI)  # without logging in
+    api.in_logout = False
+    api._debug = False
+    api.user_name = "admin@nvidia.com"
+    api.event_handlers = []
+    api.token = None
+    api.cmd_timeout = None
+    api.cell = SimpleNamespace(send_request=send_request)
+    return api
+
+
 class SubmitHarness:
     """A running two-site network whose FL server is replaced by a fake session.
 
@@ -343,7 +438,7 @@ class SubmitHarness:
 
         self.submitted: list[Path] = []
         self.session = MagicMock()
-        self.session.api.do_command.return_value = {}
+        self.session.api.do_command.return_value = flare_list_jobs_reply([])
         self.session.submit_job.side_effect = self._capture_submission
 
         environment = patch.dict(os.environ)
@@ -599,6 +694,9 @@ class ServerRouting:
     fake session, which lists no job; a session for one address alone
     (``only_host``) goes to the previous server.
 
+    The previous server cannot be reached unless ``self.previous_server_state``
+    sets the state in which it lists the interrupted job, or
+    ``self.previous_server_reply`` its reply to ``list_jobs``.
     ``self.session_calls`` collects the ``only_host`` of every session, "" for
     the current server, and ``self.session_timeouts`` their timeouts.
     """
@@ -610,6 +708,7 @@ class ServerRouting:
         self.session_calls: list[str] = []
         self.session_timeouts: list[float] = []
         self.previous_server_state = None
+        self.previous_server_reply = None
         training_services.new_secure_session_with_host.side_effect = self._session_for
 
     def _session_for(self, *_args, **kwargs):
@@ -618,15 +717,17 @@ class ServerRouting:
         self.session_timeouts.append(kwargs.get("timeout"))
         if not only_host:
             return self.session
-        if self.previous_server_state is None:
+        if self.previous_server_state is None and self.previous_server_reply is None:
             raise RuntimeError(
                 f"cannot connect to FLARE admin API. Attempts: host={only_host} "
                 "port=8003: connection refused"
             )
         previous = MagicMock()
-        previous.api.do_command.return_value = {
-            "jobs": [{"job_id": self.old_uuid, "status": self.previous_server_state}]
-        }
+        previous.api.do_command.return_value = self.previous_server_reply or (
+            flare_list_jobs_reply(
+                [{"job_id": self.old_uuid, "status": self.previous_server_state}]
+            )
+        )
         return previous
 
     def switch_servers(self, **fields):
@@ -693,12 +794,26 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
 
     def test_refuses_while_the_server_still_runs_the_job(self):
         self._checkpoint_at("node-A", 2)
-        self.session.api.do_command.return_value = {
-            "jobs": [{"job_id": self.old_uuid, "status": "RUNNING"}]
-        }
+        self.session.api.do_command.return_value = flare_list_jobs_reply(
+            [{"job_id": self.old_uuid, "status": "RUNNING"}]
+        )
 
         with self.assertRaisesRegex(
             ValueError, "still active on the network's FL server"
+        ):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_refuses_when_the_server_gives_no_job_list(self):
+        self._checkpoint_at("node-A", 2)
+        # What FLARE's admin API returns when list_jobs gets no answer in time.
+        self.session.api.do_command.return_value = flare_admin_api(
+            {self.old_uuid: "RUNNING"}, answers=False
+        ).server_execute(f"list_jobs {self.old_uuid}")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Could not ask the network's FL server .*Server did not respond.*--force",
         ):
             training_services.resume_training_job(actor=self.user, network=self.network)
         self._assert_not_resumed()
@@ -797,6 +912,24 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
         self.assertIn("FL server at 100.64.0.1", warnings[0])
         self.assertIn("Keep that server down", warnings[0])
 
+    def test_after_a_switch_a_previous_server_without_job_list_gives_a_warning(self):
+        self._checkpoint_at("node-A", 2)
+        self.switch_servers()
+        self.previous_server_reply = flare_admin_api(
+            {self.old_uuid: "RUNNING"}, answers=False
+        ).server_execute(f"list_jobs {self.old_uuid}")
+        warnings = []
+
+        new_job = training_services.resume_training_job(
+            actor=self.user, network=self.network, warnings=warnings
+        )
+
+        self.assertEqual(new_job.status, "RUNNING")
+        self.assertEqual(self.session_calls, ["", "100.64.0.1", ""])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("FL server at 100.64.0.1", warnings[0])
+        self.assertIn("Server did not respond", warnings[0])
+
     def test_after_a_switch_no_warning_once_the_previous_server_ended_the_job(self):
         self._checkpoint_at("node-A", 2)
         self.switch_servers()
@@ -848,32 +981,155 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
             )
 
     def test_active_check_reads_the_server_job_list(self):
+        other_uuid = str(uuid.uuid4())
+        for listed, expected in (
+            ([{"job_id": self.old_uuid, "status": "RUNNING"}], True),
+            ([{"job_id": self.old_uuid.upper(), "status": "DISPATCHED"}], True),
+            ([{"job_id": self.old_uuid, "status": "FINISHED:ABANDONED"}], False),
+            ([{"job_id": other_uuid, "status": "RUNNING"}], False),
+            ([], False),
+        ):
+            with self.subTest(listed=listed):
+                self.session.api.do_command.return_value = flare_list_jobs_reply(listed)
+                self.assertEqual(
+                    training_services._job_active_on_server(self.network, self.old_job),
+                    (expected, ""),
+                )
+        self.session.api.do_command.assert_called_with(f"list_jobs {self.old_uuid}")
+
+        # A refused command, as FLARE's admin API returns it.
         self.session.api.do_command.return_value = {
-            "details": [{"job_id": self.old_uuid, "status": "RUNNING"}]
+            "time": "2026-01-01 00:00:00.000000",
+            "data": [{"type": "error", "data": "This action is not authorized"}],
+            "meta": {"status": "not_authorized", "info": "not authorized"},
+            "status": "ERROR_AUTHORIZATION",
         }
-        with patch.object(
-            training_services,
-            "parse_nvflare_jobs",
-            return_value=[{"job_id": self.old_uuid, "status": "RUNNING"}],
-        ):
-            self.assertEqual(
-                training_services._job_active_on_server(self.network, self.old_job),
-                (True, ""),
-            )
-        with patch.object(
-            training_services,
-            "parse_nvflare_jobs",
-            return_value=[{"job_id": self.old_uuid, "status": "FINISHED:ABANDONED"}],
-        ):
-            self.assertEqual(
-                training_services._job_active_on_server(self.network, self.old_job),
-                (False, ""),
-            )
+        self.assertEqual(
+            training_services._job_active_on_server(self.network, self.old_job),
+            (
+                None,
+                "list_jobs gave no job list: ERROR_AUTHORIZATION; not_authorized; "
+                "not authorized",
+            ),
+        )
+        # As FLARE's own Session, trust a job list only with the status SUCCESS.
+        self.session.api.do_command.return_value = {
+            **flare_list_jobs_reply([{"job_id": self.old_uuid, "status": "RUNNING"}]),
+            "status": "ERROR_INACTIVE_SESSION",
+        }
+        self.assertEqual(
+            training_services._job_active_on_server(self.network, self.old_job),
+            (None, "list_jobs gave no job list: ERROR_INACTIVE_SESSION"),
+        )
         self.session.api.do_command.side_effect = RuntimeError("session closed")
         active, reason = training_services._job_active_on_server(
             self.network, self.old_job
         )
         self.assertEqual((active, reason), (None, "list_jobs failed: session closed"))
+
+
+class FlareListJobsReplyTests(SimpleTestCase):
+    """The check before a resume, with replies made by NVIDIA FLARE 2.7.1's code."""
+
+    def setUp(self):
+        self.job_uuid = str(uuid.uuid4())
+        self.job = SimpleNamespace(
+            flare_job_uuid=self.job_uuid, flare_job_id=self.job_uuid
+        )
+        self.network = SimpleNamespace(identifier=uuid.uuid4())
+        self.session = MagicMock()
+        for target, value in {
+            "resolve_admin_session_target": (
+                "admin@nvidia.com",
+                "/nonexistent",
+                "192.0.2.10",
+            ),
+            "new_secure_session_with_host": self.session,
+        }.items():
+            patcher = patch.object(training_services, target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _ask(self, api):
+        self.session.api.do_command.side_effect = api.server_execute
+        return training_services._job_active_on_server(
+            self.network, self.job, host="100.64.0.1"
+        )
+
+    def test_a_job_that_the_server_runs_is_active(self):
+        for state in ("SUBMITTED", "DISPATCHED", "RUNNING"):
+            with self.subTest(state=state):
+                api = flare_admin_api(
+                    {self.job_uuid: state, str(uuid.uuid4()): "FINISHED:COMPLETED"}
+                )
+                self.assertEqual(self._ask(api), (True, ""))
+
+    def test_a_finished_or_unknown_job_is_not_active(self):
+        for jobs in (
+            {self.job_uuid: "FINISHED:ABANDONED"},
+            {str(uuid.uuid4()): "RUNNING"},
+            {},
+        ):
+            with self.subTest(jobs=jobs):
+                self.assertEqual(self._ask(flare_admin_api(jobs)), (False, ""))
+
+    def test_a_server_that_does_not_answer_in_time_cannot_be_asked(self):
+        api = flare_admin_api({self.job_uuid: "RUNNING"}, answers=False)
+
+        self.assertEqual(
+            self._ask(api),
+            (
+                None,
+                "list_jobs gave no job list: ERROR_SERVER_CONNECTION; "
+                "Server did not respond",
+            ),
+        )
+
+    def test_a_server_that_cannot_read_its_job_store_cannot_be_asked(self):
+        # FLARE's reply has the status SUCCESS here; only its meta has the error.
+        api = flare_admin_api(
+            {self.job_uuid: "RUNNING"}, store_error=RuntimeError("job store gone")
+        )
+
+        self.assertEqual(
+            self._ask(api),
+            (
+                None,
+                "list_jobs gave no job list: internal_error; "
+                "RuntimeError: job store gone",
+            ),
+        )
+
+    def test_a_server_that_fails_to_list_the_job_cannot_be_asked(self):
+        # FLARE cannot read this running job's start time. Its reply keeps the
+        # rows listed before the error, none here, in meta["jobs"].
+        api = flare_admin_api(
+            {self.job_uuid: {"status": "RUNNING", "start_time": "unknown"}}
+        )
+
+        active, reason = self._ask(api)
+
+        self.assertIsNone(active)
+        self.assertIn("list_jobs gave no job list: internal_error; ValueError", reason)
+
+    def test_the_stand_in_reply_has_the_shape_of_flares(self):
+        def essentials(reply):
+            return (
+                reply["status"],
+                [item["type"] for item in reply["data"]],
+                {key: value for key, value in reply["meta"].items() if key != "jobs"},
+                [(job["job_id"], job["status"]) for job in reply["meta"]["jobs"]],
+            )
+
+        for jobs in ({self.job_uuid: "RUNNING"}, {}):
+            with self.subTest(jobs=jobs):
+                flare = flare_admin_api(jobs).server_execute(
+                    f"list_jobs {self.job_uuid}"
+                )
+                stand_in = flare_list_jobs_reply(
+                    [{"job_id": job, "status": state} for job, state in jobs.items()]
+                )
+                self.assertEqual(essentials(stand_in), essentials(flare))
 
 
 class ResumeCommandTests(ServerRouting, SubmitHarness, TestCase):

@@ -42,7 +42,6 @@ from .runtime import (
     log_flare_pre_submit_diagnostics,
     new_secure_session_with_host,
     parse_nvflare_clients,
-    parse_nvflare_jobs,
     resolve_admin_session_target,
 )
 from .stall import is_site_warning
@@ -1337,9 +1336,41 @@ def list_resume_checkpoints(job: TrainingJob) -> list[dict]:
 _ACTIVE_FLARE_JOB_STATES = ("SUBMITTED", "APPROVED", "DISPATCHED", "RUNNING")
 
 
-def _short_reason(exc: Exception, limit: int = 300) -> str:
+def _short_reason(exc: object, limit: int = 300) -> str:
     text = " ".join(str(exc).split()) or type(exc).__name__
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _listed_flare_jobs(reply) -> tuple[list | None, str]:
+    """Return the jobs in an FL server's reply to ``list_jobs``.
+
+    NVIDIA FLARE 2.7.1's admin API puts the job list in the reply's meta
+    (``meta["jobs"]``, each with ``job_id`` and ``status``, and ``meta["status"]``
+    "ok"); the reply's data holds a table for display. A command that failed or
+    was refused, or a server that did not answer in time ("Server did not
+    respond"), leaves no job list. The reply's own status can be SUCCESS even
+    then, for example when the server could not read its job store.
+
+    Returns:
+        tuple[list | None, str]: The jobs, or None and what the reply says
+        instead.
+    """
+    if not isinstance(reply, dict):
+        return None, _short_reason(repr(reply))
+    status = reply.get("status")
+    meta = reply.get("meta") if isinstance(reply.get("meta"), dict) else {}
+    jobs = meta.get("jobs")
+    if isinstance(jobs, list) and meta.get("status") == "ok" and status == "SUCCESS":
+        return jobs, ""
+    found = (
+        status if status != "SUCCESS" else "",
+        reply.get("details"),
+        meta.get("status") if meta.get("status") != "ok" else "",
+        meta.get("info"),
+    )
+    # FLARE's API status is a str enum; show its value, not its name.
+    texts = dict.fromkeys(str(getattr(item, "value", item)) for item in found if item)
+    return None, _short_reason("; ".join(texts) or "no reason given")
 
 
 def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str = ""):
@@ -1372,18 +1403,24 @@ def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str 
         )
     except Exception as exc:
         return None, _short_reason(exc)
+    flare_uuid = _flare_uuid_of(job)
     try:
-        jobs = parse_nvflare_jobs(
-            session.api.do_command(f"list_jobs {_flare_uuid_of(job)}")
-        )
+        reply = session.api.do_command(f"list_jobs {flare_uuid}")
     except Exception as exc:
         return None, f"list_jobs failed: {_short_reason(exc)}"
     finally:
         with contextlib.suppress(Exception):
             session.close()
+    jobs, problem = _listed_flare_jobs(reply)
+    if jobs is None:
+        return None, f"list_jobs gave no job list: {problem}"
     for item in jobs:
-        state = str(item.get("status") or item.get("state") or "").upper()
-        if state in _ACTIVE_FLARE_JOB_STATES:
+        # list_jobs lists every job whose ID starts with the one given.
+        if (
+            isinstance(item, dict)
+            and str(item.get("job_id") or "").lower() == flare_uuid.lower()
+            and str(item.get("status") or "").upper() in _ACTIVE_FLARE_JOB_STATES
+        ):
             return True, ""
     return False, ""
 
