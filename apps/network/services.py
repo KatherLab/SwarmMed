@@ -37,6 +37,7 @@ from .fingerprint import (
     check_package,
     group_fingerprint,
     normalize_fingerprint,
+    open_archive,
     package_fingerprint,
     read_entry,
     sha256_hex,
@@ -347,11 +348,12 @@ def verify_startup_package(
     """Check a startup package before anything of it is written.
 
     Raises:
-        ValueError: If it is not a readable ZIP file, has unsafe entries, declares
-            more than an import accepts (``fingerprint.MAX_ENTRY_BYTES``,
-            ``MAX_PACKAGE_BYTES``), does not agree with its manifest, or does not
-            have the expected fingerprint; also if ``expect_fingerprint`` is
-            malformed, an empty value included.
+        ValueError: If it is not a readable ZIP file, has unsafe entries or
+            entries compressed with another method than deflate, declares more
+            than an import accepts (``fingerprint.MAX_ENTRY_BYTES``,
+            ``MAX_PACKAGE_BYTES``, ``MAX_ENTRIES``), does not agree with its
+            manifest, or does not have the expected fingerprint; also if
+            ``expect_fingerprint`` is malformed, an empty value included.
     """
     # An empty value is malformed too, rather than no expectation: a script that
     # passes an unset variable must not import unchecked.
@@ -361,7 +363,7 @@ def verify_startup_package(
         else ""
     )
     try:
-        with zipfile.ZipFile(io.BytesIO(package_bytes)) as package:
+        with open_archive(package_bytes, "the package") as package:
             check = check_package(package)
     except PackageVerificationError as exc:
         raise ValueError(
@@ -415,8 +417,9 @@ def import_network(
     The package, or a single site's kit taken out of it, is read into memory and
     checked before anything is written (see ``network.fingerprint``): unsafe
     entries, such as absolute paths, ``..`` or symbolic links, are refused, as is
-    a package that is or unpacks to more than ``MAX_PACKAGE_BYTES``, and a
-    package with a ``manifest.json`` must agree with it. A package without one,
+    a package that is or unpacks to more than ``MAX_PACKAGE_BYTES`` or that has
+    more than ``MAX_ENTRIES`` entries with those of its kits, and a package with
+    a ``manifest.json`` must agree with it. A package without one,
     as SwarmMed 1.0.4 and earlier export, is imported as before, without a
     fingerprint (``import_warnings`` then returns a warning).
 

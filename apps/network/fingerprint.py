@@ -30,6 +30,7 @@ import json
 import posixpath
 import re
 import stat
+import struct
 import zipfile
 from dataclasses import dataclass
 
@@ -60,6 +61,21 @@ _HEX64 = re.compile(r"[0-9a-f]{64}")
 MAX_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
 _ACCEPTED_METHODS = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
+# The most entries in a package and all its site kits together, bounded before
+# zipfile reads them (see open_archive): zipfile keeps an object of several
+# hundred bytes for every entry of an archive it opens, and the check keeps every
+# kit open. A site's kit has well under 100 entries.
+MAX_ENTRIES = 100_000
+
+# The records at the end of a ZIP archive, as zipfile reads them, and the fixed
+# part of a record of the central directory, the least that a record takes.
+_END_RECORD = struct.Struct("<4s4H2IH")
+_END_SIGNATURE = b"PK\x05\x06"
+_ZIP64_LOCATOR = struct.Struct("<4sIQI")
+_ZIP64_LOCATOR_SIGNATURE = b"PK\x06\x07"
+_ZIP64_END_RECORD = struct.Struct("<4sQ2H2I4Q")
+_ZIP64_END_SIGNATURE = b"PK\x06\x06"
+_DIRECTORY_RECORD_BYTES = 46
 
 # The files whose content the checks read (derive_trust and the network's
 # identifier); every other file is only hashed, a chunk at a time.
@@ -264,6 +280,82 @@ def read_entry(archive: zipfile.ZipFile, entry: str | zipfile.ZipInfo) -> bytes:
     """
     info = entry if isinstance(entry, zipfile.ZipInfo) else archive.getinfo(entry)
     return b"".join(_chunks(archive, info))
+
+
+def entry_room(data: bytes) -> int:
+    """Return the most entries that zipfile can read from the ZIP archive ``data``.
+
+    The bound comes from the end of central directory record, found as zipfile
+    finds it, before anything reads the directory: the number of entries the
+    record declares or, if larger, the number of records of the least size that
+    the directory has room for. zipfile reads records for as many bytes as the
+    record gives the directory, whatever number of entries it declares. A ZIP64
+    end record, which zipfile reads in place of those values when a locator
+    precedes the end record, counts the same way; this takes the largest values
+    of both places where zipfile looks for it.
+
+    Returns:
+        int: The bound; 0 without an end record, so that zipfile refuses ``data``.
+    """
+    size = len(data)
+    end = size - _END_RECORD.size
+    if end < 0:
+        return 0
+    if not (data.startswith(_END_SIGNATURE, end) and data.endswith(b"\0\0")):
+        # The record is followed by an archive comment of up to 64 KiB; zipfile
+        # takes the last signature there.
+        end = data.rfind(_END_SIGNATURE, max(end - 0xFFFF, 0))
+        if end < 0 or end + _END_RECORD.size > size:
+            return 0
+    record = _END_RECORD.unpack_from(data, end)
+    counts = [(record[4], record[5])]  # entries, directory size
+    locator = end - _ZIP64_LOCATOR.size
+    if locator >= 0:
+        signature, _disk, offset, _disks = _ZIP64_LOCATOR.unpack_from(data, locator)
+        if signature == _ZIP64_LOCATOR_SIGNATURE:
+            for start in (offset, locator - _ZIP64_END_RECORD.size):
+                if 0 <= start <= size - _ZIP64_END_RECORD.size and data.startswith(
+                    _ZIP64_END_SIGNATURE, start
+                ):
+                    record64 = _ZIP64_END_RECORD.unpack_from(data, start)
+                    counts.append((record64[7], record64[8]))
+    # zipfile cannot read more of the directory than the archive holds.
+    return max(
+        max(entries, min(directory_size, size) // _DIRECTORY_RECORD_BYTES)
+        for entries, directory_size in counts
+    )
+
+
+def open_archive(
+    data: bytes, name: str, entries_left: int | None = None
+) -> zipfile.ZipFile:
+    """Open the ZIP archive ``data`` for a check, unless it has too many entries.
+
+    zipfile reads every entry of an archive's central directory when it opens it,
+    so the bound (see :func:`entry_room`) is checked before.
+
+    Args:
+        data: The archive.
+        name: What to call it in a message, such as ``node-A.zip``.
+        entries_left: How many entries may still be opened; MAX_ENTRIES if None.
+
+    Raises:
+        PackageVerificationError: If the archive can have more entries than that.
+        zipfile.BadZipFile: If it is not a ZIP archive.
+    """
+    room = entry_room(data)
+    if room > (MAX_ENTRIES if entries_left is None else entries_left):
+        raise _too_many_entries(name, room)
+    return zipfile.ZipFile(io.BytesIO(data))
+
+
+def _too_many_entries(name: str, count: int) -> PackageVerificationError:
+    return PackageVerificationError(
+        name,
+        f"lists up to {count} entries, which takes the package over the "
+        f"{MAX_ENTRIES} entries that an import accepts, counting those of its "
+        "site kits",
+    )
 
 
 def is_site_kit_name(name: str) -> bool:
@@ -608,15 +700,18 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
 
     Every entry, and every entry of every site's kit in the package, must be safe to
     extract, stored or deflated, and no larger than MAX_ENTRY_BYTES unpacked; all
-    of them together must stay within MAX_PACKAGE_BYTES. A package with
-    ``manifest.json`` must then agree with it: every file it lists is there with
-    that SHA-256, nothing else is there, every site's kit holds the identical
-    manifest, and the trust section agrees with the files it sums up. A file that
-    the manifest does not list is refused before it is read. A single site's kit
-    is checked against the manifest's entries for that kit.
+    of them together must stay within MAX_PACKAGE_BYTES, and number no more than
+    MAX_ENTRIES. Each kit is opened with :func:`open_archive`, which bounds its
+    entries before zipfile reads them. A package with ``manifest.json`` must then
+    agree with it: every file it lists is there with that SHA-256, nothing else is
+    there, every site's kit holds the identical manifest, and the trust section
+    agrees with the files it sums up. A file that the manifest does not list is
+    refused before its content is hashed; a ``.zip`` at the top of the package is
+    unpacked first, within the limits above, to check its entries. A single
+    site's kit is checked against the manifest's entries for that kit.
 
     Args:
-        package: The package, opened for reading.
+        package: The package, opened for reading with :func:`open_archive`.
 
     Returns:
         PackageCheck: The manifest and the network fingerprint.
@@ -625,6 +720,9 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
         PackageVerificationError: At the first offending path.
     """
     infos = package.infolist()
+    entries_left = MAX_ENTRIES - len(infos)
+    if entries_left < 0:
+        raise _too_many_entries("the package", len(infos))
     for info in infos:
         problem = unsafe_entry_problem(info)
         if problem:
@@ -636,9 +734,10 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
             continue
         # Every copy of a kit is checked: an import extracts each of them.
         try:
-            kit = zipfile.ZipFile(io.BytesIO(read_entry(package, info)))
+            kit = open_archive(read_entry(package, info), info.filename, entries_left)
         except zipfile.BadZipFile as exc:
             raise PackageVerificationError(info.filename, "is not a ZIP file") from exc
+        entries_left -= len(kit.infolist())
         for inner in kit.infolist():
             problem = unsafe_entry_problem(inner)
             if problem:

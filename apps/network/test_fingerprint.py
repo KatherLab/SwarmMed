@@ -50,6 +50,7 @@ from .fingerprint import (
     canonical_bytes,
     certificate_fingerprint,
     check_package,
+    entry_room,
     group_fingerprint,
     network_fingerprint,
     normalize_fingerprint,
@@ -329,6 +330,80 @@ class FingerprintHelperTests(SimpleTestCase):
         ):
             with self.subTest(name=name):
                 self.assertEqual(unsafe_entry_problem(zipfile.ZipInfo(name)), "")
+
+
+def _end_record(entries: int, directory_size: int, directory_offset: int) -> bytes:
+    """An end of central directory record without a comment."""
+    return struct.pack(
+        "<4s4H2IH",
+        b"PK\x05\x06",
+        0,
+        0,
+        entries,
+        entries,
+        directory_size,
+        directory_offset,
+        0,
+    )
+
+
+class EntryRoomTests(SimpleTestCase):
+    """entry_room() bounds the entries zipfile reads, before zipfile reads them."""
+
+    def _archive(self, count: int, comment: bytes = b"") -> bytes:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for index in range(count):
+                archive.writestr(f"file-{index:02d}", b"")
+            archive.comment = comment
+        return buffer.getvalue()
+
+    def assert_bound_holds(self, data: bytes, entries: int):
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            self.assertEqual(len(archive.infolist()), entries)
+        self.assertGreaterEqual(entry_room(data), entries)
+
+    def test_archives_as_zipfile_writes_them(self):
+        for count in (0, 1, 40):
+            for comment in (b"", b"a comment"):
+                with self.subTest(count=count, comment=comment):
+                    self.assert_bound_holds(self._archive(count, comment), count)
+        # A record is 46 bytes and the name; zipfile could read a record for
+        # every 46 bytes.
+        self.assertEqual(entry_room(self._archive(40)), 40 * (46 + 7) // 46)
+
+    def test_values_that_zipfile_reads_in_place_of_the_end_records(self):
+        archive = self._archive(40)
+        body = archive[:-22]
+        *_, count, size, offset, _comment = struct.unpack("<4s4H2IH", archive[-22:])
+        zip64_end = struct.pack(
+            "<4sQ2H2I4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, count, count, size, offset
+        )
+        locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, len(body), 1)
+        for kind, data in (
+            # zipfile reads the directory by its size, whatever number of
+            # entries the end record declares.
+            ("fewer entries declared", body + _end_record(1, size, offset)),
+            # It reads a ZIP64 end record in place of the end record's values,
+            # whether or not those are 0xFFFF and 0xFFFFFFFF.
+            (
+                "ZIP64",
+                body + zip64_end + locator + _end_record(0xFFFF, 0xFFFFFFFF, offset),
+            ),
+            (
+                "ZIP64, end record of one entry",
+                body + zip64_end + locator + _end_record(1, 46, offset),
+            ),
+        ):
+            with self.subTest(kind):
+                self.assert_bound_holds(data, 40)
+
+    def test_what_is_not_a_zip_archive_has_no_room(self):
+        for data in (b"", b"not a zip file", bytes(100)):
+            with self.subTest(data=data[:16]):
+                self.assertEqual(entry_room(data), 0)
+                with self.assertRaises(zipfile.BadZipFile):
+                    zipfile.ZipFile(io.BytesIO(data))
 
 
 class ManifestTests(SimpleTestCase):
@@ -1225,7 +1300,7 @@ class UnsafeEntryTests(ProvisionedNetworkTestCase):
 
 
 class SizeLimitTests(ProvisionedNetworkTestCase):
-    """What an import reads is bounded by the sizes that the package declares."""
+    """What an import reads is bounded by the sizes and entries the package declares."""
 
     def test_a_file_larger_than_an_import_accepts_is_refused(self):
         largest = max(_declared_sizes(self.package))
@@ -1301,6 +1376,54 @@ class SizeLimitTests(ProvisionedNetworkTestCase):
                             f"{path} is compressed with method {method}; an import "
                             "accepts only stored and deflated entries",
                         )
+
+    def test_more_entries_than_an_import_accepts_are_refused_before_they_are_read(
+        self,
+    ):
+        for package_kind, package in (
+            ("with manifest", self.package),
+            ("without manifest", _without_manifests(self.package)),
+        ):
+            entries = _entries(package)
+            # The least limit at which the package passes.
+            limit = entry_room(package) + sum(
+                entry_room(entries[kit]) for kit in ("site-a.zip", "site-b.zip")
+            )
+            extra = {f"extra-{index:04d}.txt": b"" for index in range(limit)}
+            kit = _zip({**_entries(entries["site-a.zip"]), **extra})
+            # An archive whose end record declares more entries than that, but
+            # whose directory zipfile cannot read: refused as an archive with too
+            # many entries, not as one that is not a ZIP archive.
+            over = limit + 1
+            unreadable = bytes(46 * over) + _end_record(over, 46 * over, 0)
+            in_kit = {"site-a.zip": kit}
+            unreadable_kit = {"site-a.zip": unreadable}
+            cases = (
+                ("the package", "more entries", _zip({**entries, **extra})),
+                ("the package", "unreadable", unreadable),
+                ("site-a.zip", "more entries", _zip({**entries, **in_kit})),
+                ("site-a.zip", "unreadable", _zip({**entries, **unreadable_kit})),
+            )
+            with patch.object(fingerprint_module, "MAX_ENTRIES", limit):
+                with self.other_hub():
+                    self.import_package(package)
+                for name, kind, tampered in cases:
+                    with self.subTest(package=package_kind, name=name, kind=kind):
+                        self.assert_refused(
+                            tampered,
+                            f"{name} lists up to ",
+                            f"takes the package over the {limit} entries that an "
+                            "import accepts",
+                        )
+                # check_package counts the entries of a package that it is given
+                # open.
+                with (
+                    self.subTest(package=package_kind, name="opened package"),
+                    zipfile.ZipFile(io.BytesIO(_zip({**entries, **extra}))) as opened,
+                ):
+                    with self.assertRaises(PackageVerificationError) as caught:
+                        check_package(opened)
+                    self.assertIn("the package lists up to", str(caught.exception))
 
     def test_a_package_file_larger_than_an_import_accepts_is_refused(self):
         limit = len(self.package) - 1
