@@ -51,11 +51,12 @@ NOT_SITE_KITS = frozenset({"startup-kits.zip", "startup_kits.zip"})
 
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 
-# The most a check reads, as the ZIP declares the sizes: zipfile returns no more
-# than an entry's declared size and refuses content that does not match its CRC.
-# It decompresses bzip2 and LZMA data whole, whatever size an entry declares, so
-# only the methods that SwarmMed writes are accepted (_ACCEPTED_METHODS). A
-# package exported before its network first ran is far smaller.
+# The most an import unpacks, by the sizes the package declares. Read a chunk at
+# a time (_chunks), zipfile unpacks little more than an entry's declared size and
+# refuses content that does not match its CRC. It decompresses bzip2 and LZMA
+# data whole, whatever size an entry declares, so only the methods that SwarmMed
+# writes are accepted (_ACCEPTED_METHODS). A package exported before its network
+# first ran is far smaller.
 MAX_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
 _ACCEPTED_METHODS = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
@@ -231,18 +232,38 @@ def _check_sizes(infos: list[zipfile.ZipInfo], prefix: str, budget: int) -> int:
     return budget
 
 
+def _chunks(archive: zipfile.ZipFile, info: zipfile.ZipInfo):
+    """Yield an entry's content a chunk at a time.
+
+    zipfile's read() decompresses up to 1 GiB of deflated data in one call before
+    it cuts the result to the size the entry declares; a chunk at a time, it
+    decompresses no more than a chunk beyond that size.
+    """
+    with archive.open(info) as handle:
+        while chunk := handle.read(_CHUNK_BYTES):
+            yield chunk
+
+
 def _digest(
     archive: zipfile.ZipFile, info: zipfile.ZipInfo, keep: bool
 ) -> tuple[str, bytes | None]:
     """Return an entry's SHA-256, read in chunks, and its content if ``keep``."""
     digest = hashlib.sha256()
     kept = []
-    with archive.open(info) as handle:
-        while chunk := handle.read(_CHUNK_BYTES):
-            digest.update(chunk)
-            if keep:
-                kept.append(chunk)
+    for chunk in _chunks(archive, info):
+        digest.update(chunk)
+        if keep:
+            kept.append(chunk)
     return digest.hexdigest(), b"".join(kept) if keep else None
+
+
+def read_entry(archive: zipfile.ZipFile, entry: str | zipfile.ZipInfo) -> bytes:
+    """Return the content of an entry, read a chunk at a time (see ``_chunks``).
+
+    Use it in place of ZipFile.read() for any entry of a package to import.
+    """
+    info = entry if isinstance(entry, zipfile.ZipInfo) else archive.getinfo(entry)
+    return b"".join(_chunks(archive, info))
 
 
 def is_site_kit_name(name: str) -> bool:
@@ -568,7 +589,7 @@ def _single_kit(package: zipfile.ZipFile, listed: dict[str, str]) -> str:
             certificate,
             f"is missing, so the kit cannot be matched to a site in {MANIFEST_NAME}",
         )
-    digest = sha256_hex(package.read(certificate))
+    digest = sha256_hex(read_entry(package, certificate))
     suffix = "/" + certificate
     sites = sorted(
         path[: -len(suffix)]
@@ -615,7 +636,7 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
             continue
         # Every copy of a kit is checked: an import extracts each of them.
         try:
-            kit = zipfile.ZipFile(io.BytesIO(package.read(info)))
+            kit = zipfile.ZipFile(io.BytesIO(read_entry(package, info)))
         except zipfile.BadZipFile as exc:
             raise PackageVerificationError(info.filename, "is not a ZIP file") from exc
         for inner in kit.infolist():
@@ -644,7 +665,7 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
     _reject_duplicates(names)
     for name in sorted(kits):
         _reject_duplicates(kits[name].namelist(), f"{name}/")
-    manifest_bytes = package.read(MANIFEST_NAME)
+    manifest_bytes = read_entry(package, MANIFEST_NAME)
     manifest = parse_manifest(manifest_bytes)
     listed = manifest["files"]
     actual: dict[str, str] = {}
@@ -681,7 +702,7 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
         for name in sorted(listed_kits & kits.keys()):
             if MANIFEST_NAME not in kits[name].namelist():
                 raise PackageVerificationError(f"{name}/{MANIFEST_NAME}", "is missing")
-            if kits[name].read(MANIFEST_NAME) != manifest_bytes:
+            if read_entry(kits[name], MANIFEST_NAME) != manifest_bytes:
                 raise PackageVerificationError(
                     f"{name}/{MANIFEST_NAME}",
                     f"differs from the package's {MANIFEST_NAME}",

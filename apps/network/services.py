@@ -38,6 +38,7 @@ from .fingerprint import (
     group_fingerprint,
     normalize_fingerprint,
     package_fingerprint,
+    read_entry,
     sha256_hex,
 )
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
@@ -388,7 +389,7 @@ def _read_zip_namelist(package_source) -> tuple[str | None, list[str]]:
         file_list = zip_peek.namelist()
         if ".network_id" in file_list:
             original_network_id = (
-                zip_peek.read(".network_id").decode("utf-8").strip()
+                read_entry(zip_peek, ".network_id").decode("utf-8").strip()
             )
         if not original_network_id:
             for name in file_list:
@@ -517,7 +518,7 @@ def import_network(
 
             if member_path == "runtime_requirements.txt":
                 with open(os.path.join(provision_dir, member_path), "wb") as handle:
-                    handle.write(zip_ref.read(member))
+                    handle.write(read_entry(zip_ref, member))
             else:
                 zip_ref.extract(member, provision_dir)
 
@@ -712,7 +713,7 @@ def import_network(
             file_list = zip_ref.namelist()
             if ".gossip_token" in file_list:
                 recovered_token = (
-                    zip_ref.read(".gossip_token").decode("utf-8").strip()
+                    read_entry(zip_ref, ".gossip_token").decode("utf-8").strip()
                 )
                 if recovered_token:
                     swarm_network.gossip_token = recovered_token
@@ -723,7 +724,7 @@ def import_network(
             if ".participants.json" in file_list:
                 try:
                     participant_data = json.loads(
-                        zip_ref.read(".participants.json").decode("utf-8")
+                        read_entry(zip_ref, ".participants.json").decode("utf-8")
                     )
                     if isinstance(participant_data, list):
                         for participant in participant_data:

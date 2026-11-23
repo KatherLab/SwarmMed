@@ -390,12 +390,13 @@ is absolute or has a `..`, `.` or empty component (such as `./node-A.zip`) are
 refused, and so are entries compressed with another method than deflate, unless
 stored uncompressed: SwarmMed writes deflate, and Python's zipfile decompresses
 other methods whole, whatever size an entry declares. So is a package of more
-than 1 GiB, packed or unpacked, or with a file of more than 256 MiB, before its
-files are read; a package exported before the network first starts is far
-smaller. If anything differs, the import names the first file that does and
-writes nothing. A single site's kit, taken out of the package, is checked against
-the manifest's entries for that kit and shows the same fingerprint as the whole
-package.
+than 1 GiB, packed or unpacked, or with a file of more than 256 MiB, as the
+package declares the sizes, before its files are read; the import unpacks no more
+of a file than the size it declares. A package exported before the network first
+starts is far smaller. If anything differs, the import names the first file that
+does and writes nothing. A single site's kit, taken out of the package, is checked
+against the manifest's entries for that kit and shows the same fingerprint as the
+whole package.
 
 Hand the package over like this:
 

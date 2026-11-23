@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -22,6 +23,7 @@ import tracemalloc
 import unittest
 import warnings
 import zipfile
+import zlib
 from contextlib import contextmanager, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -84,6 +86,70 @@ def _zip(entries: dict[str, bytes], *, symlinks=(), methods=None) -> bytes:
                 info.external_attr = mode << 16
                 archive.writestr(info, content)
     return buffer.getvalue()
+
+
+_MIB = 1024 * 1024
+
+
+def _raw_zip(entries: dict[str, bytes], *, hidden: dict[str, int] | None = None):
+    """A ZIP of deflated ``entries``, written without zipfile, which refuses this.
+
+    An entry named in ``hidden`` declares the size and CRC-32 of its content, but
+    its deflated stream goes on with that many MiB of zeros.
+    """
+    if set(hidden or {}) - set(entries):
+        raise ValueError(f"No entries {sorted(set(hidden) - set(entries))}")
+    body, directory = bytearray(), bytearray()
+    for name, content in entries.items():
+        compressor = zlib.compressobj(9, zlib.DEFLATED, -15)
+        stream = compressor.compress(content)
+        for _ in range((hidden or {}).get(name, 0)):
+            stream += compressor.compress(bytes(_MIB))
+        stream += compressor.flush()
+        raw_name = name.encode()
+        # Version 2.0, no flags, deflated, 1980-01-01 00:00.
+        fields = (20, 0, zipfile.ZIP_DEFLATED, 0, 0x21, zlib.crc32(content))
+        sizes = (len(stream), len(content), len(raw_name), 0)
+        directory += (
+            struct.pack(
+                "<I6H3I5H2I",
+                0x02014B50,
+                0x0300 | 20,  # made on Unix by version 2.0
+                *fields,
+                *sizes,
+                0,  # comment length
+                0,  # disk
+                0,  # internal attributes
+                0o100644 << 16,
+                len(body),  # offset of the local header
+            )
+            + raw_name
+        )
+        body += struct.pack("<I5H3I2H", 0x04034B50, *fields, *sizes) + raw_name
+        body += stream
+    count = len(entries)
+    end = struct.pack(
+        "<I4H2IH", 0x06054B50, 0, 0, count, count, len(directory), len(body), 0
+    )
+    return bytes(body + directory + end)
+
+
+@contextmanager
+def _traced_peak():
+    """Trace allocations; the yielded namespace's ``peak`` is set on leaving."""
+    traced = SimpleNamespace(peak=None)
+    was_tracing = tracemalloc.is_tracing()
+    if not was_tracing:
+        tracemalloc.start()
+    tracemalloc.reset_peak()
+    baseline, _peak = tracemalloc.get_traced_memory()
+    try:
+        yield traced
+        _current, peak = tracemalloc.get_traced_memory()
+        traced.peak = peak - baseline
+    finally:
+        if not was_tracing:
+            tracemalloc.stop()
 
 
 def _change_kit(package: bytes, kit: str, change) -> bytes:
@@ -1337,6 +1403,36 @@ class SizeLimitTests(ProvisionedNetworkTestCase):
         self.assertEqual(check.fingerprint, hashlib.sha256(manifest_bytes).hexdigest())
         # Far less than the file: it was read a chunk at a time and not kept.
         self.assertLess(peak - baseline, 16 * 1024 * 1024)
+
+    def test_data_hidden_behind_an_entry_is_not_unpacked(self):
+        # These entries declare their genuine sizes and CRCs, but their deflated
+        # streams go on with 64 MiB of zeros, which zipfile's read() would unpack
+        # in one call before cutting them off. Each is read whole by the check or
+        # by the import; the package keeps its fingerprint.
+        entries = _entries(self.package)
+        site_a = _raw_zip(_entries(entries["site-a.zip"]), hidden={MANIFEST_NAME: 64})
+        top = ("site-a.zip", MANIFEST_NAME, "runtime_requirements.txt")
+        metadata = (".network_id", ".gossip_token", ".participants.json")
+        package = _raw_zip(
+            {**entries, "site-a.zip": site_a},
+            hidden=dict.fromkeys(top + metadata, 64),
+        )
+        # A single site's kit, matched to its site by its certificate.
+        kit = _raw_zip(
+            _entries(entries["site-b.zip"]),
+            hidden=dict.fromkeys(
+                ("startup/client.crt", MANIFEST_NAME, *top[2:], *metadata), 64
+            ),
+        )
+        for kind, tampered in (("package", package), ("single site's kit", kit)):
+            with self.subTest(kind), self.other_hub():
+                with _traced_peak() as traced:
+                    imported = self.import_package(
+                        tampered, expect_fingerprint=self.fingerprint
+                    )
+                self.assertEqual(imported.package_fingerprint, self.fingerprint)
+                # Far less than the zeros behind any one of the entries.
+                self.assertLess(traced.peak, 16 * _MIB)
 
 
 class CLITests(ProvisionedNetworkTestCase):
