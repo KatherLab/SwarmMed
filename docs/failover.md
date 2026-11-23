@@ -247,7 +247,9 @@ server-only mode, has none: copy a site's checkpoint file to it and pass it with
 * skips these checks with `--force`;
 * submits a job with FLARE's `start_round` set to the checkpoint's round and runs
   the rounds left of the interrupted job's total (`--rounds` sets the total);
-* marks the interrupted job as failed.
+* marks the interrupted job as failed, unless it has already ended:
+  `swarmed network stop` marks a running job as stopped, and a switch marks it
+  as failed.
 
 The checkpoint travels inside the job to the starting site. The new job records
 what it started from in `config/swarmmed_resume.json` of the starting site's app,

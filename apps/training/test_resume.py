@@ -792,6 +792,21 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
         self.assertEqual(records[0]["from_flare_job"], self.old_uuid)
         self.assertEqual(records[0]["checkpoint"]["site"], "node-B")
 
+    def test_an_interrupted_job_that_has_ended_keeps_its_status(self):
+        self._checkpoint_at("node-A", 2)
+        # 'swarmed network stop' marks a running job as stopped, a switch as failed.
+        for status in ("STOPPED", "FAILED"):
+            with self.subTest(status=status):
+                TrainingJob.objects.filter(pk=self.old_job.pk).update(status=status)
+                self.old_job.refresh_from_db()
+
+                training_services.resume_training_job(
+                    actor=self.user, network=self.network, from_job=self.old_job
+                )
+
+                self.old_job.refresh_from_db()
+                self.assertEqual(self.old_job.status, status)
+
     def test_refuses_while_the_server_still_runs_the_job(self):
         self._checkpoint_at("node-A", 2)
         self.session.api.do_command.return_value = flare_list_jobs_reply(

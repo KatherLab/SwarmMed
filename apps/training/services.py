@@ -1543,7 +1543,8 @@ def resume_training_job(
             previous server could not be asked.
 
     Returns:
-        TrainingJob: The new job. The interrupted job is marked FAILED.
+        TrainingJob: The new job. The interrupted job is marked FAILED unless it
+        has already ended.
     """
     from_job = from_job or get_latest_training_job(network)
     if from_job is None:
