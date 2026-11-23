@@ -121,8 +121,9 @@ What they do not do:
 
 The standby site needs:
 
-* the network's startup package, imported into its Hub as at any participating
-  site;
+* the network's whole startup package, imported into its Hub as at any
+  participating site (a Hub that imported only its own site's kit cannot start
+  the server);
 * an IPv4 address that every other site can reach, and inbound connections on
   the fed-learn and admin ports (8002 and 8003 unless changed), as at the
   coordinating site (see [Networking](networking.md)). Host names are not
