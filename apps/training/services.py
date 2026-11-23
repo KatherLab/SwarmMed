@@ -1459,7 +1459,9 @@ def _check_no_server_runs_job(network: SwarmNetwork, job: TrainingJob) -> list[s
     if active:
         raise ValueError(
             f"Job {flare_uuid} is still active on the network's FL server. Stop it "
-            "first, or pass --force to start a second job next to it."
+            "first, or pass --force to start a second job next to it. If that "
+            "server was restarted after the job was interrupted, its FLARE build "
+            "may still list the job as running; then pass --force."
         )
     previous_host = previous_server_host(network)
     if not previous_host:

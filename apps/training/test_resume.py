@@ -800,9 +800,15 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
 
         with self.assertRaisesRegex(
             ValueError, "still active on the network's FL server"
-        ):
+        ) as refused:
             training_services.resume_training_job(actor=self.user, network=self.network)
         self._assert_not_resumed()
+        # Some FLARE builds keep listing the job as running after a restart.
+        self.assertIn(
+            "If that server was restarted after the job was interrupted, its FLARE "
+            "build may still list the job as running; then pass --force.",
+            str(refused.exception),
+        )
 
     def test_refuses_when_the_server_gives_no_job_list(self):
         self._checkpoint_at("node-A", 2)

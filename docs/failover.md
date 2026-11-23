@@ -24,8 +24,11 @@ drops out of a run ([When a site drops out](#when-a-site-drops-out)).
 
 * The sites can no longer exchange models, so the run stops.
 * FLARE keeps no state that lets a restarted or replacement server continue a
-  swarm job. A restarted server marks the job as abandoned and tells the sites to
-  abort it.
+  swarm job. A restarted server tells the sites to abort the job. NVIDIA FLARE
+  2.7.1, in the image SwarmMed builds, and the FLARE build in the worked
+  example's image also mark the job as abandoned (`FINISHED:ABANDONED`). The
+  FLARE build in MediSwarm 1.9.3's image does not, and keeps listing the job as
+  running.
 * NVIDIA FLARE's own failover support (one active server with standby servers,
   chosen by an "overseer") was retired in FLARE 2.6 to 2.8 and never continued a
   swarm job across a switch. SwarmMed runs FLARE 2.7.1 and cannot use it.
@@ -64,8 +67,12 @@ was restarted, start the server again at the same host:
    was restarted at its host while the sites' clients kept running, and all three
    reconnected without any action at the sites.
 3. Resume the interrupted run ([Resuming the run](#resuming-the-run)). The
-   restarted server has marked the job as abandoned and told the sites to abort
-   it.
+   restarted server has told the sites to abort the job. NVIDIA FLARE 2.7.1 and
+   the FLARE build in the worked example's image have also marked it as
+   abandoned. The FLARE build in MediSwarm 1.9.3's image keeps listing it as
+   running: `swarmed training resume` then refuses, and `swarmed training stop`
+   does not change that. Once you have made sure that no other FL server runs
+   for the network, resume with `--force`.
 
 If the server runs at a standby site after a switch, restart it there with the
 command that started it. As at the coordinating Hub, the site's Celery worker
