@@ -828,6 +828,12 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
         site = _single_kit(package, listed)
         prefix = f"{site}/"
         for info in infos:
+            if info.filename in kits and prefix + info.filename in listed:
+                # An import would unpack it as another site's kit.
+                raise PackageVerificationError(
+                    prefix + info.filename,
+                    "is a ZIP archive at the top of a site's kit",
+                )
             if info.filename != MANIFEST_NAME:
                 add(prefix + info.filename, package, info)
         listed = {
@@ -855,6 +861,12 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
                 for inner in kits[name].infolist():
                     if inner.filename != MANIFEST_NAME:
                         add(f"{name}/{inner.filename}", kits[name], inner)
+            elif name in kits and name in listed:
+                # An import unpacks it as a site's kit, whose files a manifest
+                # lists one by one, and whose own copy of the manifest it compares.
+                raise PackageVerificationError(
+                    name, f"is a site's kit, but {MANIFEST_NAME} lists it as one file"
+                )
             else:
                 add(name, package, info)
         participants_path = ".participants.json"

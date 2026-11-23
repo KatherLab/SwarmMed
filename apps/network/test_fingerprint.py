@@ -1516,6 +1516,51 @@ class UnreadableEntryTests(ProvisionedNetworkTestCase):
                     )
 
 
+    def test_a_site_kit_listed_as_one_file_is_refused(self):
+        # A manifest that lists a site's kit as one file agrees with the package,
+        # whose fingerprint is then another; the import would unpack the kit
+        # without its files or its copy of the manifest having been checked.
+        content = {"startup/fed_client.json": b'{"x": 1}'}
+        stored = {"startup/fed_client.json": zipfile.ZIP_STORED}
+        for kind, archive in (
+            ("readable", _zip(content)),
+            (
+                "unreadable",
+                _flip_stored_byte(
+                    _zip(content, methods=stored), "startup/fed_client.json"
+                ),
+            ),
+        ):
+            with self.subTest(kit=kind):
+
+                def change(manifest, archive=archive):
+                    manifest["files"]["site-z.zip"] = hashlib.sha256(
+                        archive
+                    ).hexdigest()
+
+                entries = _entries(_replace_manifest(self.package, change))
+                entries["site-z.zip"] = archive
+                self.assert_refused(
+                    _zip(entries),
+                    "site-z.zip is a site's kit, but manifest.json lists it as one "
+                    "file",
+                    then_import=self.package,
+                )
+
+    def test_an_archive_at_the_top_of_a_single_kit_is_refused(self):
+        # An import of a single site's kit would unpack it as another site's kit.
+        nested = _zip({"startup/fed_client.json": b'{"x": 1}'})
+        manifest = json.loads(_entries(self.package)[MANIFEST_NAME])
+        manifest["files"]["site-b.zip/x.zip"] = hashlib.sha256(nested).hexdigest()
+        kit = _entries(_entries(self.package)["site-b.zip"])
+        kit[MANIFEST_NAME] = canonical_bytes(manifest)
+        kit["x.zip"] = nested
+        self.assert_refused(
+            _zip(kit),
+            "site-b.zip/x.zip is a ZIP archive at the top of a site's kit",
+            then_import=self.package,
+        )
+
 class SizeLimitTests(ProvisionedNetworkTestCase):
     """What an import reads is bounded by the sizes and entries the package declares."""
 
