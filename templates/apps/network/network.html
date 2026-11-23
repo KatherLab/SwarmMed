@@ -36,7 +36,16 @@
             <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">Network</h1>
         </div>
       </div>
- 
+
+      {% if page_messages %}
+      <div class="space-y-2" id="pageMessages">
+        {% for message in page_messages %}
+        {# MESSAGE_TAGS (core/settings/base.py) gives each level its colours. #}
+        <div class="p-4 text-sm rounded-lg dark:bg-gray-700 {{ message.level_tag }}" role="alert">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
         <section class="p-4 mt-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
   <!-- Header Row -->
   <div class="items-center justify-between lg:flex">
@@ -180,6 +189,32 @@
           </table>
         </div>
       </div>
+    </div>
+    <div class="mt-4" id="startupPackage">
+        <h4 class="text-lg font-semibold text-gray-700 dark:text-gray-200">Startup package</h4>
+        <p class="text-sm text-gray-500 dark:text-gray-400">The package this Hub last exported or imported.</p>
+        {# The inline word-break is Tailwind's break-all, which static/dist/main.css lacks. #}
+        <dl class="mt-2 space-y-2 text-sm">
+            <div>
+                <dt class="font-medium text-gray-500 dark:text-gray-400">Network fingerprint</dt>
+                <dd class="text-gray-900 dark:text-white" id="packageFingerprint">{% if package_fingerprint_grouped %}<span class="font-mono text-base font-semibold">{{ package_fingerprint_grouped }}</span>{% elif current_network.creation_method == 'IMPORTED' %}None: the package had no <code>manifest.json</code>, as packages exported by SwarmMed 1.0.4 or earlier do. Verify it by other means.{% else %}None yet: shown once the package has been exported. After downloading it with <strong>Kits</strong>, reload this page.{% endif %}</dd>
+            </div>
+            {% if current_network.package_sha256 %}
+            <div>
+                <dt class="font-medium text-gray-500 dark:text-gray-400">Package file SHA-256</dt>
+                <dd class="font-mono text-gray-900 dark:text-white break-all" style="word-break: break-all" id="packageSha256">{{ current_network.package_sha256 }}</dd>
+            </div>
+            {% endif %}
+            {% if root_ca_sha256 %}
+            <div>
+                <dt class="font-medium text-gray-500 dark:text-gray-400">Root CA certificate SHA-256</dt>
+                <dd class="font-mono text-gray-900 dark:text-white break-all" style="word-break: break-all" id="rootCaSha256">{{ root_ca_sha256 }}</dd>
+            </div>
+            {% endif %}
+        </dl>
+        {% if package_fingerprint_grouped %}
+        <p class="mt-2 text-sm text-yellow-800 dark:text-yellow-300" id="packageFingerprintAdvice">Compare this value with every other site by phone or video call, not through the channel that carried the package.</p>
+        {% endif %}
     </div>
     <div class="mt-4">
         <h4 class="text-lg font-semibold text-gray-700 dark:text-gray-200">Participants</h4>

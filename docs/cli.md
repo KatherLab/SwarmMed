@@ -220,6 +220,17 @@ Export the startup package for the other sites:
 swarmed network export-package --user alice <NETWORK_UUID> --out tmp/startup-kits.zip
 ```
 
+The command also prints the network fingerprint, the SHA-256 of the package's
+`manifest.json`, as 16 groups of four characters. With `--json`,
+`result.package_fingerprint` gives it as plain hex, as `network show` does, and
+`result.package_sha256` the SHA-256 of the file written. As long as the network's
+kits do not change, exporting it again gives the same file. Read the fingerprint
+out to every other site by phone or video call, not through the channel that
+carries the package
+([Verifying the startup package](networking.md#verifying-the-startup-package)).
+At a Hub that imported a single site's kit, the command exits with code 2: the
+package can only be exported where every site's kit is.
+
 !!! warning "The startup package is the study's master credential"
     The package contains every participant's private key, the FL server's
     private key, and for each site an admin identity with NVFlare's
@@ -237,8 +248,27 @@ swarmed network import \
   --user alice \
   --project <PROJECT_UUID> \
   --name "Imported Network" \
-  --package tmp/startup-kits.zip
+  --package tmp/startup-kits.zip \
+  --expect-fingerprint '<the fingerprint the coordinating site read out>'
 ```
+
+Before it writes anything, the import checks every file of the package against
+its manifest and refuses entries with absolute paths, `..` or symbolic links.
+With `--expect-fingerprint`, a package with another network fingerprint, or
+without one, is refused too; spaces, colons, dashes and case in the value are
+ignored, and an empty value is an error rather than no check, so that a script
+that passes an unset variable does not import an unchecked package. A refused
+import exits with code 2, names the first offending file and writes nothing.
+Without the option, compare the fingerprint that the command prints with every
+other site. A package exported by SwarmMed 1.0.4 or earlier has no manifest and
+is imported with a warning. When the package is a single site's kit with a
+manifest, the command names that site, also as `result.package_site` with
+`--json` (empty for a whole package or a kit without a manifest), and warns if
+`SWARMMEDHUB_LOCAL_PARTICIPANT` names another site.
+`network show` and `network status` give
+`package_fingerprint` and `package_sha256`, of the package this Hub last exported
+or imported, and `root_ca_sha256`, the root CA certificate's fingerprint as
+`openssl x509 -noout -fingerprint -sha256` prints it.
 
 ### 6. Select and start the network
 

@@ -32,6 +32,9 @@ class SwarmNetwork(AbstractBaseModel):
         admin_startup_dir (CharField): Optional path to admin startup kit.
         gossip_token (EncryptedCharField): Shared secret for status sync.
         creation_method (CharField): How the network was initialized.
+        package_fingerprint (CharField): Network fingerprint of the startup
+            package this Hub last exported or imported (see network.fingerprint).
+        package_sha256 (CharField): SHA-256 of that package file.
     """
 
     # Possible states of a swarm network
@@ -98,6 +101,29 @@ class SwarmNetwork(AbstractBaseModel):
         choices=CREATION_METHOD_CHOICES,
         default="CREATED",
         help_text="How this network configuration was initialized."
+    )
+
+    # The startup package this Hub last exported or imported. Both have a
+    # database default, so that code without them (1.0.4) can still create
+    # networks after the migration.
+    package_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "SHA-256 of the manifest of the startup package this Hub last exported "
+            "or imported; empty for a package without a manifest."
+        ),
+    )
+    package_sha256 = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "SHA-256 of the startup package file this Hub last exported or imported."
+        ),
     )
 
     class Meta:

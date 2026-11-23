@@ -22,6 +22,7 @@ from project.decorators import (
 from project.models import UserCurrentProject
 
 from . import services as network_services
+from .fingerprint import COMPARE_FINGERPRINT_ADVICE, group_fingerprint
 from .models import SwarmNetwork, SwarmParticipant, UserCurrentNetwork
 from .overlay import (
     NOT_AVAILABLE,
@@ -36,6 +37,10 @@ from .utils import get_hostname
 
 # Standard project-wide logger initialization
 logger = get_logger()
+
+# The tag of the messages that the network page shows. No other page shows the
+# messages that other views queue, so they would turn up there otherwise.
+PAGE_MESSAGE_TAG = "network"
 
 
 def get_user_project(request):
@@ -413,6 +418,22 @@ def network(request):
         "swarm_networks": swarm_networks,
         "current_network": current_network,
         "participants_details": participants_details,
+        # Only the network views' messages; reading the messages discards those
+        # that other views queued, which no page shows.
+        "page_messages": [
+            message
+            for message in messages.get_messages(request)
+            if PAGE_MESSAGE_TAG in (message.extra_tags or "").split()
+        ],
+        # The startup package this Hub last exported or imported.
+        "package_fingerprint_grouped": group_fingerprint(
+            current_network.package_fingerprint
+        )
+        if current_network
+        else "",
+        "root_ca_sha256": network_services.root_ca_fingerprint(current_network)
+        if current_network
+        else "",
     }
     return render(request, "apps/network/network.html", context)
 
@@ -508,6 +529,9 @@ def new_network(request):
        the reason, and nothing is created.
     2. 'import': Import an existing FLARE startup kit zip file
        ('upload', its name before the import/export rename, is still accepted).
+       The optional 'expected_fingerprint' field makes the import refuse a
+       package with another network fingerprint. The outcome, the fingerprint
+       or why the package was refused, is shown on the network page.
     3. 'local_test': Auto-generate a local-only testing network.
 
     Args:
@@ -556,13 +580,34 @@ def new_network(request):
             # Forms rendered before the rename still post "upload".
             startup_package = request.FILES.get("startup_package")
             if startup_package:
-                network_services.import_network(
-                    project=project,
-                    actor=request.user,
-                    name=network_name,
-                    description=description,
-                    package_source=startup_package,
-                )
+                expected = (request.POST.get("expected_fingerprint") or "").strip()
+                try:
+                    imported = network_services.import_network(
+                        project=project,
+                        actor=request.user,
+                        name=network_name,
+                        description=description,
+                        package_source=startup_package,
+                        expect_fingerprint=expected or None,
+                    )
+                except ValueError as exc:
+                    messages.error(request, str(exc), extra_tags=PAGE_MESSAGE_TAG)
+                else:
+                    if imported.package_fingerprint:
+                        site = getattr(imported, "package_site", "")
+                        messages.success(
+                            request,
+                            f"Imported network '{imported.name}'"
+                            + (f", the kit of site {site}" if site else "")
+                            + ". Network fingerprint: "
+                            f"{group_fingerprint(imported.package_fingerprint)}. "
+                            + COMPARE_FINGERPRINT_ADVICE,
+                            extra_tags=PAGE_MESSAGE_TAG,
+                        )
+                    for warning in network_services.import_warnings(imported):
+                        messages.warning(
+                            request, warning, extra_tags=PAGE_MESSAGE_TAG
+                        )
 
         elif creation_method == "local_test":
             network_services.create_local_test_network(
@@ -620,8 +665,30 @@ def download_startup_kits(request, network_id):
         f"User exported startup kits for network '{swarm_network.name}' (ID: {swarm_network.identifier})"
     )
 
-    zip_buffer = network_services.export_startup_package(swarm_network)
+    try:
+        zip_buffer = network_services.export_startup_package(swarm_network)
+    except (LookupError, ValueError) as exc:
+        log.network.error(
+            f"Startup kits of network '{swarm_network.name}' were not exported: {exc}"
+        )
+        messages.error(request, str(exc), extra_tags=PAGE_MESSAGE_TAG)
+        return redirect("network:network")
     zip_content = zip_buffer.getvalue()
+
+    if swarm_network.package_fingerprint:
+        fingerprint = group_fingerprint(swarm_network.package_fingerprint)
+        log.network.info(
+            f"Startup package of network '{swarm_network.name}' (ID: "
+            f"{swarm_network.identifier}): network fingerprint {fingerprint}, "
+            f"package SHA-256 {swarm_network.package_sha256}"
+        )
+        # Shown on the next page the browser loads; the download keeps this one.
+        messages.success(
+            request,
+            f"Exported the startup package of network '{swarm_network.name}'. "
+            f"Network fingerprint: {fingerprint}. " + COMPARE_FINGERPRINT_ADVICE,
+            extra_tags=PAGE_MESSAGE_TAG,
+        )
 
     response = HttpResponse(
         zip_content, content_type="application/zip"
@@ -718,11 +785,13 @@ def delete_swarm_network(request, network_id):
             messages.info(
                 request,
                 f"Network '{swarm_network.name}' is being stopped gracefully before deletion. This may take a moment.",
+                extra_tags=PAGE_MESSAGE_TAG,
             )
         else:
             messages.success(
                 request,
                 f"Network '{swarm_network.name}' deleted successfully.",
+                extra_tags=PAGE_MESSAGE_TAG,
             )
 
         log.network.warning(
@@ -737,7 +806,9 @@ def delete_swarm_network(request, network_id):
             f"Unauthorized delete attempt for network '{swarm_network.name}' by user {request.user.username}."
         )
         messages.error(
-            request, "You do not have permission to delete this network."
+            request,
+            "You do not have permission to delete this network.",
+            extra_tags=PAGE_MESSAGE_TAG,
         )
 
     return redirect("network:network")

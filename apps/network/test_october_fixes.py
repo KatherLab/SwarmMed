@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch, sentinel
 
 from django.conf import settings
+from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, SimpleTestCase
 
@@ -34,12 +35,20 @@ class NewNetworkImportTests(SimpleTestCase):
             },
         )
         request.user = SimpleNamespace(is_authenticated=True)
+        # The outcome of the import is shown as a message on the network page.
+        request._messages = CookieStorage(request)
         # Bypass the login and project decorators, which need the database.
         view = inspect.unwrap(network_views.new_network)
         with patch.object(network_views, "UserCurrentProject") as current, patch.object(
             network_views.network_services, "import_network"
         ) as import_network:
             current.objects.get.return_value.project = sentinel.project
+            import_network.return_value = SimpleNamespace(
+                name="Imported Network",
+                creation_method="IMPORTED",
+                package_fingerprint="",
+                package_sha256="",
+            )
             response = view(request)
 
         self.assertEqual(response.status_code, 302)

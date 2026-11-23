@@ -18,6 +18,7 @@ from django.core.cache import cache
 from django.utils.text import slugify
 
 from .failover import ADMIN_KIT_FOLDER, SERVER_KIT_FOLDERS
+from .fingerprint import MANIFEST_NAME, build_manifest, canonical_bytes
 from .overlay import get_overlay_ip, is_overlay_connected
 
 # Old location of the status file, written by the old scripts/tailscale_watcher.sh.
@@ -179,14 +180,57 @@ def get_hostname():
     return new_hostname
 
 
+# Every entry of an exported package gets this time stamp and one of two modes, so
+# that exporting the same network twice gives the same bytes.
+_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+
+
+def _zip_entry(name: str, executable: bool = False) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(name, date_time=_ZIP_TIMESTAMP)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3  # Unix, so that the permission bits below apply
+    info.external_attr = (0o100755 if executable else 0o100644) << 16
+    return info
+
+
+def _reproducible_zip(entries: dict[str, tuple[bytes, bool]]) -> bytes:
+    """Return a ZIP of ``{name: (content, executable)}`` with entries in name order."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name in sorted(entries):
+            content, executable = entries[name]
+            archive.writestr(_zip_entry(name, executable), content)
+    return buffer.getvalue()
+
+
+def _read_kit_file(path: Path) -> tuple[bytes, bool]:
+    """Return a file's content, and whether its owner may execute it."""
+    return path.read_bytes(), bool(path.stat().st_mode & stat.S_IXUSR)
+
+
 def create_startup_kits_zip(swarm_network):
     """Gathers all client startup kits and packages them into a single ZIP file.
+
+    The package holds the network's metadata (``.network_id``,
+    ``.participants.json``, ``.gossip_token``), ``project.yml`` and
+    ``runtime_requirements.txt``, one ``<site>.zip`` per client site, and
+    ``manifest.json``, which is also written into every site's kit; its SHA-256
+    is the network fingerprint (see ``network.fingerprint``). Entries are sorted
+    and get a fixed time stamp and mode, so that exporting the same network twice
+    gives the same bytes.
 
     Args:
         swarm_network (SwarmNetwork): The swarm network instance.
 
     Returns:
-        io.BytesIO: A buffer containing the ZIP file data.
+        io.BytesIO: A buffer containing the ZIP file data; empty if this Hub holds
+        no site's startup kit for the network, as at a Hub that imported a
+        single site's kit.
+
+    Raises:
+        PackageVerificationError: If the kits disagree with each other or with the
+            network's SERVER participant, for example about the FL server's
+            address.
     """
     import secrets
 
@@ -206,11 +250,14 @@ def create_startup_kits_zip(swarm_network):
         return zip_buffer
 
     abs_base_prod_path = base_prod_path.resolve()
-    
-    # Participant Metadata
+    # Provisioning writes project.yml and runtime_requirements.txt into the
+    # network's folder, <network>/, which holds workspace/<study>/prod_00.
+    network_dir = abs_base_prod_path.parents[2]
+
+    # Participant Metadata, in a defined order
     participants_data = []
     participant_tokens = {}
-    for p in swarm_network.participants.all():
+    for p in swarm_network.participants.all().order_by("role", "participant_id"):
         if not p.gossip_token:
             p.gossip_token = secrets.token_hex(32)
             p.save(update_fields=["gossip_token"])
@@ -247,83 +294,105 @@ def create_startup_kits_zip(swarm_network):
     # The folders of a site's kit that hold the server's and the admin's kits.
     other_role_kits = {*SERVER_KIT_FOLDERS, ADMIN_KIT_FOLDER}
 
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as main_zip:
-        # 1. Add Metadata to main bundle
-        main_zip.writestr(".network_id", str(swarm_network.identifier))
-        main_zip.writestr(".participants.json", participants_json)
-        if swarm_network.gossip_token:
-            main_zip.writestr(".gossip_token", swarm_network.gossip_token)
+    # 1. Metadata, in the package and in every site's kit
+    metadata = {
+        ".network_id": str(swarm_network.identifier).encode(),
+        ".participants.json": participants_json.encode(),
+    }
+    if swarm_network.gossip_token:
+        metadata[".gossip_token"] = swarm_network.gossip_token.encode()
+    req_file = network_dir / "runtime_requirements.txt"
+    requirements = req_file.read_bytes() if req_file.is_file() else None
 
-        # 2. Add individual kits
-        for item in os.scandir(str(abs_base_prod_path)):
-            if item.is_dir() and item.name not in server_dir_names and "admin" not in item.name:
-                startup_dir = Path(item.path) / "startup"
-                if not startup_dir.exists(): continue
+    # 2. Individual kits, as {path: (content, executable)}
+    kits: dict[str, dict[str, tuple[bytes, bool]]] = {}
+    for item in sorted(os.scandir(str(abs_base_prod_path)), key=lambda entry: entry.name):
+        if item.is_dir() and item.name not in server_dir_names and "admin" not in item.name:
+            startup_dir = Path(item.path) / "startup"
+            if not startup_dir.exists(): continue
 
-                client_zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(client_zip_buffer, "w", zipfile.ZIP_DEFLATED) as client_zip:
-                    client_zip.writestr(".network_id", str(swarm_network.identifier))
-                    if swarm_network.gossip_token:
-                        client_zip.writestr(".gossip_token", swarm_network.gossip_token)
-                    client_zip.writestr(".participants.json", participants_json)
-                    
-                    # Requirements
-                    req_file = abs_base_prod_path.parent.parent / "runtime_requirements.txt"
-                    if req_file.exists():
-                        client_zip.write(str(req_file), "runtime_requirements.txt")
+            files = {name: (content, False) for name, content in metadata.items()}
+            if requirements is not None:
+                files["runtime_requirements.txt"] = (requirements, False)
 
-                    # Kit Files, each name once. An import also extracts the
-                    # metadata above into the site's folder, and earlier imports
-                    # left the other roles' kits in it too; those are added below
-                    # from where the Hub keeps them.
-                    written = set(client_zip.namelist())
-                    for root, dirs, files in os.walk(item.path):
-                        if root == item.path:
-                            dirs[:] = [d for d in dirs if d not in other_role_kits]
-                        for file in files:
-                            file_path = Path(root) / file
-                            arcname = str(file_path.relative_to(item.path))
-                            if arcname not in written:
-                                client_zip.write(str(file_path), arcname)
+            # Kit Files, each name once. An import also extracts the
+            # metadata above into the site's folder, and earlier imports
+            # left the other roles' kits in it too; those are added below
+            # from where the Hub keeps them. The kit's manifest.json is
+            # written below; one found here is not a file of the kit.
+            for root, dirs, filenames in os.walk(item.path):
+                if root == item.path:
+                    dirs[:] = [d for d in dirs if d not in other_role_kits]
+                for file in filenames:
+                    file_path = Path(root) / file
+                    arcname = file_path.relative_to(item.path).as_posix()
+                    if arcname not in files and arcname != MANIFEST_NAME:
+                        files[arcname] = _read_kit_file(file_path)
 
-                    # Admin and Server partials
-                    mapped_admin = client_admin_map.get(item.name, "")
-                    site_admin = f"admin-{item.name}@nvidia.com"
-                    if not mapped_admin and (abs_base_prod_path / site_admin).is_dir():
-                        # Where an imported package keeps the site's admin kit.
-                        mapped_admin = site_admin
-                    adm_dir = abs_base_prod_path / mapped_admin / "startup" if mapped_admin else (abs_base_prod_path / "admin@nvidia.com" / "startup")
-                    if adm_dir.exists():
-                        for root, _, files in os.walk(str(adm_dir)):
-                            for file in files:
-                                f_path = Path(root) / file
-                                client_zip.write(str(f_path), str(Path("admin_startup") / f_path.relative_to(adm_dir)))
+            # Admin and Server partials
+            mapped_admin = client_admin_map.get(item.name, "")
+            site_admin = f"admin-{item.name}@nvidia.com"
+            if not mapped_admin and (abs_base_prod_path / site_admin).is_dir():
+                # Where an imported package keeps the site's admin kit.
+                mapped_admin = site_admin
+            adm_dir = abs_base_prod_path / mapped_admin / "startup" if mapped_admin else (abs_base_prod_path / "admin@nvidia.com" / "startup")
+            if adm_dir.exists():
+                for root, _, filenames in os.walk(str(adm_dir)):
+                    for file in filenames:
+                        f_path = Path(root) / file
+                        files[(Path("admin_startup") / f_path.relative_to(adm_dir)).as_posix()] = _read_kit_file(f_path)
 
-                    mapped_srv = client_server_map.get(item.name, "")
-                    srv_dir = abs_base_prod_path / mapped_srv / "startup" if mapped_srv else (abs_base_prod_path / "server" / "startup")
-                    if srv_dir.exists():
-                        for root, _, files in os.walk(str(srv_dir)):
-                            for file in files:
-                                f_path = Path(root) / file
-                                client_zip.write(str(f_path), str(Path("server_startup") / f_path.relative_to(srv_dir)))
+            mapped_srv = client_server_map.get(item.name, "")
+            srv_dir = abs_base_prod_path / mapped_srv / "startup" if mapped_srv else (abs_base_prod_path / "server" / "startup")
+            if srv_dir.exists():
+                for root, _, filenames in os.walk(str(srv_dir)):
+                    for file in filenames:
+                        f_path = Path(root) / file
+                        files[(Path("server_startup") / f_path.relative_to(srv_dir)).as_posix()] = _read_kit_file(f_path)
 
-                    # The server's local settings (job store, scheduler, launcher;
-                    # no keys), so that the site can host the server as a standby.
-                    srv_local_dir = srv_dir.parent / "local"
-                    if srv_local_dir.is_dir():
-                        for root, _, files in os.walk(str(srv_local_dir)):
-                            for file in files:
-                                f_path = Path(root) / file
-                                client_zip.write(str(f_path), str(Path("server_local") / f_path.relative_to(srv_local_dir)))
+            # The server's local settings (job store, scheduler, launcher;
+            # no keys), so that the site can host the server as a standby.
+            srv_local_dir = srv_dir.parent / "local"
+            if srv_local_dir.is_dir():
+                for root, _, filenames in os.walk(str(srv_local_dir)):
+                    for file in filenames:
+                        f_path = Path(root) / file
+                        files[(Path("server_local") / f_path.relative_to(srv_local_dir)).as_posix()] = _read_kit_file(f_path)
 
-                main_zip.writestr(f"{item.name}.zip", client_zip_buffer.getvalue())
+            kits[item.name] = files
 
-        # Root project files
-        project_yml = abs_base_prod_path.parent.parent / "project.yml"
-        if project_yml.exists(): main_zip.write(str(project_yml), "project.yml")
-        
-        req_root = abs_base_prod_path.parent.parent / "runtime_requirements.txt"
-        if req_root.exists(): main_zip.write(str(req_root), "runtime_requirements.txt")
+    if not kits:
+        # No site's kit is here, for example at a Hub that imported a single
+        # site's kit (prod_00 is that kit), so there is no package to export.
+        return zip_buffer
 
+    # 3. Root project files
+    top_files = dict(metadata)
+    project_yml = network_dir / "project.yml"
+    if project_yml.is_file():
+        top_files["project.yml"] = project_yml.read_bytes()
+    if requirements is not None:
+        top_files["runtime_requirements.txt"] = requirements
+
+    # 4. The manifest, in the package and in every site's kit
+    manifest = canonical_bytes(
+        build_manifest(
+            network_id=str(swarm_network.identifier),
+            project=project_name,
+            top_files=top_files,
+            kits={
+                site: {path: content for path, (content, _) in files.items()}
+                for site, files in kits.items()
+            },
+        )
+    )
+    entries = {name: (content, False) for name, content in top_files.items()}
+    entries[MANIFEST_NAME] = (manifest, False)
+    for site, files in kits.items():
+        entries[f"{site}.zip"] = (
+            _reproducible_zip({**files, MANIFEST_NAME: (manifest, False)}),
+            False,
+        )
+    zip_buffer.write(_reproducible_zip(entries))
     zip_buffer.seek(0)
     return zip_buffer

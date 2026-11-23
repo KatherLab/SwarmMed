@@ -369,6 +369,145 @@ Details:
   NetBird's address while NetBird is connected. Replace such entries with
   `make overlay`, which starts the helper as `make start` does.
 
+## Verifying the startup package
+
+The coordinating site exports one startup package for the whole network and hands
+it to every other site outside SwarmMed. The package contains `manifest.json`,
+which lists the SHA-256 of every other file in the package and sums up what the
+sites share: the fingerprints of the root CA and FL server certificates, the FL
+server's address as the kits' `server_host.txt` give it, the FL and admin ports,
+and the participants with their addresses and certificate fingerprints. Every
+site's kit in the package holds the same `manifest.json`. The **network
+fingerprint** is the SHA-256 of that file, shown as 16 groups of four characters
+so that it can be read out; `unzip -p <package>.zip manifest.json | sha256sum`
+prints it too.
+
+A Hub checks a package before it writes anything from it. Every file that the
+manifest lists must be there with that SHA-256, no other file may be there, every
+site's kit must hold the same manifest, and the manifest's summary must agree with
+the files it sums up. In any package, entries that are symbolic links, whose path
+is absolute or has a `..`, `.` or empty component (such as `./node-A.zip`), or
+that lie in a folder named like a site's kit (such as `node-A.zip/startup/`) are
+refused, and so are entries compressed with another method than deflate, unless
+stored uncompressed: SwarmMed writes deflate, and Python's zipfile decompresses
+bzip2 and LZMA data whole, whatever size an entry declares, and cannot read other
+methods. So is a package of more
+than 1 GiB, packed or unpacked, or with a file of more than 256 MiB, as the
+package declares the sizes, before its files are read; the import unpacks no more
+of a file than the size it declares. So is a package with more than 100,000
+entries, counting those of its site kits, before the entries are read. A package
+exported before the network first starts is far smaller. If anything differs, the
+import names the first file that does and writes nothing. A single site's kit,
+taken out of the package, is checked against the manifest's entries for that kit
+and shows the same fingerprint as the whole package.
+
+Hand the package over like this:
+
+1. The coordinating site exports the package once (**Kits** on the Network page,
+   or `swarmed network export-package`) and notes the network fingerprint:
+   `swarmed network export-package` prints it, and the Network page shows it for
+   the current network (after a download with **Kits**, reload the page).
+   Export before the network first starts there: once it has run, the kits at the
+   coordinating site can hold logs, job folders or changed settings, which a later
+   export carries, so that export has another fingerprint. A Hub that imported a
+   single site's kit cannot export the package, nor can one that imported it with
+   `SWARMMEDHUB_SERVER_HOST` set to another address than the packaged one.
+2. It sends that one file, over an encrypted channel, to a named person at every
+   site.
+3. Each site imports it with the fingerprint, which the coordinating site reads out
+   by phone or video call: `swarmed network import --expect-fingerprint
+   '<fingerprint>'`, or **Expected fingerprint** in the import form. A package with
+   another fingerprint, or without one, is not imported. Alternatively, every site
+   imports the package without it, and all sites compare the fingerprint shown
+   after the import in one joint call before anyone starts the network. A site
+   that imports only its own kit, taken out of the package, gets the same
+   fingerprint; the import also names the kit's site, so check that it is yours.
+   If `SWARMMEDHUB_LOCAL_PARTICIPANT` names another site, the import warns: with
+   the kit of another site, the Hub takes part as that site.
+4. Optionally, each site also compares the root CA certificate's fingerprint, which
+   the Network page and `swarmed network show` give, with the output of
+   `openssl x509 -noout -fingerprint -sha256 -in <kit>/startup/rootCA.pem`, and
+   runs NVIDIA FLARE's check of the kit's signatures:
+   `test -f <kit>/startup/signature.json && python -m
+   nvflare.tool.verify_startup_kits -f <kit>/startup -c <kit>/startup/rootCA.pem`.
+   The check prints nothing; exit status 1 means that a file in the folder does
+   not match its signature, or has none. NVIDIA FLARE 2.7.1's check also passes a
+   folder without `signature.json`, hence the `test -f`. It fails on every kit of a
+   network provisioned by SwarmMed 1.0.4 or earlier, and on a kit whose
+   `server_host.txt` the import rewrote
+   ([NVIDIA FLARE's signatures](#nvidia-flares-signatures)). `<kit>` is a kit's
+   folder in the Hub's `workspaces/<project>/<network>/workspace/<study>/prod_00/`
+   (in the `app` container, under `/app/workspaces/`), or a site's kit unpacked
+   from the package.
+
+Compare the fingerprint among all sites, not only each site with the coordinating
+site, which would not reveal a coordinating site that gave different sites
+different packages. Never compare it through the channel that carried the package:
+whoever can change the package there can change the fingerprint as well.
+
+**What it protects against.** A package that was altered, substituted (for example
+one from another provisioning, with another root CA), stale (exported before the
+kits changed, or another network's) or corrupted on the way gets another
+fingerprint, or is refused by the import.
+
+**What it does not protect against:**
+
+* A dishonest or compromised coordinating site. It holds the root CA's private key
+  and every participant's key, so it can give every site the same package and
+  still issue other identities.
+* Someone who copies the package. Every site's kit carries every site's private
+  key, the FL server's key and an administrator identity, so a copy lets its holder
+  act as any site or as the server without changing a byte, and no fingerprint
+  shows that a file was read. The package must still travel over an encrypted
+  channel to a named person
+  ([Key custody](threat-model.md#key-custody-what-the-startup-package-contains)).
+* Changes after the import. The check runs once, when the package is imported. An
+  import with `SWARMMEDHUB_SERVER_HOST` set writes that address into every kit's
+  `server_host.txt`, and a server switch with `swarmed network failover` records
+  the new address in `prod_00/.active_server.json`, which takes precedence over
+  the kits ([Server failover](failover.md)).
+* The code that runs: container images and job code are not part of the package.
+
+Packages exported by SwarmMed 1.0.4 or earlier have no manifest. Such a package is
+imported as before, with a warning that it has no fingerprint; with
+`--expect-fingerprint` it is refused. Verify it by other means: send the same file
+to every site, and have all sites compare its SHA-256 (`sha256sum <file>`) and the
+root CA's fingerprint in one joint call before importing. To compare fingerprints,
+every site needs a SwarmMed version that checks the manifest. An import of a
+network that already exists at the Hub is refused: to import a network's package
+again, for example to get the fingerprint of a network imported from a package
+without a manifest, delete the network at that Hub first, which also removes its
+folder and its training jobs there. The Hub removes the folder in the background,
+after it has synchronised the project's results; import the package again only
+once `workspaces/<project>/<network>/` is gone. A package that SwarmMed 1.0.4 or earlier
+exported again, from a network imported from a later version, is refused: its
+kits carry a manifest that the package lacks. Use the package that the
+coordinating site exported.
+
+### NVIDIA FLARE's signatures
+
+NVIDIA FLARE signs each kit's `startup` and `local` folders with the root CA's key
+(`signature.json`). SwarmMed starts FLARE in secure mode, in which a server or
+client refuses to start if its configuration, certificate or key files do not
+match their signatures. SwarmMed adds its own files to each kit's `startup` folder
+after FLARE has signed it (`.all_participants.json`, `server_host.txt` and, in
+client kits, `server_aliases.txt`), and then signs that folder again with the root
+CA's key, so that FLARE's verifier passes on the kits' `startup` folders as
+provisioned; on kits provisioned by version 1.0.4 or earlier it fails. Run it on a
+`startup` folder, as above, not on a whole kit. NVIDIA FLARE 2.7.1 writes the FL
+server's `local/comm_config.json` after it has signed that folder, so the verifier
+fails on the server's `local` folder and on the server's kit as a whole, also in
+kits that `nvflare provision` makes without SwarmMed for a server with a
+`listening_host`, as SwarmMed's provisioning gives it. A Hub that rewrites
+`server_host.txt` later, as `SWARMMEDHUB_SERVER_HOST` does at import when it
+differs from the packaged address, changes a signed file, and FLARE's verifier then
+fails for that kit (exit status 1, without naming the file); FLARE's start-up check
+does not cover the file. A server switch leaves the kits' `startup` folders
+unchanged. These signatures cannot show that two sites hold the same package: a
+kit from another provisioning carries its own root CA and passes against it. The
+network fingerprint, or the root CA's fingerprint compared outside the package,
+tells them apart.
+
 ## Options
 
 The Hub reads NetBird and Tailscale (see
