@@ -349,9 +349,16 @@ def verify_startup_package(
         ValueError: If it is not a readable ZIP file, has unsafe entries, declares
             more than an import accepts (``fingerprint.MAX_ENTRY_BYTES``,
             ``MAX_PACKAGE_BYTES``), does not agree with its manifest, or does not
-            have the expected fingerprint.
+            have the expected fingerprint; also if ``expect_fingerprint`` is
+            malformed, an empty value included.
     """
-    expected = normalize_fingerprint(expect_fingerprint) if expect_fingerprint else ""
+    # An empty value is malformed too, rather than no expectation: a script that
+    # passes an unset variable must not import unchecked.
+    expected = (
+        normalize_fingerprint(expect_fingerprint)
+        if expect_fingerprint is not None
+        else ""
+    )
     try:
         with zipfile.ZipFile(io.BytesIO(package_bytes)) as package:
             check = check_package(package)
@@ -420,7 +427,8 @@ def import_network(
         package_source: The package, as a path or a file object.
         expect_fingerprint: The network fingerprint agreed among the sites; spaces,
             colons, dashes and case are ignored. A package with another
-            fingerprint, or without one, is refused.
+            fingerprint, or without one, is refused, and so is an empty value;
+            None means no expectation.
 
     Raises:
         ValueError: If the package cannot be read, is unsafe, does not agree with

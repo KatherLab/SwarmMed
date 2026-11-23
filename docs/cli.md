@@ -253,14 +253,15 @@ Before it writes anything, the import checks every file of the package against
 its manifest and refuses entries with absolute paths, `..` or symbolic links.
 With `--expect-fingerprint`, a package with another network fingerprint, or
 without one, is refused too; spaces, colons, dashes and case in the value are
-ignored. A refused import exits with code 2, names the first offending file and
-writes nothing. Without the option, compare the fingerprint that the command
-prints with every other site. A package exported by SwarmMed 1.0.4 or earlier
-has no manifest and is imported with a warning. `network show` and
-`network status` give `package_fingerprint` and `package_sha256`, of the package
-this Hub last exported or imported, and `root_ca_sha256`, the root CA
-certificate's fingerprint as `openssl x509 -noout -fingerprint -sha256` prints
-it.
+ignored, and an empty value is an error rather than no check, so that a script
+that passes an unset variable does not import an unchecked package. A refused
+import exits with code 2, names the first offending file and writes nothing.
+Without the option, compare the fingerprint that the command prints with every
+other site. A package exported by SwarmMed 1.0.4 or earlier has no manifest and
+is imported with a warning. `network show` and `network status` give
+`package_fingerprint` and `package_sha256`, of the package this Hub last exported
+or imported, and `root_ca_sha256`, the root CA certificate's fingerprint as
+`openssl x509 -noout -fingerprint -sha256` prints it.
 
 ### 6. Select and start the network
 

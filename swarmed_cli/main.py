@@ -209,7 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
             "The network fingerprint agreed among the sites. The import is refused, "
             "and nothing is written, if the package has another fingerprint or none "
             "(packages exported by SwarmMed 1.0.4 or earlier). Spaces, colons, "
-            "dashes and case are ignored."
+            "dashes and case are ignored; an empty value is an error."
         ),
     )
     network_import.set_defaults(handler="network_import", command_name="network import")

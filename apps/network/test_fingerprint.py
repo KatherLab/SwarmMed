@@ -829,6 +829,12 @@ class ImportTests(ProvisionedNetworkTestCase):
             self.package, "64 hexadecimal", expect_fingerprint=self.fingerprint[:-1]
         )
 
+    def test_an_empty_expected_fingerprint_is_refused(self):
+        # As a script passes an unset variable: malformed, not "no expectation".
+        for package in (self.package, _without_manifests(self.package)):
+            with self.subTest(manifest=package is self.package):
+                self.assert_refused(package, "64 hexadecimal", expect_fingerprint="")
+
     def test_a_package_without_manifest_imports_with_a_warning(self):
         legacy = _without_manifests(self.package)
         with self.other_hub():
@@ -1373,6 +1379,15 @@ class CLITests(ProvisionedNetworkTestCase):
             )
             self.assertEqual(code, 2)
             self.assertIn("not the expected", payload["errors"][0])
+            self.assertFalse(SwarmNetwork.objects.exists())
+            self.assertFalse((hub / "workspaces").exists())
+
+    def test_import_with_an_empty_expected_fingerprint_is_refused(self):
+        # As `--expect-fingerprint "$FP"` passes an unset variable.
+        with self.other_hub() as hub:
+            code, payload = self._import(self.package, "--expect-fingerprint", "")
+            self.assertEqual(code, 2, payload)
+            self.assertIn("64 hexadecimal", payload["errors"][0])
             self.assertFalse(SwarmNetwork.objects.exists())
             self.assertFalse((hub / "workspaces").exists())
 
