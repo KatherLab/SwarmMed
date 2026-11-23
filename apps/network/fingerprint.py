@@ -50,6 +50,28 @@ COMPARE_FINGERPRINT_ADVICE = (
 NOT_SITE_KITS = frozenset({"startup-kits.zip", "startup_kits.zip"})
 
 _HEX64 = re.compile(r"[0-9a-f]{64}")
+
+# The most a check reads, as the ZIP declares the sizes: zipfile returns no more
+# than an entry's declared size and refuses content that does not match its CRC.
+# A package exported before its network first ran is far smaller.
+MAX_ENTRY_BYTES = 256 * 1024 * 1024
+MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
+
+# The files whose content the checks read (derive_trust and the network's
+# identifier); every other file is only hashed, a chunk at a time.
+_READ_BASENAMES = frozenset(
+    {
+        ".network_id",
+        ".participants.json",
+        "client.crt",
+        "fed_server.json",
+        "rootCA.pem",
+        "server.crt",
+        "server_host.txt",
+    }
+)
+_CHUNK_BYTES = 1024 * 1024
+
 _TRUST_FIELDS = (
     "root_ca_sha256",
     "server_certificate_sha256",
@@ -155,16 +177,61 @@ def unsafe_entry_problem(info: zipfile.ZipInfo) -> str:
     """Return why a ZIP entry may not be extracted, or "" if it may.
 
     Absolute paths, paths with a ``..`` component and symbolic links are refused,
-    whether or not the package has a manifest.
+    whether or not the package has a manifest. So are paths with an empty or
+    ``.`` component, such as ``./node-A.zip``, which zipfile would extract under
+    another name than the one checked; SwarmMed never writes such names.
     """
     name = info.filename.replace("\\", "/")
     if name.startswith("/") or re.match(r"[A-Za-z]:", name):
         return "is an absolute path"
-    if ".." in name.split("/"):
+    parts = name.split("/")
+    if ".." in parts:
         return "contains a '..' component"
+    # A trailing "/" (a folder's entry) leaves an empty last part, which is fine.
+    if any(part in ("", ".") for part in parts[:-1]) or parts[-1] == ".":
+        return "contains an empty or '.' component"
     if stat.S_ISLNK((info.external_attr >> 16) & 0xFFFF):
         return "is a symbolic link"
     return ""
+
+
+def _check_sizes(infos: list[zipfile.ZipInfo], prefix: str, budget: int) -> int:
+    """Refuse an entry over MAX_ENTRY_BYTES, or one that exhausts ``budget``.
+
+    Only the sizes the ZIP declares are read, nothing of the content.
+
+    Returns:
+        int: What is left of ``budget``.
+    """
+    for info in infos:
+        if info.file_size > MAX_ENTRY_BYTES:
+            raise PackageVerificationError(
+                prefix + info.filename,
+                f"is {info.file_size} bytes unpacked, more than the "
+                f"{MAX_ENTRY_BYTES} an import accepts for one file",
+            )
+        budget -= info.file_size
+        if budget < 0:
+            raise PackageVerificationError(
+                prefix + info.filename,
+                f"takes the package over the {MAX_PACKAGE_BYTES} bytes unpacked "
+                "that an import accepts",
+            )
+    return budget
+
+
+def _digest(
+    archive: zipfile.ZipFile, info: zipfile.ZipInfo, keep: bool
+) -> tuple[str, bytes | None]:
+    """Return an entry's SHA-256, read in chunks, and its content if ``keep``."""
+    digest = hashlib.sha256()
+    kept = []
+    with archive.open(info) as handle:
+        while chunk := handle.read(_CHUNK_BYTES):
+            digest.update(chunk)
+            if keep:
+                kept.append(chunk)
+    return digest.hexdigest(), b"".join(kept) if keep else None
 
 
 def is_site_kit_name(name: str) -> bool:
@@ -508,10 +575,13 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
     """Check a startup package, or a single site's kit, before it is imported.
 
     Every entry, and every entry of every site's kit in the package, must be safe to
-    extract. A package with ``manifest.json`` must then agree with it: every file it
-    lists is there with that SHA-256, nothing else is there, every site's kit holds
-    the identical manifest, and the trust section agrees with the files it sums up.
-    A single site's kit is checked against the manifest's entries for that kit.
+    extract, and no larger than MAX_ENTRY_BYTES unpacked; all of them together
+    must stay within MAX_PACKAGE_BYTES. A package with ``manifest.json`` must then
+    agree with it: every file it lists is there with that SHA-256, nothing else is
+    there, every site's kit holds the identical manifest, and the trust section
+    agrees with the files it sums up. A file that the manifest does not list is
+    refused before it is read. A single site's kit is checked against the
+    manifest's entries for that kit.
 
     Args:
         package: The package, opened for reading.
@@ -527,10 +597,12 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
         problem = unsafe_entry_problem(info)
         if problem:
             raise PackageVerificationError(info.filename, problem)
+    budget = _check_sizes(infos, "", MAX_PACKAGE_BYTES)
     kits: dict[str, zipfile.ZipFile] = {}
     for info in infos:
-        if not is_site_kit_name(info.filename) or info.filename in kits:
+        if not is_site_kit_name(info.filename):
             continue
+        # Every copy of a kit is checked: an import extracts each of them.
         try:
             kit = zipfile.ZipFile(io.BytesIO(package.read(info)))
         except zipfile.BadZipFile as exc:
@@ -541,7 +613,8 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
                 raise PackageVerificationError(
                     f"{info.filename}/{inner.filename}", problem
                 )
-        kits[info.filename] = kit
+        budget = _check_sizes(kit.infolist(), f"{info.filename}/", budget)
+        kits.setdefault(info.filename, kit)
 
     names = [info.filename for info in infos]
     if MANIFEST_NAME not in names:
@@ -561,21 +634,27 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
     manifest = parse_manifest(manifest_bytes)
     listed = manifest["files"]
     actual: dict[str, str] = {}
+    # The content of the files the checks below read; the others are only hashed.
     contents: dict[str, bytes] = {}
 
-    def add(path: str, data: bytes) -> None:
+    def add(path: str, archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> None:
         if path in actual:
             # Two entries for one path; the checks above should have refused them.
             raise PackageVerificationError(path, "appears more than once")
-        actual[path] = sha256_hex(data)
-        contents[path] = data
+        if path not in listed:
+            # Refused before it is read.
+            raise PackageVerificationError(path, f"is not listed in {MANIFEST_NAME}")
+        keep = posixpath.basename(path) in _READ_BASENAMES
+        actual[path], content = _digest(archive, info, keep)
+        if content is not None:
+            contents[path] = content
 
     if any(name.startswith("startup/") for name in names):
         site = _single_kit(package, listed)
         prefix = f"{site}/"
         for info in infos:
             if info.filename != MANIFEST_NAME:
-                add(prefix + info.filename, package.read(info))
+                add(prefix + info.filename, package, info)
         listed = {
             path: value for path, value in listed.items() if path.startswith(prefix)
         }
@@ -606,9 +685,9 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
             if name in kits and name in listed_kits:
                 for inner in kits[name].infolist():
                     if inner.filename != MANIFEST_NAME:
-                        add(f"{name}/{inner.filename}", kits[name].read(inner))
+                        add(f"{name}/{inner.filename}", kits[name], inner)
             else:
-                add(name, package.read(info))
+                add(name, package, info)
         participants_path = ".participants.json"
         network_id_path = ".network_id"
         complete = True

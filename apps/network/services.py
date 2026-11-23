@@ -29,6 +29,7 @@ from .failover import (
 )
 from .fingerprint import (
     MANIFEST_NAME,
+    MAX_PACKAGE_BYTES,
     NOT_SITE_KITS,
     PackageCheck,
     PackageVerificationError,
@@ -264,17 +265,37 @@ def _reset_package_source(package_source) -> None:
 
 
 def _read_package_bytes(package_source) -> bytes:
-    """Read a startup package, given as a path or a file object, into memory."""
+    """Read a startup package, given as a path or a file object, into memory.
+
+    Raises:
+        ValueError: If it cannot be read, or is larger than MAX_PACKAGE_BYTES;
+            no more than that is read.
+    """
+    limit = MAX_PACKAGE_BYTES
     try:
         if isinstance(package_source, (str, os.PathLike)):
-            return Path(package_source).read_bytes()
-        if hasattr(package_source, "chunks"):
+            with open(package_source, "rb") as handle:
+                package_bytes = handle.read(limit + 1)
+        elif hasattr(package_source, "chunks"):
             # An upload (Django's UploadedFile); chunks() starts at the beginning.
-            return b"".join(package_source.chunks())
-        _reset_package_source(package_source)
-        return package_source.read()
+            chunks, size = [], 0
+            for chunk in package_source.chunks():
+                chunks.append(chunk)
+                size += len(chunk)
+                if size > limit:
+                    break
+            package_bytes = b"".join(chunks)
+        else:
+            _reset_package_source(package_source)
+            package_bytes = package_source.read(limit + 1)
     except OSError as exc:
         raise ValueError(f"Could not read the startup package: {exc}") from exc
+    if len(package_bytes) > limit:
+        raise ValueError(
+            f"The startup package is larger than the {limit} bytes that an import "
+            "accepts. Nothing was imported."
+        )
+    return package_bytes
 
 
 def legacy_package_warning(package_sha256: str = "") -> str:
@@ -325,8 +346,10 @@ def verify_startup_package(
     """Check a startup package before anything of it is written.
 
     Raises:
-        ValueError: If it is not a readable ZIP file, has unsafe entries, does not
-            agree with its manifest, or does not have the expected fingerprint.
+        ValueError: If it is not a readable ZIP file, has unsafe entries, declares
+            more than an import accepts (``fingerprint.MAX_ENTRY_BYTES``,
+            ``MAX_PACKAGE_BYTES``), does not agree with its manifest, or does not
+            have the expected fingerprint.
     """
     expected = normalize_fingerprint(expect_fingerprint) if expect_fingerprint else ""
     try:
@@ -382,11 +405,12 @@ def import_network(
     """Import a network from a startup package zip.
 
     The package, or a single site's kit taken out of it, is read into memory and
-    checked before anything is written (see ``network.fingerprint``): entries
-    with absolute paths, ``..`` or symbolic links are refused, and a package with
-    a ``manifest.json`` must agree with it. A package without one, as SwarmMed
-    1.0.4 and earlier export, is imported as before, without a fingerprint
-    (``import_warnings`` then returns a warning).
+    checked before anything is written (see ``network.fingerprint``): unsafe
+    entries, such as absolute paths, ``..`` or symbolic links, are refused, as is
+    a package that is or unpacks to more than ``MAX_PACKAGE_BYTES``, and a
+    package with a ``manifest.json`` must agree with it. A package without one,
+    as SwarmMed 1.0.4 and earlier export, is imported as before, without a
+    fingerprint (``import_warnings`` then returns a warning).
 
     Args:
         project: The project to import the network into.

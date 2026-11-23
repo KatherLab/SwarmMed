@@ -17,6 +17,7 @@ import subprocess  # nosec B404
 import sys
 import tempfile
 import time
+import tracemalloc
 import unittest
 import warnings
 import zipfile
@@ -34,6 +35,7 @@ from swarmed_cli.main import main as cli_main
 
 from project.models import Project, UserCurrentProject
 
+from . import fingerprint as fingerprint_module
 from . import provision
 from . import services as network_services
 from .failover import network_prod_dir
@@ -44,6 +46,7 @@ from .fingerprint import (
     build_manifest,
     canonical_bytes,
     certificate_fingerprint,
+    check_package,
     group_fingerprint,
     network_fingerprint,
     normalize_fingerprint,
@@ -73,6 +76,8 @@ def _zip(entries: dict[str, bytes], *, symlinks=()) -> bytes:
                 entries.items() if isinstance(entries, dict) else entries
             ):
                 info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                # writestr() takes the compression from the ZipInfo, not the archive.
+                info.compress_type = zipfile.ZIP_DEFLATED
                 mode = 0o120777 if name in symlinks else 0o100644
                 info.external_attr = mode << 16
                 archive.writestr(info, content)
@@ -113,6 +118,18 @@ def _without_manifests(package: bytes) -> bytes:
             del files[MANIFEST_NAME]
             entries[name] = _zip(files)
     return _zip(entries)
+
+
+def _declared_sizes(package: bytes) -> list[int]:
+    """The unpacked size of every entry, and of every entry of every site's kit."""
+    sizes = []
+    with zipfile.ZipFile(io.BytesIO(package)) as archive:
+        for info in archive.infolist():
+            sizes.append(info.file_size)
+            if info.filename.endswith(".zip"):
+                with zipfile.ZipFile(io.BytesIO(archive.read(info))) as kit:
+                    sizes.extend(inner.file_size for inner in kit.infolist())
+    return sizes
 
 
 def _verify_startup(startup: Path) -> bool:
@@ -213,12 +230,25 @@ class FingerprintHelperTests(SimpleTestCase):
             ("startup/../../evil.txt", 0o100644, "'..'"),
             ("startup\\..\\evil.txt", 0o100644, "'..'"),
             ("startup/link", 0o120777, "symbolic link"),
+            # zipfile would extract these as node-A.zip and startup/x.
+            ("./node-A.zip", 0o100644, "empty or '.' component"),
+            (".\\node-A.zip", 0o100644, "empty or '.' component"),
+            ("startup//x", 0o100644, "empty or '.' component"),
+            ("startup/./x", 0o100644, "empty or '.' component"),
+            ("startup/.", 0o100644, "empty or '.' component"),
         ):
             info = zipfile.ZipInfo(name)
             info.external_attr = mode << 16
             with self.subTest(name=name):
                 self.assertIn(problem, unsafe_entry_problem(info))
-        for name in ("startup/rootCA.pem", ".network_id", "node-A.zip", "a..b/c"):
+        for name in (
+            "startup/rootCA.pem",
+            ".network_id",
+            "node-A.zip",
+            "a..b/c",
+            "startup/",
+            "startup/.gossip_token",
+        ):
             with self.subTest(name=name):
                 self.assertEqual(unsafe_entry_problem(zipfile.ZipInfo(name)), "")
 
@@ -1064,6 +1094,174 @@ class UnsafeEntryTests(ProvisionedNetworkTestCase):
                     _change_kit(package, "site-a.zip", change),
                     "site-a.zip/../../evil.txt contains a '..' component",
                 )
+
+            # A kit that an import would unpack, but a check could pass over: a
+            # second copy of a kit, or one named so that zipfile extracts it as
+            # site-c.zip.
+            evil_kit = _zip(
+                {"startup/client.crt": b"certificate", "../../evil.txt": b"evil"}
+            )
+            for name, text in (
+                ("site-a.zip", "site-a.zip/../../evil.txt contains a '..' component"),
+                ("./site-c.zip", "./site-c.zip contains an empty or '.' component"),
+            ):
+                entries = [*_entries(package).items(), (name, evil_kit)]
+                with self.subTest(package=package_kind, name=f"another {name}"):
+                    self.assert_refused(_zip(entries), text)
+
+
+class SizeLimitTests(ProvisionedNetworkTestCase):
+    """What an import reads is bounded by the sizes that the package declares."""
+
+    def test_a_file_larger_than_an_import_accepts_is_refused(self):
+        largest = max(_declared_sizes(self.package))
+        # The other entries stay within the limit, the kit holding this one too.
+        oversized = b"x" * (4 * largest)
+        for package_kind, package in (
+            ("with manifest", self.package),
+            ("without manifest", _without_manifests(self.package)),
+        ):
+            entries = _entries(package)
+            entries["notes.bin"] = oversized
+
+            def change(files):
+                files["startup/notes.bin"] = oversized
+
+            in_kit = _change_kit(package, "site-a.zip", change)
+            for tampered, path in (
+                (_zip(entries), "notes.bin"),
+                (in_kit, "site-a.zip/startup/notes.bin"),
+            ):
+                with (
+                    self.subTest(package=package_kind, path=path),
+                    patch.object(fingerprint_module, "MAX_ENTRY_BYTES", 2 * largest),
+                ):
+                    self.assert_refused(
+                        tampered,
+                        f"{path} is {4 * largest} bytes unpacked, more than the "
+                        f"{2 * largest} an import accepts for one file",
+                    )
+
+    def test_a_package_that_unpacks_to_more_than_an_import_accepts_is_refused(self):
+        for package_kind, package in (
+            ("with manifest", self.package),
+            ("without manifest", _without_manifests(self.package)),
+        ):
+            total = sum(_declared_sizes(package))
+            entries = _entries(package)
+            entries["notes.txt"] = b"x"
+            with (
+                self.subTest(package=package_kind),
+                patch.object(fingerprint_module, "MAX_PACKAGE_BYTES", total),
+            ):
+                # The package as exported fits exactly.
+                with zipfile.ZipFile(io.BytesIO(package)) as archive:
+                    check_package(archive)
+                self.assert_refused(
+                    _zip(entries), f"takes the package over the {total} bytes unpacked"
+                )
+
+    def test_a_package_file_larger_than_an_import_accepts_is_refused(self):
+        limit = len(self.package) - 1
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "package.zip"
+            path.write_bytes(self.package)
+            for source_kind, source in (
+                ("file object", lambda: io.BytesIO(self.package)),
+                ("path", lambda: str(path)),
+                (
+                    "upload",
+                    lambda: SimpleUploadedFile(
+                        "package.zip", self.package, "application/zip"
+                    ),
+                ),
+            ):
+                with (
+                    self.subTest(source=source_kind),
+                    patch.object(network_services, "MAX_PACKAGE_BYTES", limit),
+                    self.other_hub() as hub,
+                ):
+                    with self.assertRaises(ValueError) as caught:
+                        network_services.import_network(
+                            project=self.project,
+                            actor=self.user,
+                            name="Imported",
+                            package_source=source(),
+                        )
+                    self.assertIn(
+                        f"larger than the {limit} bytes that an import accepts",
+                        str(caught.exception),
+                    )
+                    self.assertFalse(SwarmNetwork.objects.exists())
+                    self.assertFalse((hub / "workspaces").exists())
+        # A package of exactly the limit is imported.
+        with (
+            patch.object(network_services, "MAX_PACKAGE_BYTES", len(self.package)),
+            self.other_hub(),
+        ):
+            imported = self.import_package(self.package)
+            self.assertEqual(imported.package_fingerprint, self.fingerprint)
+
+    def test_a_file_the_manifest_does_not_list_is_refused_before_it_is_read(self):
+        opened = []
+        original_open = zipfile.ZipFile.open
+
+        def recording_open(archive, name, *args, **kwargs):
+            opened.append(getattr(name, "filename", name))
+            return original_open(archive, name, *args, **kwargs)
+
+        entries = _entries(self.package)
+        entries["notes.bin"] = b"x" * 4096
+
+        def change(files):
+            files["startup/notes.bin"] = b"x" * 4096
+
+        in_kit = _change_kit(self.package, "site-a.zip", change)
+        for tampered, path in (
+            (_zip(entries), "notes.bin"),
+            (in_kit, "site-a.zip/startup/notes.bin"),
+        ):
+            opened.clear()
+            with (
+                self.subTest(path=path),
+                patch.object(zipfile.ZipFile, "open", recording_open),
+            ):
+                self.assert_refused(tampered, f"{path} is not listed in manifest.json")
+                self.assertIn("site-a.zip", opened)  # the check did open entries
+                self.assertNotIn(path.rsplit(".zip/", 1)[-1], opened)
+
+    def test_files_are_hashed_without_holding_them(self):
+        big = bytes(48 * 1024 * 1024)
+
+        def change(files):
+            files["local/big.bin"] = big
+
+        def list_it(manifest):
+            manifest["files"]["site-a.zip/local/big.bin"] = hashlib.sha256(
+                big
+            ).hexdigest()
+
+        package = _replace_manifest(
+            _change_kit(self.package, "site-a.zip", change), list_it
+        )
+        manifest_bytes = _entries(package)[MANIFEST_NAME]
+
+        was_tracing = tracemalloc.is_tracing()
+        if not was_tracing:
+            tracemalloc.start()
+        tracemalloc.reset_peak()
+        baseline, _peak = tracemalloc.get_traced_memory()
+        try:
+            with zipfile.ZipFile(io.BytesIO(package)) as archive:
+                check = check_package(archive)
+            _current, peak = tracemalloc.get_traced_memory()
+        finally:
+            if not was_tracing:
+                tracemalloc.stop()
+
+        self.assertEqual(check.fingerprint, hashlib.sha256(manifest_bytes).hexdigest())
+        # Far less than the file: it was read a chunk at a time and not kept.
+        self.assertLess(peak - baseline, 16 * 1024 * 1024)
 
 
 class CLITests(ProvisionedNetworkTestCase):
