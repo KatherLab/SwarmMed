@@ -476,7 +476,9 @@ every site needs a SwarmMed version that checks the manifest. An import of a
 network that already exists at the Hub is refused: to import a network's package
 again, for example to get the fingerprint of a network imported from a package
 without a manifest, delete the network at that Hub first, which also removes its
-folder and its training jobs there. A package that SwarmMed 1.0.4 or earlier
+folder and its training jobs there. The Hub removes the folder in the background,
+after it has synchronised the project's results; import the package again only
+once `workspaces/<project>/<network>/` is gone. A package that SwarmMed 1.0.4 or earlier
 exported again, from a network imported from a later version, is refused: its
 kits carry a manifest that the package lacks. Use the package that the
 coordinating site exported.

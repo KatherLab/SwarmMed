@@ -2762,6 +2762,15 @@ def cleanup_network_resources(
         # Use a generic system logger since the network/project might be gone
         logger = get_logger()
 
+        if SwarmNetwork.objects.filter(identifier=network_identifier).exists():
+            # The network was imported again before this cleanup ran; its
+            # containers and its folder now belong to that import.
+            logger.network.info(
+                f"Network {network_name} exists again at this Hub; its containers "
+                "and folder are kept."
+            )
+            return
+
         provision_dir = os.path.join(
             settings.BASE_DIR,
             "workspaces",

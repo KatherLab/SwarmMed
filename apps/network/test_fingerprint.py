@@ -1169,6 +1169,44 @@ class ImportTests(ProvisionedNetworkTestCase):
         self.assert_refused(_zip(entries), "site-a.zip/manifest.json differs")
 
 
+    def test_a_deleted_networks_cleanup_keeps_a_network_imported_again(self):
+        # Deleting a network queues the removal of its containers and folder. A
+        # network imported again before that ran keeps both.
+        from django.conf import settings
+
+        from . import tasks as network_tasks
+
+        with self.other_hub():
+            network = self.import_package(self.package)
+            folder = (
+                Path(settings.BASE_DIR)
+                / "workspaces"
+                / str(self.project.identifier)
+                / str(network.identifier)
+            )
+            self.assertTrue(folder.is_dir())
+            arguments = (
+                self.project.title,
+                str(self.project.identifier),
+                str(network.identifier),
+                network.name,
+            )
+            with (
+                patch.object(network_tasks, "_stop_labeled_runtime") as stop,
+                patch("results.tasks.sync_project_results") as sync,
+            ):
+                network_tasks.cleanup_network_resources(*arguments)
+                self.assertTrue(folder.is_dir())
+                stop.assert_not_called()
+                sync.assert_not_called()
+
+                # Without the network the cleanup removes them, as before.
+                SwarmNetwork.objects.filter(identifier=network.identifier).delete()
+                network_tasks.cleanup_network_resources(*arguments)
+                self.assertFalse(folder.exists())
+                stop.assert_called_once()
+                sync.assert_called_once()
+
 class TamperedPackageTests(ProvisionedNetworkTestCase):
     """Each tampered package is refused at its first offending path; nothing written."""
 
