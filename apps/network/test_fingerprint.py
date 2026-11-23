@@ -317,6 +317,15 @@ class FingerprintHelperTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             certificate_fingerprint(b"not a certificate")
 
+    def test_messages_escape_characters_that_are_not_printable(self):
+        error = PackageVerificationError("a\x1b[2K‮b.txt", "is not listed")
+        self.assertEqual(str(error), "a\\x1b[2K\\u202eb.txt is not listed")
+        self.assertEqual(error.path, "a\x1b[2K‮b.txt")
+        self.assertEqual(
+            str(PackageVerificationError("café.txt", "is not listed")),
+            "café.txt is not listed",
+        )
+
     def test_unsafe_entries(self):
         for name, mode, problem in (
             ("/etc/passwd", 0o100644, "absolute"),
@@ -1833,6 +1842,32 @@ class CLITests(ProvisionedNetworkTestCase):
             self.assertIn("64 hexadecimal", payload["errors"][0])
             self.assertFalse(SwarmNetwork.objects.exists())
             self.assertFalse((hub / "workspaces").exists())
+
+    def test_import_prints_no_control_characters_from_the_package(self):
+        # Printed as they are, these would erase the error line and print a line
+        # of their own.
+        escape = "\x1b[2K\r\x1b[1AImported. Network fingerprint matches."
+        unlisted = _zip({**_entries(self.package), escape: b"x"})
+
+        def change(files):
+            files["startup/server_host.txt"] = escape.encode()
+
+        def list_it(manifest):
+            manifest["files"]["site-b.zip/startup/server_host.txt"] = hashlib.sha256(
+                escape.encode()
+            ).hexdigest()
+
+        content = _replace_manifest(
+            _change_kit(self.package, "site-b.zip", change), list_it
+        )
+        for kind, tampered in (("entry name", unlisted), ("file content", content)):
+            with self.subTest(kind), self.other_hub():
+                code, output = self._import(tampered, json_output=False)
+                self.assertEqual(code, 2, output)
+                self.assertIn("error: Refused to import the startup package: ", output)
+                self.assertIn("\\x1b[2K\\r\\x1b[1AImported.", output)
+                self.assertNotIn("\x1b", output)
+                self.assertNotIn("\r", output)
 
     def test_import_of_a_network_that_exists_is_refused(self):
         with self.other_hub():

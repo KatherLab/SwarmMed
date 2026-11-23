@@ -102,8 +102,22 @@ _TRUST_FIELDS = (
 _PARTICIPANT_FIELDS = ("name", "role", "org", "address", "certificate_sha256")
 
 
+def printable(text: str) -> str:
+    """Return ``text``, or, if it has characters that are not printable, escaped.
+
+    Entry names and file contents of a package reach messages, and the CLI prints
+    them; unescaped, a control character could move a terminal's cursor and
+    overwrite what was printed.
+    """
+    if text.isprintable():
+        return text
+    return text.encode("unicode_escape").decode("ascii")
+
+
 class PackageVerificationError(ValueError):
     """A startup package is unsafe or does not agree with its manifest.
+
+    The message is escaped with :func:`printable`.
 
     Attributes:
         path: The first offending path, such as ``node-A.zip/startup/rootCA.pem``.
@@ -114,7 +128,7 @@ class PackageVerificationError(ValueError):
         """Name the offending path and what is wrong with it."""
         self.path = path
         self.problem = problem
-        super().__init__(f"{path} {problem}")
+        super().__init__(printable(f"{path} {problem}"))
 
 
 @dataclass(frozen=True)
