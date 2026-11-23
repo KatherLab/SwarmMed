@@ -390,7 +390,8 @@ is absolute or has a `..`, `.` or empty component (such as `./node-A.zip`), or
 that lie in a folder named like a site's kit (such as `node-A.zip/startup/`) are
 refused, and so are entries compressed with another method than deflate, unless
 stored uncompressed: SwarmMed writes deflate, and Python's zipfile decompresses
-other methods whole, whatever size an entry declares. So is a package of more
+bzip2 and LZMA data whole, whatever size an entry declares, and cannot read other
+methods. So is a package of more
 than 1 GiB, packed or unpacked, or with a file of more than 256 MiB, as the
 package declares the sizes, before its files are read; the import unpacks no more
 of a file than the size it declares. So is a package with more than 100,000
@@ -496,7 +497,8 @@ provisioned; on kits provisioned by version 1.0.4 or earlier it fails. Run it on
 `startup` folder, as above, not on a whole kit. NVIDIA FLARE 2.7.1 writes the FL
 server's `local/comm_config.json` after it has signed that folder, so the verifier
 fails on the server's `local` folder and on the server's kit as a whole, also in
-kits that `nvflare provision` makes without SwarmMed. A Hub that rewrites
+kits that `nvflare provision` makes without SwarmMed for a server with a
+`listening_host`, as SwarmMed's provisioning gives it. A Hub that rewrites
 `server_host.txt` later, as `SWARMMEDHUB_SERVER_HOST` does at import when it
 differs from the packaged address, changes a signed file, and FLARE's verifier then
 fails for that kit (exit status 1, without naming the file); FLARE's start-up check
