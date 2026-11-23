@@ -431,10 +431,13 @@ Hand the package over like this:
    nvflare.tool.verify_startup_kits -f <kit>/startup -c <kit>/startup/rootCA.pem`.
    The check prints nothing; exit status 1 means that a file in the folder does
    not match its signature, or has none. NVIDIA FLARE 2.7.1's check also passes a
-   folder without `signature.json`, hence the `test -f`. `<kit>` is a kit's folder
-   in the Hub's `workspaces/<project>/<network>/workspace/<study>/prod_00/` (in the
-   `app` container, under `/app/workspaces/`), or a site's kit unpacked from the
-   package.
+   folder without `signature.json`, hence the `test -f`. It fails on every kit of a
+   network provisioned by SwarmMed 1.0.4 or earlier, and on a kit whose
+   `server_host.txt` the import rewrote
+   ([NVIDIA FLARE's signatures](#nvidia-flares-signatures)). `<kit>` is a kit's
+   folder in the Hub's `workspaces/<project>/<network>/workspace/<study>/prod_00/`
+   (in the `app` container, under `/app/workspaces/`), or a site's kit unpacked
+   from the package.
 
 Compare the fingerprint among all sites, not only each site with the coordinating
 site, which would not reveal a coordinating site that gave different sites
@@ -486,8 +489,12 @@ client refuses to start if its configuration, certificate or key files do not
 match their signatures. SwarmMed adds its own files to each kit's `startup` folder
 after FLARE has signed it (`.all_participants.json`, `server_host.txt` and, in
 client kits, `server_aliases.txt`), and then signs that folder again with the root
-CA's key, so that FLARE's verifier passes on kits as provisioned; on kits
-provisioned by version 1.0.4 or earlier it fails. A Hub that rewrites
+CA's key, so that FLARE's verifier passes on the kits' `startup` folders as
+provisioned; on kits provisioned by version 1.0.4 or earlier it fails. Run it on a
+`startup` folder, as above, not on a whole kit. NVIDIA FLARE 2.7.1 writes the FL
+server's `local/comm_config.json` after it has signed that folder, so the verifier
+fails on the server's `local` folder and on the server's kit as a whole, also in
+kits that `nvflare provision` makes without SwarmMed. A Hub that rewrites
 `server_host.txt` later, as `SWARMMEDHUB_SERVER_HOST` does at import when it
 differs from the packaged address, changes a signed file, and FLARE's verifier then
 fails for that kit (exit status 1, without naming the file); FLARE's start-up check

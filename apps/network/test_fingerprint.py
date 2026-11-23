@@ -724,6 +724,15 @@ class ProvisionedKitTests(ProvisionedNetworkTestCase):
         self.assertTrue(
             (self.prod_dir / "site-a" / "startup" / "server_aliases.txt").is_file()
         )
+        # NVIDIA FLARE 2.7.1 writes the server's local/comm_config.json after it
+        # has signed that folder, so its verifier fails on that folder, as the
+        # networking guide says; a FLARE that signs the file fails this.
+        with self.subTest(kit="server/local"):
+            local = self.prod_dir / "server" / "local"
+            self.assertTrue((local / "comm_config.json").is_file())
+            signed = json.loads((local / "signature.json").read_text())
+            self.assertIn("resources.json.default", signed)
+            self.assertNotIn("comm_config.json", signed)
 
         site = self.prod_dir / "site-a" / "startup"
         verifier = subprocess.run(  # nosec B603
