@@ -273,6 +273,12 @@ def _digest(
     return digest.hexdigest(), b"".join(kept) if keep else None
 
 
+def _read_through(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> None:
+    """Read an entry to its end, so that zipfile checks its local header and CRC."""
+    for _chunk in _chunks(archive, info):
+        pass
+
+
 def read_entry(archive: zipfile.ZipFile, entry: str | zipfile.ZipInfo) -> bytes:
     """Return the content of an entry, read a chunk at a time (see ``_chunks``).
 
@@ -708,7 +714,9 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
     agrees with the files it sums up. A file that the manifest does not list is
     refused before its content is hashed; a ``.zip`` at the top of the package is
     unpacked first, within the limits above, to check its entries. A single
-    site's kit is checked against the manifest's entries for that kit.
+    site's kit is checked against the manifest's entries for that kit. A package
+    without a manifest has every entry read once, so that an entry that cannot be
+    read is refused before anything is written.
 
     Args:
         package: The package, opened for reading with :func:`open_archive`.
@@ -735,6 +743,10 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
                 info.filename, f"lies in a folder named like the site kit {folder}"
             )
     budget = _check_sizes(infos, "", MAX_PACKAGE_BYTES)
+    # A package with a manifest has every entry read below. One without has every
+    # entry read here, so that an entry that cannot be read (a wrong CRC-32, a
+    # local header that names another file) is refused before anything is written.
+    without_manifest = MANIFEST_NAME not in package.namelist()
     kits: dict[str, zipfile.ZipFile] = {}
     for info in infos:
         if not is_site_kit_name(info.filename):
@@ -752,6 +764,9 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
                     f"{info.filename}/{inner.filename}", problem
                 )
         budget = _check_sizes(kit.infolist(), f"{info.filename}/", budget)
+        if without_manifest:
+            for inner in kit.infolist():
+                _read_through(kit, inner)
         kits.setdefault(info.filename, kit)
 
     names = [info.filename for info in infos]
@@ -766,6 +781,9 @@ def check_package(package: zipfile.ZipFile) -> PackageCheck:
                     "later version; use the package that the coordinating site "
                     "exported",
                 )
+        for info in infos:
+            if not is_site_kit_name(info.filename):  # the kits were read above
+                _read_through(package, info)
         return PackageCheck(manifest=None, fingerprint="")
 
     _reject_duplicates(names)

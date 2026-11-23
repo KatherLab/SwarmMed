@@ -189,6 +189,22 @@ def _without_manifests(package: bytes) -> bytes:
     return _zip(entries)
 
 
+def _local_header(archive: bytes, name: str) -> tuple[int, int]:
+    """Where the local header of entry ``name`` gives its name, and its data starts."""
+    with zipfile.ZipFile(io.BytesIO(archive)) as opened:
+        offset = opened.getinfo(name).header_offset
+    name_length, extra_length = struct.unpack_from("<2H", archive, offset + 26)
+    return offset + 30, offset + 30 + name_length + extra_length
+
+
+def _flip_stored_byte(archive: bytes, name: str) -> bytes:
+    """``archive`` with a byte changed in the data of the stored entry ``name``."""
+    _name_at, data_at = _local_header(archive, name)
+    changed = bytearray(archive)
+    changed[data_at] ^= 0x01
+    return bytes(changed)
+
+
 def _declared_sizes(package: bytes) -> list[int]:
     """The unpacked size of every entry, and of every entry of every site's kit."""
     sizes = []
@@ -623,8 +639,13 @@ class ProvisionedNetworkTestCase(TestCase):
             **kwargs,
         )
 
-    def assert_refused(self, package: bytes, *expected_text, **kwargs) -> str:
-        """Import ``package`` at another Hub: refused, with nothing written."""
+    def assert_refused(
+        self, package: bytes, *expected_text, then_import=None, **kwargs
+    ) -> str:
+        """Import ``package`` at another Hub: refused, with nothing written.
+
+        With ``then_import``, that package is imported at the same Hub afterwards.
+        """
         with self.other_hub() as hub:
             with self.assertRaises(ValueError) as caught:
                 self.import_package(package, **kwargs)
@@ -632,6 +653,8 @@ class ProvisionedNetworkTestCase(TestCase):
                 SwarmNetwork.objects.filter(identifier=self.network.identifier).exists()
             )
             self.assertFalse((hub / "workspaces").exists())
+            if then_import is not None:
+                self.import_package(then_import)
         message = str(caught.exception)
         for text in expected_text:
             self.assertIn(text, message)
@@ -1315,6 +1338,52 @@ class UnsafeEntryTests(ProvisionedNetworkTestCase):
                     "site-a.zip/",
                     "lies in a folder named like the site kit site-a.zip",
                 )
+
+
+class UnreadableEntryTests(ProvisionedNetworkTestCase):
+    """An entry that cannot be read is refused before anything is written."""
+
+    def test_unreadable_entries_are_refused(self):
+        stored = zipfile.ZIP_STORED
+        for package_kind, package in (
+            ("with manifest", self.package),
+            ("without manifest", _without_manifests(self.package)),
+        ):
+            entries = _entries(package)
+            top = _zip(entries, methods={"project.yml": stored})
+            name_at, _data_at = _local_header(top, "project.yml")
+            renamed = top[:name_at] + b"projecX.yml" + top[name_at + 11 :]
+            kit = _zip(
+                _entries(entries["site-a.zip"]),
+                methods={"startup/fed_client.json": stored},
+            )
+            bad_kit = _flip_stored_byte(kit, "startup/fed_client.json")
+            for kind, tampered, text in (
+                (
+                    "a changed byte at the top",
+                    _flip_stored_byte(top, "project.yml"),
+                    "Bad CRC-32 for file 'project.yml'",
+                ),
+                (
+                    "a changed byte in a kit",
+                    _zip({**entries, "site-a.zip": bad_kit}),
+                    "Bad CRC-32 for file 'startup/fed_client.json'",
+                ),
+                (
+                    "a local header that names another file",
+                    renamed,
+                    "File name in directory 'project.yml' and header b'projecX.yml' "
+                    "differ",
+                ),
+            ):
+                with self.subTest(package=package_kind, kind=kind):
+                    # The intact package is then imported at the same Hub.
+                    self.assert_refused(
+                        tampered,
+                        "cannot be read as a ZIP file",
+                        text,
+                        then_import=package,
+                    )
 
 
 class SizeLimitTests(ProvisionedNetworkTestCase):
