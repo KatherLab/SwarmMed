@@ -835,6 +835,21 @@ class ImportTests(ProvisionedNetworkTestCase):
             with self.subTest(manifest=package is self.package):
                 self.assert_refused(package, "64 hexadecimal", expect_fingerprint="")
 
+    def test_a_hub_that_imported_a_single_sites_kit_cannot_export_the_package(self):
+        kit = _entries(self.package)["site-b.zip"]
+        with self.other_hub():
+            imported = self.import_package(kit)
+
+            with self.assertRaises(LookupError) as caught:
+                network_services.export_startup_package(imported)
+
+            # The values of the kit it imported, not of a package without kits.
+            imported.refresh_from_db()
+            self.assertEqual(imported.package_fingerprint, self.fingerprint)
+            self.assertEqual(imported.package_sha256, hashlib.sha256(kit).hexdigest())
+        self.assertIn("imported a single site's kit", str(caught.exception))
+        self.assertIn("export it at the coordinating site", str(caught.exception))
+
     def test_a_package_without_manifest_imports_with_a_warning(self):
         legacy = _without_manifests(self.package)
         with self.other_hub():

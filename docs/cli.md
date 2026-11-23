@@ -227,6 +227,8 @@ SHA-256 of the file written. As long as the network's kits do not change,
 exporting it again gives the same file. Read the fingerprint out to every other
 site by phone or video call, not through the channel that carries the package
 ([Verifying the startup package](networking.md#verifying-the-startup-package)).
+At a Hub that imported a single site's kit, the command exits with code 2: the
+package can only be exported where every site's kit is.
 
 !!! warning "The startup package is the study's master credential"
     The package contains every participant's private key, the FL server's

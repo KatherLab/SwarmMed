@@ -224,7 +224,8 @@ def create_startup_kits_zip(swarm_network):
 
     Returns:
         io.BytesIO: A buffer containing the ZIP file data; empty if this Hub holds
-        no startup kits for the network.
+        no site's startup kit for the network, as at a Hub that imported a
+        single site's kit.
 
     Raises:
         PackageVerificationError: If the kits disagree with each other or with the
@@ -359,6 +360,11 @@ def create_startup_kits_zip(swarm_network):
                         files[(Path("server_local") / f_path.relative_to(srv_local_dir)).as_posix()] = _read_kit_file(f_path)
 
             kits[item.name] = files
+
+    if not kits:
+        # No site's kit is here, for example at a Hub that imported a single
+        # site's kit (prod_00 is that kit), so there is no package to export.
+        return zip_buffer
 
     # 3. Root project files
     top_files = dict(metadata)

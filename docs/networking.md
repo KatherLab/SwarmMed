@@ -401,7 +401,8 @@ Hand the package over like this:
    the export shows, as does the Network page for the current network. Export
    before the network first starts there: once it has run, the kits at the
    coordinating site can hold logs, job folders or changed settings, which a later
-   export carries, so that export has another fingerprint.
+   export carries, so that export has another fingerprint. A Hub that imported a
+   single site's kit cannot export the package.
 2. It sends that one file, over an encrypted channel, to a named person at every
    site.
 3. Each site imports it with the fingerprint, which the coordinating site reads out

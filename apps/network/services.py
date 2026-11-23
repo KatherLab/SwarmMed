@@ -863,7 +863,8 @@ def export_startup_package(network: SwarmNetwork) -> io.BytesIO:
     values the sites compare.
 
     Raises:
-        LookupError: If this Hub holds no startup kits for the network.
+        LookupError: If this Hub holds no site's startup kit for the network, as at
+            a Hub that imported a single site's kit; nothing is stored then.
         ValueError: If the kits disagree with each other or with the network's
             SERVER participant, for example about the FL server's address.
     """
@@ -876,7 +877,11 @@ def export_startup_package(network: SwarmNetwork) -> io.BytesIO:
     package_bytes = zip_buffer.getvalue()
     if len(package_bytes) <= 22:
         raise LookupError(
-            "Startup kits were not found. The network may not have been provisioned correctly."
+            f"No site's startup kit of network '{network.name}' is at this Hub, so "
+            "there is no startup package to export. The network may not have been "
+            "provisioned correctly, or this Hub imported a single site's kit, from "
+            "which the package cannot be exported; export it at the coordinating "
+            "site."
         )
     network.package_fingerprint = package_fingerprint(package_bytes)
     network.package_sha256 = sha256_hex(package_bytes)
