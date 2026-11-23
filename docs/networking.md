@@ -415,12 +415,14 @@ Hand the package over like this:
 4. Optionally, each site also compares the root CA certificate's fingerprint, which
    the Network page and `swarmed network show` give, with the output of
    `openssl x509 -noout -fingerprint -sha256 -in <kit>/startup/rootCA.pem`, and
-   runs NVIDIA FLARE's check of the kit's signatures, which exits with status 0 if
-   they are valid:
-   `python -m nvflare.tool.verify_startup_kits -f <kit>/startup -c
-   <kit>/startup/rootCA.pem`. `<kit>` is a kit's folder in the Hub's
-   `workspaces/<project>/<network>/workspace/<study>/prod_00/` (in the `app`
-   container, under `/app/workspaces/`), or a site's kit unpacked from the
+   runs NVIDIA FLARE's check of the kit's signatures:
+   `test -f <kit>/startup/signature.json && python -m
+   nvflare.tool.verify_startup_kits -f <kit>/startup -c <kit>/startup/rootCA.pem`.
+   The check prints nothing; exit status 1 means that a file in the folder does
+   not match its signature, or has none. NVIDIA FLARE 2.7.1's check also passes a
+   folder without `signature.json`, hence the `test -f`. `<kit>` is a kit's folder
+   in the Hub's `workspaces/<project>/<network>/workspace/<study>/prod_00/` (in the
+   `app` container, under `/app/workspaces/`), or a site's kit unpacked from the
    package.
 
 Compare the fingerprint among all sites, not only each site with the coordinating
@@ -473,11 +475,12 @@ CA's key, so that FLARE's verifier passes on kits as provisioned; on kits
 provisioned by version 1.0.4 or earlier it fails. A Hub that rewrites
 `server_host.txt` later, as `SWARMMEDHUB_SERVER_HOST` does at import when it
 differs from the packaged address, changes a signed file, and FLARE's verifier then
-reports that file; FLARE's start-up check does not cover it. A server switch leaves
-the kits' `startup` folders unchanged. These signatures cannot show that two sites
-hold the same package: a kit from another provisioning carries its own root CA and
-passes against it. The network fingerprint, or the root CA's fingerprint compared
-outside the package, tells them apart.
+fails for that kit (exit status 1, without naming the file); FLARE's start-up check
+does not cover the file. A server switch leaves the kits' `startup` folders
+unchanged. These signatures cannot show that two sites hold the same package: a
+kit from another provisioning carries its own root CA and passes against it. The
+network fingerprint, or the root CA's fingerprint compared outside the package,
+tells them apart.
 
 ## Options
 
