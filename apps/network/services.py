@@ -721,7 +721,8 @@ def failover_network(
     server_host = str(server_host or "").strip()
     if not is_valid_server_host(server_host):
         raise ValueError(
-            f"--server-host must be an IPv4 address, got {server_host!r}."
+            "--server-host must be an IPv4 address without leading zeros, such as "
+            f"192.0.2.10, got {server_host!r}."
         )
     log = get_logger(user=actor, project=network.project)
     log.network.info(

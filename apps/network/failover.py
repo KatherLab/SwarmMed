@@ -24,6 +24,7 @@ timeout set in ``SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`` (see
 from __future__ import annotations
 
 import copy
+import ipaddress
 import json
 import math
 import os
@@ -37,8 +38,6 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 ACTIVE_SERVER_FILE = ".active_server.json"
-
-_IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
 # The server's local resources as NVFlare 2.7.1 provisioning writes them. Used
 # when a startup bundle predates the copy of the server's local folder, and by
@@ -113,10 +112,14 @@ def is_valid_server_host(host: str) -> bool:
 
     Host names are not accepted: the address reaches the FL client containers
     as ``docker run --add-host server:<address>``, which takes only an IP
-    address.
+    address. Nor are leading zeros, which the C library reads as octal
+    (``010.0.0.1`` is not 10.0.0.1 there), or digits other than ASCII ones.
     """
-    match = _IPV4_RE.match(str(host or "").strip())
-    return bool(match) and all(0 <= int(part) <= 255 for part in match.groups())
+    try:
+        ipaddress.IPv4Address(str(host or "").strip())
+    except ValueError:
+        return False
+    return True
 
 
 def network_prod_dir(network) -> Path:

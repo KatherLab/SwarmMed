@@ -191,6 +191,11 @@ class ServerHostTests(SimpleTestCase):
             "bad host",
             "standby.example.org",
             "site-b",
+            # The C library reads a part with a leading zero as octal.
+            "010.0.0.1",
+            "10.0.0.010",
+            # Digits that are not ASCII.
+            "\u0661\u0660.\u0660.\u0660.\u0661",
         ):
             with self.subTest(host=host):
                 self.assertFalse(is_valid_server_host(host))
@@ -1002,12 +1007,14 @@ class FailoverTaskTests(NetworkFixture, TestCase):
     def test_service_rejects_a_bad_address_before_queueing(self):
         from .services import failover_network
 
-        with (
-            patch.object(network_tasks.failover_network_task, "delay") as delay,
-            self.assertRaises(ValueError),
-        ):
-            failover_network(self.network, self.user, server_host="no such host!")
-        delay.assert_not_called()
+        for host in ("no such host!", "010.0.0.1"):
+            with (
+                self.subTest(host=host),
+                patch.object(network_tasks.failover_network_task, "delay") as delay,
+            ):
+                with self.assertRaisesRegex(ValueError, "IPv4 address"):
+                    failover_network(self.network, self.user, server_host=host)
+                delay.assert_not_called()
 
 
 class StartRoleTests(NetworkFixture, TestCase):
