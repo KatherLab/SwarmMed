@@ -193,6 +193,7 @@
     <div class="mt-4" id="startupPackage">
         <h4 class="text-lg font-semibold text-gray-700 dark:text-gray-200">Startup package</h4>
         <p class="text-sm text-gray-500 dark:text-gray-400">The package this Hub last exported or imported.</p>
+        {# The inline word-break is Tailwind's break-all, which static/dist/main.css lacks. #}
         <dl class="mt-2 space-y-2 text-sm">
             <div>
                 <dt class="font-medium text-gray-500 dark:text-gray-400">Network fingerprint</dt>
@@ -201,13 +202,13 @@
             {% if current_network.package_sha256 %}
             <div>
                 <dt class="font-medium text-gray-500 dark:text-gray-400">Package file SHA-256</dt>
-                <dd class="font-mono text-gray-900 dark:text-white break-all" id="packageSha256">{{ current_network.package_sha256 }}</dd>
+                <dd class="font-mono text-gray-900 dark:text-white break-all" style="word-break: break-all" id="packageSha256">{{ current_network.package_sha256 }}</dd>
             </div>
             {% endif %}
             {% if root_ca_sha256 %}
             <div>
                 <dt class="font-medium text-gray-500 dark:text-gray-400">Root CA certificate SHA-256</dt>
-                <dd class="font-mono text-gray-900 dark:text-white break-all" id="rootCaSha256">{{ root_ca_sha256 }}</dd>
+                <dd class="font-mono text-gray-900 dark:text-white break-all" style="word-break: break-all" id="rootCaSha256">{{ root_ca_sha256 }}</dd>
             </div>
             {% endif %}
         </dl>
