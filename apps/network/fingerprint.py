@@ -389,7 +389,7 @@ def _server_ports(path: str, data: bytes) -> tuple[int, int]:
         server = json.loads(data)["servers"][0]
         fed_learn_port = int(str(server["service"]["target"]).rsplit(":", 1)[1])
         admin_port = int(server["admin_port"])
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
+    except (ValueError, KeyError, IndexError, TypeError, RecursionError) as exc:
         raise PackageVerificationError(
             path, "does not give the FL server's ports"
         ) from exc
@@ -424,7 +424,8 @@ def _participant_rows(path: str, data: bytes | None) -> list[dict]:
         return []
     try:
         rows = json.loads(data)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
+        # RecursionError: arrays or objects nested too deeply for the parser.
         raise PackageVerificationError(path, "is not valid JSON") from exc
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         raise PackageVerificationError(path, "is not a list of participants")
@@ -574,7 +575,8 @@ def parse_manifest(data: bytes) -> dict:
     """
     try:
         manifest = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        # RecursionError: arrays or objects nested too deeply for the parser.
         raise PackageVerificationError(MANIFEST_NAME, "is not valid JSON") from exc
     if not isinstance(manifest, dict):
         raise PackageVerificationError(MANIFEST_NAME, "is not a JSON object")
@@ -586,7 +588,7 @@ def parse_manifest(data: bytes) -> dict:
         )
     try:
         canonical = canonical_bytes(manifest)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise PackageVerificationError(
             MANIFEST_NAME, "holds a value JSON does not allow"
         ) from exc

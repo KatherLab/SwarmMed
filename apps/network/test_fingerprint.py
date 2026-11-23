@@ -1284,6 +1284,42 @@ class TamperedPackageTests(ProvisionedNetworkTestCase):
         entries[MANIFEST_NAME] = json.dumps(manifest, indent=2, sort_keys=True).encode()
         self.assert_refused(_zip(entries), "manifest.json is not in the canonical form")
 
+    def test_json_nested_too_deeply_is_named(self):
+        # Python's JSON parser raises RecursionError, not ValueError, on such data;
+        # the message names the file, not the ZIP archive.
+        nested = b"[" * 100_000 + b"]" * 100_000
+        digest = hashlib.sha256(nested).hexdigest()
+        entries = _entries(self.package)
+        manifest = _zip({**entries, MANIFEST_NAME: nested})
+
+        def list_participants(manifest):
+            manifest["files"][".participants.json"] = digest
+
+        participants = _replace_manifest(
+            _zip({**entries, ".participants.json": nested}), list_participants
+        )
+
+        def change(files):
+            files["server_startup/fed_server.json"] = nested
+
+        def list_server(manifest):
+            manifest["files"]["site-a.zip/server_startup/fed_server.json"] = digest
+
+        server = _replace_manifest(
+            _change_kit(self.package, "site-a.zip", change), list_server
+        )
+        for tampered, text in (
+            (manifest, "manifest.json is not valid JSON"),
+            (participants, ".participants.json is not valid JSON"),
+            (
+                server,
+                "site-a.zip/server_startup/fed_server.json does not give the FL "
+                "server's ports",
+            ),
+        ):
+            with self.subTest(text):
+                self.assert_refused(tampered, f"startup package: {text}")
+
     def test_a_manifest_of_another_format(self):
         def change(manifest):
             manifest["format"] = "swarmmed-package-manifest/2"
