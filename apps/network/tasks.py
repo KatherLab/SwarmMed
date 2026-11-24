@@ -44,6 +44,7 @@ from .failover import (
     network_prod_dir,
     restore_active_server,
     server_start_refusal,
+    unswitched_server_host,
     write_active_server,
 )
 from .models import SwarmNetwork
@@ -2627,18 +2628,40 @@ def failover_network_task(
         record = write_active_server(
             swarm_network, server_host, started_server=start_server, actor=user
         )
-        logger.network.warning(
-            "FL server for this Hub switched from "
-            f"{record['previous_server_host'] or 'the provisioned host'} to {server_host}."
-        )
+        # The address this Hub uses without a switch is the network's own
+        # server, as at the coordinating Hub or at a site that returns to it.
+        unswitched = unswitched_server_host(swarm_network)
+        before = record["previous_server_host"]
+        if server_host == unswitched and before != server_host:
+            logger.network.warning(
+                f"This Hub uses the network's own FL server address {server_host} "
+                f"again (it used {before})."
+            )
+        elif before == server_host:
+            logger.network.warning(f"This Hub keeps the FL server at {server_host}.")
+        else:
+            logger.network.warning(
+                "FL server for this Hub switched from "
+                f"{before or 'the provisioned host'} to {server_host}."
+            )
 
         if start_server:
             start_swarm_network_task(str(swarm_network.identifier), user_id, role="server")
             swarm_network.refresh_from_db()
             if swarm_network.status == "ERROR":
-                raise RuntimeError("The standby FL server did not start; see the log above.")
+                raise RuntimeError(
+                    "The FL server did not start at this site; see the log above."
+                )
             server_started = True
-            logger.network.info("Standby FL server started at this site.")
+            if server_host == unswitched:
+                logger.network.info(
+                    f"Started the network's FL server at this site, at {server_host}."
+                )
+            else:
+                logger.network.info(
+                    "Started the FL server at this site as the standby, at "
+                    f"{server_host}."
+                )
             if local_clients:
                 # The server start marks the network RUNNING; the switch is not
                 # finished until the clients have restarted.

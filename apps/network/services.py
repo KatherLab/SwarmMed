@@ -23,6 +23,7 @@ from .failover import (
     SERVER_KIT_FOLDERS,
     active_server_record,
     bundled_kit_destinations,
+    is_switched,
     is_valid_server_host,
     move_kit_folder,
     network_prod_dir,
@@ -1086,7 +1087,8 @@ def describe_server_switch(network: SwarmNetwork) -> dict:
     return {
         "server_host": record.get("server_host") or unswitched_server_host(network),
         "provisioned_server_host": provisioned,
-        "switched": bool(record.get("server_host")),
+        # False again after a return, while the record is kept.
+        "switched": is_switched(network, record),
         "switch": record or None,
         "admin_session_hosts": admin_session_hosts(network),
     }

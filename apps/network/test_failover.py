@@ -852,6 +852,28 @@ class ServerSwitchStatusTests(NetworkFixture, TestCase):
         self.assertEqual(status["provisioned_server_host"], "100.64.0.1")
         self.assertEqual(status["admin_session_hosts"][1], "100.64.0.7")
 
+    def test_after_a_return_not_switched_but_record_kept(self):
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+        self.assertTrue(describe_server_switch(self.network)["switched"])
+
+        write_active_server(self.network, "100.64.0.1", started_server=False)
+        status = describe_server_switch(self.network)
+
+        self.assertFalse(status["switched"])
+        self.assertEqual(status["server_host"], "100.64.0.1")
+        # The record still names the server used before, which a resume asks too.
+        self.assertEqual(status["switch"]["previous_server_host"], "192.0.2.10")
+        self.assertEqual(previous_server_host(self.network), "192.0.2.10")
+        self.assertEqual(status["admin_session_hosts"], ["100.64.0.1"])
+
+    def test_a_switch_to_the_environments_address_is_not_a_switch(self):
+        with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
+            write_active_server(self.network, "100.64.0.7", started_server=False)
+            status = describe_server_switch(self.network)
+
+        self.assertFalse(status["switched"])
+        self.assertEqual(status["server_host"], "100.64.0.7")
+
     def test_empty_without_an_admin_kit(self):
         shutil.rmtree(self.prod_dir / "admin-node-A@nvidia.com")
         self.network.admin_startup_dir = ""
@@ -871,6 +893,7 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         servers=(),
         start_status="RUNNING",
         previous_status="RUNNING",
+        server_host="192.0.2.10",
     ):
         calls = []
         self.docker_commands = []
@@ -906,7 +929,7 @@ class FailoverTaskTests(NetworkFixture, TestCase):
             network_tasks.failover_network_task(
                 str(self.network.identifier),
                 self.user.id,
-                "192.0.2.10",
+                server_host,
                 start_server,
                 previous_status,
             )
@@ -959,6 +982,44 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         self.assertEqual(record["server_host"], "192.0.2.10")
         self.assertEqual(record["previous_server_host"], "100.64.0.1")
         self.assertTrue(record["server_started_here"])
+
+    def test_return_to_the_own_address_is_not_called_a_standby(self):
+        # The coordinating Hub hosts the network's server again.
+        with patch.object(network_tasks, "get_logger") as get_logger:
+            self._run(start_server=True, server_host="100.64.0.1")
+
+        log = get_logger.return_value.network
+        messages = [
+            call.args[0]
+            for call in log.info.call_args_list + log.warning.call_args_list
+        ]
+        self.assertIn(
+            "Started the network's FL server at this site, at 100.64.0.1.", messages
+        )
+        self.assertEqual(
+            [
+                message
+                for message in messages
+                if "standby" in message.lower()
+                or "switched from 100.64.0.1 to 100.64.0.1" in message
+            ],
+            [],
+        )
+
+    def test_switch_back_names_both_addresses(self):
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        with patch.object(network_tasks, "get_logger") as get_logger:
+            self._run(start_server=False, server_host="100.64.0.1")
+
+        self.assertIn(
+            "This Hub uses the network's own FL server address 100.64.0.1 again "
+            "(it used 192.0.2.10).",
+            [
+                call.args[0]
+                for call in get_logger.return_value.network.warning.call_args_list
+            ],
+        )
 
     def test_other_sites_only_restart_their_clients(self):
         self.assertEqual(self._run(start_server=False), [("client", ["node-A"])])

@@ -258,6 +258,24 @@ def unswitched_server_host(network) -> str:
     return env_host or provisioned_server_host(network)
 
 
+def is_switched(network, record=None) -> bool:
+    """Return whether this Hub uses another FL server than without a switch.
+
+    A Hub that has returned to the address it uses without a switch keeps its
+    switch record, which still names the server it used before (see
+    :func:`previous_server_host`) and still pins its admin session, but it is no
+    longer switched.
+
+    Args:
+        network: The network.
+        record: Its switch record, if already read.
+    """
+    if record is None:
+        record = active_server_record(network)
+    host = str(record.get("server_host") or "").strip()
+    return bool(host) and host != unswitched_server_host(network)
+
+
 def previous_server_host(network) -> str:
     """Return the server this Hub used for a network before its recorded switch.
 
