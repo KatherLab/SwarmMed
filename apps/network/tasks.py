@@ -658,7 +658,9 @@ def _ensure_client_comm_config_portable(participant_path, logger=None):
     workspace = Path(participant_path)
     comm_cfg_paths = []
     local_comm_cfg = workspace / "local" / "comm_config.json"
-    if local_comm_cfg.exists():
+    # os.path, not pathlib: the Docker host's path may lie under a folder this
+    # process cannot enter (see failover.apply_flare_admin_timeout).
+    if os.path.isfile(local_comm_cfg):
         comm_cfg_paths.append(local_comm_cfg)
     flare_comm_cfg = _flare_config_file(workspace, "comm_config.json")
     if flare_comm_cfg is not None and flare_comm_cfg not in comm_cfg_paths:

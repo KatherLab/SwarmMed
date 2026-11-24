@@ -471,7 +471,7 @@ def apply_flare_admin_timeout(server_workspaces, logger=None) -> list[str]:
     Nothing is written when the variable is unset or invalid; an invalid value
     is logged as a warning. A path without a server kit is skipped, which
     leaves client workspaces alone, as well as a Docker host's path that does
-    not exist where the Hub runs.
+    not exist where the Hub runs, or that the Hub cannot read.
 
     Args:
         server_workspaces: The server's workspace as the Hub sees it and, if
@@ -486,7 +486,10 @@ def apply_flare_admin_timeout(server_workspaces, logger=None) -> list[str]:
         return []
     written = []
     for workspace in dict.fromkeys(Path(path).absolute() for path in server_workspaces):
-        if not (workspace / "startup" / "fed_server.json").is_file():
+        # os.path, not pathlib: Path.is_file() raises PermissionError (Python
+        # 3.12) for a path under a folder this process cannot enter, such as the
+        # Docker host's /root seen from the worker, which runs as appuser.
+        if not os.path.isfile(workspace / "startup" / "fed_server.json"):
             continue
         resources = workspace / "local" / "resources.json"
         try:
