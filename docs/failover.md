@@ -252,8 +252,8 @@ learn of the switch. When it comes back, its FL server's container stays
 stopped, because SwarmMed starts FL containers without a restart policy, and the
 sites stay with the standby. The Hub may still show the network and the
 interrupted job as running; `swarmed network status` shows the sites as
-offline. <!-- r106-check: client rows are read only from a running server container's log (StaleServerLogTests) --> Do not restart the server there. At that Hub, switch to the standby as the
-other sites did:
+offline. Do not restart the server there. At that Hub, switch to the standby as
+the other sites did:
 
 ```bash
 swarmed network failover <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --wait
@@ -266,12 +266,23 @@ network, if it has any, against the standby. Move the server back later, once th
 current run has finished or been stopped, as described next.
 
 While a Hub is switched to an FL server that another site started, `swarmed
-network start` does not start the Hub's own FL server: the network then shows
-`ERROR`, and the Hub's log says why. <!-- r106-check: server_start_refusal text, which names SWARMMEDHUB_CLIENT_ONLY_MODE and 'To return to the coordinating server later' in docs/failover.md; the network ends in ERROR ("Failed to start network: ...") --> With `--wait`, the command exits with
-code 2 and names the server the Hub is switched to. <!-- r106-check: the CLI's ERROR branch adds "This Hub is switched to the FL server at {host}; see 'When the Hub that ran the server comes back' in docs/failover.md." (StartRefusalCLITests::test_start_error_names_the_switch) --> To start
-only the Hub's FL clients while it is switched, set client-only mode for its
-Celery worker. The return below starts the server with `swarmed network failover
-... --start-server`.
+network start` does not start the Hub's own FL server, and outside client-only
+mode not its FL clients either: the network then shows `ERROR`. The network's
+log says why, names the server the Hub uses, and points to
+[Returning to the coordinating server](#returning-to-the-coordinating-server)
+for running the server at this Hub again. With `--wait`, the command exits with
+code 2; while the Hub is switched, its message also names that server, as a
+possible cause, and points to this section. To start only the Hub's FL clients
+while it is switched, set client-only mode for its Celery worker. The return
+below starts the server with `swarmed network failover ... --start-server`.
+
+At a Hub whose own FL clients still run, such as a coordinating Hub that also
+trains, a refused start sets `ERROR` too, although the clients keep training.
+The Hub then no longer discovers new jobs of the network and refuses `swarmed
+training start` and `swarmed training resume`. Once the run has finished, not
+during it, switch that Hub to the standby again with the command above: this
+restarts the Hub's FL clients, which during the run would stop the run, and sets
+the network to `RUNNING`.
 
 ### Returning to the coordinating server
 
@@ -286,7 +297,7 @@ or been stopped:
    without `--start-server`.
 
 Afterwards every Hub shows `switched` as `false` in `swarmed network status`,
-because it uses the network's own server address again. <!-- r106-check: only if it landed (a should-item: is_switched in describe_server_switch, ServerSwitchStatusTests::test_after_a_return_not_switched_but_record_kept); if not, replace this sentence with "swarmed network status still shows switched as true afterwards, because the record stays." --> The record stays in
+because it uses the network's own server address again. The record stays in
 `prod_00/.active_server.json`: it still names the server the Hub used before,
 which `swarmed training resume` also asks, and it still takes precedence over
 `SWARMMEDHUB_SERVER_HOST`. To use another address, switch again with `swarmed
