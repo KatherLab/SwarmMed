@@ -239,6 +239,36 @@ class TrainingIdentityServiceTests(TestCase):
             1,
         )
 
+    def test_a_record_created_meanwhile_by_another_process_is_returned(self):
+        # The job monitor, the Training page and the CLI can all record a job.
+        flare_uuid = "88888888-8888-8888-8888-888888888888"
+        recorded_meanwhile = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=flare_uuid,
+            flare_job_uuid=flare_uuid,
+        )
+        select_related = TrainingJob.objects.select_related
+
+        def lookup_before_the_other_process(*fields):
+            return select_related(*fields).exclude(pk=recorded_meanwhile.pk)
+
+        with patch.object(
+            TrainingJob.objects,
+            "select_related",
+            side_effect=lookup_before_the_other_process,
+        ):
+            job, created = training_services.ensure_training_job(
+                network=self.network, flare_job_id=flare_uuid, status="FAILED"
+            )
+
+        self.assertFalse(created)
+        self.assertEqual(job.id, recorded_meanwhile.id)
+        self.assertEqual(
+            TrainingJob.objects.filter(flare_job_uuid=flare_uuid).count(), 1
+        )
+
     def test_persist_training_job_state_preserves_stopped_progress(self):
         job = TrainingJob.objects.create(
             project=self.project,

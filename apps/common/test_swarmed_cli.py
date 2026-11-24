@@ -72,6 +72,26 @@ class CLIParserTests(SimpleTestCase):
         self.assertTrue(args.no_local_client)
         self.assertEqual(args.handler, "network_create")
 
+    def _help(self, *command) -> str:
+        stdout = StringIO()
+        with redirect_stdout(stdout), self.assertRaises(SystemExit):
+            build_parser().parse_args([*command, "--help"])
+        return " ".join(stdout.getvalue().split())
+
+    def test_resume_and_checkpoints_help_name_the_flare_job_id(self):
+        for command in ("checkpoints", "resume"):
+            with self.subTest(command=command):
+                self.assertIn(
+                    "The interrupted job: its FLARE job ID, which is the same at "
+                    "every site, or this Hub's record of it",
+                    self._help("training", command),
+                )
+        self.assertIn(
+            "Rounds of the whole run. Default: the total recorded in the job at "
+            "this site or in its checkpoint",
+            self._help("training", "resume"),
+        )
+
     def test_main_returns_usage_code_for_invalid_command(self):
         stream = StringIO()
         with redirect_stdout(stream), redirect_stderr(stream):

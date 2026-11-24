@@ -9,18 +9,21 @@ import math
 import os
 import re
 import shutil
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 from common.utils import get_safe_slug
 from logs.logger import get_logger
 from network.failover import flare_admin_timeout_from_env, previous_server_host
 from network.models import SwarmNetwork
+from project.services import require_project_access, user_can_access_project
 from results.artifacts import (
     GLOBAL_MODEL_FILENAME_CANDIDATES,
     is_model_artifact,
@@ -28,11 +31,16 @@ from results.artifacts import (
 
 from .models import TrainingJob
 from .resume import (
+    FLARE_JOB_ID_RE,
+    JOB_ID_PREFIX_RE,
     ResumeCheckpoint,
     ResumePlan,
     add_resume_checkpoint_component,
+    checkpoint_metadata,
     describe_given_checkpoint,
     find_resume_checkpoints,
+    job_folders,
+    newest_round_start_job,
     read_run_plan,
     resume_checkpoints_enabled,
     ship_resume_checkpoint,
@@ -267,9 +275,11 @@ def list_training_jobs(*, project=None, network=None):
 
 
 def _matching_jobs(queryset, identifier: str):
-    condition = models.Q(identifier=identifier) | models.Q(
-        flare_job_id__icontains=identifier
-    )
+    condition = models.Q(flare_job_id__icontains=identifier)
+    # A record's own identifier is a UUID; anything else, such as the start of a
+    # FLARE job ID, would make the database lookup fail.
+    with contextlib.suppress(ValueError, TypeError, AttributeError):
+        condition |= models.Q(identifier=uuid.UUID(str(identifier)))
     flare_job_uuid = extract_flare_job_uuid(identifier) or (
         identifier if re.fullmatch(r"[0-9a-fA-F-]{36}", str(identifier or "")) else None
     )
@@ -298,14 +308,24 @@ def ensure_training_job(
 
     created = False
     if not job:
-        job = TrainingJob.objects.create(
-            project=network.project,
-            network=network,
-            status=status,
-            flare_job_id=flare_job_id,
-            flare_job_uuid=flare_job_uuid,
-        )
-        created = True
+        try:
+            with transaction.atomic():
+                job = TrainingJob.objects.create(
+                    project=network.project,
+                    network=network,
+                    status=status,
+                    flare_job_id=flare_job_id,
+                    flare_job_uuid=flare_job_uuid,
+                )
+            created = True
+        except IntegrityError:
+            # The job monitor, the Training page or a command recorded the job
+            # since the lookup above; there is one row per network and job.
+            if not flare_job_uuid:
+                raise
+            job = TrainingJob.objects.get(
+                network=network, flare_job_uuid=flare_job_uuid
+            )
     else:
         update_fields = []
         if flare_job_uuid and job.flare_job_uuid != flare_job_uuid:
@@ -1336,14 +1356,210 @@ def _flare_uuid_of(job: TrainingJob) -> str:
     )
 
 
-def list_resume_checkpoints(job: TrainingJob) -> list[dict]:
+def list_resume_checkpoints(network: SwarmNetwork, flare_uuid: str) -> list[dict]:
     """Return the checkpoints of a job at this site, newest round first."""
     return [
         checkpoint.as_dict()
         for checkpoint in find_resume_checkpoints(
-            _network_workspace_root(job.network), _flare_uuid_of(job)
+            _network_workspace_root(network), flare_uuid
         )
     ]
+
+
+@dataclass
+class InterruptedJob:
+    """A job that 'swarmed training resume' or 'training checkpoints' is about."""
+
+    network: SwarmNetwork
+    flare_uuid: str
+    # This Hub's record of the job, if it has one.
+    record: TrainingJob | None
+    # How the job was found: "record", "job folder", "checkpoint" or
+    # "newest checkpoint".
+    found_by: str
+
+
+def _accessible_networks(user):
+    """Return the networks of the projects that the user can access."""
+    return (
+        SwarmNetwork.objects.filter(
+            models.Q(project__author=user) | models.Q(project__members=user)
+        )
+        .select_related("project")
+        .distinct()
+        .order_by("created_at", "id")
+    )
+
+
+def _accessible_record(user, identifier: str, network) -> TrainingJob | None:
+    """Return this Hub's record of a job as the CLI found it before 1.0.6."""
+    try:
+        record = get_training_job(network=network, identifier=identifier)
+    except LookupError:
+        return None
+    return record if user_can_access_project(user, record.project) else None
+
+
+def _job_of_checkpoint_path(path: Path) -> str:
+    """Return the job in a checkpoint's path, ``<job>/app_<site>/<file>``, or ""."""
+    job = path.parent.parent.name
+    if path.parent.name.startswith("app_") and FLARE_JOB_ID_RE.fullmatch(job):
+        return job
+    return ""
+
+
+def _network_of_checkpoint_path(path: Path) -> str:
+    """Return the network of a path in a network's workspace at a Hub, or ""."""
+    parts = path.parts
+    for index in range(len(parts) - 3):
+        if parts[index] == "workspaces" and parts[index + 3] == "workspace":
+            if FLARE_JOB_ID_RE.fullmatch(parts[index + 2]):
+                return parts[index + 2]
+    return ""
+
+
+def locate_interrupted_job(
+    *,
+    user,
+    identifier: str | None = None,
+    network: SwarmNetwork | None = None,
+    checkpoint_path: str | None = None,
+) -> InterruptedJob:
+    """Find the job that 'training resume' or 'training checkpoints' is about.
+
+    The job is found by this Hub's record of it, as before SwarmMed 1.0.6;
+    else by its FLARE job ID, or the first 8 or more characters of it, through
+    the job's folders in the network's workspace; else by the job that the
+    given checkpoint names. Without a job, it is the job of the newest
+    round-start checkpoint at this site, unless the network's latest record
+    names another job. None of this needs a record, so a site whose job monitor
+    never saw the job, such as the standby after a switch, finds it on its disk.
+
+    Args:
+        user: The acting user. Only networks of projects the user can access
+            are searched.
+        identifier: The FLARE job ID, a prefix of it, or a record's identifier.
+        network: The network, if one was named or is current.
+        checkpoint_path: The checkpoint to resume from, if one was named. It
+            must belong to the job and the network.
+
+    Returns:
+        InterruptedJob: The network, the FLARE job ID, the record if there is
+        one, and how the job was found.
+
+    Raises:
+        LookupError: If no job or no network is found, or several match.
+        ValueError: If the checkpoint belongs to another job or network.
+    """
+    checkpoint = Path(checkpoint_path).expanduser() if checkpoint_path else None
+    checkpoint_job = checkpoint_network = ""
+    if checkpoint is not None:
+        metadata = checkpoint_metadata(checkpoint)
+        checkpoint_job = metadata.get("job_id") or _job_of_checkpoint_path(checkpoint)
+        checkpoint_network = metadata.get("network") or _network_of_checkpoint_path(
+            checkpoint.resolve()
+        )
+
+    record = None
+    if identifier:
+        # A record wins, as before.
+        record = _accessible_record(user, identifier, network)
+        candidate = identifier.strip().lower()
+        if record is None and not JOB_ID_PREFIX_RE.fullmatch(candidate):
+            raise LookupError(f"Training job '{identifier}' was not found.")
+        if record is not None:
+            flare_uuid, found_by = _flare_uuid_of(record), "record"
+        else:
+            flare_uuid, found_by = candidate, "job folder"
+    elif checkpoint_job:
+        flare_uuid, found_by = checkpoint_job, "checkpoint"
+    else:
+        if network is None:
+            raise LookupError(
+                "No current network is selected. Use `swarmed network use "
+                "<NETWORK_UUID>` or pass --network."
+            )
+        require_project_access(user, network.project)
+        newest = newest_round_start_job(_network_workspace_root(network))
+        latest = get_latest_training_job(network)
+        latest_uuid = _flare_uuid_of(latest).lower() if latest else ""
+        if not FLARE_JOB_ID_RE.fullmatch(latest_uuid):
+            latest_uuid = ""  # a record of a submission that failed names no job
+        if newest and latest_uuid and newest != latest_uuid:
+            raise LookupError(
+                f"Name the job to resume: the latest job of network "
+                f"{network.identifier} at this Hub is {latest_uuid}, but the "
+                f"newest round-start checkpoint here belongs to job {newest}."
+            )
+        flare_uuid = newest or latest_uuid
+        if not flare_uuid:
+            raise LookupError("No training job was found in the current context.")
+        found_by = "record" if flare_uuid == latest_uuid else "newest checkpoint"
+        record = latest if found_by == "record" else None
+
+    if network is None and record is not None:
+        network = record.network
+    if network is None and checkpoint_network:
+        network = (
+            _accessible_networks(user).filter(identifier=checkpoint_network).first()
+        )
+    if network is None:
+        # The one network of the user's projects that holds the job's folders.
+        candidates = [
+            item
+            for item in _accessible_networks(user)
+            if job_folders(_network_workspace_root(item), flare_uuid)
+        ]
+        if len(candidates) > 1:
+            raise LookupError(
+                f"Job '{identifier or flare_uuid}' has folders in several networks "
+                f"here ({', '.join(str(item.identifier) for item in candidates)}); "
+                "pass --network."
+            )
+        if not candidates:
+            message = f"Training job '{identifier or flare_uuid}' was not found."
+            if checkpoint is not None:
+                message += " Pass --network to resume it from the checkpoint."
+            raise LookupError(message)
+        network = candidates[0]
+    require_project_access(user, network.project)
+
+    if record is None and found_by == "job folder":
+        names = sorted(
+            {
+                folder.name
+                for folder in job_folders(_network_workspace_root(network), flare_uuid)
+            }
+        )
+        if len(names) > 1:
+            raise LookupError(
+                f"Several jobs start with '{identifier}' ({', '.join(names)}); "
+                "give more of the FLARE job ID."
+            )
+        if names:
+            flare_uuid = names[0]
+        elif checkpoint is not None and FLARE_JOB_ID_RE.fullmatch(flare_uuid):
+            found_by = "checkpoint"  # no folder of the job here, as with a copy
+        else:
+            raise LookupError(f"Training job '{identifier}' was not found.")
+
+    if checkpoint_job and checkpoint_job != flare_uuid.lower():
+        raise ValueError(
+            f"The checkpoint {checkpoint_path} belongs to job {checkpoint_job}, "
+            f"not to job {flare_uuid}."
+        )
+    if checkpoint_network and checkpoint_network != str(network.identifier):
+        raise ValueError(
+            f"The checkpoint {checkpoint_path} belongs to network "
+            f"{checkpoint_network}, not to {network.identifier}."
+        )
+    if record is None:
+        record = TrainingJob.objects.filter(
+            network=network, flare_job_uuid=flare_uuid
+        ).first()
+    return InterruptedJob(
+        network=network, flare_uuid=flare_uuid, record=record, found_by=found_by
+    )
 
 
 def resolve_run_total(
@@ -1453,7 +1669,9 @@ def _listed_flare_jobs(reply) -> tuple[list | None, str]:
     return None, _short_reason("; ".join(texts) or "no reason given")
 
 
-def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str = ""):
+def _job_active_on_server(
+    network: SwarmNetwork, job: TrainingJob | str, *, host: str = ""
+):
     """Ask an FL server whether it still runs a job.
 
     The admin session gets :func:`flare_connect_timeout` seconds to log in, as
@@ -1461,7 +1679,7 @@ def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str 
 
     Args:
         network: The job's network.
-        job: The job.
+        job: The job, or its FLARE job ID.
         host: Ask the server at this address and no other. By default the
             network's current server is asked, at the addresses the Hub's admin
             session uses.
@@ -1486,7 +1704,7 @@ def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str 
         )
     except Exception as exc:
         return None, _short_reason(exc)
-    flare_uuid = _flare_uuid_of(job)
+    flare_uuid = job if isinstance(job, str) else _flare_uuid_of(job)
     try:
         # FLARE's admin API gives each command 5 s unless told otherwise.
         with contextlib.suppress(Exception):
@@ -1515,7 +1733,7 @@ def _job_active_on_server(network: SwarmNetwork, job: TrainingJob, *, host: str 
     return False, ""
 
 
-def _check_no_server_runs_job(network: SwarmNetwork, job: TrainingJob) -> list[str]:
+def _check_no_server_runs_job(network: SwarmNetwork, flare_uuid: str) -> list[str]:
     """Refuse to resume a job that an FL server may still run.
 
     The network's current server is asked first. After a server switch the
@@ -1530,8 +1748,7 @@ def _check_no_server_runs_job(network: SwarmNetwork, job: TrainingJob) -> list[s
         ValueError: If a server still runs the job, or the current server
             cannot be asked.
     """
-    flare_uuid = _flare_uuid_of(job)
-    active, reason = _job_active_on_server(network, job)
+    active, reason = _job_active_on_server(network, flare_uuid)
     if active is None:
         raise ValueError(
             f"Could not ask the network's FL server whether job {flare_uuid} is "
@@ -1549,7 +1766,7 @@ def _check_no_server_runs_job(network: SwarmNetwork, job: TrainingJob) -> list[s
     previous_host = previous_server_host(network)
     if not previous_host:
         return []
-    active, reason = _job_active_on_server(network, job, host=previous_host)
+    active, reason = _job_active_on_server(network, flare_uuid, host=previous_host)
     if active:
         raise ValueError(
             f"Job {flare_uuid} is still active on the FL server at {previous_host}, "
@@ -1592,6 +1809,7 @@ def resume_training_job(
     actor,
     network: SwarmNetwork,
     from_job: TrainingJob | None = None,
+    flare_job_uuid: str = "",
     checkpoint_path: str | None = None,
     start_round: int | None = None,
     total_rounds: int | None = None,
@@ -1610,10 +1828,17 @@ def resume_training_job(
     server switch also the server this Hub used before, whether the job still
     runs there (see :func:`_check_no_server_runs_job`).
 
+    The interrupted job needs no record at this Hub (see
+    :func:`locate_interrupted_job`): a Hub without one records it as failed
+    once these checks have passed, before it submits the new job.
+
     Args:
         actor: The user submitting the job.
         network: The network, already switched to a working FL server.
-        from_job: The interrupted job; defaults to the network's latest job.
+        from_job: This Hub's record of the interrupted job. Without it and
+            ``flare_job_uuid``, the network's latest job.
+        flare_job_uuid: The FLARE job ID of an interrupted job that this Hub
+            has no record of.
         checkpoint_path: A model file to start from instead of the newest one
             found at this site.
         start_round: The round to start at; required when the checkpoint's
@@ -1630,12 +1855,15 @@ def resume_training_job(
         TrainingJob: The new job. The interrupted job is marked FAILED unless it
         has already ended.
     """
-    from_job = from_job or get_latest_training_job(network)
-    if from_job is None:
-        raise LookupError(f"Network '{network.name}' has no training job to resume.")
-    if from_job.network_id != network.id:
+    if from_job is None and not flare_job_uuid:
+        from_job = get_latest_training_job(network)
+        if from_job is None:
+            raise LookupError(
+                f"Network '{network.name}' has no training job to resume."
+            )
+    if from_job is not None and from_job.network_id != network.id:
         raise ValueError("The job to resume belongs to another network.")
-    flare_uuid = _flare_uuid_of(from_job)
+    flare_uuid = _flare_uuid_of(from_job) if from_job is not None else flare_job_uuid
 
     if checkpoint_path:
         checkpoint = describe_given_checkpoint(checkpoint_path, start_round)
@@ -1650,6 +1878,16 @@ def resume_training_job(
         checkpoint = candidates[0]
         if start_round is not None:
             checkpoint.next_round = start_round
+    if checkpoint.job_id and checkpoint.job_id != flare_uuid.lower():
+        raise ValueError(
+            f"The checkpoint {checkpoint.path} belongs to job {checkpoint.job_id}, "
+            f"not to job {flare_uuid}."
+        )
+    if checkpoint.network and checkpoint.network != str(network.identifier):
+        raise ValueError(
+            f"The checkpoint {checkpoint.path} belongs to network "
+            f"{checkpoint.network}, not to {network.identifier}."
+        )
     if checkpoint.next_round is None:
         raise ValueError(
             f"The round that {checkpoint.path} belongs to is unknown; pass --start-round."
@@ -1683,7 +1921,28 @@ def resume_training_job(
             "training."
         )
     if not force:
-        for warning in _check_no_server_runs_job(network, from_job):
+        for warning in _check_no_server_runs_job(network, flare_uuid):
+            log.training.warning(warning)
+            if warnings is not None:
+                warnings.append(warning)
+    if from_job is None:
+        # Recorded only now, so that a refused resume writes nothing: as failed,
+        # the state of an interrupted job, and as the job the new one resumes.
+        from_job, created = ensure_training_job(
+            network=network, flare_job_id=flare_uuid, status="FAILED"
+        )
+        if created or from_job.status not in TERMINAL_TRAINING_STATUSES:
+            persist_training_job_state(
+                from_job,
+                status="FAILED",
+                total_rounds=total,
+                completed_at=timezone.now(),
+            )
+        if created:
+            warning = (
+                f"This Hub had no record of job {flare_uuid}; it has recorded the "
+                "job as failed."
+            )
             log.training.warning(warning)
             if warnings is not None:
                 warnings.append(warning)

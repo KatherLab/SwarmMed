@@ -22,6 +22,7 @@ copy it, so that a site that did not run the FL server knows the run's total.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -45,12 +46,14 @@ RESUME_RECORD_FILE = "swarmmed_resume.json"
 SERVER_CONFIG_FILE = "config_fed_server.json"
 RUN_FILE_FORMAT = 1
 
-# A FLARE job ID as FLARE writes it, and what a job may be named by: its ID or a
-# prefix of at least 8 characters. Nothing else is looked up on disk.
+# A FLARE job ID as FLARE writes it (a network's identifier has the same form),
+# and what a job may be named by: its ID or a prefix of at least 8 characters.
+# Nothing else is looked up on disk.
 FLARE_JOB_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 JOB_ID_PREFIX_RE = re.compile(r"^[0-9a-f][0-9a-f-]{7,35}$")
+_SITE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$")
 
 # Logged by FLARE's swarm client controller when a site writes FL_global_model.pt:
 # as the round's aggregator, and when it receives the run's final model.
@@ -87,6 +90,11 @@ class ResumeCheckpoint:
     # Rounds of the whole run, named by the round-start checkpoints of jobs
     # submitted by SwarmMed 1.0.6 or later.
     total_rounds: int | None = None
+    # The FLARE job the checkpoint belongs to, from its metadata or its folder.
+    job_id: str = ""
+    # The network, named by the round-start checkpoints of jobs submitted by
+    # SwarmMed 1.0.6 or later.
+    network: str = ""
 
     def as_dict(self) -> dict:
         """Return the checkpoint as a plain dict, for CLI output and records."""
@@ -253,6 +261,109 @@ def _round_count(value) -> int | None:
     return None
 
 
+def _valid_metadata(raw) -> dict:
+    """Keep the known keys of round-start metadata whose values are valid."""
+    if not isinstance(raw, dict):
+        return {}
+    metadata = {}
+    for key in ("job_id", "network"):
+        value = raw.get(key)
+        if isinstance(value, str) and FLARE_JOB_ID_RE.fullmatch(value):
+            metadata[key] = value
+    for key in ("next_round", "start_round"):
+        value = raw.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            metadata[key] = value
+    total_rounds = _round_count(raw.get("total_rounds"))
+    if total_rounds:
+        metadata["total_rounds"] = total_rounds
+    site = raw.get("site")
+    if isinstance(site, str) and _SITE_NAME_RE.fullmatch(site):
+        metadata["site"] = site
+    if raw.get("weights_format") in ("torch", "numpy"):
+        metadata["weights_format"] = raw["weights_format"]
+    saved_at = raw.get("saved_at")
+    if (
+        isinstance(saved_at, (int, float))
+        and not isinstance(saved_at, bool)
+        and math.isfinite(saved_at)
+    ):
+        metadata["saved_at"] = float(saved_at)
+    return metadata
+
+
+def checkpoint_metadata(path) -> dict:
+    """Return the round-start metadata of a checkpoint file.
+
+    The saver inside a job writes it twice: into ``swarmmed_resume_checkpoint.json``
+    next to ``swarmmed_resume_checkpoint.pt``, and into the ``.pt`` itself
+    (SwarmMed 1.0.3 and later). The JSON is read for a file of that name; for
+    any other file, such as a copy, or without the JSON, the ``.pt`` is loaded
+    with ``weights_only=True``.
+
+    Code in the FL client containers can write both, so only these keys are
+    kept, and only with a valid value: ``job_id`` and ``network`` (UUIDs as
+    FLARE and SwarmMed write them), ``next_round`` and ``start_round`` (ints >=
+    0), ``total_rounds`` (an int > 0), ``site`` (a plain name),
+    ``weights_format`` and ``saved_at``.
+
+    Returns:
+        dict: The metadata; empty if the file has none.
+    """
+    path = Path(path)
+    if path.name == CHECKPOINT_FILE:
+        metadata = _read_metadata(path.parent)
+        if metadata:
+            return _valid_metadata(metadata)
+    try:
+        import torch
+
+        data = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception:  # not a checkpoint of plain tensors, or not readable
+        return {}
+    return _valid_metadata(data.get(METADATA_KEY) if isinstance(data, dict) else None)
+
+
+def _job_of_app_dir(app_dir: Path) -> str:
+    """Return the FLARE job of a job's app folder, ``<job>/app_<site>``, or ""."""
+    job = app_dir.parent.name
+    return job if FLARE_JOB_ID_RE.fullmatch(job) else ""
+
+
+def newest_round_start_job(workspace_root) -> str:
+    """Return the job of the round-start checkpoint that was saved last here.
+
+    Looks at the round-start checkpoints in the jobs' folders of the network's
+    workspace (see :func:`job_folders`) and takes the one whose ``saved_at`` is
+    the latest, else whose file changed last.
+
+    Args:
+        workspace_root: The network's ``workspace`` folder at this Hub.
+
+    Returns:
+        str: The FLARE job ID, or "" if there is no round-start checkpoint.
+    """
+    root = Path(workspace_root)
+    newest_job, newest_time = "", None
+    for pattern in (
+        f"*/prod_00/*/*/app_*/{CHECKPOINT_FILE}",
+        f"*/prod_00/*/app_*/{CHECKPOINT_FILE}",
+    ):
+        for path in root.glob(pattern):
+            job = _job_of_app_dir(path.parent)
+            if not job:
+                continue
+            saved_at = _valid_metadata(_read_metadata(path.parent)).get("saved_at")
+            if saved_at is None:
+                try:
+                    saved_at = path.stat().st_mtime
+                except OSError:
+                    continue
+            if newest_time is None or saved_at > newest_time:
+                newest_job, newest_time = job, saved_at
+    return newest_job
+
+
 def find_resume_checkpoints(
     workspace_root, flare_job_uuid: str
 ) -> list[ResumeCheckpoint]:
@@ -278,17 +389,18 @@ def find_resume_checkpoints(
             continue
         app_dir = Path(current)
         if CHECKPOINT_FILE in files:
-            metadata = _read_metadata(app_dir)
-            next_round = metadata.get("next_round")
+            metadata = checkpoint_metadata(app_dir / CHECKPOINT_FILE)
             found.append(
                 ResumeCheckpoint(
                     path=str(app_dir / CHECKPOINT_FILE),
-                    next_round=int(next_round) if isinstance(next_round, int) else None,
-                    site=str(metadata.get("site") or _site_from_app_dir(app_dir)),
+                    next_round=metadata.get("next_round"),
+                    site=metadata.get("site") or _site_from_app_dir(app_dir),
                     source=SOURCE_ROUND_START,
-                    weights_format=str(metadata.get("weights_format") or "torch"),
+                    weights_format=metadata.get("weights_format", "torch"),
                     modified_at=(app_dir / CHECKPOINT_FILE).stat().st_mtime,
-                    total_rounds=_round_count(metadata.get("total_rounds")),
+                    total_rounds=metadata.get("total_rounds"),
+                    job_id=metadata.get("job_id") or _job_of_app_dir(app_dir),
+                    network=metadata.get("network", ""),
                 )
             )
         if GLOBAL_MODEL_FILE in files:
@@ -300,6 +412,7 @@ def find_resume_checkpoints(
                     site=_site_from_app_dir(app_dir),
                     source=SOURCE_GLOBAL_MODEL,
                     modified_at=(app_dir / GLOBAL_MODEL_FILE).stat().st_mtime,
+                    job_id=_job_of_app_dir(app_dir),
                 )
             )
 
@@ -315,24 +428,29 @@ def find_resume_checkpoints(
 
 
 def describe_given_checkpoint(path: str, start_round: int | None) -> ResumeCheckpoint:
-    """Build a :class:`ResumeCheckpoint` for a file named by the operator."""
+    """Build a :class:`ResumeCheckpoint` for a file named by the operator.
+
+    A round-start checkpoint names its job, round and site, also as a copy
+    under another name (see :func:`checkpoint_metadata`); a job of SwarmMed
+    1.0.6 or later also names the run's total and the network.
+    """
     checkpoint = Path(path).expanduser().resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
-    metadata = (
-        _read_metadata(checkpoint.parent) if checkpoint.name == CHECKPOINT_FILE else {}
-    )
+    metadata = checkpoint_metadata(checkpoint)
     next_round = start_round
-    if next_round is None and isinstance(metadata.get("next_round"), int):
-        next_round = metadata["next_round"]
+    if next_round is None:
+        next_round = metadata.get("next_round")
     return ResumeCheckpoint(
         path=str(checkpoint),
         next_round=next_round,
-        site=str(metadata.get("site") or ""),
+        site=metadata.get("site", ""),
         source=SOURCE_GIVEN,
-        weights_format=str(metadata.get("weights_format") or "torch"),
+        weights_format=metadata.get("weights_format", "torch"),
         modified_at=checkpoint.stat().st_mtime,
-        total_rounds=_round_count(metadata.get("total_rounds")),
+        total_rounds=metadata.get("total_rounds"),
+        job_id=metadata.get("job_id", ""),
+        network=metadata.get("network", ""),
     )
 
 
