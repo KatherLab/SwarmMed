@@ -23,6 +23,7 @@ from common.utils import get_safe_slug
 from logs.logger import get_logger
 from network.failover import flare_admin_timeout_from_env, previous_server_host
 from network.models import SwarmNetwork
+from network.utils import ensure_worker_writable
 from project.services import require_project_access, user_can_access_project
 from results.artifacts import (
     GLOBAL_MODEL_FILENAME_CANDIDATES,
@@ -797,6 +798,17 @@ def _resolve_swarm_rounds(training_py_path: str, log) -> int:
     return swarm_rounds
 
 
+def _job_dir(network: SwarmNetwork) -> str:
+    """The folder in which this Hub assembles the network's jobs."""
+    return os.path.join(
+        settings.BASE_DIR,
+        "workspaces",
+        str(network.project.identifier),
+        str(network.identifier),
+        "job",
+    )
+
+
 def submit_training_job(
     *, actor, network: SwarmNetwork, resume: ResumePlan | None = None
 ) -> TrainingJob:
@@ -809,6 +821,21 @@ def submit_training_job(
             ``resume.start_round`` from ``resume.checkpoint`` and runs the
             rounds left of ``resume.total_rounds``. See :func:`resume_training_job`.
     """
+    try:
+        return _submit_training_job(actor=actor, network=network, resume=resume)
+    finally:
+        # The documented CLI runs as root in the app container; the web interface
+        # and the Celery worker run as appuser and write the network's next job
+        # into the same folder. Hand them what this submission wrote, also when
+        # it failed; a folder that cannot be reached must not fail a submission.
+        with contextlib.suppress(OSError):
+            ensure_worker_writable(_job_dir(network))
+
+
+def _submit_training_job(
+    *, actor, network: SwarmNetwork, resume: ResumePlan | None = None
+) -> TrainingJob:
+    """Assemble and submit the job; see :func:`submit_training_job`."""
     if network.status != "RUNNING":
         raise ValueError(
             f"Network '{network.name}' is not running. Start the network before training."
@@ -816,13 +843,7 @@ def submit_training_job(
 
     project = network.project
     log = get_logger(user=actor, project=project)
-    job_dir = os.path.join(
-        settings.BASE_DIR,
-        "workspaces",
-        str(project.identifier),
-        str(network.identifier),
-        "job",
-    )
+    job_dir = _job_dir(network)
     project_name = get_safe_slug(project.title, project.identifier).replace(
         "-", "_"
     )
@@ -1855,6 +1876,8 @@ def _append_resume_record(network: SwarmNetwork, record: dict) -> None:
     records.append(record)
     record_path.parent.mkdir(parents=True, exist_ok=True)
     record_path.write_text(json.dumps(records, indent=2))
+    # Written after the job's submission, which handed the rest to the worker.
+    ensure_worker_writable(record_path)
 
 
 def resume_training_job(

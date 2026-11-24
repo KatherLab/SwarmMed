@@ -22,6 +22,7 @@ from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase, override_settings
 from swarmed_cli.main import main
 
+from network import utils as network_utils
 from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project
 
@@ -792,6 +793,38 @@ class SubmitHarness:
         args = json.loads(config.read_text())["workflows"][0]["args"]
         return args.get("start_round", 0), args["num_rounds"]
 
+    @contextlib.contextmanager
+    def as_root(self):
+        """Run as the documented CLI does, as root in the app container.
+
+        Yields a recorder of ``os.chown``: what is handed to the worker's user
+        (uid and gid 4242 here, appuser in a container).
+        """
+        with (
+            patch.object(os, "geteuid", return_value=0),
+            patch.object(os, "chown") as chown,
+            patch.object(
+                network_utils, "_runtime_service_identity", return_value=(4242, 4242)
+            ),
+        ):
+            yield chown
+
+    def assert_left_to_the_worker(self, chown, folder: Path, *, including: str):
+        """Assert that the folder and everything in it was handed to the worker."""
+        handed = {
+            Path(call.args[0])
+            for call in chown.call_args_list
+            if call.args[1:] == (4242, 4242)
+            and call.kwargs == {"follow_symlinks": False}
+        }
+        everything = {folder}
+        for current, dirs, files in os.walk(folder):
+            everything.update(Path(current, name) for name in (*dirs, *files))
+        self.assertIn(folder / including, everything)
+        self.assertEqual(
+            sorted(str(path.relative_to(folder)) for path in everything - handed), []
+        )
+
 
 class SubmitWithResumeTests(SubmitHarness, TestCase):
     def _configs(self, job: Path):
@@ -1060,6 +1093,33 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
         self.assertEqual(self.submitted, [])
         self.assertEqual(TrainingJob.objects.count(), 0)
 
+    def test_a_job_submitted_as_root_leaves_its_folder_to_the_worker(self):
+        # The web interface and the worker, which run as appuser, write the
+        # network's next job into the same folder.
+        with self.as_root() as chown:
+            training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assert_left_to_the_worker(
+            chown, self.network_dir / "job", including="generated"
+        )
+
+    def test_a_failed_submission_still_leaves_the_folder_to_the_worker(self):
+        self.session.submit_job.side_effect = RuntimeError("submission refused")
+
+        with (
+            self.as_root() as chown,
+            self.assertRaisesMessage(RuntimeError, "submission refused"),
+        ):
+            training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assert_left_to_the_worker(
+            chown, self.network_dir / "job", including="app_client/custom"
+        )
+
 
 class ServerRouting:
     """Routes the admin sessions of a resume: the current server is the harness's
@@ -1175,6 +1235,18 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
         )
         self.assertEqual(records[0]["from_flare_job"], self.old_uuid)
         self.assertEqual(records[0]["checkpoint"]["site"], "node-B")
+
+    def test_a_resume_run_as_root_leaves_the_job_folder_to_the_worker(self):
+        self._checkpoint_at("node-A", 3)
+
+        with self.as_root() as chown:
+            training_services.resume_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assert_left_to_the_worker(
+            chown, self.network_dir / "job", including="resumed_jobs.json"
+        )
 
     def test_an_interrupted_job_that_has_ended_keeps_its_status(self):
         self._checkpoint_at("node-A", 2)
