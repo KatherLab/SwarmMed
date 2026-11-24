@@ -315,10 +315,14 @@ docker exec -w /app swarmmedhub python3 -m swarmed_cli.main network create \
 
 Each participant also needs an IPv4 address of its own (`--participant NAME=IPv4`).
 It does not have to be public or reachable from other sites, but it must stay
-assigned to that site's host for the study: it is written into the site's kit,
-the FL client's job processes connect to their parent process at that address,
-and other Hubs use it to reach that site's Hub. A participant entered without a
-valid IPv4 address gets no startup kit; provisioning only logs a warning.
+assigned to that site's host for the study: it is written into the startup
+package, other Hubs use it to reach that site's Hub, and the site's Hub
+recognises its own site by it for the status exchange between Hubs and, without
+`SWARMMEDHUB_LOCAL_PARTICIPANT`, to pick the site's kit
+([How a Hub knows which site it is](#how-a-hub-knows-which-site-it-is)). FLARE
+itself does not use it: the FL client's job processes reach their parent process
+at `localhost`. A participant entered without a valid IPv4 address gets no
+startup kit; provisioning only logs a warning.
 
 ### The overlay helper and the Hub
 

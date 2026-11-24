@@ -45,12 +45,14 @@ See [CLI](cli.md).
    metadata in `client_ip` / `.client_ip_map.json` rather than NVFlare's
    relay-oriented `listening_host` property, and automatically normalizes any
    legacy `local/comm_config.json` internal listener host to `localhost`. Because
-   each client's internal parent-to-subprocess listener binds to container
-   loopback (`localhost`) and all client-to-server FLARE traffic uses outbound
-   gRPC connections, FL client containers work in both `--network host` mode
-   (default on native Linux) and standard Docker bridge mode (auto-selected on
-   macOS and Windows Docker Desktop, or selectable on Linux via
-   `SWARMMEDHUB_CLIENT_HOST_NETWORK=false`).
+   each client's job processes reach their parent process at `localhost`, and
+   all client-to-server FLARE traffic uses outbound gRPC connections, FL client
+   containers work in both `--network host` mode (default on native Linux) and
+   standard Docker bridge mode (auto-selected on macOS and Windows Docker
+   Desktop, or selectable on Linux via `SWARMMEDHUB_CLIENT_HOST_NETWORK=false`).
+   The parent's listener accepts connections on all IPv4 addresses of the
+   container, which in host mode are the host's
+   ([Networking](networking.md#listening-ports-by-host-role)).
 
 The Docker-in-Docker sandbox, in which site validation, visualisation and
 explainability scripts run, needs a privileged container on a Linux kernel, which

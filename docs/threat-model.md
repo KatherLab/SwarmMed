@@ -117,13 +117,17 @@ participants as offline.
   certificate and verifies the peer's, so a host without a startup kit cannot join.
   Who holds which kit is the subject of
   [Key custody](#key-custody-what-the-startup-package-contains) below.
-* **Plain TCP inside each participant (bound to loopback).** NVFlare's parent and
-  job processes at each participant talk over an internal connection without TLS
-  or certificates (`"connection_security": "clear"`). SwarmMed provisions client
-  kits without an external `listening_host` (and normalizes any legacy
-  `local/comm_config.json` internal host to `localhost`), so the internal parent-to-job
-  listener binds to `localhost` (`127.0.0.1`) rather than external network
-  interfaces, whether the client container runs in host-network or bridge-network mode.
+* **Plain TCP inside each participant.** NVFlare's parent and job processes at
+  each participant talk over an internal connection without TLS or certificates
+  (`"connection_security": "clear"`). The job processes connect to the parent at
+  `localhost`: SwarmMed provisions client kits without an external
+  `listening_host`, and normalizes any legacy internal host in
+  `local/comm_config.json` to `localhost`. The parent's listener itself, on a
+  random port between 1025 and 65535, accepts connections on all IPv4 addresses:
+  NVIDIA FLARE 2.7.1 always listens on all interfaces. FL clients use host
+  networking by default on Linux, so that is every IPv4 address of the host.
+  Keep the port closed to other hosts with a host firewall
+  ([Networking](networking.md#listening-ports-by-host-role)).
 * **Protocol versions and ciphers are not pinned for FLARE connections.** They are
   negotiated by the BoringSSL library bundled with gRPC, not the system OpenSSL, and
   its defaults allow TLS 1.2 and 1.3. The web interface's nginx pins TLS 1.2 and 1.3
@@ -286,7 +290,7 @@ Consequences for a consortium:
 
 | Adversary | Assumed capability | Status |
 |---|---|---|
-| **Network attacker** between sites | Observes or tampers with traffic on the wire | Mitigated for FLARE traffic: mutual TLS with a study-specific CA on the server's fed-learn and admin ports, and joining requires a startup kit. **Not mitigated for the web interfaces' site-to-site traffic**: the hub-to-hub calls skip certificate verification by default, and the network token they carry also authorises downloading the latest global model from any participant's web interface (section 1). NVFlare's internal parent–job connection at each site is plain TCP (section 2). |
+| **Network attacker** between sites | Observes or tampers with traffic on the wire | Mitigated for FLARE traffic: mutual TLS with a study-specific CA on the server's fed-learn and admin ports, and joining requires a startup kit. **Not mitigated for the web interfaces' site-to-site traffic**: the hub-to-hub calls skip certificate verification by default, and the network token they carry also authorises downloading the latest global model from any participant's web interface (section 1). NVFlare's internal parent–job connection at each site is plain TCP, on a listener that accepts connections on all of the host's IPv4 addresses (section 2). |
 | **Honest-but-curious participant** | Runs the protocol correctly, inspects everything it legitimately receives | **Partially mitigated.** Every participant receives aggregated model weights each round, and the aggregating client receives other sites' updates. Parameter sharing alone does not prevent model inversion, membership inference or gradient leakage. No differential privacy or secure aggregation is configured by default. Every participant also holds every other participant's keys (section 2). |
 | **Honest-but-curious coordinator** | Operates the FL server | **Not mitigated.** Sees relayed model updates (section 3), and holds every participant's private key if it provisioned the study or imported the whole package (section 2). |
 | **Malicious participant** | Sends crafted or poisoned updates, or misuses the keys and rights it was given | **Not mitigated.** There is no robust aggregation, update-norm clipping, or anomaly detection, so a participant can degrade or backdoor the joint model. Beyond that, every site's admin certificate is provisioned with NVFlare's `project_admin` role, which the generated authorization policy allows to submit jobs with custom code (`byoc`) to all sites. A malicious participant can therefore run arbitrary code in every other site's client container, which has access to that site's data and uses the host's network, and exfiltrate raw data. SwarmMed offers no setting to provision a narrower role. Admission control is social and cryptographic (who receives the package), not behavioural. |
@@ -370,7 +374,8 @@ State these plainly when answering an information-security review:
    to every participant's port 5085 (status gossip and training-state mirroring);
    blocking them does not stop training but leaves remote participants shown as
    offline. Participating hosts should also firewall NVFlare's internal client
-   listener.
+   listener, which accepts connections on all of the host's IPv4 addresses
+   (section 2).
 3. Keep the study PKI for the lifetime of the study only; re-provision for a new
    study rather than reusing certificates. Handle the startup package as described
    under [Key custody](#key-custody-what-the-startup-package-contains).
