@@ -232,7 +232,10 @@ The command also prints the network fingerprint, the SHA-256 of the package's
 `manifest.json`, as 16 groups of four characters. With `--json`,
 `result.package_fingerprint` gives it as plain hex, as `network show` does, and
 `result.package_sha256` the SHA-256 of the file written. As long as the network's
-kits do not change, exporting it again gives the same file. Read the fingerprint
+kits do not change, exporting it again gives the same file. Export it before the
+network first starts: a later export from a Hub at which a site's FL client ran
+also carries that site's job folders, with their models and round-start
+checkpoints, to every Hub that imports it. Read the fingerprint
 out to every other site by phone or video call, not through the channel that
 carries the package
 ([Verifying the startup package](networking.md#verifying-the-startup-package)).
