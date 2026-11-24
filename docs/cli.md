@@ -59,10 +59,10 @@ When the CLI runs in the container:
   interface and the Celery worker run as `appuser`. Files that it writes into
   `workspaces/`, such as an imported network or a training job, are handed to
   `appuser`, so that the web interface and the worker can start, switch and
-  delete the network and submit the next job. <!-- r106-check: "or a training job" and "and submit the next job" only if the hand-over of CLI-written job folders landed (a should-item); if not, say "such as an imported network" and add: "After training start or training resume with the CLI, restart app and celery_worker (docker compose restart app celery_worker) before the network's next job is started from the web interface." --> If the worker reports that it
-  cannot make a start script executable, restart it
-  (`docker compose restart celery_worker`): at its start it hands `workspaces/`
-  to `appuser`. <!-- r106-check: _ensure_executable's PermissionError text names the file, its owner's uid and "docker compose restart celery_worker" (ScriptTests::test_a_script_the_worker_cannot_make_executable_names_the_remedy) -->
+  delete the network and submit the next job. What cannot be handed over is
+  named in a warning in the Hub's log. If the worker reports that it cannot make
+  a start script executable, restart it (`docker compose restart celery_worker`):
+  at its start it hands `workspaces/` to `appuser`.
 * **Do not run `uv` inside the container.** `/app` is the host's repository
   directory, and uv treats the host's `.venv` as broken there: it deletes it and
   creates an empty one owned by root.
@@ -265,6 +265,9 @@ swarmed network import \
 
 Before it writes anything, the import checks every file of the package against
 its manifest and refuses entries with absolute paths, `..` or symbolic links.
+It also refuses the package, and writes nothing, when the project's or the
+network's folder in `workspaces/` is a symbolic link: the import would write the
+network wherever the link points and hand that to `appuser`.
 With `--expect-fingerprint`, a package with another network fingerprint, or
 without one, is refused too; spaces, colons, dashes and case in the value are
 ignored, and an empty value is an error rather than no check, so that a script
@@ -296,9 +299,11 @@ described in [Networking](networking.md).
 
 While this Hub is switched to an FL server that another site started
 (`network failover` without `--start-server`), `network start` does not start
-the Hub's own FL server: the network ends in `ERROR`, and with `--wait` the
-command exits with code 2 and names the server the Hub uses
-([Server failover](failover.md#when-the-hub-that-ran-the-server-comes-back)). <!-- r106-check: the start refusal and the line in the network_start ERROR branch ("This Hub is switched to the FL server at {host}; see 'When the Hub that ran the server comes back' in docs/failover.md."); StartRefusalCLITests::test_start_error_names_the_switch -->
+the Hub's own FL server, and outside client-only mode no FL client either: the
+network ends in `ERROR`, and its log says why. With `--wait` the command exits
+with code 2, and while the Hub is switched its message also names the server the
+Hub uses, as a possible cause
+([Server failover](failover.md#when-the-hub-that-ran-the-server-comes-back)).
 
 ### 7. Start and watch training
 
@@ -313,7 +318,25 @@ unavailable. The number of rounds comes from `SWARMMEDHUB_SWARM_ROUNDS`, passed
 with `docker exec -e`, or else from `SWARM_ROUNDS` in `training.py`, and is 10 if
 neither is set ([Developer](developer.md#training-scripts-nvflare)). Every site's
 copy of the job records this number (`config/swarmmed_run.json` in each app), so
-`swarmed training resume` finds it at any site. <!-- r106-check: write_run_file in submit_training_job for every job (SubmitWithResumeTests::test_every_app_describes_the_run) -->
+`swarmed training resume` finds it at any site.
+
+Commands that take a job (`training status`, `watch`, `stop`, `checkpoints` and
+`resume`) accept the `identifier` of this Hub's record of it, its FLARE job ID
+(`flare_job_uuid` in `training list`), or the first 8 or more characters of its
+FLARE job ID if no other job starts with them. Anything else names no job: the
+command exits with code 2 and says that the job was not found, or, for
+characters that several jobs start with, lists them
+(`'<characters>' matches N jobs (...); give more of the FLARE job ID.`). A
+command that is given a job never acts on another one. Without a job,
+`training status` and `training stop` take the network's latest job, whatever its
+status, so name the job to stop.
+
+`training stop` records the job as stopped only when the FL server takes the
+abort. When the server refuses it, for example for a job that it does not know
+or no longer runs, or does not answer, the command exits with code 2 with
+`The FL server did not abort job <id>:` and the server's answer, and leaves the
+job's record as it was; **Stop Training** on the Training page shows the same
+error. A job whose record had already ended keeps its status.
 
 When the Hub's job monitor has flagged a running job as stalled, for example
 because a site dropped out, `training status`, `list` and `watch` print a
@@ -420,14 +443,16 @@ another server; `training resume` starts a new job at the interrupted round from
 the newest checkpoint at the site. The Hub needs no record of the job: it finds
 the job by its folder in the network's workspace. With `--json`,
 `training checkpoints` also gives `network_identifier`, `found_by` (how the Hub
-found the job), and `total_rounds` and `total_rounds_from` (the run's total and
-where the Hub found it; empty when it does not know it). <!-- r106-check: the checkpoints JSON keys and the found_by values ("record", "job folder", "checkpoint", "newest checkpoint"); total_rounds null and total_rounds_from "" when unknown --> For a run started
-before SwarmMed 1.0.6, add `--rounds <TOTAL>` unless this Hub ran the run's FL
-server. <!-- r106-check: the --rounds help text and the refusal without a known total --> See [Server failover](failover.md) for what each command does and what
-has to be in place beforehand. The resumed job carries the checkpoint, so over slow links it
-may need longer FLARE timeouts; `training resume` warns about the two settings
-unless `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its own environment (see
-[Resuming over a slow link](failover.md#resuming-over-a-slow-link)).
+found the job: `record`, `job folder` or `newest checkpoint`), and `total_rounds`
+and `total_rounds_from` (the run's total and where the Hub found it; `null` and
+empty when it does not know it); its `job_identifier` is `null` when the Hub has
+no record of the job. For a run started before SwarmMed 1.0.6, add
+`--rounds <TOTAL>` unless this Hub ran the run's FL server; `--rounds` takes 1 to
+100000. See [Server failover](failover.md) for what each command does and what
+has to be in place beforehand. The resumed job carries the checkpoint, so over
+slow links it may need longer FLARE timeouts; `training resume` warns about the
+two settings unless `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its own
+environment (see [Resuming over a slow link](failover.md#resuming-over-a-slow-link)).
 
 ## Command Tree
 
