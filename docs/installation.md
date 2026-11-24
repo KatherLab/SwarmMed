@@ -71,6 +71,10 @@ there, the application image measured 19.9 GB and the Python environment that
   all of the host's addresses. Ports that Docker publishes are not filtered by
   host firewalls such as UFW; [Networking](networking.md#listening-ports-by-host-role)
   lists every port and how to restrict them.
+* **A privileged container.** The script sandbox, `sandbox-dind`, runs
+  privileged with its own Docker daemon, and can load kernel modules on the host
+  ([Security](security.md#script-sandbox)). On a host shared with other users,
+  agree this with the host's administrators first.
 
 ## 1. 🐳 Docker
 
