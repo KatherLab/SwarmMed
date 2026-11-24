@@ -391,11 +391,28 @@ def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> i
     its round numbers continue the interrupted run, so the count returned is
     ``start_round + num_rounds``.
     """
-    for workflow in config.get("workflows", []):
+    plan = extract_swarm_round_plan(config)
+    return plan[0] if plan else default
+
+
+def extract_swarm_round_plan(config: dict) -> tuple[int, int] | None:
+    """Return the rounds of the whole run and the start round of a swarm job.
+
+    Reads the swarm controller of an NVFLARE server config. A resumed run starts
+    at ``start_round`` and runs ``num_rounds`` more rounds; its round numbers
+    continue the interrupted run, so the whole run has ``start_round +
+    num_rounds`` rounds.
+
+    Returns:
+        tuple[int, int] | None: The whole run's rounds and the start round, or
+        None if the config has no swarm controller with a round count.
+    """
+    workflows = config.get("workflows") if isinstance(config, dict) else None
+    for workflow in workflows if isinstance(workflows, list) else []:
         if not isinstance(workflow, dict):
             continue
         args = workflow.get("args") or {}
-        if "num_rounds" not in args:
+        if not isinstance(args, dict) or "num_rounds" not in args:
             continue
 
         workflow_id = str(workflow.get("id") or "").lower()
@@ -414,8 +431,9 @@ def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> i
         except (TypeError, ValueError):
             continue
         if rounds > 0:
-            return rounds + max(start_round, 0)
-    return default
+            start_round = max(start_round, 0)
+            return rounds + start_round, start_round
+    return None
 
 
 def extract_total_rounds_from_config_file(path: str, default: int = 10) -> int:

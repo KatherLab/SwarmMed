@@ -24,6 +24,7 @@ from swarmed_cli.main import main
 from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project
 
+from . import resume as training_resume
 from . import services as training_services
 from .models import TrainingJob
 from .resume import (
@@ -188,6 +189,226 @@ class TotalRoundsTests(SimpleTestCase):
             ]
         }
         self.assertEqual(extract_total_rounds_from_flare_config(config), 20)
+
+
+def _write_job_file(root: Path, participant: str, job: str, relative: str, content):
+    """Write a file of a job as FLARE deploys the job at a site."""
+    path = root / "study" / "prod_00" / participant / job / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content if isinstance(content, str) else json.dumps(content))
+    return path
+
+
+def _swarm_server_config(*, num_rounds: int, start_round: int = 0) -> dict:
+    return {
+        "workflows": [
+            {
+                "id": "controller",
+                "path": SWARM_CONTROLLER,
+                "args": {"num_rounds": num_rounds, "start_round": start_round},
+            }
+        ]
+    }
+
+
+class JobFoldersTests(SimpleTestCase):
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        self.job = str(uuid.uuid4())
+
+    def test_a_job_id_or_its_prefix_finds_the_jobs_folders(self):
+        prod_dir = self.root / "study" / "prod_00"
+        expected = sorted(
+            [
+                prod_dir / self.job,
+                prod_dir / "node-A" / self.job,
+                prod_dir / "server" / self.job,
+            ]
+        )
+        for folder in expected:
+            folder.mkdir(parents=True)
+        # A deeper folder, a job whose ID differs in the eighth character, and a
+        # folder whose name only starts with the job's ID.
+        (prod_dir / "node-A" / self.job / "app_node-A" / self.job).mkdir(parents=True)
+        other = self.job[:7] + ("1" if self.job[7] == "0" else "0") + self.job[8:]
+        (prod_dir / "node-A" / other).mkdir()
+        (prod_dir / "node-A" / f"{self.job}.old").mkdir()
+
+        for identifier in (self.job, self.job.upper(), self.job[:8]):
+            with self.subTest(identifier=identifier):
+                self.assertEqual(
+                    sorted(training_resume.job_folders(self.root, identifier)),
+                    expected,
+                )
+
+    def test_anything_but_a_job_id_is_not_looked_up(self):
+        (self.root / "study" / "prod_00" / "node-A" / self.job).mkdir(parents=True)
+
+        with patch.object(Path, "glob", side_effect=AssertionError("looked up")):
+            for identifier in (
+                "",
+                "../../x",
+                "*",
+                "[0-9a-f]*",
+                self.job[:7],
+                f"{self.job}/..",
+                f"-{self.job[:8]}",
+                f"{self.job}0",
+            ):
+                with self.subTest(identifier=identifier):
+                    self.assertEqual(
+                        training_resume.job_folders(self.root, identifier), []
+                    )
+
+
+class ReadRunPlanTests(SimpleTestCase):
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        self.job = str(uuid.uuid4())
+
+    def _write(self, participant, relative, content, *, job=None) -> str:
+        job = job or self.job
+        path = _write_job_file(self.root, participant, job, relative, content)
+        return str(path.relative_to(self.root))
+
+    def _plan(self):
+        plan = training_resume.read_run_plan(self.root, self.job)
+        return plan and (plan.total_rounds, plan.start_round, plan.origin)
+
+    def test_the_run_file_comes_first_then_the_server_config_then_a_resume_record(self):
+        record = self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_resume.json",
+            {"start_round": 3, "total_rounds": 40},
+        )
+        self.assertEqual(self._plan(), (40, 3, record))
+
+        server_config = self._write(
+            "server",
+            "app_server/config/config_fed_server.json",
+            _swarm_server_config(num_rounds=27, start_round=3),
+        )
+        self.assertEqual(self._plan(), (30, 3, server_config))
+
+        run_file = self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"total_rounds": 8, "start_round": 3},
+        )
+        self.assertEqual(self._plan(), (8, 3, run_file))
+
+    def test_only_whole_rounds_in_range_from_the_jobs_own_folders_count(self):
+        # Code in the FL client containers can write these files.
+        self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"total_rounds": 30, "start_round": 0},
+            job=str(uuid.uuid4()),
+        )
+        for content in (
+            {"total_rounds": 5, "start_round": 5},
+            {"total_rounds": 5, "start_round": -1},
+            {"total_rounds": "8", "start_round": 0},
+            {"total_rounds": True, "start_round": 0},
+            {"total_rounds": 8, "start_round": 2.0},
+            {"total_rounds": 8},
+            [8, 3],
+            "{not json",
+        ):
+            with self.subTest(content=content):
+                self._write("node-A", "app_node-A/config/swarmmed_run.json", content)
+                self.assertIsNone(self._plan())
+
+
+class ResumeCheckpointSaverTests(SimpleTestCase):
+    """The round-start checkpoint as the saver writes it inside a FLARE job."""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.app_root = Path(temp_dir.name) / "app_node-A"
+        (self.app_root / "config").mkdir(parents=True)
+        self.job = str(uuid.uuid4())
+        self.network = str(uuid.uuid4())
+
+    def _save_round_start(self, current_round=3):
+        from nvflare.apis.fl_constant import FLContextKey, ReservedKey
+        from nvflare.apis.fl_context import FLContext
+        from nvflare.app_common.abstract.model import ModelLearnableKey
+        from nvflare.app_common.app_constant import AppConstants
+
+        from .swarmmed_resume import ResumeCheckpointSaver
+
+        fl_ctx = FLContext()
+        for key, value in {
+            AppConstants.GLOBAL_MODEL: {
+                ModelLearnableKey.WEIGHTS: {"fc.weight": torch.ones(2, 4)}
+            },
+            AppConstants.CURRENT_ROUND: current_round,
+            FLContextKey.APP_ROOT: str(self.app_root),
+            ReservedKey.RUN_NUM: self.job,
+            ReservedKey.IDENTITY_NAME: "node-A",
+        }.items():
+            fl_ctx.set_prop(key, value, private=True, sticky=False)
+
+        ResumeCheckpointSaver()._save(fl_ctx)
+
+        written = json.loads((self.app_root / METADATA_FILE).read_text())
+        embedded = torch.load(self.app_root / CHECKPOINT_FILE, weights_only=True)
+        self.assertEqual(embedded["swarmmed_resume"], written)
+        self.assertIsInstance(written.pop("saved_at"), float)
+        return written
+
+    def test_checkpoint_records_the_run_total_and_network(self):
+        (self.app_root / "config" / "swarmmed_run.json").write_text(
+            json.dumps(
+                {
+                    "format": 1,
+                    "network": self.network,
+                    "total_rounds": 40,
+                    "start_round": 0,
+                    "num_rounds": 40,
+                    "from_flare_job": "",
+                }
+            )
+        )
+
+        self.assertEqual(
+            self._save_round_start(),
+            {
+                "next_round": 3,
+                "job_id": self.job,
+                "site": "node-A",
+                "weights_format": "torch",
+                "num_tensors": 1,
+                "total_rounds": 40,
+                "start_round": 0,
+                "network": self.network,
+            },
+        )
+
+    def test_checkpoint_without_run_file_keeps_the_old_keys(self):
+        # A job submitted before the run file existed, or a file it cannot read.
+        for content in (None, "{not json", json.dumps(["not", "a", "plan"])):
+            with self.subTest(content=content):
+                run_file = self.app_root / "config" / "swarmmed_run.json"
+                if content is not None:
+                    run_file.write_text(content)
+
+                self.assertEqual(
+                    self._save_round_start(),
+                    {
+                        "next_round": 3,
+                        "job_id": self.job,
+                        "site": "node-A",
+                        "weights_format": "torch",
+                        "num_tensors": 1,
+                    },
+                )
 
 
 def _exported_job(root: Path, clients=("node-A", "node-B")) -> Path:
@@ -687,6 +908,55 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
                 actor=self.user, network=self.network, resume=plan
             )
         self.assertEqual(TrainingJob.objects.count(), 0)
+
+    def _run_files(self, job: Path) -> dict:
+        """The run file of each app of a submitted job, None where it is missing."""
+        return {
+            app.name: json.loads(path.read_text()) if path.is_file() else None
+            for app in sorted(job.glob("app_*"))
+            for path in [app / "config" / "swarmmed_run.json"]
+        }
+
+    def test_every_app_describes_the_run(self):
+        os.environ["SWARMMEDHUB_SWARM_ROUNDS"] = "8"
+
+        training_services.submit_training_job(actor=self.user, network=self.network)
+
+        expected = {
+            "format": 1,
+            "network": str(self.network.identifier),
+            "total_rounds": 8,
+            "start_round": 0,
+            "num_rounds": 8,
+            "from_flare_job": "",
+        }
+        self.assertEqual(
+            self._run_files(self.submitted[0]),
+            {app: expected for app in ("app_node-A", "app_node-B", "app_server")},
+        )
+
+    def test_a_resumed_job_describes_the_whole_run(self):
+        old_uuid = str(uuid.uuid4())
+        plan = self._plan_from_round(3)
+        plan.total_rounds = 8
+        plan.from_flare_job = old_uuid
+
+        training_services.submit_training_job(
+            actor=self.user, network=self.network, resume=plan
+        )
+
+        expected = {
+            "format": 1,
+            "network": str(self.network.identifier),
+            "total_rounds": 8,
+            "start_round": 3,
+            "num_rounds": 5,
+            "from_flare_job": old_uuid,
+        }
+        self.assertEqual(
+            self._run_files(self.submitted[0]),
+            {app: expected for app in ("app_node-A", "app_node-B", "app_server")},
+        )
 
 
 class ServerRouting:

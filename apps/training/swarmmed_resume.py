@@ -7,7 +7,9 @@ It may only import the standard library, NumPy, PyTorch and NVIDIA FLARE.
 In a swarm job only the site that aggregates a round saves the new global model
 (``FL_global_model.pt``), so after a failure the newest model is at one site.
 :class:`ResumeCheckpointSaver` writes the model that every training site
-receives at the start of each round, so that any site can resume the run.
+receives at the start of each round, so that any site can resume the run. It
+also copies the plan of the whole run from the job's ``config/swarmmed_run.json``
+into each checkpoint, so that the resume knows the run's total number of rounds.
 """
 
 import json
@@ -25,6 +27,7 @@ from nvflare.app_common.app_event_type import AppEventType
 CHECKPOINT_FILE = "swarmmed_resume_checkpoint.pt"
 METADATA_FILE = "swarmmed_resume_checkpoint.json"
 METADATA_KEY = "swarmmed_resume"
+RUN_FILE = "swarmmed_run.json"
 
 
 class ResumeCheckpointSaver(FLComponent):
@@ -34,6 +37,10 @@ class ResumeCheckpointSaver(FLComponent):
     the previous round, and the number of that round (``next_round``). A run
     resumed from it repeats the interrupted round. The file is overwritten each
     round; a failed write is logged and never stops training.
+
+    A job submitted by SwarmMed 1.0.6 or later also names the run's total number
+    of rounds (``total_rounds``), the round the job started at (``start_round``)
+    and the network (``network``) in each checkpoint.
     """
 
     def __init__(self, checkpoint_file: str = CHECKPOINT_FILE):
@@ -44,6 +51,29 @@ class ResumeCheckpointSaver(FLComponent):
         """
         super().__init__()
         self.checkpoint_file = checkpoint_file
+        self._run = None
+
+    def _run_plan(self, app_root: str) -> dict:
+        """Return the run's plan from the job's run file, read once per job.
+
+        A job submitted by SwarmMed 1.0.5 or earlier has no run file; that, and
+        a file that cannot be read, gives no plan.
+        """
+        if self._run is None:
+            self._run = {}
+            try:
+                with open(os.path.join(app_root, "config", RUN_FILE)) as handle:
+                    run = json.load(handle)
+            except Exception:  # an older job, or a damaged file
+                run = None
+            if isinstance(run, dict):
+                for key in ("total_rounds", "start_round"):
+                    value = run.get(key)
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        self._run[key] = value
+                if isinstance(run.get("network"), str):
+                    self._run["network"] = run["network"]
+        return self._run
 
     def handle_event(self, event_type: str, fl_ctx: FLContext):
         """Save the checkpoint when a round starts."""
@@ -88,6 +118,7 @@ class ResumeCheckpointSaver(FLComponent):
             "num_tensors": len(state),
             "saved_at": time.time(),
         }
+        metadata.update(self._run_plan(app_root))
 
         checkpoint_path = os.path.join(app_root, self.checkpoint_file)
         temporary_path = checkpoint_path + ".tmp"

@@ -34,6 +34,7 @@ from .resume import (
     find_resume_checkpoints,
     resume_checkpoints_enabled,
     ship_resume_checkpoint,
+    write_run_file,
 )
 from .runtime import (
     build_training_status_payload,
@@ -1258,6 +1259,15 @@ def submit_training_job(
         )
         # The export leaves out limits equal to the Hub's NVFlare defaults.
         write_swarm_time_limits(job_definition_path, time_limits)
+        # Every site's copy of the job, and each round-start checkpoint, names the
+        # whole run's rounds, so that the run can be resumed at any site.
+        write_run_file(
+            job_definition_path,
+            network_id=network.identifier,
+            total_rounds=swarm_rounds,
+            start_round=start_round,
+            from_flare_job=resume.from_flare_job if resume is not None else "",
+        )
         if framework == "pt" and resume_checkpoints_enabled():
             # Round-start checkpoints at every site; only PyTorch runs can resume.
             add_resume_checkpoint_component(job_definition_path)
