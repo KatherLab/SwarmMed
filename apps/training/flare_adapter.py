@@ -95,7 +95,12 @@ def _get_manifest_discovery_targets() -> list[str]:
 
     # Plain HTTP reaches the Hub's application container only on a Docker
     # network; on the host's network these names would go to the site's DNS.
-    if os.getenv("SWARMMEDHUB_RUNTIME_NETWORK", "").strip().lower() != "host":
+    # Hubs before version 1.0.6 do not say which network a container is on,
+    # but name the Hub swarmmedhub only on a Docker network.
+    runtime_network = os.getenv("SWARMMEDHUB_RUNTIME_NETWORK", "").strip().lower()
+    if not runtime_network and (urlparse(hub_url).hostname or "") == "swarmmedhub":
+        runtime_network = "bridge"
+    if runtime_network == "bridge":
         http_hosts = _dedupe_keep_order(["swarmmedhub", "app"])
         targets.extend(f"http://{host}:8000" for host in http_hosts)
 

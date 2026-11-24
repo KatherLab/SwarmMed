@@ -76,6 +76,33 @@ class ManifestDiscoveryTests(SimpleTestCase):
         self.assertIn("http://swarmmedhub:8000", bridge_targets)
         self.assertIn("http://app:8000", bridge_targets)
 
+    def test_a_container_of_an_earlier_hub_on_the_host_network_uses_no_plain_http(self):
+        # Jobs carry the adapter of the Hub that submits them, also into
+        # containers that an earlier Hub started. Those do not say which network
+        # they are on; on the host's network their Hub address is the FL
+        # server's host or 127.0.0.1. A container without one is treated alike.
+        for variables in (
+            SWITCHED_CLIENT,
+            {"SWARMMEDHUB_MANIFEST_URL": "https://127.0.0.1:5085"},
+            {},
+        ):
+            with self.subTest(variables=variables):
+                self._environment(**variables)
+
+                targets = _get_manifest_discovery_targets()
+
+                plain_http = [url for url in targets if url.startswith("http:")]
+                self.assertEqual(plain_http, [])
+
+    def test_a_container_of_an_earlier_hub_on_a_docker_network_keeps_plain_http(self):
+        # On a Docker network every earlier Hub gave https://swarmmedhub:5085.
+        self._environment(SWARMMEDHUB_MANIFEST_URL="https://swarmmedhub:5085")
+
+        targets = _get_manifest_discovery_targets()
+
+        self.assertIn("http://swarmmedhub:8000", targets)
+        self.assertIn("http://app:8000", targets)
+
     def test_manifest_secret_never_reaches_the_fl_server_host(self):
         self._environment(
             MANIFEST_SECRET="the-sites-manifest-secret",
