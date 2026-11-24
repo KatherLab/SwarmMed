@@ -514,7 +514,9 @@ What to do:
    running, and what the job's log at the site says.
 2. Stop the job, with **Stop Training** on the Training page or
    `swarmed training stop <JOB_UUID>`. FLARE cannot take a site back into a
-   running swarm job.
+   running swarm job. The job is recorded as stopped only once the FL server
+   has taken the abort; otherwise both show the server's answer
+   ([CLI](cli.md#7-start-and-watch-training)).
 3. Once the site can train again, resume the run from the newest checkpoint as
    described in [Resuming the run](#resuming-the-run). Only PyTorch jobs can be
    resumed; start other jobs again. The resumed job's progress counts the rounds
