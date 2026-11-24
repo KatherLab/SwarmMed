@@ -238,7 +238,13 @@ What an operator should do until SwarmMed can export per-site kits:
 5. When the study ends, delete the network in the web interface on every host. This
    removes its workspace and the keys in it, but also the audit-log entries linked
    to the network ([section 6](#6-data-at-rest-and-auditability)), so export what
-   must be kept first.
+   must be kept first. The Celery worker, which removes the folder, cannot remove
+   the job folders, logs and checkpoints that the FL containers wrote as root since
+   the worker last started, and the deletion can then leave part of the network's
+   folder, keys included, on disk. Restart the worker first
+   (`docker compose restart celery_worker`, which hands `workspaces/` to
+   `appuser`), then delete the network, and check that
+   `workspaces/<project>/<network>` is gone. <!-- r106-check: docs only in 1.0.6 (owner's decision); by code (cleanup_network_resources rmtree as appuser, the error only logged), not tested -->
 
 ## 3. The coordinating host sees model updates (default configuration)
 
