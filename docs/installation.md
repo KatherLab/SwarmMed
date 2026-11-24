@@ -312,6 +312,11 @@ helper), `docker compose build` and `docker compose up -d`.
 * **Restarts.** Every service has the restart policy `always`, so Docker starts
   the stack again when the Docker daemon starts after a reboot. The overlay
   helper is not restarted; run `make overlay`.
+* **PgBouncer.** On a new installation the `pgbouncer` container exits right
+  after it starts, and Docker keeps restarting it. The likely cause is that it
+  cannot read its configuration, which the start-up writes readable only by
+  root. The default configuration does not use PgBouncer (`DB_HOST=postgres`),
+  so the Hub is not affected ([Security](security.md#database-proxy-pgbouncer)).
 
 `make stop` stops the stack and removes its containers; the database and
 object-store volumes are kept, and nothing restarts until the next `make start`.
