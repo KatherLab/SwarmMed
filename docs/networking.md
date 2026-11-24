@@ -39,8 +39,8 @@ as soon as the startup bundle is imported; if the port is blocked, each attempt
 waits for connection timeouts. The Hub's job records do not depend on it: they
 come from the jobs the Hub submits and from the logs of its own FL containers.
 With NVIDIA FLARE 2.7.1 the monitor does not yet find, in the server's job list,
-jobs that other Hubs submitted. <!-- r106-check: the list_jobs parser unit stayed deferred (parse_nvflare_jobs still reads reply['data']); records come from submit and the label scrape --> A Hub that resumes a run asks the server over
-this port whether it still runs the job
+jobs that other Hubs submitted. A Hub that resumes a run asks the server over
+this port whether it still runs the job, or any other job
 ([Server failover](failover.md#resuming-the-run)).
 
 Both server ports are configurable with `SWARMMEDHUB_FED_LEARN_PORT` and
