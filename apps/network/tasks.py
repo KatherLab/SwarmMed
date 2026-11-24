@@ -244,10 +244,17 @@ def _ensure_executable(path):
     current_mode = os.stat(path).st_mode
     try:
         os.chmod(path, current_mode | stat.S_IXUSR)
-    except PermissionError:
+    except PermissionError as exc:
         if os.access(path, os.X_OK):
             return
-        raise
+        # For example a network that the CLI imported as root before version
+        # 1.0.6, which did not hand it to the worker.
+        raise PermissionError(
+            f"{path} is not executable and belongs to another user (uid "
+            f"{os.stat(path).st_uid}), so the Celery worker cannot change it. "
+            "Restart the worker (docker compose restart celery_worker): at its "
+            "start it hands workspaces/ to appuser."
+        ) from exc
 
 
 def _configured_server_host(startup_dir):

@@ -8,21 +8,32 @@ handed it over.
 from __future__ import annotations
 
 import errno
+import io
 import json
 import os
+import shutil
 import subprocess  # nosec B404
+import tempfile
+import zipfile
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.conf import settings
+from django.test import SimpleTestCase, TestCase
 
+from . import services as network_services
 from . import tasks as network_tasks
+from . import utils as network_utils
 from .failover import (
     ACTIVE_SERVER_FILE,
     FLARE_ADMIN_TIMEOUT_ENV,
     apply_flare_admin_timeout,
+    network_prod_dir,
 )
+from .models import SwarmNetwork
 from .test_failover import NetworkFixture, _add_flare_files, _internal_host
+from .utils import create_startup_kits_zip
 
 # A folder on the Docker host's path to the checkout that the worker cannot
 # search, as /root is for appuser. It does not exist here: _cannot_enter fakes it.
@@ -51,6 +62,54 @@ def _cannot_enter(prefix):
 
     with patch.object(os, "stat", stat):
         yield
+
+
+# The worker's uid and gid in the tests; appuser's are 1000 in the image.
+WORKER_IDS = (4242, 4242)
+
+
+@contextmanager
+def _as_root():
+    """Act as the documented CLI does: as root in the app container.
+
+    Yields:
+        MagicMock: Records os.chown instead of changing any owner.
+    """
+    with (
+        patch.object(os, "geteuid", return_value=0),
+        patch.object(os, "chown") as chown,
+        patch.object(
+            network_utils, "_runtime_service_identity", return_value=WORKER_IDS
+        ),
+    ):
+        yield chown
+
+
+def _handed_over(chown) -> list[Path]:
+    """The paths that a chown recorder saw handed to the worker, in call order."""
+    return [
+        Path(call.args[0])
+        for call in chown.call_args_list
+        if call.args[1:] == WORKER_IDS and call.kwargs == {"follow_symlinks": False}
+    ]
+
+
+def _tree(folder: Path) -> set[Path]:
+    """A folder and everything below it."""
+    paths = {folder}
+    for root, dirs, files in os.walk(folder):
+        paths.update(Path(root) / name for name in dirs + files)
+    return paths
+
+
+def _not_handed_over(chown, folder: Path) -> list[str]:
+    """What of ``folder`` and below a chown recorder did not see handed over."""
+    handed = set(_handed_over(chown))
+    return sorted(
+        str(path.relative_to(folder.parent))
+        for path in _tree(folder)
+        if path not in handed
+    )
 
 
 class RuntimeFixture(NetworkFixture):
@@ -238,3 +297,227 @@ class HostPathTests(RuntimeFixture, TestCase):
         self.assertIn("swarmmedhub.role=server", runs[0])
         self.assertIn("swarmmedhub.role=client", runs[1])
         self.assertTrue(runs[1][runs[1].index("--name") + 1].endswith("node-B"))
+
+
+class ImportHandOverTests(RuntimeFixture, TestCase):
+    """What the CLI writes as root, the worker (appuser) must be able to use and delete."""
+
+    def setUp(self):
+        super().setUp()
+        _add_flare_files(self.prod_dir)
+        # FLARE provisioning writes the start scripts executable.
+        for script in self.prod_dir.glob("*/startup/*.sh"):
+            script.chmod(0o755)
+        self.network_dir = network_prod_dir(self.network).parents[2]
+
+    def _package(self, site=None):
+        """The network's startup package, or the kit of one site in it."""
+        package = create_startup_kits_zip(self.network)
+        if not site:
+            return package
+        with zipfile.ZipFile(package) as bundle:
+            return io.BytesIO(bundle.read(f"{site}.zip"))
+
+    def _import(self, package):
+        """Import a package into a Hub that has none of the network's files."""
+        SwarmNetwork.objects.filter(pk=self.network.pk).delete()
+        shutil.rmtree(self.network_dir)
+        package.seek(0)
+        self.network = network_services.import_network(
+            project=self.project,
+            actor=self.user,
+            name="Imported",
+            package_source=package,
+        )
+        self.assertEqual(network_prod_dir(self.network).parents[2], self.network_dir)
+
+    def test_import_as_root_hands_every_file_to_the_worker(self):
+        with _as_root() as chown:
+            self._import(self._package())
+
+        self.assertEqual(_not_handed_over(chown, self.network_dir), [])
+
+    def test_import_as_root_hands_the_projects_folder_to_the_worker(self):
+        project_dir = self.network_dir.parent
+        other_network = project_dir / "other-network"
+        (other_network / "startup").mkdir(parents=True)
+        (other_network / "startup" / "fed_client.json").write_text("{}")
+
+        with _as_root() as chown:
+            self._import(self._package())
+
+        handed = _handed_over(chown)
+        self.assertEqual(handed.count(project_dir), 1)
+        # Not the project's other networks, and not workspaces/ itself.
+        self.assertEqual(_tree(other_network) & set(handed), set())
+        self.assertNotIn(project_dir.parent, handed)
+        self.assertEqual(project_dir.parent, Path(settings.BASE_DIR) / "workspaces")
+
+    def test_create_as_root_hands_the_projects_folder_to_the_worker(self):
+        def provision(*, network_id, **_kwargs):
+            kit = (
+                Path(settings.BASE_DIR)
+                / "workspaces"
+                / str(self.project.identifier)
+                / str(network_id)
+                / "workspace"
+                / "demo_study"
+                / "prod_00"
+                / "server"
+                / "startup"
+            )
+            kit.mkdir(parents=True)
+            (kit / "fed_server.json").write_text("{}")
+
+        with (
+            _as_root() as chown,
+            patch.object(
+                network_services, "generate_flare_startup_kit", side_effect=provision
+            ),
+        ):
+            network = network_services.create_network(
+                project=self.project,
+                actor=self.user,
+                name="Created",
+                participants=[{"name": "node-C", "ip": "100.64.0.3"}],
+                server_ip="100.64.0.1",
+                include_local_client=False,
+            )
+
+        network_dir = network_prod_dir(network).parents[2]
+        handed = _handed_over(chown)
+        self.assertEqual(_not_handed_over(chown, network_dir), [])
+        self.assertIn(network_dir.parent, handed)
+        self.assertNotIn(network_dir.parent.parent, handed)
+
+    def test_a_failed_import_still_hands_over_what_it_wrote(self):
+        with (
+            _as_root() as chown,
+            patch.object(
+                network_services,
+                "move_kit_folder",
+                side_effect=OSError("No space left on device"),
+            ),
+            self.assertRaisesRegex(OSError, "No space left"),
+        ):
+            self._import(self._package())
+
+        written = _tree(self.network_dir)
+        # The package's files and at least one site's kit were written.
+        self.assertIn(self.network_dir / "node-A.zip", written)
+        self.assertTrue(any(path.name == "fed_client.json" for path in written))
+        self.assertEqual(_not_handed_over(chown, self.network_dir), [])
+
+    def test_import_keeps_the_start_scripts_executable(self):
+        self._import(self._package())
+
+        scripts = sorted(self.prod_dir.glob("*/startup/*.sh"))
+        self.assertEqual(
+            {script.parent.parent.name for script in scripts},
+            {"server", "node-A", "node-B", "admin-node-A@nvidia.com"},
+        )
+        for script in scripts:
+            with self.subTest(script=str(script.relative_to(self.prod_dir))):
+                self.assertTrue(os.access(script, os.X_OK))
+        for name in ("client.key", "fed_client.json", "rootCA.pem"):
+            with self.subTest(name=name):
+                self.assertFalse(
+                    os.access(self.prod_dir / "node-A" / "startup" / name, os.X_OK)
+                )
+
+    def test_a_single_sites_kit_keeps_its_scripts_executable(self):
+        self._import(self._package(site="node-A"))
+
+        # prod_00 is the site's workspace; the server's kit stays in the
+        # network's folder.
+        for script in (
+            self.prod_dir / "startup" / "sub_start.sh",
+            self.prod_dir / "startup" / "start.sh",
+            self.network_dir / "server_startup" / "sub_start.sh",
+        ):
+            with self.subTest(script=str(script.relative_to(self.network_dir))):
+                self.assertTrue(os.access(script, os.X_OK))
+        self.assertFalse(os.access(self.prod_dir / "startup" / "client.key", os.X_OK))
+
+    def test_cli_import_then_start_failover_and_standby_with_the_appuser_worker(self):
+        # The documented CLI imports the package as root.
+        with _as_root() as chown:
+            self._import(self._package())
+        self.assertEqual(_not_handed_over(chown, self.network_dir), [])
+
+        # The worker, which now owns the files, as appuser does after the
+        # hand-over, starts the site's client, hosts the standby server and
+        # switches again: with the checkout under a folder it cannot enter on
+        # the Docker host, and with the default runtime image, whose build
+        # folder it writes into prod_00.
+        build_dir = self.prod_dir / ".swarmmedhub_runtime_build"
+        with (
+            _cannot_enter(HOST_PREFIX),
+            patch.object(
+                network_tasks,
+                "collect_project_runtime_requirements",
+                return_value=["nvflare==2.7.1"],
+            ),
+            patch.object(network_tasks, "_build_image_with_compat") as build,
+        ):
+            client_runs = self._start(
+                bind_source=_under_host_prefix,
+                image=None,
+                role="client",
+                participants=["node-B"],
+            )
+            self.assertEqual(self.network.status, "RUNNING")
+            self.assertEqual(len(client_runs), 1)
+            self.assertTrue((build_dir / "Dockerfile").is_file())
+            self.assertTrue((build_dir / "requirements.txt").is_file())
+            build.assert_called()
+
+            standby_runs = self._failover(
+                start_server=True, bind_source=_under_host_prefix, image=None
+            )
+            self.assertEqual(self.network.status, "RUNNING")
+            record = json.loads((self.prod_dir / ACTIVE_SERVER_FILE).read_text())
+            self.assertEqual(record["server_host"], "192.0.2.10")
+            self.assertTrue(record["server_started_here"])
+            self.assertTrue((self.prod_dir / "server" / "transfer").is_dir())
+            self.assertEqual(len(standby_runs), 2)
+            self.assertIn("swarmmedhub.role=server", standby_runs[0])
+
+            switch_runs = self._failover(
+                start_server=False,
+                server_host="198.51.100.7",
+                servers=("server",),
+                bind_source=_under_host_prefix,
+                image=None,
+            )
+            self.assertEqual(self.network.status, "RUNNING")
+            record = json.loads((self.prod_dir / ACTIVE_SERVER_FILE).read_text())
+            self.assertEqual(record["server_host"], "198.51.100.7")
+            self.assertEqual(len(switch_runs), 1)
+            self.assertIn("server:198.51.100.7", switch_runs[0])
+
+
+class ScriptTests(SimpleTestCase):
+    def test_a_script_the_worker_cannot_make_executable_names_the_remedy(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "sub_start.sh"
+            script.write_text("#!/bin/bash\n")
+            script.chmod(0o644)
+            real_chmod = os.chmod
+
+            def chmod(path, *args, **kwargs):
+                # As for appuser and a script that the CLI wrote as root.
+                if os.fspath(path) == str(script):
+                    raise PermissionError(errno.EPERM, "Operation not permitted", path)
+                return real_chmod(path, *args, **kwargs)
+
+            with (
+                patch.object(os, "chmod", side_effect=chmod),
+                self.assertRaises(PermissionError) as raised,
+            ):
+                network_tasks._ensure_executable(str(script))
+
+        message = str(raised.exception)
+        self.assertIn(str(script), message)
+        self.assertIn(f"uid {os.getuid()}", message)
+        self.assertIn("docker compose restart celery_worker", message)

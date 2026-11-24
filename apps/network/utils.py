@@ -42,6 +42,9 @@ def ensure_worker_writable(path: str | os.PathLike, logger=None) -> None:
     CLI invocations run through ``docker compose exec`` often start as root,
     while gunicorn/celery run as ``appuser``. Provisioned startup kits must be
     handed back to that worker identity before asynchronous start tasks run.
+    The folders above ``path`` inside ``workspaces/``, such as the project's
+    folder that the first network of a project creates, are handed over too,
+    but not what else they hold.
     """
     root = Path(path)
     if not root.exists():
@@ -63,6 +66,12 @@ def ensure_worker_writable(path: str | os.PathLike, logger=None) -> None:
             os.chmod(item, stat.S_IMODE(desired_mode))
         except OSError as exc:
             failures.append(f"{item}: {exc}")
+
+    workspaces_root = (Path(settings.BASE_DIR) / "workspaces").absolute()
+    for parent in root.absolute().parents:
+        if parent == workspaces_root or workspaces_root not in parent.parents:
+            break
+        _adjust(parent)
 
     _adjust(root)
     for current_root, dirs, files in os.walk(root):

@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import zipfile
 import zlib
 from pathlib import Path
@@ -536,7 +537,53 @@ def import_network(
         )
     )
     os.makedirs(provision_dir, exist_ok=True)
+    try:
+        return _unpack_startup_package(
+            swarm_network,
+            package_source=package_source,
+            provision_dir=provision_dir,
+            project=project,
+            actor=actor,
+            name=name,
+            log=log,
+        )
+    finally:
+        # The documented CLI runs as root in the app container; the web
+        # interface and the Celery worker, which start, switch and delete the
+        # network, run as appuser (entrypoint.sh). Hand them what the import
+        # wrote, also after a failure, so that the worker can delete it.
+        ensure_worker_writable(provision_dir, logger=log)
 
+
+def _extract_entry(archive, member, destination) -> str:
+    """Extract one entry of a ZIP archive, with the execute bits its Unix mode records.
+
+    zipfile drops them, so the start scripts, which a startup package records
+    as executable, would arrive without them.
+
+    Returns:
+        str: The path of the extracted file or folder.
+    """
+    path = archive.extract(member, destination)
+    recorded = (member.external_attr >> 16) & 0o777
+    if member.create_system == 3 and recorded & stat.S_IXUSR and os.path.isfile(path):
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        os.chmod(path, mode | ((mode & 0o444) >> 2))  # x wherever r: 0644 -> 0755
+    return path
+
+
+def _unpack_startup_package(
+    swarm_network, *, package_source, provision_dir, project, actor, name, log
+):
+    """Unpack a checked startup package into the network's folder (import_network).
+
+    Puts each site's kit, the server's kit and the admin kit where the Hub uses
+    them, writes the FL server's address into the kits and records the
+    network's participants.
+
+    Returns:
+        SwarmNetwork: The network, marked as PROVISIONED.
+    """
     with zipfile.ZipFile(package_source, "r") as zip_ref:
         abs_provision_dir = os.path.abspath(provision_dir)
         for member in zip_ref.infolist():
@@ -554,7 +601,7 @@ def import_network(
                 with open(os.path.join(provision_dir, member_path), "wb") as handle:
                     handle.write(read_entry(zip_ref, member))
             else:
-                zip_ref.extract(member, provision_dir)
+                _extract_entry(zip_ref, member, provision_dir)
 
     project_name = slugify(project.title).replace("-", "_")
     prod_00_dir = os.path.join(
@@ -591,7 +638,7 @@ def import_network(
                     ):
                         continue
 
-                    participant_zip.extract(nested_member, participant_dir)
+                    _extract_entry(participant_zip, nested_member, participant_dir)
 
             # The server's kit (server_startup, and server_local, which older
             # bundles lack) lets this site host the FL server as a standby (see
