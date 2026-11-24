@@ -867,11 +867,12 @@ def run(args: argparse.Namespace):
                 network = job.network
             else:
                 network = resolve_network(state)
+            # A named job must be found; without one, the network's latest job.
             job = resolve_training_job(
                 state,
                 job_identifier=args.job_identifier,
                 network=network,
-                required=False,
+                required=bool(args.job_identifier),
             )
             result = training_services.get_training_status_payload(
                 network=network, job=job
@@ -938,11 +939,12 @@ def run(args: argparse.Namespace):
                 if args.network
                 else resolve_network(state)
             )
+            # A named job must be found: never stop another one instead.
             job = resolve_training_job(
                 state,
                 job_identifier=args.job_identifier,
                 network=network,
-                required=False,
+                required=bool(args.job_identifier),
             )
             job = training_services.stop_training_job(
                 actor=state.user, network=network, job=job

@@ -1966,9 +1966,8 @@ class ResumeWithoutRecordTests(ServerRouting, SubmitHarness, TestCase):
         )
 
         self.assertEqual(code, 2, envelope)
-        self.assertIn(
-            f"Several jobs start with '{self.old_uuid[:8]}'", envelope["errors"][0]
-        )
+        self.assertIn(f"'{self.old_uuid[:8]}' matches 2 jobs", envelope["errors"][0])
+        self.assertIn("give more of the FLARE job ID", envelope["errors"][0])
 
     def test_resume_without_a_record_records_both_jobs(self):
         self._checkpoint_at("node-A", 3)

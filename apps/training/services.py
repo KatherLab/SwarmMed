@@ -24,7 +24,7 @@ from logs.logger import get_logger
 from network.failover import flare_admin_timeout_from_env, previous_server_host
 from network.models import SwarmNetwork
 from network.utils import ensure_worker_writable
-from project.services import require_project_access, user_can_access_project
+from project.services import require_project_access
 from results.artifacts import (
     GLOBAL_MODEL_FILENAME_CANDIDATES,
     is_model_artifact,
@@ -277,14 +277,61 @@ def list_training_jobs(*, project=None, network=None):
     return queryset.order_by("-created_at")
 
 
+class SeveralJobsMatch(LookupError):
+    """The start of a FLARE job ID that more than one job starts with."""
+
+    def __init__(self, identifier: str, jobs):
+        """Name the identifier and the jobs whose IDs start with it."""
+        jobs = sorted(jobs)
+        super().__init__(
+            f"'{identifier}' matches {len(jobs)} jobs ({', '.join(jobs)}); "
+            "give more of the FLARE job ID."
+        )
+
+
+def _whole_uuid(identifier) -> uuid.UUID | None:
+    """Return the identifier as a UUID if it is a whole one, else None."""
+    try:
+        return uuid.UUID(str(identifier or "").strip())
+    except ValueError:
+        return None
+
+
+def _job_id_start(identifier) -> str:
+    """Return the identifier as the start of a FLARE job ID, or "".
+
+    It is the start of an ID if it is not a whole UUID and, lower-cased, is at
+    least 8 characters of one.
+    """
+    text = str(identifier or "").strip().lower()
+    if _whole_uuid(text) is not None or not JOB_ID_PREFIX_RE.fullmatch(text):
+        return ""
+    return text
+
+
 def _matching_jobs(queryset, identifier: str):
-    condition = models.Q(flare_job_id__icontains=identifier)
-    # A record's own identifier is a UUID; anything else, such as the start of a
-    # FLARE job ID, would make the database lookup fail.
-    with contextlib.suppress(ValueError, TypeError, AttributeError):
-        condition |= models.Q(identifier=uuid.UUID(str(identifier)))
+    """Return the jobs that an identifier names.
+
+    A whole UUID names a record's identifier or a FLARE job ID, as before
+    SwarmMed 1.0.6. Anything else names only the jobs whose FLARE job ID starts
+    with it, and only if it has at least 8 characters; never a job whose ID merely
+    contains it.
+    """
+    identifier = str(identifier or "").strip()
+    record_uuid = _whole_uuid(identifier)
+    if record_uuid is None:
+        start = _job_id_start(identifier)
+        if not start:
+            return queryset.none()
+        return queryset.filter(
+            models.Q(flare_job_uuid__istartswith=start)
+            | models.Q(flare_job_id__istartswith=start)
+        )
+    condition = models.Q(identifier=record_uuid) | models.Q(
+        flare_job_id__icontains=identifier
+    )
     flare_job_uuid = extract_flare_job_uuid(identifier) or (
-        identifier if re.fullmatch(r"[0-9a-fA-F-]{36}", str(identifier or "")) else None
+        identifier if re.fullmatch(r"[0-9a-fA-F-]{36}", identifier) else None
     )
     if flare_job_uuid:
         condition |= models.Q(flare_job_uuid=flare_job_uuid)
@@ -556,14 +603,37 @@ def sync_job_from_nvflare_status(
     )
 
 
-def get_training_job(*, network=None, identifier: str) -> TrainingJob:
-    """Resolve a training job by UUID identifier or FLARE job id."""
+def get_training_job(*, network=None, identifier: str, user=None) -> TrainingJob:
+    """Resolve a training job by UUID identifier or FLARE job id.
+
+    A whole UUID is a record's identifier or a FLARE job ID; anything else must
+    be the start of one job's FLARE job ID, at least 8 characters (see
+    :func:`_matching_jobs`).
+
+    Args:
+        network: Search only this network's jobs.
+        identifier: The record's identifier, the FLARE job ID or its start.
+        user: Count only the jobs of projects that this user can access.
+
+    Raises:
+        LookupError: If no job matches.
+        SeveralJobsMatch: If more than one job starts with the identifier.
+    """
     queryset = TrainingJob.objects.select_related("project", "network")
     if network is not None:
         queryset = queryset.filter(network=network)
-    job = _matching_jobs(queryset, identifier).order_by("-created_at").first()
+    if user is not None:
+        queryset = queryset.filter(
+            models.Q(project__author=user) | models.Q(project__members=user)
+        ).distinct()
+    matches = _matching_jobs(queryset, identifier).order_by("-created_at")
+    job = matches.first()
     if not job:
         raise LookupError(f"Training job '{identifier}' was not found.")
+    if _job_id_start(identifier):
+        jobs = {_flare_uuid_of(item).lower() for item in matches}
+        if len(jobs) > 1:
+            raise SeveralJobsMatch(identifier, jobs)
     return job
 
 
@@ -1425,12 +1495,17 @@ def _accessible_networks(user):
 
 
 def _accessible_record(user, identifier: str, network) -> TrainingJob | None:
-    """Return this Hub's record of a job as the CLI found it before 1.0.6."""
+    """Return this Hub's record of the job that ``identifier`` names, or None.
+
+    Raises:
+        SeveralJobsMatch: If more than one record starts with the identifier.
+    """
     try:
-        record = get_training_job(network=network, identifier=identifier)
+        return get_training_job(network=network, identifier=identifier, user=user)
+    except SeveralJobsMatch:
+        raise
     except LookupError:
         return None
-    return record if user_can_access_project(user, record.project) else None
 
 
 def _job_of_checkpoint_path(path: Path) -> str:
@@ -1463,7 +1538,8 @@ def locate_interrupted_job(
     The job is found by this Hub's record of it, as before SwarmMed 1.0.6;
     else by its FLARE job ID, or the first 8 or more characters of it, through
     the job's folders in the network's workspace; else by the job that the
-    given checkpoint names. Without a job, it is the job of the newest
+    given checkpoint names. The start of an ID must name one job, among the
+    records and the folders alike. Without a job, it is the job of the newest
     round-start checkpoint at this site, unless the network's latest record
     names another job. None of this needs a record, so a site whose job monitor
     never saw the job, such as the standby after a switch, finds it on its disk.
@@ -1493,6 +1569,8 @@ def locate_interrupted_job(
             checkpoint.resolve()
         )
 
+    # The networks searched: the one given, else those of the user's projects.
+    searched = [network] if network is not None else None
     record = None
     if identifier:
         # A record wins, as before.
@@ -1557,6 +1635,18 @@ def locate_interrupted_job(
         network = candidates[0]
     require_project_access(user, network.project)
 
+    start = _job_id_start(identifier)
+    if record is not None and start:
+        # The start of an ID names one job: no folder here may be another job's.
+        jobs = {flare_uuid.lower()}
+        for item in searched or _accessible_networks(user):
+            jobs.update(
+                folder.name
+                for folder in job_folders(_network_workspace_root(item), start)
+            )
+        if len(jobs) > 1:
+            raise SeveralJobsMatch(identifier, jobs)
+
     if record is None and found_by == "job folder":
         names = sorted(
             {
@@ -1565,10 +1655,7 @@ def locate_interrupted_job(
             }
         )
         if len(names) > 1:
-            raise LookupError(
-                f"Several jobs start with '{identifier}' ({', '.join(names)}); "
-                "give more of the FLARE job ID."
-            )
+            raise SeveralJobsMatch(identifier, names)
         if names:
             flare_uuid = names[0]
         elif checkpoint is not None and FLARE_JOB_ID_RE.fullmatch(flare_uuid):
