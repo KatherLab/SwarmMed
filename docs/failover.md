@@ -328,32 +328,41 @@ swarmed training resume <JOB_UUID> --network <NETWORK_UUID>
 `<JOB_UUID>` is the interrupted job's FLARE job ID, which is the same at every
 site: `flare_job_uuid` in the output of `swarmed training list`, and the name of
 the job's folder in the site's workspace. The `identifier` of a Hub's own record
-of the job differs from Hub to Hub. <!-- r106-check: the help of job_identifier of training checkpoints and training resume names "FLARE job ID" (CLIParserTests::test_resume_and_checkpoints_help_name_the_flare_job_id) -->
+of the job differs from Hub to Hub. The first 8 or more characters of the FLARE
+job ID are enough if no other job at the Hub, recorded or in the network's
+workspace, starts with them; otherwise the command names the jobs that do
+([CLI](cli.md#7-start-and-watch-training)).
 
 `training checkpoints` lists the checkpoints of the job at this site, newest
 round first. Round-start checkpoints exist at every training site, so any of
 them can resume the run; resume it at one site only, agreed in advance. The Hub
 needs no record of the job: if it has none, for example because another Hub
 started the job, it finds the job by its folder in the network's workspace, and
-records it when it resumes it. <!-- r106-check: locate_interrupted_job (record, then job folder, then checkpoint); training checkpoints --json gains network_identifier, found_by ("record", "job folder", "checkpoint", "newest checkpoint"), total_rounds, total_rounds_from (ResumeWithoutRecordTests) --> Without `<JOB_UUID>`, both commands take the job of the
-newest round-start checkpoint at this site, and stop if the Hub's latest job is
-another one. <!-- r106-check: owner's decision on the no-job default; test_without_a_job_the_newest_checkpoint_job_is_resumed and test_without_a_job_a_latest_record_of_another_job_is_refused; drop it if the no-job default was trimmed -->
+records it when it resumes it. Without `<JOB_UUID>`, both commands take the job
+of the newest round-start checkpoint at this site, or without one the Hub's
+latest job, and stop if the Hub's latest job is another one. A submission that
+failed, which records no FLARE job ID, does not count as the latest job.
 
 A Hub that does not train, such as a coordinating Hub in server-only mode, has
 no checkpoints: copy a site's `swarmmed_resume_checkpoint.pt` to it and pass
 `--checkpoint FILE --network <NETWORK_UUID>`. The file names its job and round.
-For another model file, also give the job and `--start-round N`, where `N` is
-the round the file starts (`next_round` in the `.json` next to a round-start
-checkpoint). <!-- r106-check: test_a_copied_checkpoint_needs_no_json_and_no_start_round and test_network_and_checkpoint_alone_take_the_job_from_the_checkpoint -->
+Without `--network` and without a job, the command takes the network that the
+file names, as a checkpoint of a job submitted with SwarmMed 1.0.6 or later
+does, else the one network at this Hub that holds the job's folders, and
+otherwise asks for `--network`. For another model file, which names no job,
+also give the job and `--start-round N`, where `N` is the round the file starts
+(`next_round` in the `.json` next to a round-start checkpoint). Given without a
+job, such a file is taken for the job that the command finds without
+`<JOB_UUID>`, in the current network unless `--network` is given.
 
 `training resume`:
 
 * takes the newest checkpoint at this site, or the file given with
-  `--checkpoint`, and refuses a checkpoint of another job or another network; <!-- r106-check: test_a_checkpoint_of_another_job_is_refused; the network check in locate_interrupted_job -->
+  `--checkpoint`, and refuses a checkpoint of another job or another network;
 * refuses while the network's current server lists the interrupted job, or any
   other job, as active, and when it cannot ask that server, for example because
   the server does not answer. A job that is already running may be this run,
-  resumed at another site: do not resume it twice; <!-- r106-check: the refusal while the server runs another job: "The network's FL server already runs job <id> (<status>). If that job is this run, resumed at another site, do not resume it again. Otherwise stop it first at the Hub that started it, or pass --force." (test_refuses_while_the_server_runs_another_job) -->
+  resumed at another site: do not resume it twice;
 * after a switch, also asks the server the Hub used before
   (`previous_server_host` in `.active_server.json`, or, for a record without
   it, the address in `SWARMMEDHUB_SERVER_HOST` or the kits' `server_host.txt`).
@@ -365,7 +374,7 @@ checkpoint). <!-- r106-check: test_a_copied_checkpoint_needs_no_json_and_no_star
   log in to each server, as a job submission does, and each server as long
   again to answer. A server whose admin port does not accept a connection
   within 1 s gets 5 s to log in, or the setting if it is shorter, so a server
-  that is down costs 5 to 6 s; <!-- r106-check: apps/training/runtime.py still probes each candidate for 1 s and caps the login at min(timeout, 5.0) -->
+  that is down costs 5 to 6 s;
 * skips these checks with `--force`;
 * submits a job with FLARE's `start_round` set to the checkpoint's round, which
   runs the rounds left of the run's total. The total comes from the job: every
@@ -374,14 +383,16 @@ checkpoint). <!-- r106-check: test_a_copied_checkpoint_needs_no_json_and_no_star
   pass `--rounds` with the number of rounds the run was started with, except at
   the Hub that ran the job's FL server, which finds the total in that server's
   job settings. The command stops rather than guess, and its message names
-  `--rounds`. <!-- r106-check: resolve_run_total's ValueError text ("The total number of rounds of job <id> is not known at this Hub: ... Pass --rounds with the number of rounds the run was started with ...") and the --rounds help ("Rounds of the whole run. Default: the total recorded in the job at this site or in its checkpoint; needed for a run started before SwarmMed 1.0.6, except at the Hub that ran its FL server.") --> `--rounds` always sets the total, with a warning when it differs from
-  the total the job records. The Hub's log, which the command prints, names the
-  round the new job starts at, the total and where the total came from, for
-  example `at round 3 of 40: ... 37 rounds left (total from ...)`; <!-- r106-check: the log line in submit_training_job / resume_training_job ("Resuming job <id> at round 3 of 40: checkpoint from <site> (round-start), 37 rounds left." in 1.0.5) and its new "(total from <origin>)" ending; the warning of test_rounds_given_override_a_known_total_with_a_warning -->
+  `--rounds`. `--rounds` always sets the total, from 1 to 100000, with a warning
+  when it differs from the total the job records; a total above 100000 in the
+  job's files or checkpoints counts as unknown. The Hub's log, which the command
+  prints, names the round the new job starts at, the total and where the total
+  came from, for example `Job <JOB_UUID> resumed as <NEW_JOB_UUID> from round 3
+  of 40 (total from --rounds).`;
 * marks the interrupted job as failed, unless it has already ended:
   `swarmed network stop` marks a running job as stopped, and a switch marks it
   as failed. A Hub that had no record of the job records it as failed, once the
-  checks have passed, and says so in a warning. <!-- r106-check: warning text "This Hub had no record of job <id>; it found the job in the network's workspace and has recorded it as failed." (test_resume_without_a_record_records_both_jobs) -->
+  checks have passed, and says so in a warning.
 
 The checkpoint travels inside the job to the starting site. The new job records
 what it started from in `config/swarmmed_resume.json` of the starting site's app,
