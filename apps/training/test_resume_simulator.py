@@ -15,6 +15,7 @@ keeps the simulator output there.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess  # nosec B404
@@ -26,7 +27,12 @@ import torch
 from django.test import TestCase
 
 from . import services as training_services
-from .resume import CHECKPOINT_FILE, ResumePlan, find_resume_checkpoints
+from .resume import (
+    CHECKPOINT_FILE,
+    METADATA_FILE,
+    ResumePlan,
+    find_resume_checkpoints,
+)
 from .test_resume import SubmitHarness
 
 TEST_LINE_RE = re.compile(
@@ -103,6 +109,12 @@ def _training_lines(output: str) -> dict[tuple[str, int], tuple[bool, float]]:
     return lines
 
 
+def _saved_run(checkpoint) -> tuple:
+    """The run's total, start round and network in a site's round-start JSON."""
+    saved = json.loads(Path(checkpoint.path).with_name(METADATA_FILE).read_text())
+    return saved.get("total_rounds"), saved.get("start_round"), saved.get("network")
+
+
 @skipUnless(
     os.getenv("SWARMMEDHUB_RUN_FLARE_SIMULATOR") == "1",
     "set SWARMMEDHUB_RUN_FLARE_SIMULATOR=1 to run FLARE's simulator",
@@ -127,6 +139,8 @@ class ResumeInSimulatorTests(SubmitHarness, TestCase):
         ]
         self.assertEqual(sorted(c.site for c in round_start), sorted(self.clients))
         self.assertEqual({c.next_round for c in round_start}, {3})
+        network = str(self.network.identifier)
+        self.assertEqual({_saved_run(c) for c in round_start}, {(4, 0, network)})
         checkpoint = round_start[0]
         saved = torch.load(checkpoint.path, weights_only=True)["model"]
         saved_checksum = sum(float(t.double().sum()) for t in saved.values())
@@ -158,6 +172,15 @@ class ResumeInSimulatorTests(SubmitHarness, TestCase):
         resumed = find_resume_checkpoints(second_workspace, "simulate_job")
         self.assertEqual(
             {c.next_round for c in resumed if c.source == "round-start"}, {5}
+        )
+        # Every site's round-start checkpoint of the resumed job names the whole
+        # run, so that the run can be resumed again at any site.
+        resumed_round_start = [c for c in resumed if c.source == "round-start"]
+        self.assertEqual(
+            sorted(c.site for c in resumed_round_start), sorted(self.clients)
+        )
+        self.assertEqual(
+            {_saved_run(c) for c in resumed_round_start}, {(6, 3, network)}
         )
         self.assertTrue(
             all(
