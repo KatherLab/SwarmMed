@@ -1370,6 +1370,36 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
         record = str(self.network_dir / "job" / "resumed_jobs.json")
         self.assertTrue(any(record in text for text in warned), warned)
 
+    def test_a_job_id_from_a_caller_must_be_a_flare_job_id(self):
+        for flare_job_uuid in ("../../x", self.old_uuid[:8], "error"):
+            with (
+                self.subTest(flare_job_uuid=flare_job_uuid),
+                patch.object(
+                    training_services,
+                    "_network_workspace_root",
+                    side_effect=AssertionError("a network's workspace was looked at"),
+                ),
+                self.assertRaisesMessage(
+                    ValueError, f"'{flare_job_uuid}' is not a FLARE job ID."
+                ),
+            ):
+                training_services.resume_training_job(
+                    actor=self.user, network=self.network, flare_job_uuid=flare_job_uuid
+                )
+        self._assert_not_resumed()
+        self.assertEqual(TrainingJob.objects.count(), 1)
+
+        # The ID in capitals is the same job.
+        self._checkpoint_at("node-A", 3)
+        training_services.resume_training_job(
+            actor=self.user, network=self.network, flare_job_uuid=self.old_uuid.upper()
+        )
+
+        (record,) = json.loads(
+            (self.network_dir / "job" / "resumed_jobs.json").read_text()
+        )
+        self.assertEqual(record["from_flare_job"], self.old_uuid)
+
     def test_an_interrupted_job_that_has_ended_keeps_its_status(self):
         self._checkpoint_at("node-A", 2)
         # 'swarmed network stop' marks a running job as stopped, a switch as failed.

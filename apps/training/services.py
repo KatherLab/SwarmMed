@@ -2036,7 +2036,7 @@ def resume_training_job(
         from_job: This Hub's record of the interrupted job. Without it and
             ``flare_job_uuid``, the network's latest job.
         flare_job_uuid: The FLARE job ID of an interrupted job that this Hub
-            has no record of.
+            has no record of; a whole one, as FLARE writes it.
         checkpoint_path: A model file to start from instead of the newest one
             found at this site.
         start_round: The round to start at; required when the checkpoint's
@@ -2053,6 +2053,13 @@ def resume_training_job(
         TrainingJob: The new job. The interrupted job is marked FAILED unless it
         has already ended.
     """
+    if flare_job_uuid:
+        # As locate_interrupted_job does: nothing but a FLARE job ID is looked
+        # up on disk or recorded.
+        candidate = str(flare_job_uuid).strip().lower()
+        if not FLARE_JOB_ID_RE.fullmatch(candidate):
+            raise ValueError(f"'{flare_job_uuid}' is not a FLARE job ID.")
+        flare_job_uuid = candidate
     if from_job is None and not flare_job_uuid:
         from_job = get_latest_training_job(network)
         if from_job is None:
