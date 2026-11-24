@@ -2176,6 +2176,34 @@ class ResumeWithoutRecordTests(ServerRouting, SubmitHarness, TestCase):
         self.assertIn(self.old_uuid, envelope["errors"][0])
         self.assertEqual(self.submitted, [])
 
+    def test_without_a_job_a_failed_submission_does_not_hide_the_latest_job(self):
+        # The previous run, with a round-start checkpoint here.
+        previous = str(uuid.uuid4())
+        TrainingJob.objects.filter(pk=self._record(previous).pk).update(
+            status="COMPLETED"
+        )
+        self._checkpoint_at("node-A", 7, job=previous)
+        # The interrupted job, which has no round-start checkpoint here.
+        self._record(self.old_uuid)
+
+        # A submission that failed records a job without a FLARE job ID.
+        for failed in ("error", "unknown"):
+            with self.subTest(failed=failed):
+                row = TrainingJob.objects.create(
+                    project=self.project,
+                    network=self.network,
+                    status="FAILED",
+                    flare_job_id=failed,
+                )
+
+                code, envelope = self._cli("resume", "--network", self.network_id)
+
+                self.assertEqual(code, 2, envelope)
+                self.assertIn(self.old_uuid, envelope["errors"][0])
+                self.assertIn(previous, envelope["errors"][0])
+                row.delete()
+        self.assertEqual(self.submitted, [])
+
     def test_an_identifier_that_is_no_job_id_is_not_looked_up_on_disk(self):
         with patch.object(
             training_services,

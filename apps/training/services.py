@@ -1592,10 +1592,18 @@ def locate_interrupted_job(
             )
         require_project_access(user, network.project)
         newest = newest_round_start_job(_network_workspace_root(network))
-        latest = get_latest_training_job(network)
+        # The latest record that names a job: a submission that failed records
+        # one without a FLARE job ID, which must not hide the job before it.
+        latest = (
+            TrainingJob.objects.filter(network=network, flare_job_uuid__isnull=False)
+            .exclude(flare_job_uuid="")
+            .select_related("project", "network")
+            .order_by("-created_at")
+            .first()
+        )
         latest_uuid = _flare_uuid_of(latest).lower() if latest else ""
         if not FLARE_JOB_ID_RE.fullmatch(latest_uuid):
-            latest_uuid = ""  # a record of a submission that failed names no job
+            latest_uuid = ""
         if newest and latest_uuid and newest != latest_uuid:
             raise LookupError(
                 f"Name the job to resume: the latest job of network "
