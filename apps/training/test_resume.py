@@ -1988,6 +1988,61 @@ class ResumeWithoutRecordTests(ServerRouting, SubmitHarness, TestCase):
         self.assertIn(self.old_uuid, envelope["errors"][0])
         self.assertEqual(self.submitted, [])
 
+    def test_the_checkpoints_folder_names_the_network(self):
+        # The job and its checkpoint without --network, from a job of SwarmMed
+        # 1.0.5; another network of the user's also holds a folder of the job.
+        second = SwarmNetwork.objects.create(
+            name="Second Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        (
+            self.base_dir
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(second.identifier)
+            / "workspace"
+            / "resume_project"
+            / "prod_00"
+            / "node-A"
+            / self.old_uuid
+        ).mkdir(parents=True)
+        checkpoint = self._checkpoint_at("node-A", 3, total_rounds=None)
+
+        code, envelope = self._cli(
+            "resume",
+            self.old_uuid,
+            "--checkpoint",
+            str(checkpoint),
+            "--start-round",
+            "3",
+            "--rounds",
+            "8",
+        )
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(envelope["result"]["network_identifier"], self.network_id)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_a_checkpoint_of_another_network_is_refused(self):
+        self._record(self.old_uuid)
+        other_network = str(uuid.uuid4())
+        checkpoint = self._checkpoint_at("node-A", 3, network=other_network)
+
+        code, envelope = self._cli(
+            "resume",
+            self.old_uuid,
+            "--network",
+            self.network_id,
+            "--checkpoint",
+            str(checkpoint),
+        )
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn(f"belongs to network {other_network}", envelope["errors"][0])
+        self.assertEqual(self.submitted, [])
+
     def test_without_a_record_the_standby_asks_both_servers(self):
         self._checkpoint_at("node-A", 3)
         self.switch_servers(server_started_here=True)
