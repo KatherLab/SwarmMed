@@ -366,7 +366,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Submit without asking the FL server, and after a server switch the "
-            "previous one, whether it still runs the job."
+            "previous one, whether it still runs the job, and even while the "
+            "network's FL server runs another job."
         ),
     )
     training_resume.set_defaults(

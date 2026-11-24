@@ -92,6 +92,14 @@ class CLIParserTests(SimpleTestCase):
             self._help("training", "resume"),
         )
 
+    def test_resume_force_help_names_every_check_it_skips(self):
+        self.assertIn(
+            "--force Submit without asking the FL server, and after a server switch "
+            "the previous one, whether it still runs the job, and even while the "
+            "network's FL server runs another job.",
+            self._help("training", "resume"),
+        )
+
     def test_main_returns_usage_code_for_invalid_command(self):
         stream = StringIO()
         with redirect_stdout(stream), redirect_stderr(stream):
