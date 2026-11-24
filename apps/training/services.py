@@ -12,6 +12,7 @@ import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -899,8 +900,22 @@ def submit_training_job(
         # and the Celery worker run as appuser and write the network's next job
         # into the same folder. Hand them what this submission wrote, also when
         # it failed; a folder that cannot be reached must not fail a submission.
-        with contextlib.suppress(OSError):
-            ensure_worker_writable(_job_dir(network))
+        _hand_to_worker(
+            _job_dir(network), get_logger(user=actor, project=network.project)
+        )
+
+
+def _hand_to_worker(path, log) -> None:
+    """Hand what this process wrote at ``path`` to the worker's user.
+
+    See :func:`network.utils.ensure_worker_writable`. Whatever cannot be handed
+    over is logged as a warning in the training log; it fails nothing.
+    """
+    try:
+        # ensure_worker_writable warns through its logger's network category.
+        ensure_worker_writable(path, logger=SimpleNamespace(network=log.training))
+    except OSError as exc:
+        log.training.warning(f"Could not hand {path} over to the worker: {exc}")
 
 
 def _submit_training_job(
@@ -1964,7 +1979,7 @@ def _check_no_server_runs_job(network: SwarmNetwork, flare_uuid: str) -> list[st
     return []
 
 
-def _append_resume_record(network: SwarmNetwork, record: dict) -> None:
+def _append_resume_record(network: SwarmNetwork, record: dict, *, log) -> None:
     """Keep a per-network list of resumed jobs next to the generated jobs."""
     record_path = (
         Path(settings.BASE_DIR)
@@ -1984,7 +1999,7 @@ def _append_resume_record(network: SwarmNetwork, record: dict) -> None:
     record_path.parent.mkdir(parents=True, exist_ok=True)
     record_path.write_text(json.dumps(records, indent=2))
     # Written after the job's submission, which handed the rest to the worker.
-    ensure_worker_writable(record_path)
+    _hand_to_worker(record_path, log)
 
 
 def resume_training_job(
@@ -2162,6 +2177,7 @@ def resume_training_job(
                 "checkpoint": checkpoint.as_dict(),
                 "resumed_at": timezone.now().isoformat(),
             },
+            log=log,
         )
     return new_job
 

@@ -745,6 +745,22 @@ def flare_admin_api(
     return api
 
 
+def chown_refused_for(name: str):
+    """An ``os.chown`` that fails for the paths with this name, as on a mount
+    that maps root to another user."""
+
+    def chown(path, *_args, **_kwargs):
+        if Path(path).name == name:
+            raise PermissionError(1, "Operation not permitted", str(path))
+
+    return chown
+
+
+def warnings_logged(category_logger) -> list[str]:
+    """The warnings logged through a mocked category of the Hub's logger."""
+    return [str(call.args[0]) for call in category_logger.warning.call_args_list]
+
+
 class SubmitHarness:
     """A running two-site network whose FL server is replaced by a fake session.
 
@@ -1178,6 +1194,38 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
             chown, self.network_dir / "job", including="app_client/custom"
         )
 
+    def test_what_cannot_be_handed_to_the_worker_is_logged(self):
+        with (
+            self.as_root() as chown,
+            patch.object(training_services, "get_logger") as get_logger,
+        ):
+            chown.side_effect = chown_refused_for("generated")
+            job = training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assertEqual(job.status, "RUNNING")
+        warned = warnings_logged(get_logger.return_value.training)
+        folder = str(self.network_dir / "job" / "generated")
+        self.assertTrue(any(folder in text for text in warned), warned)
+
+    def test_a_job_folder_that_cannot_be_reached_is_logged(self):
+        with (
+            patch.object(
+                training_services,
+                "ensure_worker_writable",
+                side_effect=PermissionError(13, "Permission denied"),
+            ),
+            patch.object(training_services, "get_logger") as get_logger,
+        ):
+            job = training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assertEqual(job.status, "RUNNING")
+        warned = warnings_logged(get_logger.return_value.training)
+        self.assertTrue(any("Permission denied" in text for text in warned), warned)
+
 
 class ServerRouting:
     """Routes the admin sessions of a resume: the current server is the harness's
@@ -1305,6 +1353,22 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
         self.assert_left_to_the_worker(
             chown, self.network_dir / "job", including="resumed_jobs.json"
         )
+
+    def test_a_resume_record_that_cannot_be_handed_to_the_worker_is_logged(self):
+        self._checkpoint_at("node-A", 3)
+
+        with (
+            self.as_root() as chown,
+            patch.object(training_services, "get_logger") as get_logger,
+        ):
+            chown.side_effect = chown_refused_for("resumed_jobs.json")
+            training_services.resume_training_job(
+                actor=self.user, network=self.network
+            )
+
+        warned = warnings_logged(get_logger.return_value.training)
+        record = str(self.network_dir / "job" / "resumed_jobs.json")
+        self.assertTrue(any(record in text for text in warned), warned)
 
     def test_an_interrupted_job_that_has_ended_keeps_its_status(self):
         self._checkpoint_at("node-A", 2)
