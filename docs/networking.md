@@ -272,9 +272,10 @@ startup bundle, so anyone holding a bundle can post status for any participant.
 Restrict port 5085 to the participants' addresses.
 
 Training containers that read their data through the platform's data adapter
-(the bundled examples do; the worked example read a local directory) first ask
-the coordinating Hub on port 5085 for their data manifest, then their own Hub.
-Nothing needs to answer that first request.
+(the bundled examples do; the worked example read a local directory) ask their
+own Hub for their data manifest, on port 5085 of their own host. Versions 1.0.5
+and earlier asked the FL server's host first, after a server switch the standby
+site's host; nothing needed to answer there. <!-- r106-check: _get_runtime_manifest_base_url gives https://127.0.0.1:5085 on the host network and https://swarmmedhub:5085 on a bridge; _get_manifest_discovery_targets never names the FL server's host (ManifestDiscoveryTests) -->
 
 ## Addressing
 
