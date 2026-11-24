@@ -28,15 +28,20 @@ a second port, the admin port, and their Hubs can exchange status over HTTPS
 | Direction | Endpoint | Default port | Purpose |
 |---|---|---|---|
 | participating site → coordinating site | FL server, fed-learn port | 8002 | client registration, task exchange, model payloads |
-| participating site's Hub, if it runs one → coordinating site | FL server, admin port | 8003 | job-status polling every 60 s; job submission if training is started from that Hub |
+| participating site's Hub, if it runs one → coordinating site | FL server, admin port | 8003 | job-status polling every 60 s; job submission, and the check before `swarmed training resume`, if training is started or resumed from that Hub |
 | every Hub ↔ every other participant's Hub | SwarmMedHub HTTPS | 5085 (fixed in code) | status exchange and training-state mirroring; optional |
 | users' browsers → their own site | SwarmMedHub web interface | 5085 (443 serves the same site) | the interface, at the site that hosts it |
 
 The coordinating site's own Hub and the `swarmed` CLI reach the admin port from
 the same host, so job submission and run control there need no firewall
-opening. A participating Hub starts polling the admin port as soon as the
-startup bundle is imported; if the port is blocked, that Hub learns nothing about
-jobs from the server and each poll waits for connection timeouts.
+opening. A participating Hub's job monitor connects to the admin port every 60 s
+as soon as the startup bundle is imported; if the port is blocked, each attempt
+waits for connection timeouts. The Hub's job records do not depend on it: they
+come from the jobs the Hub submits and from the logs of its own FL containers.
+With NVIDIA FLARE 2.7.1 the monitor does not yet find, in the server's job list,
+jobs that other Hubs submitted. <!-- r106-check: the list_jobs parser unit stayed deferred (parse_nvflare_jobs still reads reply['data']); records come from submit and the label scrape --> A Hub that resumes a run asks the server over
+this port whether it still runs the job
+([Server failover](failover.md#resuming-the-run)).
 
 Both server ports are configurable with `SWARMMEDHUB_FED_LEARN_PORT` and
 `SWARMMEDHUB_ADMIN_PORT`. This is necessary when the host already runs another
@@ -98,17 +103,22 @@ conveniences, which read NetBird or Tailscale, are the exception.
 Client-only mode, and the choice of which site's kit to start from the bundle,
 are environment variables of the process that starts the network. That is the
 Hub's Celery worker: a start from the web interface or the CLI is handed to it.
+The site's name is also read in the `app` container, where the CLI and the web
+interface import the startup package, so set it for both services:
 
 ```yaml
 # docker-compose.override.yml at a participating site, next to docker-compose.yml
 services:
+  app:
+    environment:
+      - SWARMMEDHUB_LOCAL_PARTICIPANT=site-a   # the site's name as provisioned
   celery_worker:
     environment:
       - SWARMMEDHUB_CLIENT_ONLY_MODE=true
-      - SWARMMEDHUB_LOCAL_PARTICIPANT=site-a   # the site's name as provisioned
+      - SWARMMEDHUB_LOCAL_PARTICIPANT=site-a
 ```
 
-Apply it with `docker compose up -d celery_worker`. Without
+Apply it with `docker compose up -d app celery_worker`. Without
 `SWARMMEDHUB_LOCAL_PARTICIPANT`, the start aborts unless the hostname or one of
 the host's addresses (its NetBird and Tailscale addresses and those in
 `SWARMMEDHUB_LOCAL_ADDRESSES`) matches a site in the bundle. On the coordinating host,
@@ -118,6 +128,39 @@ site. The port variables above go in the same file, under both `app` and
 `celery_worker`. These settings apply to every network the Hub starts. The
 worked example set the same variables for the processes that started each
 site's client and the coordinating server.
+
+### How a Hub knows which site it is
+
+A Hub learns which participant it is in two ways: from
+`SWARMMEDHUB_LOCAL_PARTICIPANT`, the site's name as provisioned, or from its own
+addresses, its NetBird and Tailscale addresses and those in
+`SWARMMEDHUB_LOCAL_ADDRESSES`, one of which must then be the address the site
+was provisioned with. They are used for different things:
+
+| The Hub ... | with `SWARMMEDHUB_LOCAL_PARTICIPANT` | with the provisioned address among its own |
+|---|---|---|
+| starts the site's FL client from the bundle (`swarmed network start`, `swarmed network failover`) | yes, set for `celery_worker` | yes |
+| records the jobs that its FL client runs, also those started at another Hub, and resumes them (`swarmed training checkpoints`, `swarmed training resume`) | not needed | not needed |
+| sends its status to the other Hubs and mirrors their training state ([Traffic between Hubs](#traffic-between-hubs)) | no | yes |
+| shows its own FL client as online in `swarmed network status` and on the Network page | no | yes |
+| at the coordinating host, shows the clients' status from its FL server's log on the Network page | no: the server has no site name | yes |
+| warns at import when a single site's kit is another site's | yes, set for `app` | no |
+
+<!-- r106-check: rows 3-5 are matched by address only in the merged code (apps/network/views.py broadcast_network_status and the network view's i_am_server and is_me, apps/network/runtime.py own client Online, apps/training/views.py mirror header); row 2 needs the record-less resume, the label scrape and the jobs' own totals merged; a shared participant helper stayed deferred -->
+
+A Hub records the jobs of its site from the jobs it submits and from the logs of
+its own FL containers, which SwarmMed labels with the network's ID, whoever
+submitted the jobs. `swarmed training resume` finds an interrupted job by its
+folder in the network's workspace, also without a record. So job records and the
+resume need neither setting, and no connection between the Hubs on port 5085.
+Set `SWARMMEDHUB_LOCAL_PARTICIPANT` at every site that trains, the standby
+included, for both services. List the server address in
+`SWARMMEDHUB_LOCAL_ADDRESSES` at the coordinating host, unless it is one of the
+host's NetBird or Tailscale addresses, and a site's provisioned address at any
+site whose Hub is to exchange status with the other Hubs. Up to version 1.0.5, a
+Hub without its provisioned address among its own did not record a job that
+another Hub had submitted, and could not resume it
+([Server failover](failover.md#testing-status)).
 
 ## Listening ports by host role
 
@@ -197,7 +240,8 @@ Both need inbound connections on port 5085:
 * Participating Hubs get the job state from the coordinating Hub only if it
   accepts their connections. Otherwise their Training page falls back to other
   participants' Hubs, their own client container's log and their admin-port
-  polling.
+  polling. Their job records and `swarmed training resume` do not depend on this
+  channel.
 * On any Hub, each peer that silently drops these connections delays every
   status refresh of the Training and home pages by up to 2 s.
 * The coordinating Hub's Network page does not use this channel; it reads its
@@ -513,9 +557,12 @@ tells them apart.
 The Hub reads NetBird and Tailscale (see
 [The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). With any
 other option, enter the server address in the network form or give it with the
-CLI's `--server-ip`, set `SWARMMEDHUB_OVERLAY=none`, and at each site list the
-address the site was provisioned with in `SWARMMEDHUB_LOCAL_ADDRESSES`, or set
-`SWARMMEDHUB_LOCAL_PARTICIPANT`. Tailscale (the worked example) and an existing
+CLI's `--server-ip`, and set `SWARMMEDHUB_OVERLAY=none`. At each site set
+`SWARMMEDHUB_LOCAL_PARTICIPANT`, and list the address the site was provisioned
+with in `SWARMMEDHUB_LOCAL_ADDRESSES` where the Hub is to exchange status with
+other Hubs; at the coordinating host list the server address there
+([How a Hub knows which site it is](#how-a-hub-knows-which-site-it-is)).
+Tailscale (the worked example) and an existing
 VPN between institutions (the three-hospital runs of the ECG template) have been
 used for training across hosts so far; NetBird has been exercised in a
 containers-only test on one host ([Validation status](#validation-status)).
@@ -850,6 +897,15 @@ NetBird.
   from the same host, so a submission that fails while clients are connected is
   rarely a firewall problem. The training log lists the hosts and ports the
   check before submission tried.
+* A site's Hub lists a job that another Hub started
+  (`swarmed training list --network <NETWORK_UUID>`) once its job monitor, which
+  runs every minute, has read the job in the log of the site's running FL client
+  container. Containers that SwarmMed did not start carry no
+  `swarmmedhub.network_id` label, and their logs are not read. A Hub that does
+  not list the job can still resume it:
+  `swarmed training checkpoints <JOB_UUID> --network <NETWORK_UUID>` finds the
+  job by its folder in the network's workspace
+  ([Server failover](failover.md#resuming-the-run)). <!-- r106-check: scrape_docker_progress(network_id=...) filters docker ps by label=swarmmedhub.network_id=<network UUID> and the generic fallback is gone (TrainingLogSummaryTests::test_docker_scrape_reads_only_the_networks_labelled_containers, SiteRecordTests) -->
 * Check what the server sees, on the coordinating host:
   `docker logs swarm-<first 12 characters of the network ID>-server | grep "New client"`
   (for example `swarm-1a7f19db-dd2-server`). The address after `@` is the one
