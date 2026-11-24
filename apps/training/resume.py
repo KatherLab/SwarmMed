@@ -84,6 +84,9 @@ class ResumeCheckpoint:
     source: str
     weights_format: str = "torch"
     modified_at: float = 0.0
+    # Rounds of the whole run, named by the round-start checkpoints of jobs
+    # submitted by SwarmMed 1.0.6 or later.
+    total_rounds: int | None = None
 
     def as_dict(self) -> dict:
         """Return the checkpoint as a plain dict, for CLI output and records."""
@@ -96,7 +99,7 @@ class ResumePlan:
 
     checkpoint: ResumeCheckpoint
     start_round: int
-    # Rounds of the whole run; None means the same count a new job would get.
+    # Rounds of the whole run; required for a resume.
     total_rounds: int | None = None
     from_job_identifier: str = ""
     from_flare_job: str = ""
@@ -243,6 +246,13 @@ def _read_metadata(app_dir: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _round_count(value) -> int | None:
+    """Return a number of rounds read from a file if it is a positive int."""
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return None
+
+
 def find_resume_checkpoints(
     workspace_root, flare_job_uuid: str
 ) -> list[ResumeCheckpoint]:
@@ -278,6 +288,7 @@ def find_resume_checkpoints(
                     source=SOURCE_ROUND_START,
                     weights_format=str(metadata.get("weights_format") or "torch"),
                     modified_at=(app_dir / CHECKPOINT_FILE).stat().st_mtime,
+                    total_rounds=_round_count(metadata.get("total_rounds")),
                 )
             )
         if GLOBAL_MODEL_FILE in files:
@@ -321,6 +332,7 @@ def describe_given_checkpoint(path: str, start_round: int | None) -> ResumeCheck
         source=SOURCE_GIVEN,
         weights_format=str(metadata.get("weights_format") or "torch"),
         modified_at=checkpoint.stat().st_mtime,
+        total_rounds=_round_count(metadata.get("total_rounds")),
     )
 
 

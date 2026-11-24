@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import uuid
 from contextlib import redirect_stdout
 from io import StringIO
@@ -86,13 +87,41 @@ if __name__ == "__main__":
 """
 
 
-def _write_round_start_checkpoint(app_dir: Path, next_round: int, site: str, value=1.0):
+def _write_round_start_checkpoint(
+    app_dir: Path,
+    next_round: int,
+    site: str,
+    value=1.0,
+    *,
+    total_rounds: int | None = 8,
+    job_id: str | None = None,
+    network: str | None = None,
+    saved_at: float | None = None,
+):
+    """Write a round-start checkpoint as the saver inside a job writes it.
+
+    The JSON and the metadata in the .pt name the run's total, as in a job
+    submitted by SwarmMed 1.0.6 or later; ``total_rounds=None`` writes them as
+    earlier releases did. The job is the folder's unless ``job_id`` names one.
+    """
     app_dir.mkdir(parents=True, exist_ok=True)
     weights = {"fc.weight": torch.full((2, 4), value), "fc.bias": torch.zeros(2)}
-    torch.save({"model": weights}, app_dir / CHECKPOINT_FILE)
-    (app_dir / METADATA_FILE).write_text(
-        json.dumps({"next_round": next_round, "site": site, "weights_format": "torch"})
+    metadata = {
+        "next_round": next_round,
+        "job_id": app_dir.parent.name if job_id is None else job_id,
+        "site": site,
+        "weights_format": "torch",
+        "num_tensors": len(weights),
+        "saved_at": time.time() if saved_at is None else saved_at,
+    }
+    if total_rounds is not None:
+        metadata.update(total_rounds=total_rounds, start_round=0)
+        if network is not None:
+            metadata["network"] = network
+    torch.save(
+        {"model": weights, "swarmmed_resume": metadata}, app_dir / CHECKPOINT_FILE
     )
+    (app_dir / METADATA_FILE).write_text(json.dumps(metadata))
     return weights
 
 
@@ -902,6 +931,7 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
                 path="x", next_round=4, site="", source="given"
             ),
             start_round=4,
+            total_rounds=4,
         )
         with self.assertRaisesRegex(ValueError, "Nothing to resume"):
             training_services.submit_training_job(
@@ -957,6 +987,19 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
             self._run_files(self.submitted[0]),
             {app: expected for app in ("app_node-A", "app_node-B", "app_server")},
         )
+
+    def test_a_resume_without_a_total_is_not_submitted(self):
+        plan = self._plan_from_round(3)
+        plan.total_rounds = None
+
+        with self.assertRaisesRegex(
+            ValueError, "needs the run's total number of rounds"
+        ):
+            training_services.submit_training_job(
+                actor=self.user, network=self.network, resume=plan
+            )
+        self.assertEqual(self.submitted, [])
+        self.assertEqual(TrainingJob.objects.count(), 0)
 
 
 class ServerRouting:
@@ -1030,9 +1073,27 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
             total_rounds=8,
         )
 
-    def _checkpoint_at(self, client: str, next_round: int):
+    def _checkpoint_at(self, client: str, next_round: int, **fields):
         app_dir = self.client_workspace(client) / self.old_uuid / f"app_{client}"
-        return _write_round_start_checkpoint(app_dir, next_round, client)
+        return _write_round_start_checkpoint(app_dir, next_round, client, **fields)
+
+    def _job_file(self, participant: str, relative: str, content, *, job=None):
+        """Write a file into a job's folder here, the interrupted job's by default."""
+        path = self.client_workspace(participant) / (job or self.old_uuid) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(content))
+        return path
+
+    def _submitted_rounds(self):
+        """The start round and the number of rounds of the submitted job."""
+        config = self.submitted[-1] / "app_server/config/config_fed_server.json"
+        args = json.loads(config.read_text())["workflows"][0]["args"]
+        return args.get("start_round", 0), args["num_rounds"]
+
+    def _forget_the_total(self):
+        """As a record that a site's job monitor created, or that has no total."""
+        TrainingJob.objects.filter(pk=self.old_job.pk).update(total_rounds=None)
+        self.old_job.refresh_from_db()
 
     def _assert_not_resumed(self):
         self.assertEqual(self.submitted, [])
@@ -1275,6 +1336,127 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
             training_services.resume_training_job(
                 actor=self.user, network=self.network, checkpoint_path=str(path)
             )
+
+    def test_a_guessed_total_is_never_used(self):
+        # The record's total as a site's job monitor stored it before 1.0.6.
+        TrainingJob.objects.filter(pk=self.old_job.pk).update(total_rounds=10)
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+
+        with self.assertRaisesRegex(ValueError, r"not known at this Hub.*--rounds"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_the_resuming_hubs_round_count_is_not_used(self):
+        # The harness's training script says SWARM_ROUNDS = 4.
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+
+        with self.assertRaisesRegex(ValueError, r"not known at this Hub.*--rounds"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+        self.assertEqual(self.session_calls, [])
+
+    def test_the_total_comes_from_the_jobs_run_file(self):
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+        run_file = self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {
+                "format": 1,
+                "network": str(self.network.identifier),
+                "total_rounds": 8,
+                "start_round": 0,
+                "num_rounds": 8,
+                "from_flare_job": "",
+            },
+        )
+
+        new_job = training_services.resume_training_job(
+            actor=self.user, network=self.network
+        )
+
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+        self.assertEqual(new_job.total_rounds, 8)
+        (record,) = json.loads(
+            (self.network_dir / "job" / "resumed_jobs.json").read_text()
+        )
+        self.assertEqual(record["total_rounds"], 8)
+        self.assertEqual(
+            record["total_rounds_from"],
+            str(run_file.relative_to(self.network_dir / "workspace")),
+        )
+
+    def test_the_total_comes_from_that_jobs_server_config_only(self):
+        # FLARE keeps the server's folder of a running or interrupted job.
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+        for job, rounds in ((str(uuid.uuid4()), 30), (self.old_uuid, 8)):
+            self._job_file(
+                "server",
+                "app_server/config/config_fed_server.json",
+                _swarm_server_config(num_rounds=rounds),
+                job=job,
+            )
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_a_1_0_5_resume_record_gives_the_total(self):
+        # The interrupted job resumed another one; SwarmMed 1.0.5 recorded that
+        # in the starting site's app.
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 10, total_rounds=None)
+        self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_resume.json",
+            {
+                "start_round": 3,
+                "total_rounds": 40,
+                "from_job": "",
+                "from_flare_job": str(uuid.uuid4()),
+                "checkpoint_source": "round-start",
+                "checkpoint_site": "node-B",
+                "checkpoint_round": 3,
+                "num_tensors": 2,
+            },
+        )
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+
+        self.assertEqual(self._submitted_rounds(), (10, 30))
+
+    def test_the_total_comes_from_a_copied_checkpoint(self):
+        # No folder of the job here: the checkpoint was copied from another site.
+        self._forget_the_total()
+        copied = self.base_dir / "copied"
+        _write_round_start_checkpoint(copied, 3, "node-B", job_id=self.old_uuid)
+
+        training_services.resume_training_job(
+            actor=self.user,
+            network=self.network,
+            checkpoint_path=str(copied / CHECKPOINT_FILE),
+        )
+
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_rounds_given_override_a_known_total_with_a_warning(self):
+        self._checkpoint_at("node-A", 3, total_rounds=40)
+        self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"format": 1, "total_rounds": 40, "start_round": 0, "num_rounds": 40},
+        )
+        warnings = []
+
+        training_services.resume_training_job(
+            actor=self.user, network=self.network, total_rounds=30, warnings=warnings
+        )
+
+        self.assertEqual(self._submitted_rounds(), (3, 27))
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("--rounds 30 differs from the run's 40 rounds", warnings[0])
 
     def test_active_check_reads_the_server_job_list(self):
         other_uuid = str(uuid.uuid4())

@@ -28,10 +28,12 @@ from results.artifacts import (
 
 from .models import TrainingJob
 from .resume import (
+    ResumeCheckpoint,
     ResumePlan,
     add_resume_checkpoint_component,
     describe_given_checkpoint,
     find_resume_checkpoints,
+    read_run_plan,
     resume_checkpoints_enabled,
     ship_resume_checkpoint,
     write_run_file,
@@ -997,7 +999,8 @@ def submit_training_job(
                 f"loaded by FLARE's PyTorch persistor (detected framework: {framework})."
             )
         if not resume.total_rounds:
-            resume.total_rounds = swarm_rounds
+            # Never this Hub's own count: the run may have another one.
+            raise ValueError("A resumed job needs the run's total number of rounds.")
         swarm_rounds = resume.total_rounds
         if resume.remaining_rounds <= 0:
             raise ValueError(
@@ -1343,6 +1346,72 @@ def list_resume_checkpoints(job: TrainingJob) -> list[dict]:
     ]
 
 
+def resolve_run_total(
+    *,
+    network: SwarmNetwork,
+    flare_uuid: str,
+    given: int | None = None,
+    checkpoint: ResumeCheckpoint | None = None,
+    required: bool = True,
+    warnings: list[str] | None = None,
+) -> tuple[int | None, str]:
+    """Return the number of rounds of the whole run that a job belongs to.
+
+    In this order: ``given`` (``--rounds``); the job's own files at this Hub
+    (:func:`training.resume.read_run_plan`); the total that ``checkpoint`` names,
+    else the newest checkpoint of the job here that names one. The job's record
+    is never used, because releases before 1.0.6 stored a guessed 10 there, and
+    neither is the round count of this Hub's training script, which only a new
+    job gets.
+
+    Args:
+        network: The job's network.
+        flare_uuid: The FLARE job ID of the job.
+        given: Rounds of the whole run, given by the operator.
+        checkpoint: The checkpoint the run is resumed from.
+        required: Raise if the total is unknown.
+        warnings: Receives a warning if ``given`` differs from a known total.
+
+    Returns:
+        tuple[int | None, str]: The total and where it was found ("--rounds",
+        one of the job's files or a checkpoint); None and "" if it is unknown
+        and not ``required``.
+
+    Raises:
+        ValueError: If the total is unknown and ``required``.
+    """
+    workspace_root = _network_workspace_root(network)
+    plan = read_run_plan(workspace_root, flare_uuid)
+    known, origin = (plan.total_rounds, plan.origin) if plan else (None, "")
+    if known is None:
+        candidates = [checkpoint] if checkpoint is not None else []
+        candidates.extend(find_resume_checkpoints(workspace_root, flare_uuid))
+        for candidate in candidates:
+            if candidate.total_rounds:
+                known = candidate.total_rounds
+                origin = f"the checkpoint {candidate.path}"
+                break
+    if given:
+        if known and given != known and warnings is not None:
+            warnings.append(
+                f"--rounds {given} differs from the run's {known} rounds in "
+                f"{origin}; the resumed run ends after round {given - 1}."
+            )
+        return int(given), "--rounds"
+    if known:
+        return known, origin
+    if not required:
+        return None, ""
+    raise ValueError(
+        f"The total number of rounds of job {flare_uuid} is not known at this Hub: "
+        "neither the job's folders here nor its checkpoint name it, as for a run "
+        "started with SwarmMed 1.0.5 or earlier, resumed at a site that did not "
+        "run its FL server. Pass --rounds with the number of rounds the run was "
+        "started with ('total_rounds' in 'swarmed training list' at the Hub that "
+        "started it)."
+    )
+
+
 # FLARE job states in which the job still holds the sites.
 _ACTIVE_FLARE_JOB_STATES = ("SUBMITTED", "APPROVED", "DISPATCHED", "RUNNING")
 
@@ -1549,8 +1618,9 @@ def resume_training_job(
             found at this site.
         start_round: The round to start at; required when the checkpoint's
             round is unknown.
-        total_rounds: Rounds of the whole run; defaults to the interrupted
-            job's count, then to the count a new job would get.
+        total_rounds: Rounds of the whole run; defaults to the total in the
+            job's files at this Hub or in its checkpoint (see
+            :func:`resolve_run_total`), never to the job's record.
         force: Submit without asking the FL servers whether they still run
             the job.
         warnings: Receives warnings for the caller to show, such as that the
@@ -1586,8 +1656,25 @@ def resume_training_job(
         )
     if checkpoint.next_round < 0:
         raise ValueError("The start round cannot be negative.")
+    total_warnings: list[str] = []
+    total, total_origin = resolve_run_total(
+        network=network,
+        flare_uuid=flare_uuid,
+        given=total_rounds,
+        checkpoint=checkpoint,
+        warnings=total_warnings,
+    )
+    if checkpoint.next_round >= total:
+        raise ValueError(
+            "Nothing to resume: the checkpoint starts at round "
+            f"{checkpoint.next_round} and the run has {total} rounds."
+        )
 
     log = get_logger(user=actor, project=network.project)
+    for warning in total_warnings:
+        log.training.warning(warning)
+        if warnings is not None:
+            warnings.append(warning)
     if network.status != "RUNNING":
         # Checked here as well, so that no server is asked for a network that
         # this Hub does not run.
@@ -1604,7 +1691,7 @@ def resume_training_job(
     plan = ResumePlan(
         checkpoint=checkpoint,
         start_round=int(checkpoint.next_round),
-        total_rounds=total_rounds or from_job.total_rounds or None,
+        total_rounds=total,
         from_job_identifier=str(from_job.identifier),
         from_flare_job=flare_uuid,
     )
@@ -1617,7 +1704,8 @@ def resume_training_job(
             )
         log.training.info(
             f"Job {flare_uuid} resumed as {new_job.flare_job_uuid or new_job.flare_job_id} "
-            f"from round {plan.start_round} of {plan.total_rounds}."
+            f"from round {plan.start_round} of {plan.total_rounds} "
+            f"(total from {total_origin})."
         )
         _append_resume_record(
             network,
@@ -1628,6 +1716,7 @@ def resume_training_job(
                 "from_flare_job": flare_uuid,
                 "start_round": plan.start_round,
                 "total_rounds": plan.total_rounds,
+                "total_rounds_from": total_origin,
                 "checkpoint": checkpoint.as_dict(),
                 "resumed_at": timezone.now().isoformat(),
             },

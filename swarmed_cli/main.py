@@ -350,7 +350,11 @@ def build_parser() -> argparse.ArgumentParser:
     training_resume.add_argument(
         "--rounds",
         type=int,
-        help="Rounds of the whole run (default: the interrupted job's).",
+        help=(
+            "Rounds of the whole run. Default: the total recorded in the job at "
+            "this site or in its checkpoint; needed for a run started before "
+            "SwarmMed 1.0.6, except at the Hub that ran its FL server."
+        ),
     )
     training_resume.add_argument(
         "--force",
