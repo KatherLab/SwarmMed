@@ -248,6 +248,14 @@ class FindResumeCheckpointsTests(SimpleTestCase):
             (None, "node-B", self.job, "", None, "torch"),
         )
 
+    def test_a_checkpoint_total_beyond_any_run_counts_as_none(self):
+        app_dir = self.root / "node-B" / self.job / "app_node-B"
+        _write_round_start_checkpoint(app_dir, 3, "node-B", total_rounds=3_000_000_000)
+
+        (checkpoint,) = find_resume_checkpoints(self.root, self.job)
+
+        self.assertEqual((checkpoint.next_round, checkpoint.total_rounds), (3, None))
+
 
 class TotalRoundsTests(SimpleTestCase):
     def test_resumed_job_counts_rounds_from_zero(self):
@@ -406,6 +414,21 @@ class ReadRunPlanTests(SimpleTestCase):
             with self.subTest(content=content):
                 self._write("node-A", "app_node-A/config/swarmmed_run.json", content)
                 self.assertIsNone(self._plan())
+
+    def test_a_total_beyond_any_run_counts_as_none(self):
+        # A job record holds at most 2**31 - 1 rounds; no run has 100000.
+        self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"total_rounds": 3_000_000_000, "start_round": 0},
+        )
+        server_config = self._write(
+            "server",
+            "app_server/config/config_fed_server.json",
+            _swarm_server_config(num_rounds=5),
+        )
+
+        self.assertEqual(self._plan(), (5, 0, server_config))
 
 
 class ResumeCheckpointSaverTests(SimpleTestCase):
@@ -1613,6 +1636,36 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
         self.assertEqual(self._submitted_rounds(), (3, 27))
         self.assertEqual(len(warnings), 1)
         self.assertIn("--rounds 30 differs from the run's 40 rounds", warnings[0])
+
+    def test_a_total_beyond_any_run_in_the_jobs_files_is_not_used(self):
+        # Code in the FL client containers can write the job's files.
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+        self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"format": 1, "total_rounds": 3_000_000_000, "start_round": 0},
+        )
+
+        with self.assertRaisesMessage(ValueError, "Pass --rounds"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+        self.assertEqual(self.session_calls, [])
+
+    def test_rounds_beyond_any_run_are_refused_before_any_server_is_asked(self):
+        self._checkpoint_at("node-A", 3)
+
+        for rounds in (0, 100_001, 3_000_000_000):
+            with (
+                self.subTest(rounds=rounds),
+                self.assertRaisesMessage(
+                    ValueError, "--rounds must be between 1 and 100000."
+                ),
+            ):
+                training_services.resume_training_job(
+                    actor=self.user, network=self.network, total_rounds=rounds
+                )
+        self._assert_not_resumed()
+        self.assertEqual(self.session_calls, [])
 
     def test_active_check_reads_the_server_job_list(self):
         other_uuid = str(uuid.uuid4())

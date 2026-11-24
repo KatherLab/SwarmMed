@@ -45,6 +45,9 @@ START_CHECKPOINT_FILE = "swarmmed_resume_start.pt"
 RESUME_RECORD_FILE = "swarmmed_resume.json"
 SERVER_CONFIG_FILE = "config_fed_server.json"
 RUN_FILE_FORMAT = 1
+# More rounds than any run has. A larger total in a file that job code can
+# write is not a run's total, and a job record holds at most 2**31 - 1.
+MAX_RUN_ROUNDS = 100_000
 
 # A FLARE job ID as FLARE writes it (a network's identifier has the same form),
 # and what a job may be named by: its ID or a prefix of at least 8 characters.
@@ -161,11 +164,11 @@ def job_folders(workspace_root, job_id: str) -> list[Path]:
 
 
 def _whole_rounds(total_rounds, start_round) -> tuple[int, int] | None:
-    """Return the two values if both are ints with 0 <= start < total."""
+    """Return the two values if both are ints with 0 <= start < total <= max."""
     values = (total_rounds, start_round)
     if not all(isinstance(v, int) and not isinstance(v, bool) for v in values):
         return None
-    return values if 0 <= start_round < total_rounds else None
+    return values if 0 <= start_round < total_rounds <= MAX_RUN_ROUNDS else None
 
 
 def _recorded_rounds(content: dict) -> tuple:
@@ -190,7 +193,7 @@ def read_run_plan(workspace_root, flare_uuid: str) -> RunPlan | None:
        SwarmMed 1.0.3 to 1.0.5, at its starting site.
 
     Code in the FL client containers can write to the job folders, so only
-    ints with ``0 <= start_round < total_rounds`` are taken.
+    ints with ``0 <= start_round < total_rounds <= MAX_RUN_ROUNDS`` are taken.
 
     Args:
         workspace_root: The network's ``workspace`` folder at this Hub.
@@ -265,8 +268,12 @@ def _read_metadata(app_dir: Path) -> dict:
 
 
 def _round_count(value) -> int | None:
-    """Return a number of rounds read from a file if it is a positive int."""
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+    """Return a number of rounds read from a file if it is a plausible int."""
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 < value <= MAX_RUN_ROUNDS
+    ):
         return value
     return None
 
@@ -314,7 +321,7 @@ def checkpoint_metadata(path) -> dict:
     Code in the FL client containers can write both, so only these keys are
     kept, and only with a valid value: ``job_id`` and ``network`` (UUIDs as
     FLARE and SwarmMed write them), ``next_round`` and ``start_round`` (ints >=
-    0), ``total_rounds`` (an int > 0), ``site`` (a plain name),
+    0), ``total_rounds`` (an int from 1 to ``MAX_RUN_ROUNDS``), ``site`` (a plain name),
     ``weights_format`` and ``saved_at``.
 
     Returns:

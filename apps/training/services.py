@@ -34,6 +34,7 @@ from .models import TrainingJob
 from .resume import (
     FLARE_JOB_ID_RE,
     JOB_ID_PREFIX_RE,
+    MAX_RUN_ROUNDS,
     ResumeCheckpoint,
     ResumePlan,
     add_resume_checkpoint_component,
@@ -1718,7 +1719,8 @@ def resolve_run_total(
     Args:
         network: The job's network.
         flare_uuid: The FLARE job ID of the job.
-        given: Rounds of the whole run, given by the operator.
+        given: Rounds of the whole run, given by the operator; from 1 to
+            ``MAX_RUN_ROUNDS``.
         checkpoint: The checkpoint the run is resumed from.
         required: Raise if the total is unknown.
         warnings: Receives a warning if ``given`` differs from a known total.
@@ -1729,8 +1731,11 @@ def resolve_run_total(
         and not ``required``.
 
     Raises:
-        ValueError: If the total is unknown and ``required``.
+        ValueError: If the total is unknown and ``required``, or ``given``
+            is out of range.
     """
+    if given is not None and not 0 < given <= MAX_RUN_ROUNDS:
+        raise ValueError(f"--rounds must be between 1 and {MAX_RUN_ROUNDS}.")
     workspace_root = _network_workspace_root(network)
     plan = read_run_plan(workspace_root, flare_uuid)
     known, origin = (plan.total_rounds, plan.origin) if plan else (None, "")
