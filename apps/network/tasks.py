@@ -128,14 +128,13 @@ def _split_runtime_entrypoint(command: list[str]) -> tuple[str | None, list[str]
     return None, list(command)
 
 
-def _get_runtime_manifest_base_url(
-    *, use_host_network: bool, remote_host: str = ""
-) -> str:
-    """Choose the most direct app URL for manifest requests from runtime containers."""
-    cleaned_remote_host = str(remote_host or "").strip()
+def _get_runtime_manifest_base_url(*, use_host_network: bool) -> str:
+    """Return the URL of this site's own Hub for runtime containers' data manifests.
+
+    The request carries the site's project secret, so it never goes to the FL
+    server's host, which after a server switch is another site's host.
+    """
     if use_host_network:
-        if cleaned_remote_host:
-            return f"https://{cleaned_remote_host}:5085"
         return "https://127.0.0.1:5085"
 
     # For bridge networks, we hit the host gateway. We use 'swarmmedhub' as the
@@ -2140,13 +2139,15 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
             ]
             run_cmd.extend(_runtime_ulimit_args(env))
             manifest_base_url = _get_runtime_manifest_base_url(
-                use_host_network=use_host_network,
-                remote_host=remote_host,
+                use_host_network=use_host_network
             )
             if manifest_base_url:
                 run_cmd.extend(
                     ["-e", f"SWARMMEDHUB_MANIFEST_URL={manifest_base_url}"]
                 )
+            # The data adapter tries plain HTTP only on a Docker network.
+            runtime_network = "host" if use_host_network else "bridge"
+            run_cmd.extend(["-e", f"SWARMMEDHUB_RUNTIME_NETWORK={runtime_network}"])
             if remote_host:
                 run_cmd.extend(["-e", f"SWARMMEDHUB_SERVER_HOST={remote_host}"])
             if role == "client":

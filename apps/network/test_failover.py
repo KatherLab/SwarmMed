@@ -1122,6 +1122,25 @@ class StartRoleTests(NetworkFixture, TestCase):
         self.assertIn("server:192.0.2.10", run)
         self.assertIn("SWARMMEDHUB_SERVER_HOST=192.0.2.10", run)
 
+    def test_client_after_a_switch_asks_its_own_hub_for_the_manifest(self):
+        # The manifest request carries the site's project secret; after a
+        # switch the FL server's host is another site's.
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        runs = self._start(role="client", participants=["node-B"])
+
+        self.assertEqual(len(runs), 1)
+        self.assertIn("SWARMMEDHUB_MANIFEST_URL=https://127.0.0.1:5085", runs[0])
+        self.assertEqual([arg for arg in runs[0] if "192.0.2.10:5085" in arg], [])
+
+    def test_client_container_is_told_its_network_mode(self):
+        # The data adapter tries plain HTTP only on a Docker network.
+        client_runs = self._start(role="client", participants=["node-B"])
+        server_runs = self._start(role="server")
+
+        self.assertIn("SWARMMEDHUB_RUNTIME_NETWORK=host", client_runs[0])
+        self.assertIn("SWARMMEDHUB_RUNTIME_NETWORK=bridge", server_runs[0])
+
     def test_unknown_participant_is_an_error(self):
         self._start(role="client", participants=["node-Z"])
         self.assertEqual(self.network.status, "ERROR")
