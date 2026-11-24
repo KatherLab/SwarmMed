@@ -55,6 +55,14 @@ When the CLI runs in the container:
   variables apply to it. `network start` hands the start to the Celery worker,
   so variables that control how a network starts, such as client-only mode, must
   be set for the worker ([Networking](networking.md)).
+* **Files the CLI writes.** The CLI runs as root in the container, while the web
+  interface and the Celery worker run as `appuser`. Files that it writes into
+  `workspaces/`, such as an imported network or a training job, are handed to
+  `appuser`, so that the web interface and the worker can start, switch and
+  delete the network and submit the next job. <!-- r106-check: "or a training job" and "and submit the next job" only if the hand-over of CLI-written job folders landed (a should-item); if not, say "such as an imported network" and add: "After training start or training resume with the CLI, restart app and celery_worker (docker compose restart app celery_worker) before the network's next job is started from the web interface." --> If the worker reports that it
+  cannot make a start script executable, restart it
+  (`docker compose restart celery_worker`): at its start it hands `workspaces/`
+  to `appuser`. <!-- r106-check: _ensure_executable's PermissionError text names the file, its owner's uid and "docker compose restart celery_worker" (ScriptTests::test_a_script_the_worker_cannot_make_executable_names_the_remedy) -->
 * **Do not run `uv` inside the container.** `/app` is the host's repository
   directory, and uv treats the host's `.venv` as broken there: it deletes it and
   creates an empty one owned by root.
@@ -277,10 +285,17 @@ swarmed network use --user alice <NETWORK_UUID>
 swarmed network start --user alice <NETWORK_UUID> --wait
 ```
 
-At a participating site, set client-only mode for the worker before starting
-the network; otherwise the start also launches a copy of the FL server from the
-imported package. A coordinating host that does not train uses server-only mode.
-Both are described in [Networking](networking.md).
+At a participating site, set client-only mode for the worker, and the site's
+name for the worker and the `app` service, before starting the network;
+otherwise the start also launches a copy of the FL server from the imported
+package. A coordinating host that does not train uses server-only mode. Both are
+described in [Networking](networking.md).
+
+While this Hub is switched to an FL server that another site started
+(`network failover` without `--start-server`), `network start` does not start
+the Hub's own FL server: the network ends in `ERROR`, and with `--wait` the
+command exits with code 2 and names the server the Hub uses
+([Server failover](failover.md#when-the-hub-that-ran-the-server-comes-back)). <!-- r106-check: the start refusal and the line in the network_start ERROR branch ("This Hub is switched to the FL server at {host}; see 'When the Hub that ran the server comes back' in docs/failover.md."); StartRefusalCLITests::test_start_error_names_the_switch -->
 
 ### 7. Start and watch training
 
@@ -293,7 +308,9 @@ The network must be running on this Hub. The job is not submitted if the
 project's stored code has no `training.py`, for example while the object store is
 unavailable. The number of rounds comes from `SWARMMEDHUB_SWARM_ROUNDS`, passed
 with `docker exec -e`, or else from `SWARM_ROUNDS` in `training.py`, and is 10 if
-neither is set ([Developer](developer.md#training-scripts-nvflare)).
+neither is set ([Developer](developer.md#training-scripts-nvflare)). Every site's
+copy of the job records this number (`config/swarmmed_run.json` in each app), so
+`swarmed training resume` finds it at any site. <!-- r106-check: write_run_file in submit_training_job for every job (SubmitWithResumeTests::test_every_app_describes_the_run) -->
 
 When the Hub's job monitor has flagged a running job as stalled, for example
 because a site dropped out, `training status`, `list` and `watch` print a
@@ -387,17 +404,24 @@ host or its network is lost:
 ```bash
 # at the standby site
 swarmed network failover --user alice <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --start-server --wait
-# at every other site
+# at every other site, and at the coordinating Hub when it comes back
 swarmed network failover --user alice <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --wait
-# at a site with the project and a checkpoint
-swarmed training checkpoints --user alice <JOB_UUID>
-swarmed training resume --user alice <JOB_UUID>
+# at one training site, the standby for example
+swarmed training checkpoints --user alice <JOB_UUID> --network <NETWORK_UUID>
+swarmed training resume --user alice <JOB_UUID> --network <NETWORK_UUID>
 ```
 
-The interrupted job cannot continue on another server; `training resume` starts a
-new job at the interrupted round from the newest checkpoint at the site. See
-[Server failover](failover.md) for what each command does and what has to be in
-place beforehand. The resumed job carries the checkpoint, so over slow links it
+`<JOB_UUID>` is the interrupted job's FLARE job ID, the same at every site
+(`flare_job_uuid` in `training list`). The interrupted job cannot continue on
+another server; `training resume` starts a new job at the interrupted round from
+the newest checkpoint at the site. The Hub needs no record of the job: it finds
+the job by its folder in the network's workspace. With `--json`,
+`training checkpoints` also gives `network_identifier`, `found_by` (how the Hub
+found the job), and `total_rounds` and `total_rounds_from` (the run's total and
+where the Hub found it; empty when it does not know it). <!-- r106-check: the checkpoints JSON keys and the found_by values ("record", "job folder", "checkpoint", "newest checkpoint"); total_rounds null and total_rounds_from "" when unknown --> For a run started
+before SwarmMed 1.0.6, add `--rounds <TOTAL>` unless this Hub ran the run's FL
+server. <!-- r106-check: the --rounds help text and the refusal without a known total --> See [Server failover](failover.md) for what each command does and what
+has to be in place beforehand. The resumed job carries the checkpoint, so over slow links it
 may need longer FLARE timeouts; `training resume` warns about the two settings
 unless `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its own environment (see
 [Resuming over a slow link](failover.md#resuming-over-a-slow-link)).
