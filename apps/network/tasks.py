@@ -43,6 +43,7 @@ from .failover import (
     move_kit_folder,
     network_prod_dir,
     restore_active_server,
+    server_start_refusal,
     write_active_server,
 )
 from .models import SwarmNetwork
@@ -1745,6 +1746,33 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
         docker_path = shutil.which("docker") or "docker"
         env = os.environ.copy()
 
+        server_only_mode = (
+            os.getenv("SWARMMEDHUB_SERVER_ONLY_MODE", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        client_only_mode = (
+            os.getenv("SWARMMEDHUB_CLIENT_ONLY_MODE", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        if role == "server":
+            server_only_mode, client_only_mode = True, False
+        elif role == "client":
+            server_only_mode, client_only_mode = False, True
+        elif role:
+            raise ValueError(f"Unknown runtime role: {role!r}")
+
+        has_server_target = any(t["role"] == "server" for t in targets)
+        if role is None and has_server_target and not client_only_mode:
+            # Before any image or container is touched. A switch, which starts
+            # the server or the clients with an explicit role, is not checked.
+            refusal = server_start_refusal(swarm_network)
+            if refusal:
+                raise RuntimeError(refusal)
+
         configured_image = os.getenv("SWARMMEDHUB_FLARE_IMAGE", "").strip()
         force_configured_image = (
             os.getenv("SWARMMEDHUB_FORCE_CONFIGURED_IMAGE", "")
@@ -1799,26 +1827,6 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
         network_name = _docker_network_name(swarm_network.identifier)
         _ensure_docker_network(docker_path, network_name, env, logger)
 
-        server_only_mode = (
-            os.getenv("SWARMMEDHUB_SERVER_ONLY_MODE", "")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
-        )
-        client_only_mode = (
-            os.getenv("SWARMMEDHUB_CLIENT_ONLY_MODE", "")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
-        )
-        if role == "server":
-            server_only_mode, client_only_mode = True, False
-        elif role == "client":
-            server_only_mode, client_only_mode = False, True
-        elif role:
-            raise ValueError(f"Unknown runtime role: {role!r}")
-
-        has_server_target = any(t["role"] == "server" for t in targets)
         filtered_targets = []
         for target in targets:
             if server_only_mode and target["role"] == "client":
@@ -2347,7 +2355,10 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
                 swarm_network.project if "swarm_network" in locals() else None
             ),
         )
-        internal_logger.network.error(f"Failed to start network: {str(e)}")
+        internal_logger.network.error(
+            f"Failed to start network: {str(e)}",
+            network=swarm_network if "swarm_network" in locals() else None,
+        )
 
 
 @shared_task
@@ -2668,7 +2679,7 @@ def failover_network_task(
             logger.network.info(
                 "No FL client container of this network exists at this Hub; only "
                 "the Hub's admin connection was switched. 'swarmed network start' "
-                "now starts clients against the new server."
+                "in client-only mode now starts clients against the new server."
             )
             if not start_server:
                 # Nothing runs here for this network; keep the status it had.

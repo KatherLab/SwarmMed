@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import io
+import json
+import os
 import subprocess  # nosec B404
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from django.test import TestCase
+from swarmed_cli.main import main
 
+from .failover import write_active_server
 from .runtime import get_local_participant_status
 from .test_failover import NetworkFixture
+from .test_worker_permissions import RuntimeFixture
 
 
 class StaleServerLogTests(NetworkFixture, TestCase):
@@ -47,4 +54,50 @@ class StaleServerLogTests(NetworkFixture, TestCase):
         self.assertEqual(
             self._statuses(server_running=True),
             {"server": "Online", "node-A": "Joined", "node-B": "Offline"},
+        )
+
+
+class StartRefusalCLITests(RuntimeFixture, TestCase):
+    """'swarmed network start' at a Hub switched to a server another site started."""
+
+    def test_start_error_names_the_switch(self):
+        # A server-only coordinator that switched to the standby at 192.0.2.10.
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+        stdout = io.StringIO()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SWARMMEDHUB_RUN_TASKS_INLINE": "1",
+                    "SWARMMEDHUB_SERVER_ONLY_MODE": "true",
+                },
+            ),
+            # Keep the checkout's .env, which the CLI loads, out of the test.
+            patch("swarmed_cli.bootstrap.load_dotenv"),
+            # A wait that does not return polls again.
+            patch("swarmed_cli.support.time.sleep", side_effect=AssertionError),
+            self._docker() as runs,
+            redirect_stdout(stdout),
+        ):
+            os.environ.pop("SWARMMEDHUB_CLIENT_ONLY_MODE", None)
+            code = main(
+                [
+                    "network",
+                    "start",
+                    str(self.network.identifier),
+                    "--wait",
+                    "--user",
+                    "operator",
+                    "--json",
+                ]
+            )
+
+        output = json.loads(stdout.getvalue())
+        self.assertEqual(code, 2, output)
+        self.assertEqual(runs, [])
+        self.network.refresh_from_db()
+        self.assertEqual(self.network.status, "ERROR")
+        self.assertIn(
+            "This Hub is switched to the FL server at 192.0.2.10", output["errors"][0]
         )

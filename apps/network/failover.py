@@ -204,6 +204,35 @@ def active_server_record(network) -> dict:
     return _read_record(network_prod_dir(network))
 
 
+def server_start_refusal(network) -> str:
+    """Return why 'swarmed network start' must not start this Hub's FL server.
+
+    After a switch to a server that this Hub did not start (see
+    :func:`admin_session_pin`), the network's sites use that server, so a
+    server started here too would be a second server for the network. Starts
+    with an explicit role, which ``swarmed network failover`` makes, are not
+    checked; nor are local test networks.
+
+    Returns:
+        str: The reason, or '' when nothing speaks against the start.
+    """
+    if network.creation_method == "LOCAL_TEST":
+        return ""
+    record = active_server_record(network)
+    host = admin_session_pin(record)
+    if not host:
+        return ""
+    return (
+        f"This Hub uses the FL server at {host} (switched at "
+        f"{record.get('changed_at') or 'an unknown time'}), so 'swarmed network "
+        "start' does not start this Hub's own FL server: two FL servers must never "
+        "run for one network. To start only this Hub's FL clients, set "
+        "SWARMMEDHUB_CLIENT_ONLY_MODE for the worker. To run the server here "
+        "again, follow 'To return to the coordinating server later' in "
+        "docs/failover.md."
+    )
+
+
 def provisioned_server_host(network) -> str:
     """Return the server address written into the network's kits at provisioning."""
     prod_dir = network_prod_dir(network)
