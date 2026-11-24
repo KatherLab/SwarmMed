@@ -5,7 +5,6 @@ and synchronization of result files (weights/logs) to S3 storage.
 """
 
 import contextlib
-import json
 import os
 import uuid
 
