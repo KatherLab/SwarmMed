@@ -26,9 +26,13 @@ TRAINING_ROUND_PATTERNS = (
     re.compile(r"Round\s+(\d+)\s+\|", re.I),
     re.compile(r"Round:\s+(\d+)", re.I),
     re.compile(r"finished training round\s+(\d+)", re.I),
-    re.compile(r"number of rounds completed\s+(\d+)", re.I),
     re.compile(r"Start aggregation for round\s+(\d+)", re.I),
 )
+
+# FLARE's "Swarm Learning Done: number of rounds completed K" at the end of a job
+# counts the job's rounds, which are numbered from 0, so its last round is K - 1.
+# A resumed job counts only its own rounds; then K - 1 is a lower bound.
+TRAINING_ROUND_COUNT_PATTERN = re.compile(r"number of rounds completed\s+(\d+)", re.I)
 
 TRAINING_COMPLETION_MARKERS = (
     "ending workflow",
@@ -182,6 +186,8 @@ def extract_training_rounds(log_text: str) -> int:
             round_number = int(match.group(1))
             if round_number > rounds_finished:
                 rounds_finished = round_number
+    for match in TRAINING_ROUND_COUNT_PATTERN.finditer(log_text):
+        rounds_finished = max(rounds_finished, int(match.group(1)) - 1)
     return rounds_finished
 
 

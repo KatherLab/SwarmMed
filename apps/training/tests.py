@@ -107,6 +107,24 @@ class TrainingLogSummaryTests(SimpleTestCase):
         self.assertEqual(summary["rounds_finished"], 1)
         self.assertIsNone(summary["terminal_status"])
 
+    def test_the_round_count_at_the_end_of_a_job_is_a_count(self):
+        # Rounds count from 0, so a job of rounds 0-4 completed 5 rounds.
+        job = "56565656-5656-5656-5656-565656565656"
+        done = (
+            f"2026-11-23 16:10:09,186 - SwarmClientController - INFO - "
+            f"[identity=site-c, run={job}]: Swarm Learning Done: "
+            "number of rounds completed {}\n"
+        )
+
+        self.assertEqual(summarize_training_log(done.format(5))["rounds_finished"], 4)
+        # A resumed job counts only its own rounds (here 3-5).
+        self.assertEqual(
+            summarize_training_log("Finished round 5\n" + done.format(3))[
+                "rounds_finished"
+            ],
+            5,
+        )
+
     def test_per_round_training_log_is_not_treated_as_terminal(self):
         summary = summarize_training_log(
             "Training finished for round. Sending updates to server...\n"
