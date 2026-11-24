@@ -1209,6 +1209,36 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
             str(refused.exception),
         )
 
+    def test_refuses_while_the_server_runs_another_job(self):
+        # The run, already resumed at another site.
+        self._checkpoint_at("node-A", 2)
+        resumed_elsewhere = str(uuid.uuid4())
+        self.session.api.do_command.side_effect = flare_admin_api(
+            {self.old_uuid: "FINISHED:ABANDONED", resumed_elsewhere: "RUNNING"}
+        ).server_execute
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"The network's FL server already runs job {resumed_elsewhere} "
+            r"\(RUNNING\)\. If that job is this run, resumed at another site, do "
+            r"not resume it again\..*--force",
+        ):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_a_finished_job_on_the_server_does_not_block_a_resume(self):
+        self._checkpoint_at("node-A", 2)
+        self.session.api.do_command.side_effect = flare_admin_api(
+            {
+                self.old_uuid: "FINISHED:ABANDONED",
+                str(uuid.uuid4()): "FINISHED:COMPLETED",
+            }
+        ).server_execute
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+
+        self.assertEqual(len(self.submitted), 1)
+
     def test_refuses_when_the_server_gives_no_job_list(self):
         self._checkpoint_at("node-A", 2)
         # What FLARE's admin API returns when list_jobs gets no answer in time.
