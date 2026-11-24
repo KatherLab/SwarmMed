@@ -93,6 +93,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   presented as alternatives; they are not. The client-only example sets the
   site's name for the `app` service too, so that the import's warning about
   another site's kit applies.
+- [Security](docs/security.md#script-sandbox) and
+  [Installation](docs/installation.md#software-and-network-access) say that the
+  privileged script sandbox, `sandbox-dind`, can load modules into the host's
+  kernel, and that its Docker daemon tries to load `bridge` and `br_netfilter`
+  when it starts.
+- The [threat model](docs/threat-model.md#key-custody-what-the-startup-package-contains)
+  says that the FL server's log names the same admin identity for every Hub, and
+  that deleting a network can leave files that the FL containers wrote as root,
+  keys included, on disk unless the Celery worker is restarted first. The
+  [installation guide](docs/installation.md#build-and-run) says that the
+  PgBouncer container keeps restarting on a new installation, which does not
+  affect the Hub, and the [CLI guide](docs/cli.md#5-create-or-import-a-network)
+  says to export the startup package before the network first starts, since a
+  later export also carries the job folders of the sites that trained at that
+  Hub.
 
 ### Fixed
 
@@ -165,7 +180,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1 s gets 5 s.
 - `docs/networking.md` said that the FL client's job processes connect to their
   parent process at the site's provisioned address. They connect to
-  `localhost`; FLARE does not use that address.
+  `localhost`; FLARE does not use that address. It also said that the
+  coordinating Hub shows client status from its FL server's log only if it
+  recognises its own address. That holds for the Network page;
+  `swarmed network status` reads the log of the network's FL server container at
+  the Hub while that container runs.
 
 ### Security
 
