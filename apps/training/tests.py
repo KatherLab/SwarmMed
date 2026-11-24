@@ -493,6 +493,61 @@ class TrainingIdentityServiceTests(TestCase):
         self.assertEqual(job.status, "COMPLETED")
         self.assertEqual(job.progress_percent, 100)
 
+    def _status_check(self, job, log_text):
+        """`training status` (or the Training page) while the job's log says so."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_dir = (
+                Path(tmpdir)
+                / "workspaces"
+                / str(self.project.identifier)
+                / str(self.network.identifier)
+                / "workspace"
+                / "prod_00"
+                / job.flare_job_uuid
+                / "app_server"
+            )
+            log_dir.mkdir(parents=True)
+            (log_dir / "log.txt").write_text(log_text, encoding="utf-8")
+            with (
+                override_settings(BASE_DIR=tmpdir),
+                # A running job's progress is also read from local FL containers.
+                patch(
+                    "training.runtime.summarize_runtime_container_logs",
+                    return_value=None,
+                ),
+            ):
+                payload = training_services.get_training_status_payload(
+                    network=self.network, job=job
+                )
+        job.refresh_from_db()
+        return payload
+
+    def _running_job(self, flare_uuid, rounds_finished):
+        return TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=flare_uuid,
+            flare_job_uuid=flare_uuid,
+            total_rounds=20,
+            rounds_finished=rounds_finished,
+        )
+
+    def test_a_status_check_that_sees_the_end_saves_the_last_round(self):
+        # Once the job has ended, the monitor no longer reads its rounds.
+        job = self._running_job("90909090-9090-9090-9090-909090909090", 11)
+
+        self._status_check(job, "Finished round 19\nending workflow\n")
+
+        self.assertEqual((job.status, job.rounds_finished), ("COMPLETED", 19))
+
+    def test_a_running_status_check_saves_its_rounds(self):
+        job = self._running_job("91919191-9191-9191-9191-919191919191", 3)
+
+        self._status_check(job, "Finished round 5\n")
+
+        self.assertEqual((job.status, job.rounds_finished), ("RUNNING", 5))
+
     def test_completed_job_does_not_revert_to_running(self):
         job = TrainingJob.objects.create(
             project=self.project,

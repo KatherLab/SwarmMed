@@ -52,6 +52,7 @@ def build_training_status_payload(current_network, job):
         "eta": info["eta"],
         "job_id": job.flare_job_id,
         "created_at": job.created_at.isoformat(),
+        "rounds_finished": info.get("rounds_finished"),
     }
 
 
@@ -1011,6 +1012,12 @@ def get_training_progress_info(training_job, current_network):
         or str(training_job.flare_job_id or "")
     )
     total_rounds = training_job.total_rounds
+    # -1 until a round has finished, as the job monitor records it.
+    rounds_finished = (
+        training_job.rounds_finished
+        if training_job.rounds_finished is not None
+        else -1
+    )
 
     if training_job.status == "RUNNING":
         is_training_running = True
@@ -1040,12 +1047,6 @@ def get_training_progress_info(training_job, current_network):
             # job's settings in the workspace say nothing about this job.
             total_rounds = total_rounds or read_run_total(workspace_dir, job_uuid)
 
-            # -1 until a round has finished, as the job monitor records it.
-            rounds_finished = (
-                training_job.rounds_finished
-                if training_job.rounds_finished is not None
-                else -1
-            )
             terminal_status = None
 
             def scan_log_tail(file_path: str) -> None:
@@ -1138,6 +1139,9 @@ def get_training_progress_info(training_job, current_network):
         "duration": duration_str,
         "eta": eta_str,
         "is_running": is_training_running,
+        # The last finished round that the logs at this Hub show, for the
+        # record: the job monitor no longer reads a job once it has ended.
+        "rounds_finished": rounds_finished if rounds_finished >= 0 else None,
     }
     if training_job.status == "RUNNING":
         cache.set(cache_key, result, 5)

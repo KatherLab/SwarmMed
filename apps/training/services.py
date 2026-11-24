@@ -2130,6 +2130,9 @@ def get_training_status_payload(
         progress_updated_at = (
             timezone.now() if progress_percent is not None else None
         )
+        # The rounds the logs show; the record only ever moves up. After the job
+        # has ended, the job monitor no longer reads them.
+        rounds_finished = payload.get("rounds_finished")
         if normalized_status in {"COMPLETED", "FAILED", "STOPPED"}:
             persist_training_job_state(
                 job,
@@ -2137,6 +2140,7 @@ def get_training_status_payload(
                 progress_percent=progress_percent,
                 completed_at=job.completed_at or timezone.now(),
                 progress_updated_at=progress_updated_at,
+                rounds_finished=rounds_finished,
             )
         elif normalized_status == "RUNNING":
             persist_training_job_state(
@@ -2144,6 +2148,7 @@ def get_training_status_payload(
                 status="RUNNING",
                 progress_percent=progress_percent,
                 progress_updated_at=progress_updated_at,
+                rounds_finished=rounds_finished,
             )
         payload["identifier"] = str(job.identifier)
         payload["network_identifier"] = str(network.identifier)
