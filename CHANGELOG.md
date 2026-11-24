@@ -262,7 +262,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `.secrets/` and every network's kits and keys at that Hub, as root; the
   data adapter loads that `.env` into the training process; and a client
   container on the host's network can probably reach the Hub's Docker API proxy,
-  which has not been tested. <!-- r106-check: load_dotenv unchanged in 1.0.6 (owner's decision); the docker-proxy wording if the re-run's optional probe ran -->
+  which has not been tested. <!-- r106-rerun: the docker-proxy wording if the re-run's optional probe ran -->
 - The [threat model](docs/threat-model.md#key-custody-what-the-startup-package-contains)
   says that the private keys have mode 644 at every Hub that holds the network,
   the importing sites included, and that the files in `workspaces/` belong to

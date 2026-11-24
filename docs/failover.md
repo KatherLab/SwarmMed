@@ -121,7 +121,7 @@ Use the standby server only when the server's host or its network is lost.
   interrupted round from the newest checkpoint at the site and runs the rounds
   that are left. The round numbers continue those of the interrupted run. Any
   training site can resume the run, the standby included, whether or not its
-  Hub started the job. <!-- r106-check: keep only if the re-run's resume at the standby, without --rounds and with SWARMMEDHUB_LOCAL_PARTICIPANT only, passes -->
+  Hub started the job. <!-- r106-rerun: keep only if the re-run's resume at the standby, without --rounds and with SWARMMEDHUB_LOCAL_PARTICIPANT only, passes -->
 
 What they do not do:
 
@@ -185,7 +185,7 @@ During the first run of the study, check at the standby that its Hub knows the
 job: `swarmed training list --network <NETWORK_UUID>` lists it, with the FLARE
 job ID that the coordinating Hub shows (`flare_job_uuid`) and the run's number of
 rounds, and `swarmed training checkpoints <JOB_UUID> --network <NETWORK_UUID>`
-lists a round-start checkpoint of it. <!-- r106-check: the standby's record comes from the label scrape of its own client container, with total_rounds from the job's run file; the re-run checks both at the standby --> Better still, rehearse the switch, the
+lists a round-start checkpoint of it. <!-- r106-rerun: the standby's record comes from the label scrape of its own client container, with total_rounds from the job's run file; the re-run checks both at the standby --> Better still, rehearse the switch, the
 resume and the return with a short run before the study
 ([Testing status](#testing-status)).
 
