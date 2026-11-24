@@ -267,8 +267,10 @@ finds none says so in its log once every six hours. <!-- r106-check: only if it 
 The channel uses HTTPS without certificate verification by default
 (`SWARMMEDHUB_SKIP_PEER_SSL_VERIFY` defaults to `true`). Turning verification on
 does not work with the generated certificates: each site's web certificate is
-issued by that site's own internal CA and names only `localhost` and
-`127.0.0.1`, which is also why browsers on other machines warn about it.
+issued by that site's own internal CA and names only the host's local names and
+addresses (`localhost`, `swarmmedhub`, `host.docker.internal`, `127.0.0.1` and
+`172.17.0.1`; before version 1.0.1 only `localhost` and `127.0.0.1`), not the
+site's address, which is also why browsers on other machines warn about it.
 Requests are authenticated with one token per network, carried in every site's
 startup bundle, so anyone holding a bundle can post status for any participant.
 Restrict port 5085 to the participants' addresses.

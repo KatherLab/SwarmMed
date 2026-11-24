@@ -99,9 +99,11 @@ endpoints requires a login when the token is present.
 
 **Certificates are not verified** by default (`SWARMMEDHUB_SKIP_PEER_SSL_VERIFY`
 defaults to `true`). Each installation's web certificate is issued by its own
-internal CA for `localhost` and `127.0.0.1` only, so turning verification on also
-requires certificates that name each site's address and a CA bundle containing
-every site's internal CA (`SWARMMEDHUB_CA_CERT`). With verification off, an
+internal CA for local names and addresses only (`localhost`, `swarmmedhub`,
+`host.docker.internal`, `127.0.0.1` and `172.17.0.1`; before version 1.0.1 only
+`localhost` and `127.0.0.1`), so turning verification on also requires
+certificates that name each site's address and a CA bundle containing every
+site's internal CA (`SWARMMEDHUB_CA_CERT`). With verification off, an
 attacker on the path can capture the token and then use it as above.
 
 Training does not depend on this channel. Failures are ignored silently; in the
