@@ -99,6 +99,9 @@ Two features of the web interface use this host's overlay address:
   `SWARMMEDHUB_LOCAL_ADDRESSES`
   ([Networking](networking.md#the-overlay-helper-and-the-hub)); otherwise the Hub
   sends no status to the other participants' Hubs and shows them as offline.
+  The site's name, `SWARMMEDHUB_LOCAL_PARTICIPANT`, which a training site sets
+  for the `app` and `celery_worker` services, does not take the address's place
+  here ([How a Hub knows which site it is](networking.md#how-a-hub-knows-which-site-it-is)).
 
 SwarmMed does not install, configure or join the overlay; joining it is a manual
 step. The documentation recommends NetBird with a management server that the
