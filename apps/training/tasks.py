@@ -7,8 +7,10 @@ and synchronization of result files (weights/logs) to S3 storage.
 import contextlib
 import json
 import os
+import uuid
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from celery import shared_task
@@ -40,6 +42,11 @@ from .utils import (
 
 # How much of the end of each log the monitor reads.
 LOG_TAIL_BYTES = 512 * 1024
+
+# How long a pass of the job monitor may hold its lock. A pass that dies without
+# releasing it, such as one in a worker that was killed, delays the next passes
+# by at most this long.
+MONITOR_LOCK_SECONDS = 10 * 60
 
 
 def _results_already_uploaded(project_id, flare_job_uuid):
@@ -146,6 +153,12 @@ def _update_stall_warning(job, dropouts, *, previous, threshold_minutes, log):
         )
 
 
+def _monitor_lock_key() -> str:
+    # One lock per database: a test run beside a live Hub can use the Hub's
+    # cache, but the test runner gives it a database of its own.
+    return f"training:monitor_training_jobs:{settings.DATABASES['default']['NAME']}"
+
+
 @shared_task
 def monitor_training_jobs():
     """Periodic task to monitor training jobs and sync results.
@@ -153,7 +166,32 @@ def monitor_training_jobs():
     Discovers new jobs from the FLARE server, scrapes local Docker logs for
     real-time progress, warns about running jobs that have stalled (see
     :mod:`training.stall`), and automatically uploads finalized results to S3.
+
+    One pass at a time: a pass that is due while another one runs, in any worker
+    process, returns at once. The lock is held in the cache, which all worker
+    processes and containers share.
     """
+    key, token = _monitor_lock_key(), uuid.uuid4().hex
+    try:
+        locked = cache.add(key, token, MONITOR_LOCK_SECONDS)
+    except Exception:
+        locked = None  # the cache cannot be reached: run without the lock
+    if locked is False:
+        logger.get_logger().training.debug(
+            "Monitor: the previous pass is still running; skipping this one."
+        )
+        return
+    try:
+        _monitor_pass()
+    finally:
+        if locked:
+            with contextlib.suppress(Exception):
+                if cache.get(key) == token:
+                    cache.delete(key)
+
+
+def _monitor_pass():
+    """One pass of :func:`monitor_training_jobs`."""
     from .utils import scrape_docker_progress
 
     log = logger.get_logger()
