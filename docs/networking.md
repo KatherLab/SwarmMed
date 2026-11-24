@@ -277,9 +277,13 @@ Restrict port 5085 to the participants' addresses.
 
 Training containers that read their data through the platform's data adapter
 (the bundled examples do; the worked example read a local directory) ask their
-own Hub for their data manifest, on port 5085 of their own host. Versions 1.0.5
-and earlier asked the FL server's host first, after a server switch the standby
-site's host; nothing needed to answer there. <!-- r106-check: _get_runtime_manifest_base_url gives https://127.0.0.1:5085 on the host network and https://swarmmedhub:5085 on a bridge; _get_manifest_discovery_targets never names the FL server's host (ManifestDiscoveryTests) -->
+own Hub for their data manifest, over HTTPS on port 5085 of their own host. Only
+a container on a Docker network also tries plain HTTP to the Hub's application
+container; one on the host's network never does, also when an earlier version of
+SwarmMed started it. The data adapter comes with the job, so this holds for jobs
+submitted by a Hub of version 1.0.6 or later. Versions 1.0.5 and earlier asked
+the FL server's host first, after a server switch the standby site's host;
+nothing needed to answer there.
 
 ## Addressing
 

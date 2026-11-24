@@ -51,11 +51,14 @@ data off-site.
   streams each file from MinIO into the container. The manifest lookup asks only
   the site's own web interface: on port 5085 of the host's loopback address when
   the client container uses the host's network, and through the Docker host
-  gateway otherwise; plain HTTP is tried only in the second case. The request
-  carries the project identifier and the project's manifest secret, not data. <!-- r106-check: the order of _get_manifest_discovery_targets (operator list, the Hub URL unless it names the server host, localhost, 127.0.0.1, swarmmedhub, host.docker.internal, DOCKER_HOST_IP, plain HTTP only when SWARMMEDHUB_RUNTIME_NETWORK is not "host") --> Versions 1.0.5 and earlier asked the FL server's host first
-  (`https://<server-host>:5085`), after a server switch the standby site's host.
-  That request stopped at certificate verification, because each installation
-  has its own internal CA, unless two installations shared one.
+  gateway otherwise; plain HTTP is tried only in the second case, also in a
+  container that an earlier version of SwarmMed started. The request carries the
+  project identifier and the project's manifest secret, not data. The data
+  adapter comes with the job, so this holds for jobs submitted by a Hub of
+  version 1.0.6 or later. Versions 1.0.5 and earlier asked the FL server's host
+  first (`https://<server-host>:5085`), after a server switch the standby site's
+  host. That request stopped at certificate verification, because each
+  installation has its own internal CA, unless two installations shared one.
 
 !!! note "Fallback addresses in the object-store path"
     When a presigned URL fails, the data adapter (`apps/training/flare_adapter.py`)
