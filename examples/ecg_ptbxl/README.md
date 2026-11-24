@@ -428,7 +428,9 @@ Sites on separate hosts were tested on 13 and 16 Nov 2026 (above). Not tested: G
 sites on one host or more than three on separate hosts; more than three runs, or other data splits;
 ECGs of the hospitals' own patients; SwarmMed installed directly on a hospital's server rather than
 in an added container; installation and operation by a hospital's own staff; failover to the standby
-FL server; NetBird as the overlay; the PTB-XL 500 Hz records.
+FL server at the hospitals (it was rehearsed with this template on two lab machines in one
+institution; see [Server failover](../../docs/failover.md#testing-status)); NetBird as the overlay;
+the PTB-XL 500 Hz records. <!-- r106-fill: after the 1.0.6 re-run, if it passed, say in the parenthesis that the failover was rehearsed twice on lab machines (23 Nov 2026 with 1.0.5, <date> with 1.0.6 in a default installation); keep "at the hospitals" in this list -->
 
 ## Explainability
 

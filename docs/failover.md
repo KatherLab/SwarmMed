@@ -512,19 +512,101 @@ What to do:
 The unit tests cover the switch, the server kit, the job changes, the choice of
 checkpoint, the addresses the Hub's admin session uses before and after a switch,
 and the checks before a resume, with Docker and the FL servers replaced by
-stand-ins. A test in FLARE's simulator
+stand-ins. Since 1.0.6 they also cover a resume at a Hub that has no record of
+the job, found by its folder or by a copied checkpoint; the run's total in every
+job and checkpoint; the refusal while the server runs another job; a site's Hub
+that identifies itself only with `SWARMMEDHUB_LOCAL_PARTICIPANT` and records the
+job its FL client runs; starting the network, switching servers and starting
+the standby with a Celery worker that runs as an unprivileged user, after an
+import with the CLI as root; and the refusal of `swarmed network start` while the
+Hub is switched to a server that another site started. <!-- r106-check: name only behaviour whose tests are in the release: ResumeWithoutRecordTests, ResumeTrainingJobTests (total, test_refuses_while_the_server_runs_another_job), SubmitWithResumeTests and ResumeCheckpointSaverTests (run file), SiteRecordTests, HostPathTests, ImportHandOverTests (incl. test_cli_import_then_start_failover_and_standby_with_the_appuser_worker), StartRoleTests::test_plain_start_keeps_the_server_down_when_switched_away --> A test in FLARE's simulator
 (`SWARMMEDHUB_RUN_FLARE_SIMULATOR=1`, in `apps/training/test_resume_simulator.py`)
 runs a four-round job, then resumes it at round 3 for a six-round run, and checks
-that every site starts round 3 from the same weights as in the first run. It
-passed with NVIDIA FLARE 2.7.1 and inside the image of the worked example
-(`SWARMMEDHUB_SIMULATOR_IMAGE`).
+that every site starts round 3 from the same weights as in the first run, and,
+since 1.0.6, that every site's round-start checkpoints of the resumed job name
+the run's six rounds. It passed with NVIDIA FLARE 2.7.1 and inside the image of
+the worked example (`SWARMMEDHUB_SIMULATOR_IMAGE`). <!-- r106-check: the simulator test's extended assertions and where the 1.0.6 simulator run passed; keep "inside the image of the worked example" only if the extended test was run there -->
 
 In the test across three hospitals described in
 [Resuming over a slow link](#resuming-over-a-slow-link), the FL server was
 restarted at its host, and the sites' clients reconnected to it without any
 action at the sites.
 
-A failover across hosts, with the server stopped during a run, the standby
-started at another host, the sites switched and the run resumed, has not yet
-been carried out, and neither has moving the server's address to another
-machine. Rehearse them before relying on them in a study.
+On 23 November 2026 the failover was rehearsed once, with SwarmMed 1.0.5 and
+NVIDIA FLARE 2.7.1, on two lab machines in one institution, not at hospitals.
+Three Hubs ran in privileged containers, each with its own Docker Engine: the
+coordinating Hub, which ran only the FL server, and two training sites with one
+PTB-XL share of the
+[ECG template](https://github.com/KatherLab/SwarmMed/blob/main/examples/ecg_ptbxl/README.md)
+each, on CPU. One site, the agreed standby, ran on the second machine, the other
+on the same machine as the coordinating Hub. The sites reached the FL server, and
+later the standby, at the machines' own addresses, without an overlay or VPN,
+and traffic between the Hubs on port 5085 was blocked.
+
+During round 3 of a 40-round run of a model with 79,749 parameters, the
+coordinating Hub's container was killed. The standby started the server with
+`swarmed network failover ... --start-server`, and the other site switched to it
+with `swarmed network failover`. Both sites were registered with the standby's
+server 3 min 11 s after the kill; 2 min 30 s of that passed before the first
+command, while the operator checked that the coordinating server was down. The
+run was resumed with `swarmed training resume` at the other site, not at the
+standby (see below). The command asked the current server, the standby's, first,
+and warned that the previous server could not be reached and must stay down.
+Training restarted at round 3, 5 min 12 s after the kill, from weights identical
+to those that round had started from before the loss. Round 3, which had run for
+less than a second, was repeated, and no completed round was lost. The run
+finished with the same final global model, byte for byte, at both sites. It was
+not compared with an uninterrupted run.
+
+When the coordinating Hub was started again, its FL server stayed down, and the
+switched sites stayed with the standby. The coordinating Hub still showed the
+network and the job as running and the sites as joined. The three commands under
+[Returning to the coordinating server](#returning-to-the-coordinating-server)
+then moved the server back in 1 min 17 s. For about 31 s no FL server accepted
+connections, and two servers never ran at the same time. A 5-round run then
+completed. All three Hubs showed the same network fingerprint, and two altered
+copies of the startup package were refused at import, with nothing written.
+
+With version 1.0.5 the rehearsal needed three things that a default
+installation does not have or that this guide did not ask for:
+
+* Every Hub's Celery worker ran as root, through a change to the worker's
+  entrypoint made for the rehearsal. With the default worker, the first FL start
+  at every Hub failed with a permission error. Version 1.0.6 removes the causes. <!-- r106-check: the host-path and import hand-over fixes merged (HostPathTests, ImportHandOverTests) -->
+* The standby could not resume the run. Its Hub, set up with
+  `SWARMMEDHUB_LOCAL_PARTICIPANT` and without `SWARMMEDHUB_LOCAL_ADDRESSES`, held
+  no record of the job, which the coordinating Hub had submitted, and every form
+  of `swarmed training resume` refused. The run was resumed at the other site,
+  whose Hub had a record only because `SWARMMEDHUB_LOCAL_ADDRESSES` had been set
+  there before training. Version 1.0.6 resumes at any training site, with or
+  without a record. <!-- r106-check: the record-less resume and the label scrape merged (ResumeWithoutRecordTests, SiteRecordTests) -->
+* The resume needed `--rounds 40`: the resuming site's record gave 10 rounds, a
+  number its Hub had guessed. Version 1.0.6 carries the run's total in every job
+  and checkpoint, and never guesses it. <!-- r106-check: the run file and resolve_run_total merged; grep -rn "total_rounds or 10" apps/training finds nothing -->
+
+The rehearsal does not show:
+
+* the failover across hospitals or institutions, through a VPN, NAT, firewalls
+  or slow links;
+* a default installation, or a standby that resumes the run;
+* how long detecting the failure and agreeing on the switch take: the times
+  above assume an operator ready at every Hub;
+* other ways to lose the server: a reboot, a power loss or a network partition
+  (the sites' connections were refused at once, without timeouts), a loss during
+  aggregation or while a job is deployed, a second failover, a switch while the
+  coordinating server can still be reached, or a coordinating server that runs
+  again at its address while the standby serves;
+* restarting the server in place, moving the server's address, or a site that
+  drops out during the failover;
+* larger models or GPUs: the checkpoint was 330 KB, not the 94 MB of the worked
+  example's model;
+* that the resumed run matches an uninterrupted one. The choice of the best model
+  also started again at round 3 ([What they do not do](#what-swarmmed-provides));
+* the web interface, or that it can be repeated: there was one run, one moment
+  of loss and one standby.
+
+<!-- r106-fill: the 1.0.6 re-run paragraph, from its evidence only and checked by a second reader against cmd/ and logs/: the date; where (same layout: two lab machines in one institution, nested Hubs, CPU, the ECG template, one standby on the second machine); that it was a default installation (every Celery worker as the image's unprivileged user, the standby and the other site identified only by SWARMMEDHUB_LOCAL_PARTICIPANT, no SWARMMEDHUB_LOCAL_ADDRESSES, port 5085 blocked between the Hubs, the package imported with the CLI as root); the round and the way the server was lost; that the standby started the server and resumed the run with swarmed training resume <JOB_UUID> --network <NETWORK_UUID> without --rounds; the time from the loss to both registrations and to the restart of training; how many rounds were repeated and lost; whether the final global models were identical; that a second resume at the other site was refused; what the returning coordinator showed and that network start there was refused after its switch; the time of the return and that two servers never ran; the restart in place with the resume at the other site without --rounds; that training stop returned; anything that needed a workaround (or "Nothing needed a workaround"); what the re-run still did not show (update the list above for the re-run), and whether the optional docker-proxy probe ran -->
+
+Moving the server's address to another machine has not been tested. Rehearse a
+failover with your own sites, and with a short run, before relying on it in a
+study.
