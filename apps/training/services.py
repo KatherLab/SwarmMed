@@ -2166,10 +2166,47 @@ def resume_training_job(
     return new_job
 
 
+def _abort_refusal(reply) -> str:
+    """Return why an FL server did not take an ``abort_job`` command, or "".
+
+    NVIDIA FLARE 2.7.1's admin API raises nothing for a command that the server
+    refused or did not answer. The reply's status is then not SUCCESS ("Server
+    did not respond"), or its meta status is not "ok", as for a job the server
+    does not know or does not run.
+    """
+    if not isinstance(reply, dict):
+        return _short_reason(repr(reply))
+    status = reply.get("status")
+    meta = reply.get("meta") if isinstance(reply.get("meta"), dict) else {}
+    if status == "SUCCESS" and meta.get("status") == "ok":
+        return ""
+    data = reply.get("data") if isinstance(reply.get("data"), list) else []
+    found = (
+        status if status != "SUCCESS" else "",
+        reply.get("details"),
+        meta.get("status"),
+        meta.get("info"),
+        *(
+            item.get("data")
+            for item in data
+            if isinstance(item, dict) and item.get("type") in ("error", "string")
+        ),
+    )
+    # FLARE's API status is a str enum; show its value, not its name.
+    texts = dict.fromkeys(str(getattr(item, "value", item)) for item in found if item)
+    return _short_reason("; ".join(texts) or "no reason given")
+
+
 def stop_training_job(
     *, actor, network: SwarmNetwork, job: TrainingJob | None = None
 ) -> TrainingJob:
-    """Abort a running training job on a network."""
+    """Abort a running training job on a network.
+
+    Raises:
+        LookupError: If there is no job to stop or no admin startup kit.
+        ValueError: If the FL server refused the abort or did not answer; the
+            job's record is left as it was.
+    """
     job = job or (
         TrainingJob.objects.filter(network=network, status="RUNNING")
         .order_by("-created_at")
@@ -2196,14 +2233,7 @@ def stop_training_job(
             job_uuid = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id)
             if not job_uuid:
                 job_uuid = str(job.flare_job_id)
-            session.api.do_command(f"abort_job {job_uuid}")
-        return persist_training_job_state(
-            job,
-            status="STOPPED",
-            completed_at=timezone.now(),
-            progress_percent=job.progress_percent,
-            progress_updated_at=timezone.now(),
-        )
+            reply = session.api.do_command(f"abort_job {job_uuid}")
     except Exception as exc:
         log.training.error(f"Abort job failed: {exc}")
         err = str(exc).lower()
@@ -2216,6 +2246,22 @@ def stop_training_job(
                 progress_updated_at=timezone.now(),
             )
         raise
+    refusal = _abort_refusal(reply)
+    if refusal:
+        log.training.error(f"Abort job failed: {refusal}")
+        raise ValueError(f"The FL server did not abort job {job_uuid}: {refusal}")
+    if job.status in TERMINAL_TRAINING_STATUSES and "already completed" in str(
+        reply["meta"].get("info") or ""
+    ):
+        # The job had ended before; keep how it ended.
+        return job
+    return persist_training_job_state(
+        job,
+        status="STOPPED",
+        completed_at=timezone.now(),
+        progress_percent=job.progress_percent,
+        progress_updated_at=timezone.now(),
+    )
 
 
 def get_training_status_payload(

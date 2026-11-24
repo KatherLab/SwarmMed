@@ -20,9 +20,10 @@ from . import runtime as training_runtime
 from . import services as training_services
 from . import tasks
 from .models import TrainingJob
-from .test_resume import SubmitHarness
+from .test_resume import SubmitHarness, flare_admin_api
 
-JOB_UUID = "33333333-3333-3333-3333-333333333333"
+# A FLARE job ID is a version 4 UUID; FLARE refuses any other.
+JOB_UUID = "33333333-3333-4333-8333-333333333333"
 ADMIN_TARGET = ("admin@nvidia.com", "/nonexistent/admin", "192.0.2.10")
 
 
@@ -70,12 +71,66 @@ class StopSessionTests(RunningJobTestCase):
                 actor=self.user, network=self.network, job=self.job
             )
 
+    def _server(self, jobs=None, **fields):
+        """Let an FL server that runs FLARE's own abort_job answer the stop."""
+        api = flare_admin_api(
+            {JOB_UUID: "RUNNING"} if jobs is None else jobs, **fields
+        )
+        self.session.api.do_command.side_effect = api.server_execute
+
     def test_stop_closes_the_admin_session(self):
+        self._server(running=(JOB_UUID,))
+
         job = self._stop()
 
         self.session.api.do_command.assert_called_once_with(f"abort_job {JOB_UUID}")
         self.session.close.assert_called_once_with()
         self.assertEqual(job.status, "STOPPED")
+
+    def test_an_abort_that_the_server_accepts_stops_the_job(self):
+        # A running job, and one that the server has not started yet.
+        for state, running in (("RUNNING", (JOB_UUID,)), ("SUBMITTED", ())):
+            with self.subTest(state=state):
+                TrainingJob.objects.filter(pk=self.job.pk).update(status="RUNNING")
+                self.job.refresh_from_db()
+                self._server({JOB_UUID: state}, running=running)
+
+                job = self._stop()
+
+                self.assertEqual(job.status, "STOPPED")
+
+    def test_an_abort_that_the_server_refuses_or_does_not_answer_stops_nothing(self):
+        for case, jobs, fields, reason in (
+            ("unknown job", {}, {}, f"Job with ID {JOB_UUID} doesn't exist"),
+            # A restarted server's old job store lists the job, but no job runs.
+            ("not running", None, {}, f"Job {JOB_UUID} is not running."),
+            ("no answer", None, {"answers": False}, "Server did not respond"),
+        ):
+            with self.subTest(case=case):
+                self.session.close.reset_mock()
+                self._server(jobs, **fields)
+
+                with self.assertRaisesMessage(
+                    ValueError, f"The FL server did not abort job {JOB_UUID}"
+                ) as refused:
+                    self._stop()
+
+                self.assertIn(reason, str(refused.exception))
+                self.session.close.assert_called_once_with()
+                self.job.refresh_from_db()
+                self.assertEqual(self.job.status, "RUNNING")
+
+    def test_a_job_that_had_ended_keeps_how_it_ended(self):
+        TrainingJob.objects.filter(pk=self.job.pk).update(
+            status="COMPLETED", progress_percent=100
+        )
+        self.job.refresh_from_db()
+        self._server({JOB_UUID: "FINISHED:COMPLETED"})
+
+        job = self._stop()
+
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.progress_percent), ("COMPLETED", 100))
 
     def test_stop_closes_the_session_when_the_abort_fails(self):
         self.session.api.do_command.side_effect = RuntimeError("boom")
@@ -88,6 +143,7 @@ class StopSessionTests(RunningJobTestCase):
         self.assertEqual(self.job.status, "RUNNING")
 
     def test_a_logout_that_fails_does_not_fail_the_stop(self):
+        self._server(running=(JOB_UUID,))
         self.session.close.side_effect = RuntimeError("Server did not respond")
 
         job = self._stop()

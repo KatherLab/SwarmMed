@@ -668,21 +668,24 @@ def flare_admin_api(
     *,
     answers: bool = True,
     store_error: Exception | None = None,
+    running: tuple[str, ...] = (),
 ):
     """NVIDIA FLARE 2.7.1's admin API client, connected to a stand-in FL server.
 
-    The server runs FLARE's own ``list_jobs`` command over a job store that holds
-    ``jobs`` (job ID -> status, or -> fields of the job's meta), and the client's
-    own processing turns the server's answer into what ``do_command`` returns.
-    Only the network connection is replaced; with ``answers=False`` the server
-    does not answer in time, and with ``store_error`` reading the job store
-    raises that error.
+    The server runs FLARE's own job commands, such as ``list_jobs`` and
+    ``abort_job``, after FLARE's own pre-authorization, over a job store that
+    holds ``jobs`` (job ID -> status, or -> fields of the job's meta); its job
+    runner runs the jobs in ``running``. The client's own processing turns the
+    server's answer into what ``do_command`` returns. Only the network
+    connection is replaced; with ``answers=False`` the server does not answer in
+    time, and with ``store_error`` reading the job store raises that error.
     """
     from nvflare.apis.job_def import Job
     from nvflare.apis.job_def_manager_spec import JobDefManagerSpec
     from nvflare.fuel.hci.client.api import AdminAPI
     from nvflare.fuel.hci.conn import Connection
     from nvflare.fuel.hci.proto import validate_proto
+    from nvflare.fuel.hci.server.authz import AuthzFilter
     from nvflare.fuel.hci.server.reg import ServerCommandRegister
     from nvflare.private.fed.server.job_cmds import JobCommandModule
 
@@ -707,9 +710,16 @@ def flare_admin_api(
     engine.job_def_manager = MagicMock(spec=JobDefManagerSpec)
     engine.job_def_manager.get_all_jobs.return_value = store
     engine.job_def_manager.get_all_jobs.side_effect = store_error
+    stored = {job.job_id: job for job in store}
+    engine.job_def_manager.get_job.side_effect = lambda job_id, *_: stored.get(job_id)
+    # As FLARE's JobRunner.stop_run answers.
+    engine.job_runner.stop_run.side_effect = lambda job_id, _ctx: (
+        "" if job_id in running else f"Job {job_id} is not running."
+    )
     engine.new_context.side_effect = lambda: contextlib.nullcontext(MagicMock())
     commands = ServerCommandRegister(app_ctx=engine)
     commands.register_module(JobCommandModule())
+    commands.add_filter(AuthzFilter())
     commands.finalize()
 
     def send_request(*, request, **_kwargs):
