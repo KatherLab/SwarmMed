@@ -2217,16 +2217,10 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
                 except Exception:
                     pass
 
-                persist_dir = os.path.join(target["path"], ".nvflare_persist")
-                os.makedirs(persist_dir, exist_ok=True)
-                if mount_mode == "bind":
-                    host_persist_dir = _resolve_bind_source_path(persist_dir)
-                    run_cmd.extend(
-                        [
-                            "-v",
-                            f"{host_persist_dir}:/tmp/nvflare",
-                        ]
-                    )
+                # FLARE's job store (/tmp/nvflare) stays inside the container, so
+                # every server SwarmMed starts, restarted or standby, begins with
+                # a new store in both mount modes. A kept store would list the
+                # interrupted job and dispatch jobs still queued in it.
                 publish_local_test_ports = (
                     os.getenv("SWARMMEDHUB_LOCAL_TEST_PUBLISH_PORTS", "")
                     .strip()

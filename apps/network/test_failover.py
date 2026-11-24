@@ -1165,6 +1165,25 @@ class StartRoleTests(NetworkFixture, TestCase):
         self.assertEqual(at_launch, [300.0])
         self.assertEqual(self.network.status, "RUNNING")
 
+    def test_every_server_start_gets_a_new_job_store(self):
+        # FLARE keeps its job store in /tmp/nvflare. A store kept across a
+        # restart would list the interrupted job and dispatch queued ones.
+        for mount_mode, bind_source in (
+            ("bind", None),
+            ("volumes-from", lambda path: "/host/project/does-not-exist" + str(path)),
+        ):
+            with self.subTest(mount_mode=mount_mode):
+                runs = self._start(bind_source=bind_source, role="server")
+
+                self.assertEqual(len(runs), 1)
+                self.assertEqual("--volumes-from" in runs[0], mount_mode != "bind")
+                self.assertEqual(
+                    [arg for arg in runs[0] if arg.endswith(":/tmp/nvflare")], []
+                )
+                self.assertFalse(
+                    (self.prod_dir / "server" / ".nvflare_persist").exists()
+                )
+
     def test_client_start_leaves_every_resources_file_alone(self):
         with patch.dict(os.environ, {FLARE_ADMIN_TIMEOUT_ENV: "300"}):
             runs = self._start(role="client", participants=["node-B"])
