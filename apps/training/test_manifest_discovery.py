@@ -103,12 +103,24 @@ class ManifestDiscoveryTests(SimpleTestCase):
         self.assertIn("http://swarmmedhub:8000", targets)
         self.assertIn("http://app:8000", targets)
 
-    def test_manifest_secret_never_reaches_the_fl_server_host(self):
+    def _switched_clients_adapter(self, fake_get):
+        """The data adapter of SWITCHED_CLIENT, with requests.get faked."""
         self._environment(
             MANIFEST_SECRET="the-sites-manifest-secret",
             SWARMMEDHUB_PROJECT_ID="9b2e4f0a-0000-4000-8000-000000000001",
             **SWITCHED_CLIENT,
         )
+        with (
+            patch.object(flare_adapter.requests, "get", side_effect=fake_get),
+            patch.object(
+                flare_adapter.socket, "gethostbyname", side_effect=socket.gaierror
+            ),
+        ):
+            adapter = flare_adapter.FlareDataFileSystem("project-1")
+        self.addCleanup(adapter.cleanup)
+        return adapter
+
+    def test_manifest_secret_goes_to_localhost_first(self):
         requested = []
 
         def fake_get(url, headers=None, **_kwargs):
@@ -121,18 +133,35 @@ class ManifestDiscoveryTests(SimpleTestCase):
             }
             return response
 
-        with (
-            patch.object(flare_adapter.requests, "get", side_effect=fake_get),
-            patch.object(
-                flare_adapter.socket, "gethostbyname", side_effect=socket.gaierror
-            ),
-        ):
-            adapter = flare_adapter.FlareDataFileSystem("project-1")
-        self.addCleanup(adapter.cleanup)
+        adapter = self._switched_clients_adapter(fake_get)
 
         self.assertEqual(list(adapter.manifest), ["exam-001/t1.nii.gz"])
         self.assertEqual(
             requested[0],
             ("localhost", {"X-Manifest-Secret": "the-sites-manifest-secret"}),
         )
-        self.assertNotIn("192.0.2.10", [host for host, _headers in requested])
+
+    def test_manifest_secret_never_reaches_the_fl_server_host(self):
+        # No request succeeds, so the adapter asks every address it knows, each
+        # also with the retry that skips the certificate's name check.
+        requested = []
+
+        def fake_get(url, headers=None, verify=None, **_kwargs):
+            requested.append((urlparse(url).hostname, verify, headers or {}))
+            if url.startswith("https:") and verify is not False:
+                raise requests.exceptions.SSLError("IP address mismatch")
+            return MagicMock(status_code=403)
+
+        self._switched_clients_adapter(fake_get)
+
+        self.assertEqual(
+            {host for host, _verify, _headers in requested},
+            {urlparse(url).hostname for url in _get_manifest_discovery_targets()},
+        )
+        self.assertIn(False, [verify for _host, verify, _headers in requested])
+        secret_sent_to = {
+            host
+            for host, _verify, headers in requested
+            if headers.get("X-Manifest-Secret")
+        }
+        self.assertNotIn("192.0.2.10", secret_sent_to)
