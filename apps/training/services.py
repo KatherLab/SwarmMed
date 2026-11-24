@@ -1548,7 +1548,9 @@ def locate_interrupted_job(
         user: The acting user. Only networks of projects the user can access
             are searched.
         identifier: The FLARE job ID, a prefix of it, or a record's identifier.
-        network: The network, if one was named or is current.
+        network: The network, if one was named. Without it, the job's record,
+            its folders or the checkpoint name the network; without a job, the
+            user's current network is taken.
         checkpoint_path: The checkpoint to resume from, if one was named. It
             must belong to the job and the network.
 
@@ -1585,6 +1587,11 @@ def locate_interrupted_job(
     elif checkpoint_job:
         flare_uuid, found_by = checkpoint_job, "checkpoint"
     else:
+        if network is None:
+            # A checkpoint that names no job: the current network, as before.
+            from network.services import get_current_network
+
+            network = get_current_network(user)
         if network is None:
             raise LookupError(
                 "No current network is selected. Use `swarmed network use "

@@ -955,12 +955,12 @@ def run(args: argparse.Namespace):
             checkpoint = getattr(args, "checkpoint", None)
             if args.network:
                 network = resolve_network(state, network_identifier=args.network)
-            elif args.job_identifier:
+            elif args.job_identifier or checkpoint:
+                # The job's record or folders, or the checkpoint, name the
+                # network; a checkpoint that names no job, the current one.
                 network = None
             else:
-                # The current network; without one, a given checkpoint can name
-                # its network.
-                network = resolve_network(state, required=not checkpoint)
+                network = resolve_network(state)
             # The job needs no record here: the standby, for one, may have none.
             found = training_services.locate_interrupted_job(
                 user=state.user,

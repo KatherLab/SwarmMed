@@ -24,6 +24,7 @@ from swarmed_cli.main import main
 
 from network import utils as network_utils
 from network.models import SwarmNetwork, SwarmParticipant
+from network.services import set_current_network
 from project.models import Project
 
 from . import resume as training_resume
@@ -2039,6 +2040,64 @@ class ResumeWithoutRecordTests(ServerRouting, SubmitHarness, TestCase):
             (record["from_flare_job"], record["checkpoint"]["site"]),
             (self.old_uuid, "node-B"),
         )
+
+    def test_a_copied_checkpoint_is_resumed_in_its_jobs_network(self):
+        # A checkpoint of SwarmMed 1.0.5 names its job but no network. Copied
+        # out of the job's folder, it is given while another network is current.
+        copied = self.base_dir / "copied" / "copy.pt"
+        copied.parent.mkdir()
+        shutil.copyfile(self._checkpoint_at("node-A", 3, total_rounds=None), copied)
+        current = SwarmNetwork.objects.create(
+            name="Current Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        current_dir = (
+            self.base_dir
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(current.identifier)
+        )
+        current_dir.mkdir(parents=True)
+        (current_dir / "runtime_requirements.txt").write_text("torch\n")
+        set_current_network(self.user, current)
+
+        code, envelope = self._cli(
+            "resume", "--checkpoint", str(copied), "--rounds", "8"
+        )
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(envelope["result"]["network_identifier"], self.network_id)
+        self.assertFalse(TrainingJob.objects.filter(network=current).exists())
+
+    def test_a_model_file_that_names_no_job_is_resumed_in_the_current_network(self):
+        self._checkpoint_at("node-A", 3)
+        model = self.base_dir / "copied" / "model.pt"
+        model.parent.mkdir()
+        torch.save({"model": {"fc.weight": torch.ones(2, 4)}}, model)
+        arguments = (
+            "resume",
+            "--checkpoint",
+            str(model),
+            "--start-round",
+            "3",
+            "--rounds",
+            "8",
+        )
+
+        code, envelope = self._cli(*arguments)
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn("No current network is selected", envelope["errors"][0])
+
+        set_current_network(self.user, self.network)
+        code, envelope = self._cli(*arguments)
+
+        self.assertEqual(code, 0, envelope)
+        (record,) = self._resume_records()
+        self.assertEqual(record["from_flare_job"], self.old_uuid)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
 
     def test_a_checkpoint_of_another_job_is_refused(self):
         self._record(self.old_uuid)
