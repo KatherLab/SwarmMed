@@ -795,6 +795,25 @@ def new_secure_session_with_host(
     raise RuntimeError("cannot connect to FLARE admin API")
 
 
+@contextlib.contextmanager
+def admin_session(session):
+    """Close an admin session however the block that uses it ends.
+
+    An admin session that is left open keeps FLARE's connection threads
+    running: a CLI process then never exits, and the worker and the web
+    process keep the threads of every session that failed. A logout that
+    fails is ignored.
+
+    Args:
+        session: A session from :func:`new_secure_session_with_host`.
+    """
+    try:
+        yield session
+    finally:
+        with contextlib.suppress(Exception):
+            session.close()
+
+
 def nvflare_status_payload(current_network):
     """Fetch the current NVFlare job status directly from the admin API."""
     cache_key = f"nvflare_status_payload_{current_network.identifier}"
@@ -809,16 +828,16 @@ def nvflare_status_payload(current_network):
 
     try:
         admin_name, admin_dir, server_ip = admin_target
-        session = new_secure_session_with_host(
-            username=admin_name,
-            startup_kit_location=admin_dir,
-            host=server_ip,
-            timeout=15.0,
-            network_id=current_network.identifier,
-        )
-        response = session.api.do_command("list_jobs")
-        with contextlib.suppress(Exception):
-            session.close()
+        with admin_session(
+            new_secure_session_with_host(
+                username=admin_name,
+                startup_kit_location=admin_dir,
+                host=server_ip,
+                timeout=15.0,
+                network_id=current_network.identifier,
+            )
+        ) as session:
+            response = session.api.do_command("list_jobs")
 
         jobs = parse_nvflare_jobs(response)
         job = select_nvflare_job(jobs)

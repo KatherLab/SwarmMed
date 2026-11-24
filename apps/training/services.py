@@ -47,6 +47,7 @@ from .resume import (
     write_run_file,
 )
 from .runtime import (
+    admin_session,
     build_training_status_payload,
     dedupe_keep_order,
     get_training_progress_info,
@@ -1056,6 +1057,7 @@ def submit_training_job(
                 "Add torch to the project's requirements file, re-provision/start the network, and retry."
             )
 
+    session = None
     try:
         submit_connect_timeout = flare_connect_timeout()
         env_timeout = os.getenv(FLARE_CONNECT_TIMEOUT_ENV, "").strip()
@@ -1304,8 +1306,6 @@ def submit_training_job(
         )
 
         job_id = session.submit_job(job_definition_path)
-        with contextlib.suppress(Exception):
-            session.close()
 
         if not job_id:
             return TrainingJob.objects.create(
@@ -1336,6 +1336,12 @@ def submit_training_job(
         )
         persist_training_job_state(failed_job, status="FAILED")
         raise
+    finally:
+        # Also after a failed submission: an admin session that is left open
+        # keeps FLARE's connection threads running, and the CLI never exits.
+        if session is not None:
+            with contextlib.suppress(Exception):
+                session.close()
 
 
 def _network_workspace_root(network: SwarmNetwork) -> Path:
@@ -1705,20 +1711,19 @@ def _server_jobs(
         )
     except Exception as exc:
         return None, _short_reason(exc)
-    try:
-        # FLARE's admin API gives each command 5 s unless told otherwise.
-        with contextlib.suppress(Exception):
-            session.api.set_command_timeout(flare_connect_timeout())
-        reply = session.api.do_command(f"list_jobs {prefix}".strip())
-    except Exception as exc:
-        return None, f"list_jobs failed: {_short_reason(exc)}"
-    finally:
-        # The logout keeps the admin API's own 5 s, so that a server that does
-        # not answer does not hold the check up for longer.
-        with contextlib.suppress(Exception):
-            session.api.unset_command_timeout()
-        with contextlib.suppress(Exception):
-            session.close()
+    with admin_session(session):
+        try:
+            # FLARE's admin API gives each command 5 s unless told otherwise.
+            with contextlib.suppress(Exception):
+                session.api.set_command_timeout(flare_connect_timeout())
+            reply = session.api.do_command(f"list_jobs {prefix}".strip())
+        except Exception as exc:
+            return None, f"list_jobs failed: {_short_reason(exc)}"
+        finally:
+            # The logout keeps the admin API's own 5 s, so that a server that
+            # does not answer does not hold the check up for longer.
+            with contextlib.suppress(Exception):
+                session.api.unset_command_timeout()
     jobs, problem = _listed_flare_jobs(reply)
     if jobs is None:
         return None, f"list_jobs gave no job list: {problem}"
@@ -2044,16 +2049,18 @@ def stop_training_job(
 
     admin_username, admin_user_dir, server_ip = admin_target
     try:
-        session = new_secure_session_with_host(
-            username=admin_username,
-            startup_kit_location=admin_user_dir,
-            host=server_ip,
-            network_id=network.identifier,
-        )
-        job_uuid = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id)
-        if not job_uuid:
-            job_uuid = str(job.flare_job_id)
-        session.api.do_command(f"abort_job {job_uuid}")
+        with admin_session(
+            new_secure_session_with_host(
+                username=admin_username,
+                startup_kit_location=admin_user_dir,
+                host=server_ip,
+                network_id=network.identifier,
+            )
+        ) as session:
+            job_uuid = job.flare_job_uuid or extract_flare_job_uuid(job.flare_job_id)
+            if not job_uuid:
+                job_uuid = str(job.flare_job_id)
+            session.api.do_command(f"abort_job {job_uuid}")
         return persist_training_job_state(
             job,
             status="STOPPED",

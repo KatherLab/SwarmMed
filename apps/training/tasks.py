@@ -20,6 +20,7 @@ from network.models import SwarmNetwork
 from . import services as training_services
 from .models import TrainingJob
 from .runtime import (
+    admin_session,
     new_secure_session_with_host,
     parse_nvflare_jobs,
     resolve_admin_session_target,
@@ -202,15 +203,16 @@ def monitor_training_jobs():
 
         try:
             admin_name, admin_dir, server_ip = admin_target
-            sess = new_secure_session_with_host(
-                username=admin_name,
-                startup_kit_location=admin_dir,
-                host=server_ip,
-                timeout=10.0,
-                network_id=network.identifier,
-            )
-
-            response = sess.api.do_command("list_jobs")
+            with admin_session(
+                new_secure_session_with_host(
+                    username=admin_name,
+                    startup_kit_location=admin_dir,
+                    host=server_ip,
+                    timeout=10.0,
+                    network_id=network.identifier,
+                )
+            ) as sess:
+                response = sess.api.do_command("list_jobs")
             remote_jobs = parse_nvflare_jobs(response)
 
             for rj in remote_jobs:
@@ -245,9 +247,6 @@ def monitor_training_jobs():
                     if status in {"COMPLETED", "FAILED", "STOPPED"}
                     else None,
                 )
-
-            with contextlib.suppress(Exception):
-                sess.close()
         except Exception:
             continue
 
@@ -322,14 +321,16 @@ def monitor_training_jobs():
             if admin_target:
                 try:
                     admin_name, admin_dir, server_ip = admin_target
-                    sess = new_secure_session_with_host(
-                        username=admin_name,
-                        startup_kit_location=admin_dir,
-                        host=server_ip,
-                        timeout=10.0,
-                        network_id=job.network.identifier,
-                    )
-                    resp = sess.api.do_command(f"list_jobs {flare_job_uuid}")
+                    with admin_session(
+                        new_secure_session_with_host(
+                            username=admin_name,
+                            startup_kit_location=admin_dir,
+                            host=server_ip,
+                            timeout=10.0,
+                            network_id=job.network.identifier,
+                        )
+                    ) as sess:
+                        resp = sess.api.do_command(f"list_jobs {flare_job_uuid}")
                     rjobs = parse_nvflare_jobs(resp)
                     if rjobs:
                         rstatus = str(
@@ -341,7 +342,6 @@ def monitor_training_jobs():
                             terminal_status, rstatus
                         ):
                             terminal_status = rstatus
-                    sess.close()
                 except Exception:
                     pass
 
