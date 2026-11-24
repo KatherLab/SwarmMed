@@ -752,14 +752,10 @@ def training_status_api(request):
     if job:
         logger.training.debug(f"StatusAPI: Most recent job in DB: {job.flare_job_id} (status: {job.status})")
     
-    # NEW: Scrape local docker logs for progress (User priority)
-    local_participants = current_network.participants.filter(ip__in=local_addresses)
-    participant_ids = [p.participant_id for p in local_participants]
-    
-    logger.training.debug(f"StatusAPI: Local participant IDs: {participant_ids}")
-    
+    # NEW: Scrape local docker logs for progress (User priority): the FL containers
+    # this Hub runs for the network, by the network's label, not by address.
     from .utils import scrape_docker_progress
-    docker_results = scrape_docker_progress(participant_ids=participant_ids)
+    docker_results = scrape_docker_progress(network_id=current_network.identifier)
     
     if docker_results:
         logger.training.debug(f"StatusAPI: Docker scraping found {len(docker_results)} results: {docker_results}")

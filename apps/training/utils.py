@@ -473,12 +473,19 @@ def should_update_terminal_status(
     }
 
 
-def scrape_docker_progress(participant_ids=None):
+def scrape_docker_progress(participant_ids=None, *, network_id=None):
     """Scrapes progress from local docker containers running NVFlare clients/servers.
 
     Args:
         participant_ids (list, optional): List of participant IDs to filter containers.
             Defaults to None.
+        network_id (optional): Read the FL containers that SwarmMed started at this
+            Hub for this network, which carry its ``swarmmedhub.network_id`` label,
+            instead of matching names. A Hub that knows none of its own addresses
+            finds them too.
+
+    Without either, nothing is read: through the Docker host, the names of other
+    deployments' containers can look like FLARE's.
 
     Returns:
         list: A list of dictionaries with extracted progress info (container, job_id,
@@ -486,17 +493,28 @@ def scrape_docker_progress(participant_ids=None):
     """
     from logs.logger import get_logger
     log = get_logger()
-    
+
+    if network_id is None and not participant_ids:
+        log.training.debug("Scrape: no network and no participants; nothing to read")
+        return []
+
     docker_path = shutil.which("docker") or "docker"
     if not docker_path:
         log.training.error("Scrape: Docker CLI not found in PATH")
         return []
 
+    if network_id is not None:
+        # The label that every FL container SwarmMed starts carries (since 1.0.0).
+        label = f"label=swarmmedhub.network_id={network_id}"
+        list_command = [docker_path, "ps", "--filter", label, "--format", "{{.Names}}"]
+    else:
+        list_command = [docker_path, "ps", "--format", "{{.Names}}"]
+
     # Get all running container names
     try:
         # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
         result = subprocess.run(  # nosec B603
-            [docker_path, "ps", "--format", "{{.Names}}"],
+            list_command,
             capture_output=True, text=True, check=True
         )
         container_names = result.stdout.splitlines()
@@ -507,7 +525,9 @@ def scrape_docker_progress(participant_ids=None):
 
     # Filter candidates
     candidates = []
-    if participant_ids:
+    if network_id is not None:
+        candidates = [name.strip() for name in container_names if name.strip()]
+    else:
         log.training.debug(f"Scrape: Looking for participants: {participant_ids}")
         for p_id in participant_ids:
             # Match exact name or name with prefix/suffix (docker-compose style)
@@ -516,11 +536,6 @@ def scrape_docker_progress(participant_ids=None):
             for c_name in container_names:
                 if pattern.search(c_name):
                     candidates.append(c_name)
-    else:
-        log.training.debug("Scrape: No participant_ids provided, falling back to generic search")
-        for c_name in container_names:
-            if "client" in c_name.lower() or "server" in c_name.lower() or "nvflare" in c_name.lower():
-                candidates.append(c_name)
 
     log.training.debug(f"Scrape: Filtered candidate containers: {candidates}")
 

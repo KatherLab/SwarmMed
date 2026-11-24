@@ -154,11 +154,8 @@ def monitor_training_jobs():
     real-time progress, warns about running jobs that have stalled (see
     :mod:`training.stall`), and automatically uploads finalized results to S3.
     """
-    from network.overlay import get_local_addresses
-
     from .utils import scrape_docker_progress
 
-    local_addresses = get_local_addresses()
     log = logger.get_logger()
     stall_minutes = stall_warning_minutes(log)
     # The warnings shown before this pass: the steps before Step 4 clear a job's
@@ -229,14 +226,12 @@ def monitor_training_jobs():
         except Exception:
             continue
 
-    # 2. LOCAL DOCKER SCRAPING: Check running containers for progress
+    # 2. LOCAL DOCKER SCRAPING: Check running containers for progress: the FL
+    # containers this Hub runs for the network, by the network's label, so that
+    # a Hub that knows none of its addresses records the job its client runs.
     for network in active_networks:
         try:
-            local_participants = network.participants.filter(ip__in=local_addresses)
-            participant_ids = [p.participant_id for p in local_participants]
-            docker_results = scrape_docker_progress(
-                participant_ids=participant_ids
-            )
+            docker_results = scrape_docker_progress(network_id=network.identifier)
 
             for res in docker_results:
                 job_id = res["job_id"]

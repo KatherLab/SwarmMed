@@ -13,7 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from network.models import SwarmNetwork, SwarmParticipant
-from project.models import Project
+from project.models import Project, UserCurrentProject
 
 from . import resume as training_resume
 from . import services as training_services
@@ -172,6 +172,78 @@ class TrainingLogSummaryTests(SimpleTestCase):
         self.assertEqual(results[0]["job_id"], new_job)
         self.assertIsNone(results[0]["terminal_status"])
         self.assertFalse(results[0]["ended"])
+
+    @patch("training.utils.shutil.which", return_value="docker")
+    @patch("training.utils.subprocess.run")
+    def test_docker_scrape_reads_only_the_networks_labelled_containers(
+        self, mock_run, _mock_which
+    ):
+        network_id = "0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d"
+        job = "12121212-1212-1212-1212-121212121212"
+        container = f"swarm-{network_id[:12]}-site-b"
+
+        def fake_run(args, **_kwargs):
+            if args[1] == "ps":
+                # Docker lists only the containers that carry the label.
+                return SimpleNamespace(returncode=0, stdout=f"{container}\n", stderr="")
+            if args[1] == "logs":
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=f"[identity=site-b, run={job}]: Finished round 2\n",
+                    stderr="",
+                )
+            raise AssertionError(args)
+
+        mock_run.side_effect = fake_run
+
+        results = scrape_docker_progress(network_id=network_id)
+
+        self.assertEqual(
+            [call.args[0] for call in mock_run.call_args_list],
+            [
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    f"label=swarmmedhub.network_id={network_id}",
+                    "--format",
+                    "{{.Names}}",
+                ],
+                ["docker", "logs", "--tail", "2000", container],
+            ],
+        )
+        self.assertEqual(
+            [(r["container"], r["job_id"], r["rounds_finished"]) for r in results],
+            [(container, job, 2)],
+        )
+
+    @patch("training.utils.shutil.which", return_value="docker")
+    @patch("training.utils.subprocess.run")
+    def test_docker_scrape_without_a_network_or_participants_reads_nothing(
+        self, mock_run, _mock_which
+    ):
+        job = "34343434-3434-3434-3434-343434343434"
+
+        def fake_run(args, **_kwargs):
+            if args[1] == "ps":
+                # Another deployment on the same Docker host runs a server too.
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout="swarm-abc-server\nother_deployment_server\n",
+                    stderr="",
+                )
+            if args[1] == "logs":
+                return SimpleNamespace(
+                    returncode=0, stdout=f"run={job}: Finished round 1\n", stderr=""
+                )
+            raise AssertionError(args)
+
+        mock_run.side_effect = fake_run
+
+        self.assertEqual(scrape_docker_progress(), [])
+        self.assertNotIn(
+            "logs", [call.args[0][1] for call in mock_run.call_args_list]
+        )
 
 
 class FlareAdapterReceiveModelTests(SimpleTestCase):
@@ -664,6 +736,33 @@ class TrainingViewServiceParityTests(TestCase):
         job = response.json()["job"]
         self.assertEqual(job["stall_warning"], "Site site-b dropped out.")
         self.assertEqual(job["last_round_at"], last_round_at.isoformat())
+
+    def test_status_api_reads_only_the_current_networks_containers(self):
+        self.user.profile.accepted_terms = True
+        self.user.profile.accepted_policy = True
+        self.user.profile.save(update_fields=["accepted_terms", "accepted_policy"])
+        UserCurrentProject.objects.create(user=self.user, project=self.project)
+        self.client.force_login(self.user)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            override_settings(BASE_DIR=tmpdir),
+            patch.dict("os.environ", {"SWARMMEDHUB_DISABLE_ASYNC_LOGGING": "1"}),
+            patch(
+                "network.overlay.get_local_addresses",
+                return_value=frozenset({"127.0.0.1"}),
+            ),
+            patch("training.utils.scrape_docker_progress", return_value=[]) as scrape,
+            patch(
+                "training.runtime.summarize_runtime_container_logs", return_value=None
+            ),
+            patch("training.views._nvflare_status_payload", return_value=None),
+            patch("training.views.requests.get"),
+        ):
+            response = self.client.get(reverse("training:training_status_api"))
+
+        self.assertEqual(response.status_code, 200)
+        scrape.assert_called_once_with(network_id=self.network.identifier)
 
     def test_find_local_global_model_prefers_canonical_filename(self):
         with tempfile.TemporaryDirectory() as base_dir:
