@@ -201,6 +201,12 @@ Consequences:
   is.
 * Any participant can submit jobs whose code runs at every site
   ([section 4](#4-adversaries-considered)).
+* The FL server's log cannot show which Hub acted. Every Hub that holds the whole
+  package, the coordinating Hub included, logs in to the FL server with the admin
+  identity of the first site in alphabetical order, so the server's log names the
+  same user for every Hub; only the connection's source address tells them apart.
+  Since every site holds every admin identity, the identity in the log would not
+  prove which Hub acted in any case. <!-- r106-check: the admin-kit choice (apps/training/runtime.py resolve_admin_startup_dir) is unchanged in 1.0.6 (the per-site identity stayed deferred) -->
 * `SWARMMEDHUB_PRIVATE_P2P` cannot hide model updates from anyone who holds the
   receiving client's key
   ([section 3](#3-the-coordinating-host-sees-model-updates-default-configuration)).
