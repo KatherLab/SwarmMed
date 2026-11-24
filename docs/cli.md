@@ -332,11 +332,15 @@ command that is given a job never acts on another one. Without a job,
 status, so name the job to stop.
 
 `training stop` records the job as stopped only when the FL server takes the
-abort. When the server refuses it, for example for a job that it does not know
-or no longer runs, or does not answer, the command exits with code 2 with
+abort, or answers that the job has already finished; a job whose record had
+already ended then keeps its status. When the server refuses the abort, for
+example for a job that it does not know or that it lists as running but does
+not run, or when it does not answer, the command exits with code 2 with
 `The FL server did not abort job <id>:` and the server's answer, and leaves the
 job's record as it was; **Stop Training** on the Training page shows the same
-error. A job whose record had already ended keeps its status.
+error. When the Hub cannot reach the server at all, the command exits with
+code 1 with `Unexpected failure: cannot connect to FLARE admin API`, and the
+record also stays as it was.
 
 When the Hub's job monitor has flagged a running job as stalled, for example
 because a site dropped out, `training status`, `list` and `watch` print a

@@ -515,7 +515,8 @@ What to do:
 2. Stop the job, with **Stop Training** on the Training page or
    `swarmed training stop <JOB_UUID>`. FLARE cannot take a site back into a
    running swarm job. The job is recorded as stopped only once the FL server
-   has taken the abort; otherwise both show the server's answer
+   has taken the abort, or has answered that the job had already finished;
+   otherwise both show an error and the job's record stays as it was
    ([CLI](cli.md#7-start-and-watch-training)).
 3. Once the site can train again, resume the run from the newest checkpoint as
    described in [Resuming the run](#resuming-the-run). Only PyTorch jobs can be
@@ -547,8 +548,8 @@ job its FL client runs; starting the network, switching servers and starting
 the standby with a Celery worker that runs as an unprivileged user, after an
 import with the CLI as root; the refusal of `swarmed network start` while the
 Hub is switched to a server that another site started; which job the start of a
-FLARE job ID names; and that `swarmed training stop` records a job as stopped
-only when the FL server takes the abort. A test in FLARE's simulator
+FLARE job ID names; and that `swarmed training stop` changes no record when the
+FL server refuses the abort or does not answer. A test in FLARE's simulator
 (`SWARMMEDHUB_RUN_FLARE_SIMULATOR=1`, in `apps/training/test_resume_simulator.py`)
 runs a four-round job, then resumes it at round 3 for a six-round run, and checks
 that every site starts round 3 from the same weights as in the first run, and,

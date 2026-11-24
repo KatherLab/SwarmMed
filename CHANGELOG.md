@@ -155,13 +155,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that is not found now exit with code 2; version 1.0.5 stopped the network's
   newest running job, or showed its latest job, instead.
 - `swarmed training stop` and **Stop Training** on the Training page record a
-  job as stopped only when the FL server took the abort
-  ([CLI](docs/cli.md#7-start-and-watch-training)). When the server refuses it,
-  for example for a job that it does not know or no longer runs, or does not
-  answer, they show the server's answer and leave the job's record as it was;
-  the command exits with code 2. A job whose record had already ended keeps its
-  status instead of becoming stopped. Version 1.0.5 recorded the job as stopped
-  whatever the server answered.
+  job as stopped only when the FL server took the abort or answered that the job
+  had already finished ([CLI](docs/cli.md#7-start-and-watch-training)). When the
+  server refuses the abort, for example for a job that it does not know or that
+  it lists as running but does not run, or when it does not answer, they show
+  the server's answer and leave the job's record as it was; the command exits
+  with code 2. A job whose record had already ended keeps its status instead of
+  becoming stopped. Version 1.0.5 recorded the job as stopped whatever the
+  server answered. When the Hub cannot reach the server at all, the command
+  still fails with `Unexpected failure` and exit code 1, and leaves the record
+  as it was.
 - `swarmed training resume --rounds` must be between 1 and 100000: 0 was
   ignored, and a value too large for the job's record was submitted to every
   site before saving the record failed with `integer out of range`. A total
