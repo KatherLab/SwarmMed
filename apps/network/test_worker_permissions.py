@@ -12,6 +12,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess  # nosec B404
 import tempfile
 import zipfile
@@ -407,6 +408,92 @@ class ImportHandOverTests(RuntimeFixture, TestCase):
         self.assertIn(self.network_dir / "node-A.zip", written)
         self.assertTrue(any(path.name == "fed_client.json" for path in written))
         self.assertEqual(_not_handed_over(chown, self.network_dir), [])
+
+    def _outside_workspaces(self) -> Path:
+        """A folder outside the checkout, holding a file of its own."""
+        folder = Path(tempfile.mkdtemp(prefix="outside-workspaces-"))
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        (folder / "host-file.txt").write_text("not the network's")
+        return folder
+
+    def _import_into_a_link(self, link: Path) -> tuple[Path, MagicMock, str]:
+        """Import the network's package as root with a link planted at ``link``.
+
+        Returns:
+            The link's target, the chown recorder and the refusal's message.
+        """
+        outside = self._outside_workspaces()
+        package = self._package()
+        SwarmNetwork.objects.filter(pk=self.network.pk).delete()
+        shutil.rmtree(link)
+        link.symlink_to(outside, target_is_directory=True)
+        package.seek(0)
+
+        with _as_root() as chown, self.assertRaises(ValueError) as refused:
+            network_services.import_network(
+                project=self.project,
+                actor=self.user,
+                name="Imported",
+                package_source=package,
+            )
+        return outside, chown, str(refused.exception)
+
+    def test_import_refuses_a_network_folder_that_is_a_link(self):
+        # The network's id is in its package, so whoever can write the
+        # project's folder can plant the link before the import.
+        outside, chown, message = self._import_into_a_link(self.network_dir)
+
+        self.assertIn(str(self.network_dir), message)
+        self.assertIn("Nothing was imported.", message)
+        self.assertFalse(
+            SwarmNetwork.objects.filter(identifier=self.network.identifier).exists()
+        )
+        self.assertEqual(_handed_over(chown), [])
+        self.assertEqual(os.listdir(outside), ["host-file.txt"])
+
+    def test_import_refuses_a_project_folder_that_is_a_link(self):
+        project_dir = self.network_dir.parent
+        outside, chown, message = self._import_into_a_link(project_dir)
+
+        self.assertIn(str(project_dir), message)
+        self.assertEqual(_handed_over(chown), [])
+        self.assertEqual(os.listdir(outside), ["host-file.txt"])
+
+    def test_a_network_folder_swapped_for_a_link_is_handed_over_alone(self):
+        # The hand-over comes last, so the folder may be a link by then.
+        outside = self._outside_workspaces()
+        shutil.rmtree(self.network_dir)
+        self.network_dir.symlink_to(outside, target_is_directory=True)
+
+        with _as_root() as chown:
+            network_utils.ensure_worker_writable(self.network_dir)
+
+        # The project's folder and the link, not what the link points to.
+        self.assertEqual(
+            _handed_over(chown), [self.network_dir.parent, self.network_dir]
+        )
+
+    def test_unpacking_leaves_the_mode_of_a_links_target_alone(self):
+        # A link already at an entry's path; zipfile writes through it, as in
+        # every earlier version, but its target must not become executable.
+        target = self._outside_workspaces() / "host-file.txt"
+        target.chmod(0o644)
+        kit = self.network_dir / "unpacked"
+        (kit / "startup").mkdir(parents=True)
+        (kit / "startup" / "sub_start.sh").symlink_to(target)
+        entry = zipfile.ZipInfo("startup/sub_start.sh")
+        entry.create_system = 3
+        entry.external_attr = (stat.S_IFREG | 0o755) << 16
+        package = io.BytesIO()
+        with zipfile.ZipFile(package, "w") as archive:
+            archive.writestr(entry, "#!/bin/bash\n")
+
+        with zipfile.ZipFile(package) as archive:
+            network_services._extract_entry(
+                archive, archive.getinfo(entry.filename), kit
+            )
+
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
 
     def test_import_keeps_the_start_scripts_executable(self):
         self._import(self._package())

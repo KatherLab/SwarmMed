@@ -458,7 +458,9 @@ def import_network(
     Raises:
         ValueError: If the package cannot be read, is unsafe, does not agree with
             its manifest, has another fingerprint than expected, or holds a
-            network that already exists at this Hub. Nothing is written then.
+            network that already exists at this Hub, or if the project's or the
+            network's folder in workspaces/ is a symbolic link. Nothing is
+            written then.
     """
     log = get_logger(user=actor, project=project)
     package_bytes = _read_package_bytes(package_source)
@@ -521,6 +523,21 @@ def import_network(
         )
         log.network.warning(f"Startup package for network '{name}' refused: {message}")
         raise ValueError(message)
+    # The documented CLI imports as root and then hands the network's folder to
+    # the worker, so neither may follow a link planted in workspaces/.
+    project_dir = os.path.join(settings.BASE_DIR, "workspaces", str(project.identifier))
+    folders = [project_dir]
+    if identifier:
+        folders.append(os.path.join(project_dir, str(identifier)))
+    linked = next((folder for folder in folders if os.path.islink(folder)), "")
+    if linked:
+        message = (
+            f"{linked} is a symbolic link: the import would write the network "
+            "wherever it points and hand that to the Celery worker. Remove the link "
+            "and import the package again. Nothing was imported."
+        )
+        log.network.warning(f"Startup package for network '{name}' refused: {message}")
+        raise ValueError(message)
 
     swarm_network = SwarmNetwork.objects.create(**create_args)
     # Not stored: the site whose kit was imported on its own, for the messages.
@@ -567,7 +584,13 @@ def _extract_entry(archive, member, destination) -> str:
     """
     path = archive.extract(member, destination)
     recorded = (member.external_attr >> 16) & 0o777
-    if member.create_system == 3 and recorded & stat.S_IXUSR and os.path.isfile(path):
+    if (
+        member.create_system == 3
+        and recorded & stat.S_IXUSR
+        and os.path.isfile(path)
+        # Not the target of a link that was there already.
+        and not os.path.islink(path)
+    ):
         mode = stat.S_IMODE(os.stat(path).st_mode)
         os.chmod(path, mode | ((mode & 0o444) >> 2))  # x wherever r: 0644 -> 0755
     return path
