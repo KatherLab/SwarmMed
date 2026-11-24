@@ -60,27 +60,40 @@ class StaleServerLogTests(NetworkFixture, TestCase):
 class StartRefusalCLITests(RuntimeFixture, TestCase):
     """'swarmed network start' at a Hub switched to a server another site started."""
 
-    def test_start_error_names_the_switch(self):
-        # A server-only coordinator that switched to the standby at 192.0.2.10.
-        write_active_server(self.network, "192.0.2.10", started_server=False)
-        stdout = io.StringIO()
+    # Says the CLI only when the worker may have refused the start.
+    CONDITION = (
+        "If the log says that 'swarmed network start' does not start this Hub's "
+        "own FL server"
+    )
 
+    def _start_and_wait(self, mode):
+        """Run 'swarmed network start NET --wait' with the worker in ``mode``.
+
+        Returns:
+            tuple: The CLI's error and the `docker run` commands.
+        """
+        stdout = io.StringIO()
         with (
-            patch.dict(
-                os.environ,
-                {
-                    "SWARMMEDHUB_RUN_TASKS_INLINE": "1",
-                    "SWARMMEDHUB_SERVER_ONLY_MODE": "true",
-                },
-            ),
+            patch.dict(os.environ, {"SWARMMEDHUB_RUN_TASKS_INLINE": "1"}),
             # Keep the checkout's .env, which the CLI loads, out of the test.
             patch("swarmed_cli.bootstrap.load_dotenv"),
             # A wait that does not return polls again.
             patch("swarmed_cli.support.time.sleep", side_effect=AssertionError),
             self._docker() as runs,
+            # As at a site that cannot tell which participant it is.
+            patch(
+                "network.tasks._resolve_local_client_names", return_value=set()
+            ),
             redirect_stdout(stdout),
         ):
-            os.environ.pop("SWARMMEDHUB_CLIENT_ONLY_MODE", None)
+            for name in (
+                "SWARMMEDHUB_SERVER_ONLY_MODE",
+                "SWARMMEDHUB_CLIENT_ONLY_MODE",
+                "SWARMMEDHUB_LOCAL_PARTICIPANT",
+                "SWARMMEDHUB_SERVER_HOST",
+            ):
+                os.environ.pop(name, None)
+            os.environ[f"SWARMMEDHUB_{mode}_MODE"] = "true"
             code = main(
                 [
                     "network",
@@ -95,9 +108,45 @@ class StartRefusalCLITests(RuntimeFixture, TestCase):
 
         output = json.loads(stdout.getvalue())
         self.assertEqual(code, 2, output)
-        self.assertEqual(runs, [])
         self.network.refresh_from_db()
         self.assertEqual(self.network.status, "ERROR")
+        return output["errors"][0], runs
+
+    def test_start_error_names_the_switch(self):
+        # A server-only coordinator that switched to the standby at 192.0.2.10.
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        error, runs = self._start_and_wait("SERVER_ONLY")
+
+        self.assertEqual(runs, [])
         self.assertIn(
-            "This Hub is switched to the FL server at 192.0.2.10", output["errors"][0]
+            f"{self.CONDITION}: this Hub uses the FL server at 192.0.2.10, which "
+            "another site started; see 'When the Hub that ran the server comes "
+            "back' in docs/failover.md.",
+            error,
         )
+
+    def test_an_unrelated_start_error_at_a_client_only_site_does_not_blame_the_switch(
+        self,
+    ):
+        # A site in client-only mode is never refused; its start fails here
+        # because it cannot tell which client kit is its own.
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        error, _runs = self._start_and_wait("CLIENT_ONLY")
+
+        self.assertNotIn("This Hub is switched to the FL server", error)
+        self.assertIn(f"{self.CONDITION}: this Hub uses the FL server at", error)
+
+    def test_no_switch_is_named_after_a_return(self):
+        # The record stays after a return and still names a server that this
+        # Hub did not start, now the network's own one.
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+        write_active_server(self.network, "100.64.0.1", started_server=False)
+
+        for mode in ("CLIENT_ONLY", "SERVER_ONLY"):
+            with self.subTest(mode=mode):
+                error, _runs = self._start_and_wait(mode)
+
+                self.assertNotIn("100.64.0.1", error)
+                self.assertNotIn(self.CONDITION, error)
