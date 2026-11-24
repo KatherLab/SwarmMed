@@ -293,7 +293,7 @@ Consequences for a consortium:
 | **Network attacker** between sites | Observes or tampers with traffic on the wire | Mitigated for FLARE traffic: mutual TLS with a study-specific CA on the server's fed-learn and admin ports, and joining requires a startup kit. **Not mitigated for the web interfaces' site-to-site traffic**: the hub-to-hub calls skip certificate verification by default, and the network token they carry also authorises downloading the latest global model from any participant's web interface (section 1). NVFlare's internal parent–job connection at each site is plain TCP, on a listener that accepts connections on all of the host's IPv4 addresses (section 2). |
 | **Honest-but-curious participant** | Runs the protocol correctly, inspects everything it legitimately receives | **Partially mitigated.** Every participant receives aggregated model weights each round, and the aggregating client receives other sites' updates. Parameter sharing alone does not prevent model inversion, membership inference or gradient leakage. No differential privacy or secure aggregation is configured by default. Every participant also holds every other participant's keys (section 2). |
 | **Honest-but-curious coordinator** | Operates the FL server | **Not mitigated.** Sees relayed model updates (section 3), and holds every participant's private key if it provisioned the study or imported the whole package (section 2). |
-| **Malicious participant** | Sends crafted or poisoned updates, or misuses the keys and rights it was given | **Not mitigated.** There is no robust aggregation, update-norm clipping, or anomaly detection, so a participant can degrade or backdoor the joint model. Beyond that, every site's admin certificate is provisioned with NVFlare's `project_admin` role, which the generated authorization policy allows to submit jobs with custom code (`byoc`) to all sites. A malicious participant can therefore run arbitrary code in every other site's client container, which has access to that site's data and uses the host's network, and exfiltrate raw data. SwarmMed offers no setting to provision a narrower role. Admission control is social and cryptographic (who receives the package), not behavioural. |
+| **Malicious participant** | Sends crafted or poisoned updates, or misuses the keys and rights it was given | **Not mitigated.** There is no robust aggregation, update-norm clipping, or anomaly detection, so a participant can degrade or backdoor the joint model. Beyond that, every site's admin certificate is provisioned with NVFlare's `project_admin` role, which the generated authorization policy allows to submit jobs with custom code (`byoc`) to all sites. A malicious participant can therefore run arbitrary code in every other site's client container, which has access to that site's data and uses the host's network, and exfiltrate raw data. In a standard installation that code also reads the site Hub's secrets and every other study held by that Hub, and may be able to take over the site's host ([What job code can reach at a site](#what-job-code-can-reach-at-a-site)). <!-- r106-check: "may be able to take over" rests on the untested reach of the Docker API proxy; change it if the re-run's optional docker-proxy probe settles it --> SwarmMed offers no setting to provision a narrower role. Admission control is social and cryptographic (who receives the package), not behavioural. |
 | **Compromised site host** | Root on a participating machine | **Not contained.** Such a host holds its own patient data, which is the site's responsibility to protect. It also holds the whole startup package, so an attacker who compromises one site obtains every participant's identity, the FL server's key and the `project_admin` right to run code at every other site. |
 | **Platform user without rights** | Authenticated user of the web interface | Mitigated: project membership checks, including for actions on a network named by its identifier; role checks for user management and the log viewer; optional TOTP two-factor authentication; a login lockout per username and client address; and an HMAC-chained audit log (section 6 states what it covers and its limits). |
 
@@ -303,6 +303,48 @@ rather than adversarial. Because every site's admin identity can run code at eve
 other site, each institution must also trust every other participant, and the
 security of their hosts, with access to its own data. SwarmMed is not designed for
 open participation by untrusted parties.
+
+### What job code can reach at a site
+
+Job code runs in the FL containers that the site's Hub starts: the client
+containers and, at the coordinating site or at a standby site after a switch,
+the server container. In a standard installation, where the Hub runs in Docker
+Compose, SwarmMed starts these containers with every volume of the Hub's
+application container (`--volumes-from`) and as root. Each FL container
+therefore sees:
+
+* the whole installation directory, including `.env` (the database, Redis and
+  MinIO passwords, `SECRET_KEY`, `FERNET_KEYS`, `BACKUP_ENCRYPTION_KEY` and
+  `MINIO_KMS_SECRET_KEY`) and `.secrets/` (the services' private keys, and the CA
+  and client keys of the script sandbox's Docker daemon);
+* `workspaces/`: the startup kits and private keys of every network of every
+  project on that Hub, and their training results.
+
+SwarmMed's data adapter, and the training scripts of four bundled examples, also
+load that `.env` into the training process's environment. <!-- r106-check: flare_adapter.py still calls load_dotenv() in 1.0.6 (owner's decision: no code change; changed with the mounts in 1.0.7) -->
+
+With these, code that runs in an FL container can read every object in the
+Hub's MinIO, that is every project's imported data and results, and act as any
+participant or admin of any other study on the Hub. A client container uses the
+host's network by default, so it can also reach PostgreSQL and Redis, which
+listen on the host's loopback address, and the Hub's Docker networks, including
+the unauthenticated Docker API proxy (`docker-proxy`, port 2375), which controls
+the host ([Security](security.md#host-docker-access)). The last point follows
+from how Docker connects a host to its bridge networks; it has not been tested. <!-- r106-check: keep "has not been tested" unless the re-run's optional docker-proxy probe settles it -->
+
+A Hub that runs outside containers, as at the worked example's training sites,
+mounts only the participant's own kit folder, the internal CA certificate,
+`DATA_DIR` and `SCRATCH_DIR`. Its containers still run as root and, on the
+host's network, still reach the Docker API proxy if the host also runs a
+SwarmMedHub installation in Docker Compose.
+
+Until this is narrowed:
+
+* give access to a Hub only for studies whose consortia may see one another's
+  keys and data, and run studies of different consortia on separate Hubs;
+* keep nothing in `.env` that the platform does not need;
+* treat the right to submit jobs to a network as the right to administer every
+  site's Hub host.
 
 ## 5. What is not implemented
 
@@ -319,6 +361,9 @@ State these plainly when answering an information-security review:
   exported package always contains every participant's identity, a leaked
   certificate cannot be revoked, and every site's admin identity is provisioned as
   `project_admin` (section 2).
+* **No isolation of FL containers from the Hub.** In a standard installation they
+  get every volume of the Hub's application container and run as root
+  ([section 4](#what-job-code-can-reach-at-a-site)).
 * **No verification tool for the audit-log chain** (section 6).
 * **No formal verification or third-party audit** of the implementation.
 
@@ -386,4 +431,7 @@ State these plainly when answering an information-security review:
    download it from any participant's web interface.
 6. Admit only participants that every other participant trusts to run code on its
    hosts, until non-coordinating sites can be given an admin role without
-   `submit_job` and `byoc`.
+   `submit_job` and `byoc`. Until FL containers are limited to their own
+   network's files, this extends to every study on the same Hub: give studies
+   with different participants separate Hubs
+   ([What job code can reach at a site](#what-job-code-can-reach-at-a-site)).

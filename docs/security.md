@@ -26,7 +26,7 @@ A SwarmMedHub installation runs as a set of Docker containers on one host, conne
 
 ### Host Docker Access
 
-The application and worker containers start and stop the federated-learning containers through the `docker-proxy` service. It forwards their requests to the host's Docker socket with read and write access to the container, image, network, volume, build and exec APIs, and it does not authenticate callers. Control of the Docker API amounts to root access on the host, so anyone who can run code in the application or worker container, or reach port 2375 on `db_network`, controls the host.
+The application and worker containers start and stop the federated-learning containers through the `docker-proxy` service. It forwards their requests to the host's Docker socket with read and write access to the container, image, network, volume, build and exec APIs, and it does not authenticate callers. Control of the Docker API amounts to root access on the host, so anyone who can run code in the application or worker container, or reach port 2375 on `db_network`, controls the host. FL client containers use the host's network by default, so code that runs in them, which any holder of a study's admin identity can submit, can probably reach port 2375 as well; this has not been tested ([FL Runtime Containers](#fl-runtime-containers)). <!-- r106-check: keep "has not been tested" unless the re-run's optional docker-proxy probe settles it -->
 
 ### Script Sandbox
 
@@ -38,6 +38,15 @@ User-provided validation, visualization and explainability scripts run in short-
 - **Internet Access:** Scripts can reach the internet while they run, not only while images are built: the Docker network that the script containers use inside `sandbox-dind` is not internal, and `sandbox-dind` reaches the internet through `sandbox_egress`. A script can therefore send what it reads to other hosts.
 - **Explainability Output:** The worker stores an explainability run's output only if the script exited normally within the time limit and the bundle it wrote passes the checks: fixed file names, no symbolic links or other special files, size limits, strict JSON, and every PNG decoded and re-encoded ([Explainability](explainability.md#how-it-works)).
 - **Network Isolation:** `sandbox-dind` is isolated from the platform's internal `db_network`, which hosts the unauthenticated Docker socket proxy (`docker-proxy`), PostgreSQL, and Redis. It is connected only to `sandbox_control` (an internal network shared with the application and worker for mutual TLS Docker API calls on port 2376), `sandbox_internal` (an internal network shared with MinIO for S3 data access), and `sandbox_egress` (a bridge network providing outbound internet access for package installation during image builds). Containers running inside `sandbox-dind` therefore have no network path to the host Docker daemon or backend databases. Scripts should still be treated as project-level code.
+
+### FL Runtime Containers
+
+The FL server and client containers run the study's job code, which any holder of one of the network's admin identities can submit with custom code:
+
+- **Mounts:** In a standard installation, where the worker cannot see the project directory at its host path, SwarmMedHub starts every FL server and client container with all of the application container's volumes (`--volumes-from swarmmedhub`): the project directory, including `.env` and `.secrets/`, all of `workspaces/` with every network's startup kits and keys, `media/`, `tmp/` and the client certificate for `sandbox-dind`'s Docker API. Only a Hub that runs outside containers mounts the participant's own kit folder instead. The data adapter loads the mounted `.env` into the training process.
+- **User:** The containers run as root.
+- **Network:** Client containers use the host's network by default on Linux, so they reach what the host reaches, including services bound to its loopback address and the Hub's Docker networks. The server container is connected to the network's Docker network together with the application, worker and MinIO containers.
+- **Consequence:** Job code is not contained: it can read the Hub's secrets and every study held on that Hub ([Threat model](threat-model.md#what-job-code-can-reach-at-a-site)). <!-- r106-check: the mount set is unchanged in 1.0.6 (the mount narrowing and load_dotenv change were deferred to 1.0.7) -->
 
 ### Overlay Network (Optional)
 
