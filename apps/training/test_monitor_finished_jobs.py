@@ -5,9 +5,11 @@ host the retries reached other FL servers), re-upload each finished job's result
 every minute, and overwrite the job's completion time each time.
 """
 
+import json
 import os
 import tempfile
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
@@ -17,11 +19,13 @@ from django.utils import timezone
 from network.models import SwarmNetwork
 from project.models import Project
 
+from . import resume as training_resume
 from . import services as training_services
 from . import tasks
 from .models import TrainingJob
 
 JOB_UUID = "22222222-2222-2222-2222-222222222222"
+OTHER_JOB_UUID = "99999999-9999-9999-9999-999999999999"
 
 
 class MonitorFinishedJobsTests(TestCase):
@@ -139,6 +143,112 @@ class MonitorFinishedJobsTests(TestCase):
         self.assertEqual(job.status, "COMPLETED")
         self.assertIsNotNone(job.completed_at)
         self.assertGreaterEqual(job.completed_at, before)
+
+
+class MonitorTotalRoundsTests(TestCase):
+    """A site's monitor records only the job's own total of rounds, never a guess."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base_dir = tmp.name
+        user = User.objects.create_user(
+            username="totals", password="test-password"
+        )  # nosec B106
+        self.project = Project.objects.create(title="Totals Project", author=user)
+        self.network = SwarmNetwork.objects.create(
+            name="Totals Network", project=self.project, author=user, status="RUNNING"
+        )
+        self.prod = (
+            Path(tmp.name)
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(self.network.identifier)
+            / "workspace"
+            / "study"
+            / "prod_00"
+        )
+        # A site whose FL client runs the job; its log shows two rounds.
+        self.job_dir = self.prod / "node-B" / JOB_UUID
+        (self.job_dir / "app_node-B" / "config").mkdir(parents=True)
+        (self.job_dir / "log.txt").write_text("Finished round 2\n")
+        self.job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=JOB_UUID,
+            flare_job_uuid=JOB_UUID,
+        )
+        for target, value in (
+            ("training.tasks.logger", MagicMock()),
+            (
+                "network.overlay.get_local_addresses",
+                MagicMock(return_value=frozenset()),
+            ),
+            ("training.utils.scrape_docker_progress", MagicMock(return_value=[])),
+            (
+                "training.tasks.resolve_admin_session_target",
+                MagicMock(return_value=None),
+            ),
+            (
+                "training.tasks.summarize_training_log",
+                MagicMock(
+                    return_value={"rounds_finished": 2, "terminal_status": None}
+                ),
+            ),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _monitored_job(self):
+        with override_settings(BASE_DIR=self.base_dir):
+            tasks.monitor_training_jobs()
+        self.job.refresh_from_db()
+        return self.job
+
+    def test_a_client_only_site_stores_no_guessed_total(self):
+        job = self._monitored_job()
+
+        self.assertEqual(job.rounds_finished, 2)
+        self.assertIsNone(job.total_rounds)
+        self.assertIsNone(job.progress_percent)
+
+    def test_another_jobs_server_config_is_not_used(self):
+        config = self.prod / "server" / OTHER_JOB_UUID / "app_server" / "config"
+        config.mkdir(parents=True)
+        (config / "config_fed_server.json").write_text(
+            json.dumps(
+                {
+                    "workflows": [
+                        {
+                            "id": "swarm_controller",
+                            "path": "nvflare.app_common.ccwf.swarm_server_ctl."
+                            "SwarmServerController",
+                            "args": {"num_rounds": 30},
+                        }
+                    ]
+                }
+            )
+        )
+
+        job = self._monitored_job()
+
+        self.assertIsNone(job.total_rounds)
+        self.assertIsNone(job.progress_percent)
+
+    def test_the_total_is_read_from_the_jobs_run_file(self):
+        training_resume.write_run_file(
+            self.job_dir,
+            network_id=self.network.identifier,
+            total_rounds=8,
+            start_round=0,
+        )
+
+        job = self._monitored_job()
+
+        self.assertEqual(job.total_rounds, 8)
+        self.assertEqual(job.progress_percent, 37)  # rounds 0-2 of 8
 
 
 class CompletionTimeTests(TestCase):

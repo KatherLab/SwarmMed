@@ -19,6 +19,7 @@ from network.models import SwarmNetwork
 
 from . import services as training_services
 from .models import TrainingJob
+from .resume import read_run_total
 from .runtime import (
     admin_session,
     new_secure_session_with_host,
@@ -30,7 +31,6 @@ from .stall import describe_stall, same_stall, stall_warning_minutes
 from .utils import (
     ClientDropouts,
     extract_flare_job_uuid,
-    extract_total_rounds_from_config_file,
     progress_from_rounds,
     scan_client_dropouts,
     summarize_training_log,
@@ -57,27 +57,6 @@ def _completion_time(job, terminal_status):
     if job.status == terminal_status and job.completed_at:
         return job.completed_at
     return timezone.now()
-
-
-def _get_total_rounds(workspace_base):
-    """Helper to extract the configured number of training rounds from NVFlare config.
-
-    Searches for config_fed_server.json anywhere in workspace_base.
-
-    Args:
-        workspace_base (str): The base directory of the NVFlare workspace.
-
-    Returns:
-        int: The total number of rounds as an integer. Defaults to 10.
-    """
-    # Search for config_fed_server.json anywhere in workspace_base
-    for root, _dirs, files in os.walk(workspace_base):
-        if "config_fed_server.json" in files:
-            cfg_path = os.path.join(root, "config_fed_server.json")
-            rounds = extract_total_rounds_from_config_file(cfg_path, default=10)
-            if rounds != 10:
-                return rounds
-    return 10
 
 
 def _select_result_root(target: str, app_subdir: str) -> str:
@@ -352,8 +331,10 @@ def monitor_training_jobs():
                 rounds_finished = (
                     job.rounds_finished if job.rounds_finished is not None else -1
                 )
-                total_rounds = job.total_rounds or _get_total_rounds(
-                    workspace_base
+                # The job's own total, or none: another job's settings or a
+                # guess would be stored as this job's.
+                total_rounds = job.total_rounds or read_run_total(
+                    os.path.join(network_workspace_root, "workspace"), flare_job_uuid
                 )
                 dropouts = ClientDropouts()
 
@@ -400,7 +381,7 @@ def monitor_training_jobs():
                         )
                     )
 
-                if total_rounds > 0:
+                if total_rounds:
                     pct = progress_from_rounds(
                         rounds_finished,
                         total_rounds,

@@ -5,7 +5,6 @@ with object storage for training code and result uploads.
 """
 
 import ast
-import json
 import os
 import re
 import shutil
@@ -434,15 +433,6 @@ def extract_swarm_round_plan(config: dict) -> tuple[int, int] | None:
             start_round = max(start_round, 0)
             return rounds + start_round, start_round
     return None
-
-
-def extract_total_rounds_from_config_file(path: str, default: int = 10) -> int:
-    """Read an NVFLARE config file and return its Swarm round count."""
-    try:
-        with open(path) as handle:
-            return extract_total_rounds_from_flare_config(json.load(handle), default)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return default
 
 
 def _scope_logs_to_latest_job(logs: str, job_id_pattern: re.Pattern) -> tuple[str | None, str]:

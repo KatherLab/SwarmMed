@@ -21,10 +21,10 @@ from common.utils import get_safe_slug
 from logs.logger import get_logger
 from network.failover import active_server_record_for_startup, admin_session_pin
 
+from .resume import read_run_total
 from .utils import (
     clamp_progress_percent,
     extract_flare_job_uuid,
-    extract_total_rounds_from_config_file,
     should_update_terminal_status,
     summarize_training_log,
 )
@@ -1010,6 +1010,7 @@ def get_training_progress_info(training_job, current_network):
         or extract_flare_job_uuid(training_job.flare_job_id)
         or str(training_job.flare_job_id or "")
     )
+    total_rounds = training_job.total_rounds
 
     if training_job.status == "RUNNING":
         is_training_running = True
@@ -1028,7 +1029,6 @@ def get_training_progress_info(training_job, current_network):
             have_cached_progress = False
 
         try:
-            total_rounds = training_job.total_rounds or 10
             workspace_dir = os.path.join(
                 settings.BASE_DIR,
                 "workspaces",
@@ -1036,15 +1036,9 @@ def get_training_progress_info(training_job, current_network):
                 str(current_network.identifier),
                 "workspace",
             )
-            for root, _dirs, files in os.walk(workspace_dir):
-                if "config_fed_server.json" not in files:
-                    continue
-                total_rounds = extract_total_rounds_from_config_file(
-                    os.path.join(root, "config_fed_server.json"),
-                    default=total_rounds,
-                )
-                if total_rounds != 10:
-                    break
+            # The job's own total, or none: then there is no percentage. Another
+            # job's settings in the workspace say nothing about this job.
+            total_rounds = total_rounds or read_run_total(workspace_dir, job_uuid)
 
             # -1 until a round has finished, as the job monitor records it.
             rounds_finished = (
@@ -1091,7 +1085,7 @@ def get_training_progress_info(training_job, current_network):
                         terminal_status = runtime_summary["terminal_status"]
 
             if terminal_status:
-                if not have_cached_progress and total_rounds > 0:
+                if not have_cached_progress and total_rounds:
                     rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                     training_progress = min(
                         99, int(rounds_completed * 100 / total_rounds)
@@ -1102,7 +1096,7 @@ def get_training_progress_info(training_job, current_network):
 
                 training_status = terminal_status.title()
                 is_training_running = False
-            elif not have_cached_progress and total_rounds > 0:
+            elif not have_cached_progress and total_rounds:
                 rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                 training_progress = min(99, int(rounds_completed * 100 / total_rounds))
         except Exception as exc:
@@ -1124,7 +1118,9 @@ def get_training_progress_info(training_job, current_network):
     if effective_status == "RUNNING":
         elapsed = (now - start_time).total_seconds()
         duration_str = format_duration(elapsed)
-        if training_progress > 0:
+        if not total_rounds:
+            eta_str = "-"  # unknown without the job's total
+        elif training_progress > 0:
             total_est = elapsed / (training_progress / 100.0)
             remaining = total_est - elapsed
             eta_str = format_duration(remaining)

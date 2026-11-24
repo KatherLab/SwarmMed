@@ -1,5 +1,6 @@
 """Tests for the training app."""
 
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from django.utils import timezone
 from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project
 
+from . import resume as training_resume
 from . import services as training_services
 from .flare_adapter import (
     _build_manifest_request_url,
@@ -22,6 +24,7 @@ from .flare_adapter import (
     receive_model,
 )
 from .models import TrainingJob
+from .runtime import get_training_progress_info
 from .utils import (
     extract_total_rounds_from_flare_config,
     infer_training_terminal_status,
@@ -317,6 +320,38 @@ class TrainingIdentityServiceTests(TestCase):
         self.assertEqual(job.progress_percent, 100)
         self.assertEqual(job.rounds_finished, 4)
 
+    def test_a_peer_total_does_not_replace_a_known_one(self):
+        # A Hub of SwarmMed 1.0.5 can hold a guessed total of 10.
+        known, unknown = (
+            TrainingJob.objects.create(
+                project=self.project,
+                network=self.network,
+                status="RUNNING",
+                flare_job_id=flare_uuid,
+                flare_job_uuid=flare_uuid,
+                total_rounds=total_rounds,
+            )
+            for flare_uuid, total_rounds in (
+                ("abababab-abab-abab-abab-abababababab", 40),
+                ("cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd", None),
+            )
+        )
+
+        for job in (known, unknown):
+            training_services.sync_job_from_remote_payload(
+                network=self.network,
+                remote_job={
+                    "flare_job_id": job.flare_job_uuid,
+                    "status": "RUNNING",
+                    "total_rounds": 10,
+                    "rounds_finished": 1,
+                },
+            )
+            job.refresh_from_db()
+
+        self.assertEqual(known.total_rounds, 40)
+        self.assertEqual(unknown.total_rounds, 10)
+
     @patch("training.services.build_training_status_payload")
     def test_get_training_status_payload_persists_terminal_status(self, mock_build):
         job = TrainingJob.objects.create(
@@ -405,6 +440,144 @@ class TrainingIdentityServiceTests(TestCase):
 
         self.assertEqual(job.status, "COMPLETED")
         self.assertEqual(job.progress_percent, 100)
+
+
+def _swarm_server_config(num_rounds: int) -> str:
+    return json.dumps(
+        {
+            "workflows": [
+                {
+                    "id": "swarm_controller",
+                    "path": "nvflare.app_common.ccwf.swarm_server_ctl."
+                    "SwarmServerController",
+                    "args": {"num_rounds": num_rounds},
+                }
+            ]
+        }
+    )
+
+
+class JobTotalTestCase(TestCase):
+    """A running network whose jobs' folders are in a temporary workspace."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base_dir = tmp.name
+        self.user = User.objects.create_user(
+            username="totals", password="test-password"
+        )  # nosec B106
+        self.project = Project.objects.create(title="Totals Project", author=self.user)
+        self.network = SwarmNetwork.objects.create(
+            name="Totals Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        self.prod = (
+            Path(tmp.name)
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(self.network.identifier)
+            / "workspace"
+            / "study"
+            / "prod_00"
+        )
+
+    def _job_with_run_file(self, flare_uuid: str, total_rounds: int, site="node-B"):
+        """A job's folder at a site, with the plan that every job carries."""
+        job_dir = self.prod / site / flare_uuid
+        (job_dir / f"app_{site}" / "config").mkdir(parents=True)
+        training_resume.write_run_file(
+            job_dir,
+            network_id=self.network.identifier,
+            total_rounds=total_rounds,
+            start_round=0,
+        )
+
+    def _server_config_of(self, flare_uuid: str, num_rounds: int):
+        config = self.prod / "server" / flare_uuid / "app_server" / "config"
+        config.mkdir(parents=True)
+        (config / "config_fed_server.json").write_text(_swarm_server_config(num_rounds))
+
+
+class SyncDockerResultTests(JobTotalTestCase):
+    def test_a_scraped_job_gets_its_own_total_or_none(self):
+        without_run_file = "e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1"
+        with_run_file = "f2f2f2f2-f2f2-f2f2-f2f2-f2f2f2f2f2f2"
+        self._job_with_run_file(with_run_file, 40)
+
+        for flare_uuid, total_rounds, progress in (
+            (without_run_file, None, None),
+            (with_run_file, 40, 7),  # rounds 0-2 of 40
+        ):
+            with (
+                self.subTest(total_rounds=total_rounds),
+                override_settings(BASE_DIR=self.base_dir),
+            ):
+                job = training_services.sync_job_from_docker_result(
+                    network=self.network,
+                    result={
+                        "job_id": flare_uuid,
+                        "rounds_finished": 2,
+                        "terminal_status": None,
+                    },
+                )
+                job.refresh_from_db()
+                self.assertEqual(job.total_rounds, total_rounds)
+                self.assertEqual(job.progress_percent, progress)
+
+
+class ProgressInfoTests(JobTotalTestCase):
+    """A running job's progress counts against the job's own total only."""
+
+    JOB = "d3d3d3d3-d3d3-d3d3-d3d3-d3d3d3d3d3d3"
+
+    def _progress(self, **fields):
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=self.JOB,
+            flare_job_uuid=self.JOB,
+            **fields,
+        )
+        with (
+            override_settings(
+                BASE_DIR=self.base_dir,
+                CACHES={
+                    "default": {
+                        "BACKEND": "django.core.cache.backends.dummy.DummyCache"
+                    }
+                },
+            ),
+            # A running job's progress is also read from local FL containers.
+            patch(
+                "training.runtime.summarize_runtime_container_logs", return_value=None
+            ),
+        ):
+            return get_training_progress_info(job, self.network)
+
+    def test_unknown_total_gives_no_percentage(self):
+        info = self._progress(rounds_finished=3)
+
+        self.assertEqual(info["progress"], 0)
+        self.assertEqual(info["eta"], "-")
+
+    def test_progress_uses_the_jobs_own_total_not_another_jobs(self):
+        self._server_config_of("c4c4c4c4-c4c4-c4c4-c4c4-c4c4c4c4c4c4", 40)
+
+        info = self._progress(total_rounds=5, rounds_finished=1)
+
+        self.assertEqual(info["progress"], 40)
+
+    def test_progress_uses_the_total_of_the_jobs_run_file(self):
+        self._job_with_run_file(self.JOB, 8)
+
+        info = self._progress(rounds_finished=3)
+
+        self.assertEqual(info["progress"], 50)
+        self.assertNotEqual(info["eta"], "-")
 
 
 class TrainingViewServiceParityTests(TestCase):

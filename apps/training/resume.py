@@ -220,6 +220,16 @@ def read_run_plan(workspace_root, flare_uuid: str) -> RunPlan | None:
     return None
 
 
+def read_run_total(workspace_root, flare_uuid: str) -> int | None:
+    """Return the run's total number of rounds that the job's files here name.
+
+    See :func:`read_run_plan`. None if they name none: a job's progress then has
+    no percentage, rather than one against a guessed total or another job's.
+    """
+    plan = read_run_plan(workspace_root, flare_uuid)
+    return plan.total_rounds if plan else None
+
+
 def _site_from_app_dir(app_dir: Path) -> str:
     name = app_dir.name
     return name[4:] if name.startswith("app_") else name

@@ -42,6 +42,7 @@ from .resume import (
     job_folders,
     newest_round_start_job,
     read_run_plan,
+    read_run_total,
     resume_checkpoints_enabled,
     ship_resume_checkpoint,
     write_run_file,
@@ -463,7 +464,10 @@ def sync_job_from_docker_result(*, network: SwarmNetwork, result: dict) -> Train
         flare_job_id=str(job_id),
         status="RUNNING",
     )
-    total_rounds = job.total_rounds or 10
+    # The job's own total, or none: a guess would be stored as the job's.
+    total_rounds = job.total_rounds or read_run_total(
+        _network_workspace_root(network), _flare_uuid_of(job)
+    )
     rounds_finished = result.get("rounds_finished")
     progress_percent = None
     if rounds_finished is not None and rounds_finished >= 0:
@@ -498,7 +502,9 @@ def sync_job_from_remote_payload(
         job,
         flare_job_id=flare_job_id,
         status=remote_job.get("status"),
-        total_rounds=remote_job.get("total_rounds"),
+        # This Hub's own record wins: a peer of SwarmMed 1.0.5 or earlier can
+        # hold a guessed total.
+        total_rounds=None if job.total_rounds else remote_job.get("total_rounds"),
         rounds_finished=remote_job.get("rounds_finished"),
         progress_percent=remote_job.get("progress_percent"),
         completed_at=timezone.now()
