@@ -265,7 +265,7 @@ mode when it rewrites it.
 
 `make env` reads the answers from standard input, so they can also be piped in
 (`printf 'site-a\n' | make env`); an empty answer takes the default shown in
-brackets, as in a terminal. Once the input has ended (Ctrl-D, `</dev/null`, a CI
+brackets, as in a terminal. Once the input has ended (Ctrl-D, `< /dev/null`, a CI
 job, or `ssh host make restart` without input), it asks nothing more. It keeps
 the values set in `.env` and generates missing secrets as usual. A missing
 variable that it would otherwise ask for gets the template's default, and the
