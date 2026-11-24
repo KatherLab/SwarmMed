@@ -152,9 +152,15 @@ that host also ran the FL server. It generates the study's root CA and every
 participant's key pair, and keeps all of them: the network's workspace
 (`workspaces/<project>/<network>/workspace/<study>/`) holds `state/cert.json` with
 the root CA's private key and every participant's private key, plus a kit for every
-participant. On the provisioning host of the worked example these files have mode
-644 (readable by all users), so their protection depends on the permissions of the
-directories above them.
+participant. The import unpacks the same kits at every site that imports the
+package. At every Hub that holds the network, the private keys have mode 644
+(readable by all users), and the network's folders and, by default, `workspaces/`
+itself mode 755, so their protection depends on the permissions of the SwarmMed
+folder and the folders above it. <!-- r106-check: the 0600 key and 0750 workspaces/ modes stayed deferred (no chmod 0750 /app/workspaces in entrypoint.sh, no 0600 in ensure_worker_writable) --> The web application and the worker run as
+`appuser`, user ID 1000, and hand `workspaces/`, `media/` and `tmp/` to that user
+at every start: on the host these files belong to user ID 1000 and group ID 1000,
+which on many Linux hosts are the first person's account, whoever installed
+SwarmMed.
 
 The startup package exported from the web interface or with
 `swarmed network export-package` always covers the whole study: one kit per client
@@ -219,7 +225,10 @@ What an operator should do until SwarmMed can export per-site kits:
    it does not protect against a dishonest or compromised coordinating site, which
    holds the root CA's key and every other key.
 2. Restrict access to the `workspaces/` directory on every host that holds the
-   network, and limit project membership to people who may hold the study's keys.
+   network, the importing sites included, and limit project membership to people
+   who may hold the study's keys. On a shared host, put the SwarmMed folder where
+   only the people who run the Hub can enter it, and check who has user ID 1000
+   there (`getent passwd 1000`).
 3. Record in the consortium agreement that every participant holds every identity,
    including the FL server's, and that each site's admin identity can run code at
    every site.
