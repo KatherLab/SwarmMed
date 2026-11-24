@@ -411,8 +411,12 @@ Deployment notes from these runs:
   fix.
 - **Workspace permissions:** at hospital A, starting the FL client failed with permission errors on
   the FL workspace until the Hub's Celery worker ran as root; the same change was made at hospitals
-  B and C before their clients first started. Whether a standard installation is affected was not
-  checked.
+  B and C before their clients first started. A failover rehearsal on 23 Nov 2026 found a cause of
+  such errors in a standard installation, a SwarmMed folder under `/root`, which the worker's user
+  cannot enter, and the review after it a second one: a network imported with the CLI, which runs as
+  root, left its folder to root. These hospital installations were probably hit by one of them,
+  which was not checked. SwarmMed 1.0.6 removes both causes, so the worker no longer has to run as
+  root. <!-- r106-check: the host-path and import hand-over fixes merged (HostPathTests, ImportHandOverTests) -->
 - **Admin identity:** all four Hubs logged in to the FL server's admin port with one identity,
   hospital A's `project_admin`, so the server's log names the same user for every Hub; only the
   connection's source address tells them apart. The startup package gives every site every identity
