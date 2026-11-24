@@ -543,14 +543,19 @@ job and checkpoint; the refusal while the server runs another job; a site's Hub
 that identifies itself only with `SWARMMEDHUB_LOCAL_PARTICIPANT` and records the
 job its FL client runs; starting the network, switching servers and starting
 the standby with a Celery worker that runs as an unprivileged user, after an
-import with the CLI as root; and the refusal of `swarmed network start` while the
-Hub is switched to a server that another site started. <!-- r106-check: name only behaviour whose tests are in the release: ResumeWithoutRecordTests, ResumeTrainingJobTests (total, test_refuses_while_the_server_runs_another_job), SubmitWithResumeTests and ResumeCheckpointSaverTests (run file), SiteRecordTests, HostPathTests, ImportHandOverTests (incl. test_cli_import_then_start_failover_and_standby_with_the_appuser_worker), StartRoleTests::test_plain_start_keeps_the_server_down_when_switched_away --> A test in FLARE's simulator
+import with the CLI as root; the refusal of `swarmed network start` while the
+Hub is switched to a server that another site started; which job the start of a
+FLARE job ID names; and that `swarmed training stop` records a job as stopped
+only when the FL server takes the abort. A test in FLARE's simulator
 (`SWARMMEDHUB_RUN_FLARE_SIMULATOR=1`, in `apps/training/test_resume_simulator.py`)
 runs a four-round job, then resumes it at round 3 for a six-round run, and checks
 that every site starts round 3 from the same weights as in the first run, and,
 since 1.0.6, that every site's round-start checkpoints of the resumed job name
-the run's six rounds. It passed with NVIDIA FLARE 2.7.1 and inside the image of
-the worked example (`SWARMMEDHUB_SIMULATOR_IMAGE`). <!-- r106-check: the simulator test's extended assertions and where the 1.0.6 simulator run passed; keep "inside the image of the worked example" only if the extended test was run there -->
+the run's six rounds. With version 1.0.6 it passed on 24 November 2026 with
+NVIDIA FLARE 2.7.1 in a Python environment on the host. Its earlier form,
+without the check of the run's total, also passed inside the image of the
+worked example (`SWARMMEDHUB_SIMULATOR_IMAGE`); the extended form has not been
+run there.
 
 In the test across three hospitals described in
 [Resuming over a slow link](#resuming-over-a-slow-link), the FL server was
