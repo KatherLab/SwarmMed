@@ -17,6 +17,18 @@ from .utils import _safe_cache_get, _safe_cache_set
 logger = get_logger()
 
 
+def _server_container_running(swarm_network) -> bool:
+    """Return whether this Hub's FL server container of the network runs."""
+    try:
+        return _is_container_running(
+            shutil.which("docker") or "docker",
+            _container_name_for(swarm_network.identifier, "server"),
+            os.environ.copy(),
+        )
+    except Exception:
+        return False
+
+
 def get_local_participant_status(swarm_network):
     """Heuristically determine local participant status from containers and logs."""
     cache_key = f"network_status_{swarm_network.identifier}"
@@ -33,7 +45,10 @@ def get_local_participant_status(swarm_network):
         f"{swarm_network.identifier}. Local addresses: {sorted(local_addresses)}"
     )
 
-    if swarm_network.status == "RUNNING":
+    # A stopped server's log still lists the clients it had, although none of
+    # them is connected to it now, as at a coordinating Hub that comes back
+    # while the sites use the standby server.
+    if swarm_network.status == "RUNNING" and _server_container_running(swarm_network):
         try:
             server_container = _container_name_for(swarm_network.identifier, "server")
             result = subprocess.run(
