@@ -27,11 +27,15 @@ drops out of a run ([When a site drops out](#when-a-site-drops-out)).
   swarm job. A restarted server tells the sites to abort the job when they
   reconnect. SwarmMed starts every FL server, a restarted one or a standby, with
   a new job store, so a restarted server does not list the interrupted job at
-  all. <!-- r106-check: the new job store at every server start merged in both mount modes: no /tmp/nvflare mount and no .nvflare_persist folder (grep -n nvflare_persist apps/network/tasks.py finds nothing) --> A server started again in another way, for example with
-  `docker restart`, keeps its store: NVIDIA FLARE 2.7.1, in the image SwarmMed
-  builds, and the FLARE build in the worked example's image then mark the job as
-  abandoned (`FINISHED:ABANDONED`), and the FLARE build in MediSwarm 1.9.3's
-  image keeps listing it as running.
+  all. Start an FL server again only with SwarmMed's commands
+  ([Restarting the server](#restarting-the-server-where-it-ran)), not with
+  `docker restart` or `docker start`: after a bare `docker restart` of an FL
+  container, NVIDIA FLARE finds its old process-ID file and refuses to start.
+  If a server container is nevertheless brought back by hand with its old job
+  store, NVIDIA FLARE 2.7.1, in the image SwarmMed builds, and the FLARE build
+  in the worked example's image mark the job as abandoned
+  (`FINISHED:ABANDONED`), and the FLARE build in MediSwarm 1.9.3's image keeps
+  listing it as running.
 * NVIDIA FLARE's own failover support (one active server with standby servers,
   chosen by an "overseer") was retired in FLARE 2.6 to 2.8 and never continued a
   swarm job across a switch. SwarmMed runs FLARE 2.7.1 and cannot use it.
@@ -75,12 +79,11 @@ was restarted, start the server again at the same host:
    reconnected without any action at the sites.
 4. Resume the interrupted run ([Resuming the run](#resuming-the-run)). The
    restarted server has told the sites to abort the job and does not list it,
-   so the resume needs no `--force`. If the server was started again with its
-   old job store, for example with `docker restart`, the FLARE build in
-   MediSwarm 1.9.3's image still lists the job as running: `swarmed training
-   resume` then refuses, and `swarmed training stop` does not change that. Once
-   you have made sure that no other FL server runs for the network, resume with
-   `--force`.
+   so the resume needs no `--force`. If the server container came back by hand
+   with its old job store instead, the FLARE build in MediSwarm 1.9.3's image
+   still lists the job as running: `swarmed training resume` then refuses, and
+   `swarmed training stop` does not change that. Once you have made sure that
+   no other FL server runs for the network, resume with `--force`.
 
 If the server runs at a standby site after a switch, restart it there with the
 command that started it, once you have made sure that no other FL server runs
