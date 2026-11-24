@@ -164,7 +164,9 @@ class RuntimeFixture(NetworkFixture):
                 os.environ.pop("SWARMMEDHUB_FLARE_IMAGE", None)
             yield runs
 
-    def _start(self, *, on_docker_run=None, bind_source=None, image="runtime:test", **kwargs):
+    def _start(
+        self, *, on_docker_run=None, bind_source=None, image="runtime:test", **kwargs
+    ):
         with self._docker(on_docker_run, bind_source, image) as runs:
             network_tasks.start_swarm_network_task(
                 str(self.network.identifier), self.user.id, **kwargs
@@ -210,7 +212,7 @@ class RuntimeFixture(NetworkFixture):
 
 
 class HostPathTests(RuntimeFixture, TestCase):
-    """The Docker host's path to the checkout lies under a folder the worker cannot enter."""
+    """On the Docker host, the checkout lies under a folder the worker cannot enter."""
 
     def test_admin_timeout_skips_a_host_path_the_worker_cannot_enter(self):
         server = self.prod_dir / "server"
@@ -279,7 +281,7 @@ class HostPathTests(RuntimeFixture, TestCase):
         self.assertIn("--volumes-from", runs[0])
         self.assertEqual(_internal_host(self.prod_dir / "node-B"), "localhost")
 
-    def test_standby_starts_when_the_host_path_is_under_a_folder_the_worker_cannot_enter(
+    def test_standby_starts_when_the_host_path_is_under_a_folder_the_worker_cannot_enter(  # noqa: E501
         self,
     ):
         with (
@@ -301,7 +303,7 @@ class HostPathTests(RuntimeFixture, TestCase):
 
 
 class ImportHandOverTests(RuntimeFixture, TestCase):
-    """What the CLI writes as root, the worker (appuser) must be able to use and delete."""
+    """What the CLI writes as root, the worker (appuser) can use and delete."""
 
     def setUp(self):
         super().setUp()
