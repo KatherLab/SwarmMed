@@ -244,8 +244,9 @@ Both need inbound connections on port 5085:
   channel.
 * On any Hub, each peer that silently drops these connections delays every
   status refresh of the Training and home pages by up to 2 s.
-* The coordinating Hub's Network page does not use this channel; it reads its
-  own FL server's log.
+* A Hub that runs the network's FL server reads the clients' status from that
+  server's log; see [The overlay helper and the Hub](#the-overlay-helper-and-the-hub)
+  for when the Network page does so.
 * Training, model exchange and results are not affected.
 
 !!! note "Known limitation"
@@ -260,7 +261,8 @@ A Hub accepts these requests only if the address it was provisioned with is
 listed in its `DJANGO_ALLOWED_HOSTS`; the same applies to every name or address
 users type into their browsers. A Hub sends status only if it finds one of
 its own addresses among the participants (see
-[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)).
+[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). A Hub that
+finds none says so in its log once every six hours. <!-- r106-check: only if it landed (a should-item: the "cannot tell which participant" notice at INFO, once per network per 6 h); if not, drop this sentence -->
 
 The channel uses HTTPS without certificate verification by default
 (`SWARMMEDHUB_SKIP_PEER_SSL_VERIFY` defaults to `true`). Turning verification on
@@ -364,9 +366,13 @@ The Hub uses that address:
   NetBird's and Tailscale's, counts, and so does every address in
   `SWARMMEDHUB_LOCAL_ADDRESSES`; with `SWARMMEDHUB_OVERLAY=none`, only the
   latter count. A Hub sends status and mirrors training state
-  ([Traffic between Hubs](#traffic-between-hubs)), and the coordinating Hub
-  shows client status from its FL server's log, only if one of these is the
-  address it was provisioned with;
+  ([Traffic between Hubs](#traffic-between-hubs)) only if one of these is the
+  address it was provisioned with. The Network page shows client status from
+  the FL server's log only at a Hub that recognises the server's address as its
+  own; elsewhere it shows the status that other Hubs sent. `swarmed network
+  status` shows client status from the log of the network's FL server container
+  at this Hub while that container runs, also at a Hub that does not recognise
+  itself, such as a standby after a switch; <!-- r106-check: the Network page is unchanged; the CLI reads the server log only while the container runs (StaleServerLogTests) -->
 * as one of the ways, with `SWARMMEDHUB_LOCAL_PARTICIPANT` and the hostname, to
   pick the local client kit from a bundle;
 * for the overlay status on the Network page: the address, NetBird's or
