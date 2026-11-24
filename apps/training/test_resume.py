@@ -90,6 +90,10 @@ if __name__ == "__main__":
 """
 
 
+# JSON that Python cannot parse: json.loads raises RecursionError, not ValueError.
+NESTED_JSON = "[" * 100_000 + "]" * 100_000
+
+
 def _write_round_start_checkpoint(
     app_dir: Path,
     next_round: int,
@@ -255,6 +259,16 @@ class FindResumeCheckpointsTests(SimpleTestCase):
         (checkpoint,) = find_resume_checkpoints(self.root, self.job)
 
         self.assertEqual((checkpoint.next_round, checkpoint.total_rounds), (3, None))
+
+    def test_a_json_nested_too_deeply_gives_way_to_the_pt(self):
+        app_dir = self.root / "study" / "prod_00" / "node-B" / self.job / "app_node-B"
+        _write_round_start_checkpoint(app_dir, 3, "node-B")
+        (app_dir / METADATA_FILE).write_text(NESTED_JSON)
+
+        (checkpoint,) = find_resume_checkpoints(self.root, self.job)
+
+        self.assertEqual((checkpoint.next_round, checkpoint.total_rounds), (3, 8))
+        self.assertEqual(training_resume.newest_round_start_job(self.root), self.job)
 
 
 class TotalRoundsTests(SimpleTestCase):
@@ -422,6 +436,16 @@ class ReadRunPlanTests(SimpleTestCase):
             "app_node-A/config/swarmmed_run.json",
             {"total_rounds": 3_000_000_000, "start_round": 0},
         )
+        server_config = self._write(
+            "server",
+            "app_server/config/config_fed_server.json",
+            _swarm_server_config(num_rounds=5),
+        )
+
+        self.assertEqual(self._plan(), (5, 0, server_config))
+
+    def test_a_file_nested_too_deeply_counts_as_no_data(self):
+        self._write("node-A", "app_node-A/config/swarmmed_run.json", NESTED_JSON)
         server_config = self._write(
             "server",
             "app_server/config/config_fed_server.json",

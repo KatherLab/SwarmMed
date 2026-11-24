@@ -213,7 +213,8 @@ def read_run_plan(workspace_root, flare_uuid: str) -> RunPlan | None:
             for path in sorted(folder.glob(pattern)):
                 try:
                     content = json.loads(path.read_text())
-                except (OSError, ValueError):
+                except (OSError, ValueError, RecursionError):
+                    # RecursionError: JSON nested too deeply.
                     continue
                 if not isinstance(content, dict):
                     continue
@@ -262,7 +263,8 @@ def _last_saved_round(job_dir: Path) -> int | None:
 def _read_metadata(app_dir: Path) -> dict:
     try:
         payload = json.loads((app_dir / METADATA_FILE).read_text())
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
+        # Job code can write the file. RecursionError: JSON nested too deeply.
         return {}
     return payload if isinstance(payload, dict) else {}
 
