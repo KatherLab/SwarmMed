@@ -1293,6 +1293,12 @@ class StartRoleTests(NetworkFixture, TestCase):
                 error = get_logger.return_value.network.error.call_args.args[0]
                 self.assertIn("This Hub uses the FL server at 192.0.2.10", error)
                 self.assertIn("two FL servers must never run", error)
+                # A heading of the guide.
+                self.assertIn(
+                    "follow 'Returning to the coordinating server' in "
+                    "docs/failover.md.",
+                    error,
+                )
 
     def test_client_only_start_is_not_held_back(self):
         write_active_server(self.network, "192.0.2.10", started_server=False)

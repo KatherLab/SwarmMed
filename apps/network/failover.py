@@ -228,8 +228,7 @@ def server_start_refusal(network) -> str:
         "start' does not start this Hub's own FL server: two FL servers must never "
         "run for one network. To start only this Hub's FL clients, set "
         "SWARMMEDHUB_CLIENT_ONLY_MODE for the worker. To run the server here "
-        "again, follow 'To return to the coordinating server later' in "
-        "docs/failover.md."
+        "again, follow 'Returning to the coordinating server' in docs/failover.md."
     )
 
 
