@@ -161,7 +161,7 @@ participant. The import unpacks the same kits at every site that imports the
 package. At every Hub that holds the network, the private keys have mode 644
 (readable by all users), and the network's folders and, by default, `workspaces/`
 itself mode 755, so their protection depends on the permissions of the SwarmMed
-folder and the folders above it. <!-- r106-check: the 0600 key and 0750 workspaces/ modes stayed deferred (no chmod 0750 /app/workspaces in entrypoint.sh, no 0600 in ensure_worker_writable) --> The web application and the worker run as
+folder and the folders above it. The web application and the worker run as
 `appuser`, user ID 1000, and hand `workspaces/`, `media/` and `tmp/` to that user
 at every start: on the host these files belong to user ID 1000 and group ID 1000,
 which on many Linux hosts are the first person's account, whoever installed
@@ -211,7 +211,7 @@ Consequences:
   identity of the first site in alphabetical order, so the server's log names the
   same user for every Hub; only the connection's source address tells them apart.
   Since every site holds every admin identity, the identity in the log would not
-  prove which Hub acted in any case. <!-- r106-check: the admin-kit choice (apps/training/runtime.py resolve_admin_startup_dir) is unchanged in 1.0.6 (the per-site identity stayed deferred) -->
+  prove which Hub acted in any case.
 * `SWARMMEDHUB_PRIVATE_P2P` cannot hide model updates from anyone who holds the
   receiving client's key
   ([section 3](#3-the-coordinating-host-sees-model-updates-default-configuration)).
@@ -255,7 +255,7 @@ What an operator should do until SwarmMed can export per-site kits:
    folder, keys included, on disk. Restart the worker first
    (`docker compose restart celery_worker`, which hands `workspaces/` to
    `appuser`), then delete the network, and check that
-   `workspaces/<project>/<network>` is gone. <!-- r106-check: docs only in 1.0.6 (owner's decision); by code (cleanup_network_resources rmtree as appuser, the error only logged), not tested -->
+   `workspaces/<project>/<network>` is gone.
 
 ## 3. The coordinating host sees model updates (default configuration)
 
@@ -347,7 +347,7 @@ therefore sees:
   project on that Hub, and their training results.
 
 SwarmMed's data adapter, and the training scripts of four bundled examples, also
-load that `.env` into the training process's environment. <!-- r106-check: flare_adapter.py still calls load_dotenv() in 1.0.6 (owner's decision: no code change; changed with the mounts in 1.0.7) -->
+load that `.env` into the training process's environment.
 
 With these, code that runs in an FL container can read every object in the
 Hub's MinIO, that is every project's imported data and results, and act as any

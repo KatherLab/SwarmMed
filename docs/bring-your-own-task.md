@@ -97,7 +97,7 @@ if __name__ == "__main__":
 * The number of rounds comes from `SWARMMEDHUB_SWARM_ROUNDS` if set, else from
   `SWARM_ROUNDS` in `training.py`, else 10. The job carries this number to every site
   (`config/swarmmed_run.json` in each app), so `swarmed training resume` knows it at
-  any site. <!-- r106-check: write_run_file for every job (SubmitWithResumeTests::test_every_app_describes_the_run) -->
+  any site.
 * Import the machine-learning library at the top of the file: SwarmMed detects the
   framework from the imports of `training.py` when it builds the job.
 * Fix the seeds, limit the threads (`torch.set_num_threads`), do not write to

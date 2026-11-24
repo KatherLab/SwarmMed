@@ -47,7 +47,7 @@ The FL server and client containers run the study's job code, which any holder o
 - **Mounts:** In a standard installation, where the worker cannot see the project directory at its host path, SwarmMedHub starts every FL server and client container with all of the application container's volumes (`--volumes-from swarmmedhub`): the project directory, including `.env` and `.secrets/`, all of `workspaces/` with every network's startup kits and keys, `media/`, `tmp/` and the client certificate for `sandbox-dind`'s Docker API. Only a Hub that runs outside containers mounts the participant's own kit folder instead. The data adapter loads the mounted `.env` into the training process.
 - **User:** The containers run as root.
 - **Network:** Client containers use the host's network by default on Linux, so they reach what the host reaches, including services bound to its loopback address and the Hub's Docker networks. The server container is connected to the network's Docker network together with the application, worker and MinIO containers.
-- **Consequence:** Job code is not contained: it can read the Hub's secrets and every study held on that Hub ([Threat model](threat-model.md#what-job-code-can-reach-at-a-site)). <!-- r106-check: the mount set is unchanged in 1.0.6 (the mount narrowing and load_dotenv change were deferred to 1.0.7) -->
+- **Consequence:** Job code is not contained: it can read the Hub's secrets and every study held on that Hub ([Threat model](threat-model.md#what-job-code-can-reach-at-a-site)).
 
 ### Overlay Network (Optional)
 

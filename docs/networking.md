@@ -146,8 +146,6 @@ was provisioned with. They are used for different things:
 | at the coordinating host, shows the clients' status from its FL server's log on the Network page | no: the server has no site name | yes |
 | warns at import when a single site's kit is another site's | yes, set for `app` | no |
 
-<!-- r106-check: rows 3-5 are matched by address only in the merged code (apps/network/views.py broadcast_network_status and the network view's i_am_server and is_me, apps/network/runtime.py own client Online, apps/training/views.py mirror header); row 2 needs the record-less resume, the label scrape and the jobs' own totals merged; a shared participant helper stayed deferred -->
-
 A Hub records the jobs of its site from the jobs it submits and from the logs of
 its own FL containers, which SwarmMed labels with the network's ID, whoever
 submitted the jobs. `swarmed training resume` finds an interrupted job by its
@@ -262,7 +260,7 @@ listed in its `DJANGO_ALLOWED_HOSTS`; the same applies to every name or address
 users type into their browsers. A Hub sends status only if it finds one of
 its own addresses among the participants (see
 [The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). A Hub that
-finds none says so in its log once every six hours. <!-- r106-check: only if it landed (a should-item: the "cannot tell which participant" notice at INFO, once per network per 6 h); if not, drop this sentence -->
+finds none says so in its log once every six hours.
 
 The channel uses HTTPS without certificate verification by default
 (`SWARMMEDHUB_SKIP_PEER_SSL_VERIFY` defaults to `true`). Turning verification on
@@ -378,7 +376,7 @@ The Hub uses that address:
   own; elsewhere it shows the status that other Hubs sent. `swarmed network
   status` shows client status from the log of the network's FL server container
   at this Hub while that container runs, also at a Hub that does not recognise
-  itself, such as a standby after a switch; <!-- r106-check: the Network page is unchanged; the CLI reads the server log only while the container runs (StaleServerLogTests) -->
+  itself, such as a standby after a switch;
 * as one of the ways, with `SWARMMEDHUB_LOCAL_PARTICIPANT` and the hostname, to
   pick the local client kit from a bundle;
 * for the overlay status on the Network page: the address, NetBird's or
@@ -925,7 +923,7 @@ NetBird.
   not list the job can still resume it:
   `swarmed training checkpoints <JOB_UUID> --network <NETWORK_UUID>` finds the
   job by its folder in the network's workspace
-  ([Server failover](failover.md#resuming-the-run)). <!-- r106-check: scrape_docker_progress(network_id=...) filters docker ps by label=swarmmedhub.network_id=<network UUID> and the generic fallback is gone (TrainingLogSummaryTests::test_docker_scrape_reads_only_the_networks_labelled_containers, SiteRecordTests) -->
+  ([Server failover](failover.md#resuming-the-run)).
 * Check what the server sees, on the coordinating host:
   `docker logs swarm-<first 12 characters of the network ID>-server | grep "New client"`
   (for example `swarm-1a7f19db-dd2-server`). The address after `@` is the one

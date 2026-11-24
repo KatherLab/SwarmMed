@@ -416,7 +416,7 @@ Deployment notes from these runs:
   cannot enter, and the review after it a second one: a network imported with the CLI, which runs as
   root, left its folder to root. These hospital installations were probably hit by one of them,
   which was not checked. SwarmMed 1.0.6 removes both causes, so the worker no longer has to run as
-  root. <!-- r106-check: the host-path and import hand-over fixes merged (HostPathTests, ImportHandOverTests) -->
+  root.
 - **Admin identity:** all four Hubs logged in to the FL server's admin port with one identity,
   hospital A's `project_admin`, so the server's log names the same user for every Hub; only the
   connection's source address tells them apart. The startup package gives every site every identity

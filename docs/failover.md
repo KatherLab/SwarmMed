@@ -112,7 +112,7 @@ Use the standby server only when the server's host or its network is lost.
   the job's app folder, overwriting the previous one, with the round number in
   `swarmmed_resume_checkpoint.json`. For jobs submitted with SwarmMed 1.0.6 or
   later, both files also hold the run's total number of rounds, and every site's
-  copy of the job holds it in `config/swarmmed_run.json` of its app folder. <!-- r106-check: the saver writes total_rounds into the .json and into the metadata embedded in the .pt; write_run_file writes config/swarmmed_run.json into every app_*/config --> The
+  copy of the job holds it in `config/swarmmed_run.json` of its app folder. The
   first round of a new run starts from an empty model and writes none. The file
   is as large as the model (94 MB for the MST model of the worked example).
   FLARE itself saves the global model (`FL_global_model.pt`) only at the site
@@ -480,7 +480,7 @@ in a test across three hospitals, the Hub showed a job as running for five hours
 after one site's training process had been killed.
 
 The Hub's job monitor, which runs every minute in the Celery worker, one pass at
-a time, therefore warns about a running job when <!-- r106-check: monitor_training_jobs takes a cache lock per database and returns when a pass is due while another runs (MonitorLockTests) -->
+a time, therefore warns about a running job when
 
 * **the FL server reports a site as dropped out**: its training job as missing
   (the site's FL client runs, but the job's process has ended) or its FL client
@@ -604,17 +604,17 @@ installation does not have or that this guide did not ask for:
 
 * Every Hub's Celery worker ran as root, through a change to the worker's
   entrypoint made for the rehearsal. With the default worker, the first FL start
-  at every Hub failed with a permission error. Version 1.0.6 removes the causes. <!-- r106-check: the host-path and import hand-over fixes merged (HostPathTests, ImportHandOverTests) -->
+  at every Hub failed with a permission error. Version 1.0.6 removes the causes.
 * The standby could not resume the run. Its Hub, set up with
   `SWARMMEDHUB_LOCAL_PARTICIPANT` and without `SWARMMEDHUB_LOCAL_ADDRESSES`, held
   no record of the job, which the coordinating Hub had submitted, and every form
   of `swarmed training resume` refused. The run was resumed at the other site,
   whose Hub had a record only because `SWARMMEDHUB_LOCAL_ADDRESSES` had been set
   there before training. Version 1.0.6 resumes at any training site, with or
-  without a record. <!-- r106-check: the record-less resume and the label scrape merged (ResumeWithoutRecordTests, SiteRecordTests) -->
+  without a record.
 * The resume needed `--rounds 40`: the resuming site's record gave 10 rounds, a
   number its Hub had guessed. Version 1.0.6 carries the run's total in every job
-  and checkpoint, and never guesses it. <!-- r106-check: the run file and resolve_run_total merged; grep -rn "total_rounds or 10" apps/training finds nothing -->
+  and checkpoint, and never guesses it.
 
 The rehearsal does not show:
 
