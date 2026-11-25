@@ -738,11 +738,33 @@ def run(args: argparse.Namespace):
                     timeout_seconds=args.timeout,
                 )
                 if network.status == "ERROR":
-                    raise ValueError(
+                    from network.failover import (
+                        active_server_record,
+                        admin_session_pin,
+                        is_switched,
+                    )
+
+                    message = (
                         f"Network '{network.name}' did not start (status ERROR). "
                         "The cause is in the network's log in the web interface "
                         "and in the worker log."
                     )
+                    # After a switch to a server another site started, the
+                    # worker refuses to start this Hub's own FL server
+                    # (network.failover.server_start_refusal). Only the worker
+                    # knows its mode, and it never refuses in client-only mode,
+                    # so the switch is named only as a possible reason.
+                    record = active_server_record(network)
+                    switched_to = admin_session_pin(record)
+                    if switched_to and is_switched(network, record):
+                        message += (
+                            " If the log says that 'swarmed network start' does "
+                            "not start this Hub's own FL server: this Hub uses the "
+                            f"FL server at {switched_to}, which another site "
+                            "started; see 'When the Hub that ran the server comes "
+                            "back' in docs/failover.md."
+                        )
+                    raise ValueError(message)
             result = network_services.serialize_network(
                 network, current_for=state.user, include_participants=True
             )

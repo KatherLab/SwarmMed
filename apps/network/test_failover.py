@@ -852,6 +852,28 @@ class ServerSwitchStatusTests(NetworkFixture, TestCase):
         self.assertEqual(status["provisioned_server_host"], "100.64.0.1")
         self.assertEqual(status["admin_session_hosts"][1], "100.64.0.7")
 
+    def test_after_a_return_not_switched_but_record_kept(self):
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+        self.assertTrue(describe_server_switch(self.network)["switched"])
+
+        write_active_server(self.network, "100.64.0.1", started_server=False)
+        status = describe_server_switch(self.network)
+
+        self.assertFalse(status["switched"])
+        self.assertEqual(status["server_host"], "100.64.0.1")
+        # The record still names the server used before, which a resume asks too.
+        self.assertEqual(status["switch"]["previous_server_host"], "192.0.2.10")
+        self.assertEqual(previous_server_host(self.network), "192.0.2.10")
+        self.assertEqual(status["admin_session_hosts"], ["100.64.0.1"])
+
+    def test_a_switch_to_the_environments_address_is_not_a_switch(self):
+        with patch.dict(os.environ, {"SWARMMEDHUB_SERVER_HOST": "100.64.0.7"}):
+            write_active_server(self.network, "100.64.0.7", started_server=False)
+            status = describe_server_switch(self.network)
+
+        self.assertFalse(status["switched"])
+        self.assertEqual(status["server_host"], "100.64.0.7")
+
     def test_empty_without_an_admin_kit(self):
         shutil.rmtree(self.prod_dir / "admin-node-A@nvidia.com")
         self.network.admin_startup_dir = ""
@@ -871,6 +893,7 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         servers=(),
         start_status="RUNNING",
         previous_status="RUNNING",
+        server_host="192.0.2.10",
     ):
         calls = []
         self.docker_commands = []
@@ -906,7 +929,7 @@ class FailoverTaskTests(NetworkFixture, TestCase):
             network_tasks.failover_network_task(
                 str(self.network.identifier),
                 self.user.id,
-                "192.0.2.10",
+                server_host,
                 start_server,
                 previous_status,
             )
@@ -959,6 +982,44 @@ class FailoverTaskTests(NetworkFixture, TestCase):
         self.assertEqual(record["server_host"], "192.0.2.10")
         self.assertEqual(record["previous_server_host"], "100.64.0.1")
         self.assertTrue(record["server_started_here"])
+
+    def test_return_to_the_own_address_is_not_called_a_standby(self):
+        # The coordinating Hub hosts the network's server again.
+        with patch.object(network_tasks, "get_logger") as get_logger:
+            self._run(start_server=True, server_host="100.64.0.1")
+
+        log = get_logger.return_value.network
+        messages = [
+            call.args[0]
+            for call in log.info.call_args_list + log.warning.call_args_list
+        ]
+        self.assertIn(
+            "Started the network's FL server at this site, at 100.64.0.1.", messages
+        )
+        self.assertEqual(
+            [
+                message
+                for message in messages
+                if "standby" in message.lower()
+                or "switched from 100.64.0.1 to 100.64.0.1" in message
+            ],
+            [],
+        )
+
+    def test_switch_back_names_both_addresses(self):
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        with patch.object(network_tasks, "get_logger") as get_logger:
+            self._run(start_server=False, server_host="100.64.0.1")
+
+        self.assertIn(
+            "This Hub uses the network's own FL server address 100.64.0.1 again "
+            "(it used 192.0.2.10).",
+            [
+                call.args[0]
+                for call in get_logger.return_value.network.warning.call_args_list
+            ],
+        )
 
     def test_other_sites_only_restart_their_clients(self):
         self.assertEqual(self._run(start_server=False), [("client", ["node-A"])])
@@ -1100,6 +1161,7 @@ class StartRoleTests(NetworkFixture, TestCase):
                 str(self.network.identifier), self.user.id, **kwargs
             )
         self.network.refresh_from_db()
+        self.docker_commands = commands
         return [c for c in commands if c[1:2] == ["run"]]
 
     def test_server_role_starts_only_the_server(self):
@@ -1120,6 +1182,25 @@ class StartRoleTests(NetworkFixture, TestCase):
         self.assertTrue(run[run.index("--name") + 1].endswith("node-B"))
         self.assertIn("server:192.0.2.10", run)
         self.assertIn("SWARMMEDHUB_SERVER_HOST=192.0.2.10", run)
+
+    def test_client_after_a_switch_asks_its_own_hub_for_the_manifest(self):
+        # The manifest request carries the site's project secret; after a
+        # switch the FL server's host is another site's.
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        runs = self._start(role="client", participants=["node-B"])
+
+        self.assertEqual(len(runs), 1)
+        self.assertIn("SWARMMEDHUB_MANIFEST_URL=https://127.0.0.1:5085", runs[0])
+        self.assertEqual([arg for arg in runs[0] if "192.0.2.10:5085" in arg], [])
+
+    def test_client_container_is_told_its_network_mode(self):
+        # The data adapter tries plain HTTP only on a Docker network.
+        client_runs = self._start(role="client", participants=["node-B"])
+        server_runs = self._start(role="server")
+
+        self.assertIn("SWARMMEDHUB_RUNTIME_NETWORK=host", client_runs[0])
+        self.assertIn("SWARMMEDHUB_RUNTIME_NETWORK=bridge", server_runs[0])
 
     def test_unknown_participant_is_an_error(self):
         self._start(role="client", participants=["node-Z"])
@@ -1164,6 +1245,93 @@ class StartRoleTests(NetworkFixture, TestCase):
         self.assertIn("--volumes-from", runs[0])
         self.assertEqual(at_launch, [300.0])
         self.assertEqual(self.network.status, "RUNNING")
+
+    def test_every_server_start_gets_a_new_job_store(self):
+        # FLARE keeps its job store in /tmp/nvflare. A store kept across a
+        # restart would list the interrupted job and dispatch queued ones.
+        for mount_mode, bind_source in (
+            ("bind", None),
+            ("volumes-from", lambda path: "/host/project/does-not-exist" + str(path)),
+        ):
+            with self.subTest(mount_mode=mount_mode):
+                runs = self._start(bind_source=bind_source, role="server")
+
+                self.assertEqual(len(runs), 1)
+                self.assertEqual("--volumes-from" in runs[0], mount_mode != "bind")
+                self.assertEqual(
+                    [arg for arg in runs[0] if arg.endswith(":/tmp/nvflare")], []
+                )
+                self.assertFalse(
+                    (self.prod_dir / "server" / ".nvflare_persist").exists()
+                )
+
+    def _worker_mode(self, mode=None, **variables):
+        """The worker's environment: SWARMMEDHUB_<mode>_MODE set, the other unset."""
+        environment = patch.dict(os.environ, variables)
+        environment.start()
+        self.addCleanup(environment.stop)
+        for name in ("SWARMMEDHUB_SERVER_ONLY_MODE", "SWARMMEDHUB_CLIENT_ONLY_MODE"):
+            os.environ.pop(name, None)
+        if mode:
+            os.environ[f"SWARMMEDHUB_{mode}_MODE"] = "true"
+
+    def test_plain_start_keeps_the_server_down_when_switched_away(self):
+        # As at a coordinating Hub that has switched to the standby: a server of
+        # its own would be a second server for the network.
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+
+        for mode in ("SERVER_ONLY", None):
+            with self.subTest(mode=mode or "full"):
+                self._worker_mode(mode)
+                with patch.object(network_tasks, "get_logger") as get_logger:
+                    runs = self._start()
+
+                self.assertEqual(runs, [])
+                # Not even the server's container was removed.
+                self.assertEqual(self.docker_commands, [])
+                self.assertEqual(self.network.status, "ERROR")
+                error = get_logger.return_value.network.error.call_args.args[0]
+                self.assertIn("This Hub uses the FL server at 192.0.2.10", error)
+                self.assertIn("two FL servers must never run", error)
+                # A heading of the guide.
+                self.assertIn(
+                    "follow 'Returning to the coordinating server' in "
+                    "docs/failover.md.",
+                    error,
+                )
+
+    def test_client_only_start_is_not_held_back(self):
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+        self._worker_mode("CLIENT_ONLY", SWARMMEDHUB_LOCAL_PARTICIPANT="node-B")
+
+        runs = self._start()
+
+        self.assertEqual(self.network.status, "RUNNING")
+        self.assertEqual(len(runs), 1)
+        self.assertIn("swarmmedhub.role=client", runs[0])
+        self.assertIn("server:192.0.2.10", runs[0])
+
+    def test_failover_start_of_the_server_is_not_held_back(self):
+        # 'network failover --start-server' starts the server with role="server".
+        write_active_server(self.network, "192.0.2.10", started_server=False)
+        self._worker_mode()
+
+        runs = self._start(role="server")
+
+        self.assertEqual(self.network.status, "RUNNING")
+        self.assertEqual(len(runs), 1)
+        self.assertIn("swarmmedhub.role=server", runs[0])
+
+    def test_a_returned_coordinator_starts_normally(self):
+        # The coordinator started its own server again after a return.
+        write_active_server(self.network, "100.64.0.1", started_server=True)
+        self._worker_mode("SERVER_ONLY")
+
+        runs = self._start()
+
+        self.assertEqual(self.network.status, "RUNNING")
+        self.assertEqual(len(runs), 1)
+        self.assertIn("swarmmedhub.role=server", runs[0])
 
     def test_client_start_leaves_every_resources_file_alone(self):
         with patch.dict(os.environ, {FLARE_ADMIN_TIMEOUT_ENV: "300"}):

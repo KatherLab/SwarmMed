@@ -43,6 +43,8 @@ from .failover import (
     move_kit_folder,
     network_prod_dir,
     restore_active_server,
+    server_start_refusal,
+    unswitched_server_host,
     write_active_server,
 )
 from .models import SwarmNetwork
@@ -127,14 +129,13 @@ def _split_runtime_entrypoint(command: list[str]) -> tuple[str | None, list[str]
     return None, list(command)
 
 
-def _get_runtime_manifest_base_url(
-    *, use_host_network: bool, remote_host: str = ""
-) -> str:
-    """Choose the most direct app URL for manifest requests from runtime containers."""
-    cleaned_remote_host = str(remote_host or "").strip()
+def _get_runtime_manifest_base_url(*, use_host_network: bool) -> str:
+    """Return the URL of this site's own Hub for runtime containers' data manifests.
+
+    The request carries the site's project secret, so it never goes to the FL
+    server's host, which after a server switch is another site's host.
+    """
     if use_host_network:
-        if cleaned_remote_host:
-            return f"https://{cleaned_remote_host}:5085"
         return "https://127.0.0.1:5085"
 
     # For bridge networks, we hit the host gateway. We use 'swarmmedhub' as the
@@ -244,10 +245,17 @@ def _ensure_executable(path):
     current_mode = os.stat(path).st_mode
     try:
         os.chmod(path, current_mode | stat.S_IXUSR)
-    except PermissionError:
+    except PermissionError as exc:
         if os.access(path, os.X_OK):
             return
-        raise
+        # For example a network that the CLI imported as root before version
+        # 1.0.6, which did not hand it to the worker.
+        raise PermissionError(
+            f"{path} is not executable and belongs to another user (uid "
+            f"{os.stat(path).st_uid}), so the Celery worker cannot change it. "
+            "Restart the worker (docker compose restart celery_worker): at its "
+            "start it hands workspaces/ to appuser."
+        ) from exc
 
 
 def _configured_server_host(startup_dir):
@@ -658,7 +666,9 @@ def _ensure_client_comm_config_portable(participant_path, logger=None):
     workspace = Path(participant_path)
     comm_cfg_paths = []
     local_comm_cfg = workspace / "local" / "comm_config.json"
-    if local_comm_cfg.exists():
+    # os.path, not pathlib: the Docker host's path may lie under a folder this
+    # process cannot enter (see failover.apply_flare_admin_timeout).
+    if os.path.isfile(local_comm_cfg):
         comm_cfg_paths.append(local_comm_cfg)
     flare_comm_cfg = _flare_config_file(workspace, "comm_config.json")
     if flare_comm_cfg is not None and flare_comm_cfg not in comm_cfg_paths:
@@ -1736,6 +1746,33 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
         docker_path = shutil.which("docker") or "docker"
         env = os.environ.copy()
 
+        server_only_mode = (
+            os.getenv("SWARMMEDHUB_SERVER_ONLY_MODE", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        client_only_mode = (
+            os.getenv("SWARMMEDHUB_CLIENT_ONLY_MODE", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        if role == "server":
+            server_only_mode, client_only_mode = True, False
+        elif role == "client":
+            server_only_mode, client_only_mode = False, True
+        elif role:
+            raise ValueError(f"Unknown runtime role: {role!r}")
+
+        has_server_target = any(t["role"] == "server" for t in targets)
+        if role is None and has_server_target and not client_only_mode:
+            # Before any image or container is touched. A switch, which starts
+            # the server or the clients with an explicit role, is not checked.
+            refusal = server_start_refusal(swarm_network)
+            if refusal:
+                raise RuntimeError(refusal)
+
         configured_image = os.getenv("SWARMMEDHUB_FLARE_IMAGE", "").strip()
         force_configured_image = (
             os.getenv("SWARMMEDHUB_FORCE_CONFIGURED_IMAGE", "")
@@ -1790,26 +1827,6 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
         network_name = _docker_network_name(swarm_network.identifier)
         _ensure_docker_network(docker_path, network_name, env, logger)
 
-        server_only_mode = (
-            os.getenv("SWARMMEDHUB_SERVER_ONLY_MODE", "")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
-        )
-        client_only_mode = (
-            os.getenv("SWARMMEDHUB_CLIENT_ONLY_MODE", "")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
-        )
-        if role == "server":
-            server_only_mode, client_only_mode = True, False
-        elif role == "client":
-            server_only_mode, client_only_mode = False, True
-        elif role:
-            raise ValueError(f"Unknown runtime role: {role!r}")
-
-        has_server_target = any(t["role"] == "server" for t in targets)
         filtered_targets = []
         for target in targets:
             if server_only_mode and target["role"] == "client":
@@ -2123,13 +2140,15 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
             ]
             run_cmd.extend(_runtime_ulimit_args(env))
             manifest_base_url = _get_runtime_manifest_base_url(
-                use_host_network=use_host_network,
-                remote_host=remote_host,
+                use_host_network=use_host_network
             )
             if manifest_base_url:
                 run_cmd.extend(
                     ["-e", f"SWARMMEDHUB_MANIFEST_URL={manifest_base_url}"]
                 )
+            # The data adapter tries plain HTTP only on a Docker network.
+            runtime_network = "host" if use_host_network else "bridge"
+            run_cmd.extend(["-e", f"SWARMMEDHUB_RUNTIME_NETWORK={runtime_network}"])
             if remote_host:
                 run_cmd.extend(["-e", f"SWARMMEDHUB_SERVER_HOST={remote_host}"])
             if role == "client":
@@ -2208,16 +2227,10 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
                 except Exception:
                     pass
 
-                persist_dir = os.path.join(target["path"], ".nvflare_persist")
-                os.makedirs(persist_dir, exist_ok=True)
-                if mount_mode == "bind":
-                    host_persist_dir = _resolve_bind_source_path(persist_dir)
-                    run_cmd.extend(
-                        [
-                            "-v",
-                            f"{host_persist_dir}:/tmp/nvflare",
-                        ]
-                    )
+                # FLARE's job store (/tmp/nvflare) stays inside the container, so
+                # every server SwarmMed starts, restarted or standby, begins with
+                # a new store in both mount modes. A kept store would list the
+                # interrupted job and dispatch jobs still queued in it.
                 publish_local_test_ports = (
                     os.getenv("SWARMMEDHUB_LOCAL_TEST_PUBLISH_PORTS", "")
                     .strip()
@@ -2344,7 +2357,10 @@ def start_swarm_network_task(network_id, user_id, role=None, participants=None):
                 swarm_network.project if "swarm_network" in locals() else None
             ),
         )
-        internal_logger.network.error(f"Failed to start network: {str(e)}")
+        internal_logger.network.error(
+            f"Failed to start network: {str(e)}",
+            network=swarm_network if "swarm_network" in locals() else None,
+        )
 
 
 @shared_task
@@ -2612,18 +2628,40 @@ def failover_network_task(
         record = write_active_server(
             swarm_network, server_host, started_server=start_server, actor=user
         )
-        logger.network.warning(
-            "FL server for this Hub switched from "
-            f"{record['previous_server_host'] or 'the provisioned host'} to {server_host}."
-        )
+        # The address this Hub uses without a switch is the network's own
+        # server, as at the coordinating Hub or at a site that returns to it.
+        unswitched = unswitched_server_host(swarm_network)
+        before = record["previous_server_host"]
+        if server_host == unswitched and before != server_host:
+            logger.network.warning(
+                f"This Hub uses the network's own FL server address {server_host} "
+                f"again (it used {before})."
+            )
+        elif before == server_host:
+            logger.network.warning(f"This Hub keeps the FL server at {server_host}.")
+        else:
+            logger.network.warning(
+                "FL server for this Hub switched from "
+                f"{before or 'the provisioned host'} to {server_host}."
+            )
 
         if start_server:
             start_swarm_network_task(str(swarm_network.identifier), user_id, role="server")
             swarm_network.refresh_from_db()
             if swarm_network.status == "ERROR":
-                raise RuntimeError("The standby FL server did not start; see the log above.")
+                raise RuntimeError(
+                    "The FL server did not start at this site; see the log above."
+                )
             server_started = True
-            logger.network.info("Standby FL server started at this site.")
+            if server_host == unswitched:
+                logger.network.info(
+                    f"Started the network's FL server at this site, at {server_host}."
+                )
+            else:
+                logger.network.info(
+                    "Started the FL server at this site as the standby, at "
+                    f"{server_host}."
+                )
             if local_clients:
                 # The server start marks the network RUNNING; the switch is not
                 # finished until the clients have restarted.
@@ -2665,7 +2703,7 @@ def failover_network_task(
             logger.network.info(
                 "No FL client container of this network exists at this Hub; only "
                 "the Hub's admin connection was switched. 'swarmed network start' "
-                "now starts clients against the new server."
+                "in client-only mode now starts clients against the new server."
             )
             if not start_server:
                 # Nothing runs here for this network; keep the status it had.

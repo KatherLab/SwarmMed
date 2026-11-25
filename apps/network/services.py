@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import zipfile
 import zlib
 from pathlib import Path
@@ -22,6 +23,7 @@ from .failover import (
     SERVER_KIT_FOLDERS,
     active_server_record,
     bundled_kit_destinations,
+    is_switched,
     is_valid_server_host,
     move_kit_folder,
     network_prod_dir,
@@ -456,7 +458,9 @@ def import_network(
     Raises:
         ValueError: If the package cannot be read, is unsafe, does not agree with
             its manifest, has another fingerprint than expected, or holds a
-            network that already exists at this Hub. Nothing is written then.
+            network that already exists at this Hub, or if the project's or the
+            network's folder in workspaces/ is a symbolic link. Nothing is
+            written then.
     """
     log = get_logger(user=actor, project=project)
     package_bytes = _read_package_bytes(package_source)
@@ -519,6 +523,21 @@ def import_network(
         )
         log.network.warning(f"Startup package for network '{name}' refused: {message}")
         raise ValueError(message)
+    # The documented CLI imports as root and then hands the network's folder to
+    # the worker, so neither may follow a link planted in workspaces/.
+    project_dir = os.path.join(settings.BASE_DIR, "workspaces", str(project.identifier))
+    folders = [project_dir]
+    if identifier:
+        folders.append(os.path.join(project_dir, str(identifier)))
+    linked = next((folder for folder in folders if os.path.islink(folder)), "")
+    if linked:
+        message = (
+            f"{linked} is a symbolic link: the import would write the network "
+            "wherever it points and hand that to the Celery worker. Remove the link "
+            "and import the package again. Nothing was imported."
+        )
+        log.network.warning(f"Startup package for network '{name}' refused: {message}")
+        raise ValueError(message)
 
     swarm_network = SwarmNetwork.objects.create(**create_args)
     # Not stored: the site whose kit was imported on its own, for the messages.
@@ -536,7 +555,59 @@ def import_network(
         )
     )
     os.makedirs(provision_dir, exist_ok=True)
+    try:
+        return _unpack_startup_package(
+            swarm_network,
+            package_source=package_source,
+            provision_dir=provision_dir,
+            project=project,
+            actor=actor,
+            name=name,
+            log=log,
+        )
+    finally:
+        # The documented CLI runs as root in the app container; the web
+        # interface and the Celery worker, which start, switch and delete the
+        # network, run as appuser (entrypoint.sh). Hand them what the import
+        # wrote, also after a failure, so that the worker can delete it.
+        ensure_worker_writable(provision_dir, logger=log)
 
+
+def _extract_entry(archive, member, destination) -> str:
+    """Extract one entry of a ZIP archive, with the execute bits its Unix mode records.
+
+    zipfile drops them, so the start scripts, which a startup package records
+    as executable, would arrive without them.
+
+    Returns:
+        str: The path of the extracted file or folder.
+    """
+    path = archive.extract(member, destination)
+    recorded = (member.external_attr >> 16) & 0o777
+    if (
+        member.create_system == 3
+        and recorded & stat.S_IXUSR
+        and os.path.isfile(path)
+        # Not the target of a link that was there already.
+        and not os.path.islink(path)
+    ):
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        os.chmod(path, mode | ((mode & 0o444) >> 2))  # x wherever r: 0644 -> 0755
+    return path
+
+
+def _unpack_startup_package(
+    swarm_network, *, package_source, provision_dir, project, actor, name, log
+):
+    """Unpack a checked startup package into the network's folder (import_network).
+
+    Puts each site's kit, the server's kit and the admin kit where the Hub uses
+    them, writes the FL server's address into the kits and records the
+    network's participants.
+
+    Returns:
+        SwarmNetwork: The network, marked as PROVISIONED.
+    """
     with zipfile.ZipFile(package_source, "r") as zip_ref:
         abs_provision_dir = os.path.abspath(provision_dir)
         for member in zip_ref.infolist():
@@ -554,7 +625,7 @@ def import_network(
                 with open(os.path.join(provision_dir, member_path), "wb") as handle:
                     handle.write(read_entry(zip_ref, member))
             else:
-                zip_ref.extract(member, provision_dir)
+                _extract_entry(zip_ref, member, provision_dir)
 
     project_name = slugify(project.title).replace("-", "_")
     prod_00_dir = os.path.join(
@@ -591,7 +662,7 @@ def import_network(
                     ):
                         continue
 
-                    participant_zip.extract(nested_member, participant_dir)
+                    _extract_entry(participant_zip, nested_member, participant_dir)
 
             # The server's kit (server_startup, and server_local, which older
             # bundles lack) lets this site host the FL server as a standby (see
@@ -1039,7 +1110,8 @@ def describe_server_switch(network: SwarmNetwork) -> dict:
     return {
         "server_host": record.get("server_host") or unswitched_server_host(network),
         "provisioned_server_host": provisioned,
-        "switched": bool(record.get("server_host")),
+        # False again after a return, while the record is kept.
+        "switched": is_switched(network, record),
         "switch": record or None,
         "admin_session_hosts": admin_session_hosts(network),
     }

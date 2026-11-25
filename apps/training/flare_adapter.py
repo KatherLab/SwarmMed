@@ -56,36 +56,53 @@ def _build_manifest_request_url(base_url: str, project_uuid: str) -> str:
 
 
 def _get_manifest_discovery_targets() -> list[str]:
-    """Return candidate base URLs for manifest discovery."""
-    explicit_urls = os.getenv("SWARMMEDHUB_MANIFEST_URLS", "").strip()
-    if not explicit_urls:
-        explicit_urls = os.getenv("SWARMMEDHUB_MANIFEST_URL", "").strip()
+    """Return candidate base URLs for manifest discovery: this site's own Hub only.
 
+    The request carries the site's project secret. The FL server's host is
+    never asked: after a server switch it is another site's, and only the
+    site's own Hub holds the project and its data. The Hub's loopback names
+    come before the Docker gateway's address, which reaches the Hub only
+    through a retry that skips the certificate's name check, and which the Hub
+    then refuses as the request's host.
+    """
     targets: list[str] = []
-    if explicit_urls:
+    operator_urls = os.getenv("SWARMMEDHUB_MANIFEST_URLS", "").strip()
+    if operator_urls:
         targets.extend(
             candidate.strip()
-            for candidate in explicit_urls.split(",")
+            for candidate in operator_urls.split(",")
             if candidate.strip()
         )
 
-    docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1").strip()
-    env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
+    server_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip().lower()
+    hub_url = os.getenv("SWARMMEDHUB_MANIFEST_URL", "").strip()
+    # Hubs before version 1.0.6 put the FL server's host here on the host's
+    # network.
+    if hub_url and (urlparse(hub_url).hostname or "").lower() != server_host:
+        targets.append(hub_url)
 
+    docker_host_ip = os.getenv("DOCKER_HOST_IP", "172.17.0.1").strip()
     https_hosts = _dedupe_keep_order(
         [
-            env_host,
-            docker_host_ip,
-            "swarmmedhub",
             "localhost",
             "127.0.0.1",
+            "swarmmedhub",
             "host.docker.internal",
+            docker_host_ip,
         ]
     )
     targets.extend(f"https://{host}:5085" for host in https_hosts)
 
-    http_hosts = _dedupe_keep_order(["swarmmedhub", "app"])
-    targets.extend(f"http://{host}:8000" for host in http_hosts)
+    # Plain HTTP reaches the Hub's application container only on a Docker
+    # network; on the host's network these names would go to the site's DNS.
+    # Hubs before version 1.0.6 do not say which network a container is on,
+    # but name the Hub swarmmedhub only on a Docker network.
+    runtime_network = os.getenv("SWARMMEDHUB_RUNTIME_NETWORK", "").strip().lower()
+    if not runtime_network and (urlparse(hub_url).hostname or "") == "swarmmedhub":
+        runtime_network = "bridge"
+    if runtime_network == "bridge":
+        http_hosts = _dedupe_keep_order(["swarmmedhub", "app"])
+        targets.extend(f"http://{host}:8000" for host in http_hosts)
 
     return _dedupe_keep_order(targets)
 

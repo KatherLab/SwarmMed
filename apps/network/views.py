@@ -9,6 +9,7 @@ import secrets
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.http.request import validate_host
 from django.shortcuts import get_object_or_404, redirect, render
@@ -41,6 +42,9 @@ logger = get_logger()
 # The tag of the messages that the network page shows. No other page shows the
 # messages that other views queue, so they would turn up there otherwise.
 PAGE_MESSAGE_TAG = "network"
+
+# How often a Hub that cannot tell which participant it is says so in its log.
+_UNRECOGNISED_HUB_NOTICE_SECONDS = 6 * 3600
 
 
 def get_user_project(request):
@@ -255,7 +259,24 @@ def broadcast_network_status(network_id):
     local_participants = network.participants.filter(ip__in=local_addresses)
     
     if not local_participants.exists():
-        logger.network.warning(f"[GOSSIP BROADCAST] Could not find myself in participant list for addresses {sorted(local_addresses)}")
+        # The documented default for a Hub known only by
+        # SWARMMEDHUB_LOCAL_PARTICIPANT; this runs every 30 s, so say it once.
+        message = (
+            "[GOSSIP BROADCAST] This Hub does not send its status for network "
+            f"{network.name}: none of its addresses "
+            f"({', '.join(sorted(local_addresses)) or 'none known'}) is a "
+            "participant's address. Status exchange between Hubs is optional "
+            "(docs/networking.md, Traffic between Hubs)."
+        )
+        try:
+            first = cache.add(
+                f"network:gossip-unrecognised:{network.identifier}",
+                1,
+                _UNRECOGNISED_HUB_NOTICE_SECONDS,
+            )
+        except Exception:
+            first = True
+        (logger.network.info if first else logger.network.debug)(message)
         return
 
     logger.network.info(f"[GOSSIP BROADCAST] Starting asynchronous broadcast for network {network.name}. Local addresses: {sorted(local_addresses)}")

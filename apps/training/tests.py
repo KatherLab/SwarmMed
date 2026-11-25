@@ -66,7 +66,7 @@ class FlareAdapterManifestTests(SimpleTestCase):
             targets = _get_manifest_discovery_targets()
 
         self.assertEqual(targets[0], "http://swarmmedhub:8000")
-        self.assertIn("https://192.0.2.10:5085", targets)
+        self.assertNotIn("https://192.0.2.10:5085", targets)
         self.assertIn("http://app:8000", targets)
 
     def test_manifest_verify_value_skips_tls_checks_for_http(self):

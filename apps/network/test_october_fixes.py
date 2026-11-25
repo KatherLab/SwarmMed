@@ -139,13 +139,15 @@ class ParticipantStatusPatternTests(SimpleTestCase):
             stdout = server_logs if command[:2] == ["docker", "logs"] else ""
             return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
 
+        # The server's container runs: its log is read only then. No client
+        # runs at this Hub (none has a local address).
         with patch("network.runtime._safe_cache_get", return_value=None), patch(
             "network.runtime._safe_cache_set"
         ), patch(
             "network.runtime.get_local_addresses",
             return_value=frozenset({"100.64.0.1"}),
         ), patch(
-            "network.runtime._is_container_running", return_value=False
+            "network.runtime._is_container_running", return_value=True
         ), patch("network.runtime.subprocess.run", side_effect=fake_run):
             return get_local_participant_status(network)
 

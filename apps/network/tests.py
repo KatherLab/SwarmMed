@@ -57,12 +57,10 @@ class RuntimeLaunchTests(SimpleTestCase):
 
         self.assertEqual(manifest_url, "https://swarmmedhub:5085")
 
-    def test_runtime_manifest_base_url_uses_public_proxy_on_host_network(self):
-        manifest_url = _get_runtime_manifest_base_url(
-            use_host_network=True, remote_host="192.0.2.10"
-        )
+    def test_runtime_manifest_base_url_is_the_own_hub_on_host_network(self):
+        manifest_url = _get_runtime_manifest_base_url(use_host_network=True)
 
-        self.assertEqual(manifest_url, "https://192.0.2.10:5085")
+        self.assertEqual(manifest_url, "https://127.0.0.1:5085")
 
     def test_runtime_ulimit_args_defaults_to_higher_nofile_limit(self):
         self.assertEqual(

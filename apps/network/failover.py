@@ -204,6 +204,34 @@ def active_server_record(network) -> dict:
     return _read_record(network_prod_dir(network))
 
 
+def server_start_refusal(network) -> str:
+    """Return why 'swarmed network start' must not start this Hub's FL server.
+
+    After a switch to a server that this Hub did not start (see
+    :func:`admin_session_pin`), the network's sites use that server, so a
+    server started here too would be a second server for the network. Starts
+    with an explicit role, which ``swarmed network failover`` makes, are not
+    checked; nor are local test networks.
+
+    Returns:
+        str: The reason, or '' when nothing speaks against the start.
+    """
+    if network.creation_method == "LOCAL_TEST":
+        return ""
+    record = active_server_record(network)
+    host = admin_session_pin(record)
+    if not host:
+        return ""
+    return (
+        f"This Hub uses the FL server at {host} (switched at "
+        f"{record.get('changed_at') or 'an unknown time'}), so 'swarmed network "
+        "start' does not start this Hub's own FL server: two FL servers must never "
+        "run for one network. To start only this Hub's FL clients, set "
+        "SWARMMEDHUB_CLIENT_ONLY_MODE for the worker. To run the server here "
+        "again, follow 'Returning to the coordinating server' in docs/failover.md."
+    )
+
+
 def provisioned_server_host(network) -> str:
     """Return the server address written into the network's kits at provisioning."""
     prod_dir = network_prod_dir(network)
@@ -227,6 +255,24 @@ def unswitched_server_host(network) -> str:
     """
     env_host = os.getenv("SWARMMEDHUB_SERVER_HOST", "").strip()
     return env_host or provisioned_server_host(network)
+
+
+def is_switched(network, record=None) -> bool:
+    """Return whether this Hub uses another FL server than without a switch.
+
+    A Hub that has returned to the address it uses without a switch keeps its
+    switch record, which still names the server it used before (see
+    :func:`previous_server_host`) and still pins its admin session, but it is no
+    longer switched.
+
+    Args:
+        network: The network.
+        record: Its switch record, if already read.
+    """
+    if record is None:
+        record = active_server_record(network)
+    host = str(record.get("server_host") or "").strip()
+    return bool(host) and host != unswitched_server_host(network)
 
 
 def previous_server_host(network) -> str:
@@ -471,7 +517,7 @@ def apply_flare_admin_timeout(server_workspaces, logger=None) -> list[str]:
     Nothing is written when the variable is unset or invalid; an invalid value
     is logged as a warning. A path without a server kit is skipped, which
     leaves client workspaces alone, as well as a Docker host's path that does
-    not exist where the Hub runs.
+    not exist where the Hub runs, or that the Hub cannot read.
 
     Args:
         server_workspaces: The server's workspace as the Hub sees it and, if
@@ -486,7 +532,10 @@ def apply_flare_admin_timeout(server_workspaces, logger=None) -> list[str]:
         return []
     written = []
     for workspace in dict.fromkeys(Path(path).absolute() for path in server_workspaces):
-        if not (workspace / "startup" / "fed_server.json").is_file():
+        # os.path, not pathlib: Path.is_file() raises PermissionError (Python
+        # 3.12) for a path under a folder this process cannot enter, such as the
+        # Docker host's /root seen from the worker, which runs as appuser.
+        if not os.path.isfile(workspace / "startup" / "fed_server.json"):
             continue
         resources = workspace / "local" / "resources.json"
         try:
