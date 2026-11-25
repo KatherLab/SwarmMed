@@ -63,6 +63,10 @@ was restarted, start the server again at the same host:
     swarmed network start <NETWORK_UUID> --wait
     ```
 
+    `swarmed network start --wait` returns once the server's container runs,
+    before the server has started and before the sites are back; resume only
+    once `swarmed network status` there shows them as joined.
+
     The Hub's Celery worker must have the image settings
     (`SWARMMEDHUB_FLARE_IMAGE`, `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE`) and the
     start mode (`SWARMMEDHUB_SERVER_ONLY_MODE`) that the server was started
@@ -74,9 +78,10 @@ was restarted, start the server again at the same host:
 3. The other sites need to do nothing. Their FL clients keep running and
    reconnect to the restarted server by themselves: the server takes them back
    on the tokens it gave them before, which it signed with its private key, so
-   they do not register again. In a test across three hospitals, the FL server
-   was restarted at its host while the sites' clients kept running, and all three
-   reconnected without any action at the sites.
+   they do not register again. In a test across three hospitals, and in the
+   rehearsal of 24 November 2026, the FL server was restarted at its host while
+   the sites' clients kept running, and all the sites reconnected without any
+   action at them.
 4. Resume the interrupted run ([Resuming the run](#resuming-the-run)). The
    restarted server has told the sites to abort the job and does not list it,
    so the resume needs no `--force`. If the server container came back by hand
@@ -223,9 +228,13 @@ At each Hub the command:
 * marks the running jobs that this Hub has recorded as failed;
 * restarts the network's FL client containers at this Hub so that the name
   `server` resolves to the new address. With `--wait`, the command returns once
-  the clients have restarted. A Hub without client containers only switches its
-  own connection to the server and keeps the network's status, and `--wait`
-  returns once the switch is recorded.
+  the clients have restarted, which can be before the new server has started
+  and before the sites have registered with it: before you resume, check at the
+  standby that `swarmed network status` shows every site as joined. A Hub
+  without client containers only switches its own connection to the server and
+  keeps the network's status, unless `--start-server` started the server there,
+  which sets the network to `RUNNING`; `--wait` returns once the switch is
+  recorded.
 
 As with `swarmed network start`, the Hub's Celery worker carries out the
 command, so client-only mode and the site's training variables (for example
@@ -290,9 +299,13 @@ To return to the coordinating server later, once the current run has finished
 or been stopped:
 
 1. At the standby site, switch to the coordinating server's address without
-   `--start-server`. This stops the standby's server.
+   `--start-server`. This stops the standby's server. With `--wait`, the command
+   returns once the standby's server container has stopped: SwarmMed gives it
+   15 s and then kills it, and the stopped container stays at the standby.
 2. At the coordinating site, run the command with its own address and
-   `--start-server`.
+   `--start-server`. With `--wait`, it returns before the server has started:
+   start or resume a job only once `swarmed network status` at that Hub shows
+   every site as joined.
 3. At every other site, run the command with the coordinating server's address,
    without `--start-server`.
 
@@ -300,8 +313,10 @@ Afterwards every Hub shows `switched` as `false` in `swarmed network status`,
 because it uses the network's own server address again. The record stays in
 `prod_00/.active_server.json`: it still names the server the Hub used before,
 which `swarmed training resume` also asks, and it still takes precedence over
-`SWARMMEDHUB_SERVER_HOST`. To use another address, switch again with `swarmed
-network failover`.
+`SWARMMEDHUB_SERVER_HOST`. While that previous server is down, every resume
+therefore spends about 5 s on it and warns that it must stay down; after a
+return, that warning is expected. To use another address, switch again with
+`swarmed network failover`.
 
 ### Moving the server's address instead (not tested)
 
