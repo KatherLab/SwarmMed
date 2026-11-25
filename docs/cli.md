@@ -342,6 +342,16 @@ error. When the Hub cannot reach the server at all, the command exits with
 code 1 with `Unexpected failure: cannot connect to FLARE admin API`, and the
 record also stays as it was.
 
+After a stop, NVIDIA FLARE's abort leaves lines that look like faults but are
+expected: a `RuntimeError` traceback (`request to abort the job`) in a site's
+job log, and an `ERROR` line at the FL server (`failed to end workflow
+controller on all clients`).
+
+Hubs can record the end of the same job differently: a training site's Hub
+takes it from the end of its own FL client's log, and can record a job that the
+FL server aborted as completed, or a stopped job as failed. Rely on the record
+at the Hub that ran the job's FL server.
+
 When the Hub's job monitor has flagged a running job as stalled, for example
 because a site dropped out, `training status`, `list` and `watch` print a
 `warning:` line; with `--json` the warning is in `warnings` and in the job's
