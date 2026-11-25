@@ -146,21 +146,25 @@ file layouts or log messages would affect the same places.
 
 The Hub, meaning the Django and Celery processes that provision networks, build
 jobs and use the admin API, is pinned to `nvflare==2.7.1` (`pyproject.toml`, line
-70; `uv.lock`). The FL server and clients run in runtime containers and use
+72; `uv.lock`). The FL server and clients run in runtime containers and use
 whichever FLARE build the runtime image contains. A Hub starts all of its server
-and client containers from one image (`apps/network/tasks.py`, 1424–1473, 1923):
+and client containers from one image (`start_swarm_network_task` in
+`apps/network/tasks.py`):
 
 * By default the image is built for each network from `python:3.12-slim` and the
   project's runtime requirements, which always include `nvflare==2.7.1`
-  (`apps/network/tasks.py`, 810–864; `apps/common/utils.py`, 56–67). The code
-  first looks for a Dockerfile in `prod_00/nvflare/` (1451–1463), but NVFlare
-  2.7.1 writes its Dockerfile to `prod_00/nvflare_compose/`, so the build from
+  (`_build_local_fallback_image` and `_ensure_runtime_requirements_file` in
+  `apps/network/tasks.py`; `apps/common/utils.py`, 56–67). The code first
+  looks for a Dockerfile in `prod_00/nvflare/` (`start_swarm_network_task`),
+  but NVFlare 2.7.1 writes its Dockerfile to `prod_00/nvflare_compose/`, so the
+  build from
   `python:3.12-slim` is the one that runs.
 * `SWARMMEDHUB_FLARE_IMAGE` names an image to use instead. It takes effect only
   together with `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE=true`: the check for
-  project-specific requirements (929–968) counts packages from SwarmMed's own
-  baseline, such as `torch`, as project requirements, so without the second
-  variable the image is always rebuilt (1431–1443). SwarmMed does not check which
+  project-specific requirements (`_has_custom_runtime_requirements`) counts
+  packages from SwarmMed's own baseline, such as `torch`, as project
+  requirements, so without the second variable the image is always rebuilt
+  (`start_swarm_network_task`). SwarmMed does not check which
   FLARE build the configured image contains.
 
 The worked example's instructions set both variables
