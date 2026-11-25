@@ -81,7 +81,11 @@ was restarted, start the server again at the same host:
    they do not register again. In a test across three hospitals, and in the
    rehearsal of 24 November 2026, the FL server was restarted at its host while
    the sites' clients kept running, and all the sites reconnected without any
-   action at them.
+   action at them. If a site's Hub or host restarted as well, its FL client
+   stopped with it, although `swarmed network status` there can still show the
+   network as `RUNNING`, the Hub's last record: run
+   `swarmed network start <NETWORK_UUID> --wait` at that site, which replaces
+   the stopped containers.
 4. Resume the interrupted run ([Resuming the run](#resuming-the-run)). The
    restarted server has told the sites to abort the job and does not list it,
    so the resume needs no `--force`. If the server container came back by hand
@@ -123,7 +127,7 @@ Use the standby server only when the server's host or its network is lost.
   FLARE itself saves the global model (`FL_global_model.pt`) only at the site
   that aggregated the round.
 * **Resume.** `swarmed training resume` submits a new job that starts at the
-  interrupted round from the newest checkpoint at the site and runs the rounds
+  interrupted round from the job's newest checkpoint at the site and runs the rounds
   that are left. The round numbers continue those of the interrupted run. Any
   training site can resume the run, the standby included, whether or not its
   Hub started the job.
@@ -372,7 +376,7 @@ job, such a file is taken for the job that the command finds without
 
 `training resume`:
 
-* takes the newest checkpoint at this site, or the file given with
+* takes the interrupted job's newest checkpoint at this site, or the file given with
   `--checkpoint`, and refuses a checkpoint of another job or another network;
 * refuses while the network's current server lists the interrupted job, or any
   other job, as active, and when it cannot ask that server, for example because
