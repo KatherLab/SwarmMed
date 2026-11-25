@@ -48,12 +48,17 @@ data off-site.
   `swarmed data import` are stored in the site's own MinIO. A training script that
   uses the platform's data adapter (`flare.get_data_filesystem`, as in every
   training script under `examples/`) fetches a manifest of presigned URLs from the platform and
-  streams each file from MinIO into the container. In a multi-site network the
-  manifest lookup tries the coordinating host's web interface first
-  (`https://<server-host>:5085`) and the site's own afterwards; the request carries
-  the project identifier and the project's manifest secret, not data. The attempt
-  at the coordinating host normally fails certificate verification, because each
-  installation has its own internal CA.
+  streams each file from MinIO into the container. The manifest lookup asks only
+  the site's own web interface: on port 5085 of the host's loopback address when
+  the client container uses the host's network, and through the Docker host
+  gateway otherwise; plain HTTP is tried only in the second case, also in a
+  container that an earlier version of SwarmMed started. The request carries the
+  project identifier and the project's manifest secret, not data. The data
+  adapter comes with the job, so this holds for jobs submitted by a Hub of
+  version 1.0.6 or later. Versions 1.0.5 and earlier asked the FL server's host
+  first (`https://<server-host>:5085`), after a server switch the standby site's
+  host. That request stopped at certificate verification, because each
+  installation has its own internal CA, unless two installations shared one.
 
 !!! note "Fallback addresses in the object-store path"
     When a presigned URL fails, the data adapter (`apps/training/flare_adapter.py`)
@@ -66,6 +71,11 @@ data off-site.
     fixed overlay address, `100.127.11.1`, first; on an overlay network that uses
     the 100.64.0.0/10 range that address can belong to another peer, so update
     installations from before that date.
+
+    The data adapter also prints every presigned URL it tries, signature
+    included, to the job's log at the site, and the manifest's URLs stay valid
+    for 24 hours, so for a day anyone who has a site's job logs and can reach its
+    MinIO can read the files they name.
 
 ### The hub-to-hub status channel
 
@@ -97,9 +107,11 @@ endpoints requires a login when the token is present.
 
 **Certificates are not verified** by default (`SWARMMEDHUB_SKIP_PEER_SSL_VERIFY`
 defaults to `true`). Each installation's web certificate is issued by its own
-internal CA for `localhost` and `127.0.0.1` only, so turning verification on also
-requires certificates that name each site's address and a CA bundle containing
-every site's internal CA (`SWARMMEDHUB_CA_CERT`). With verification off, an
+internal CA for local names and addresses only (`localhost`, `swarmmedhub`,
+`host.docker.internal`, `127.0.0.1` and `172.17.0.1`; before version 1.0.1 only
+`localhost` and `127.0.0.1`), so turning verification on also requires
+certificates that name each site's address and a CA bundle containing every
+site's internal CA (`SWARMMEDHUB_CA_CERT`). With verification off, an
 attacker on the path can capture the token and then use it as above.
 
 Training does not depend on this channel. Failures are ignored silently; in the
@@ -115,13 +127,17 @@ participants as offline.
   certificate and verifies the peer's, so a host without a startup kit cannot join.
   Who holds which kit is the subject of
   [Key custody](#key-custody-what-the-startup-package-contains) below.
-* **Plain TCP inside each participant (bound to loopback).** NVFlare's parent and
-  job processes at each participant talk over an internal connection without TLS
-  or certificates (`"connection_security": "clear"`). SwarmMed provisions client
-  kits without an external `listening_host` (and normalizes any legacy
-  `local/comm_config.json` internal host to `localhost`), so the internal parent-to-job
-  listener binds to `localhost` (`127.0.0.1`) rather than external network
-  interfaces, whether the client container runs in host-network or bridge-network mode.
+* **Plain TCP inside each participant.** NVFlare's parent and job processes at
+  each participant talk over an internal connection without TLS or certificates
+  (`"connection_security": "clear"`). The job processes connect to the parent at
+  `localhost`: SwarmMed provisions client kits without an external
+  `listening_host`, and normalizes any legacy internal host in
+  `local/comm_config.json` to `localhost`. The parent's listener itself, on a
+  random port between 1025 and 65535, accepts connections on all IPv4 addresses:
+  NVIDIA FLARE 2.7.1 always listens on all interfaces. FL clients use host
+  networking by default on Linux, so that is every IPv4 address of the host.
+  Keep the port closed to other hosts with a host firewall
+  ([Networking](networking.md#listening-ports-by-host-role)).
 * **Protocol versions and ciphers are not pinned for FLARE connections.** They are
   negotiated by the BoringSSL library bundled with gRPC, not the system OpenSSL, and
   its defaults allow TLS 1.2 and 1.3. The web interface's nginx pins TLS 1.2 and 1.3
@@ -146,9 +162,15 @@ that host also ran the FL server. It generates the study's root CA and every
 participant's key pair, and keeps all of them: the network's workspace
 (`workspaces/<project>/<network>/workspace/<study>/`) holds `state/cert.json` with
 the root CA's private key and every participant's private key, plus a kit for every
-participant. On the provisioning host of the worked example these files have mode
-644 (readable by all users), so their protection depends on the permissions of the
-directories above them.
+participant. The import unpacks the same kits at every site that imports the
+package. At every Hub that holds the network, the private keys have mode 644
+(readable by all users), and the network's folders and, by default, `workspaces/`
+itself mode 755, so their protection depends on the permissions of the SwarmMed
+folder and the folders above it. The web application and the worker run as
+`appuser`, user ID 1000, and hand `workspaces/`, `media/` and `tmp/` to that user
+at every start: on the host these files belong to user ID 1000 and group ID 1000,
+which on many Linux hosts are the first person's account, whoever installed
+SwarmMed.
 
 The startup package exported from the web interface or with
 `swarmed network export-package` always covers the whole study: one kit per client
@@ -189,6 +211,12 @@ Consequences:
   is.
 * Any participant can submit jobs whose code runs at every site
   ([section 4](#4-adversaries-considered)).
+* The FL server's log cannot show which Hub acted. Every Hub that holds the whole
+  package, the coordinating Hub included, logs in to the FL server with the admin
+  identity of the first site in alphabetical order, so the server's log names the
+  same user for every Hub; only the connection's source address tells them apart.
+  Since every site holds every admin identity, the identity in the log would not
+  prove which Hub acted in any case.
 * `SWARMMEDHUB_PRIVATE_P2P` cannot hide model updates from anyone who holds the
   receiving client's key
   ([section 3](#3-the-coordinating-host-sees-model-updates-default-configuration)).
@@ -213,7 +241,10 @@ What an operator should do until SwarmMed can export per-site kits:
    it does not protect against a dishonest or compromised coordinating site, which
    holds the root CA's key and every other key.
 2. Restrict access to the `workspaces/` directory on every host that holds the
-   network, and limit project membership to people who may hold the study's keys.
+   network, the importing sites included, and limit project membership to people
+   who may hold the study's keys. On a shared host, put the SwarmMed folder where
+   only the people who run the Hub can enter it, and check who has user ID 1000
+   there (`getent passwd 1000`).
 3. Record in the consortium agreement that every participant holds every identity,
    including the FL server's, and that each site's admin identity can run code at
    every site.
@@ -223,7 +254,13 @@ What an operator should do until SwarmMed can export per-site kits:
 5. When the study ends, delete the network in the web interface on every host. This
    removes its workspace and the keys in it, but also the audit-log entries linked
    to the network ([section 6](#6-data-at-rest-and-auditability)), so export what
-   must be kept first.
+   must be kept first. The Celery worker, which removes the folder, cannot remove
+   the job folders, logs and checkpoints that the FL containers wrote as root since
+   the worker last started, and the deletion can then leave part of the network's
+   folder, keys included, on disk. Restart the worker first
+   (`docker compose restart celery_worker`, which hands `workspaces/` to
+   `appuser`), then delete the network, and check that
+   `workspaces/<project>/<network>` is gone.
 
 ## 3. The coordinating host sees model updates (default configuration)
 
@@ -284,10 +321,10 @@ Consequences for a consortium:
 
 | Adversary | Assumed capability | Status |
 |---|---|---|
-| **Network attacker** between sites | Observes or tampers with traffic on the wire | Mitigated for FLARE traffic: mutual TLS with a study-specific CA on the server's fed-learn and admin ports, and joining requires a startup kit. **Not mitigated for the web interfaces' site-to-site traffic**: the hub-to-hub calls skip certificate verification by default, and the network token they carry also authorises downloading the latest global model from any participant's web interface (section 1). NVFlare's internal parent–job connection at each site is plain TCP (section 2). |
+| **Network attacker** between sites | Observes or tampers with traffic on the wire | Mitigated for FLARE traffic: mutual TLS with a study-specific CA on the server's fed-learn and admin ports, and joining requires a startup kit. **Not mitigated for the web interfaces' site-to-site traffic**: the hub-to-hub calls skip certificate verification by default, and the network token they carry also authorises downloading the latest global model from any participant's web interface (section 1). NVFlare's internal parent–job connection at each site is plain TCP, on a listener that accepts connections on all of the host's IPv4 addresses (section 2). |
 | **Honest-but-curious participant** | Runs the protocol correctly, inspects everything it legitimately receives | **Partially mitigated.** Every participant receives aggregated model weights each round, and the aggregating client receives other sites' updates. Parameter sharing alone does not prevent model inversion, membership inference or gradient leakage. No differential privacy or secure aggregation is configured by default. Every participant also holds every other participant's keys (section 2). |
 | **Honest-but-curious coordinator** | Operates the FL server | **Not mitigated.** Sees relayed model updates (section 3), and holds every participant's private key if it provisioned the study or imported the whole package (section 2). |
-| **Malicious participant** | Sends crafted or poisoned updates, or misuses the keys and rights it was given | **Not mitigated.** There is no robust aggregation, update-norm clipping, or anomaly detection, so a participant can degrade or backdoor the joint model. Beyond that, every site's admin certificate is provisioned with NVFlare's `project_admin` role, which the generated authorization policy allows to submit jobs with custom code (`byoc`) to all sites. A malicious participant can therefore run arbitrary code in every other site's client container, which has access to that site's data and uses the host's network, and exfiltrate raw data. SwarmMed offers no setting to provision a narrower role. Admission control is social and cryptographic (who receives the package), not behavioural. |
+| **Malicious participant** | Sends crafted or poisoned updates, or misuses the keys and rights it was given | **Not mitigated.** There is no robust aggregation, update-norm clipping, or anomaly detection, so a participant can degrade or backdoor the joint model. Beyond that, every site's admin certificate is provisioned with NVFlare's `project_admin` role, which the generated authorization policy allows to submit jobs with custom code (`byoc`) to all sites. A malicious participant can therefore run arbitrary code in every other site's client container, which has access to that site's data and uses the host's network, and exfiltrate raw data. In a standard installation that code also reads the site Hub's secrets and every other study held by that Hub, and it can reach the Hub's unauthenticated Docker API proxy, whose settings let it take over the site's host; the failover rehearsal with version 1.0.6 showed the reach with a read-only request, and no takeover was tried ([What job code can reach at a site](#what-job-code-can-reach-at-a-site)). SwarmMed offers no setting to provision a narrower role. Admission control is social and cryptographic (who receives the package), not behavioural. |
 | **Compromised site host** | Root on a participating machine | **Not contained.** Such a host holds its own patient data, which is the site's responsibility to protect. It also holds the whole startup package, so an attacker who compromises one site obtains every participant's identity, the FL server's key and the `project_admin` right to run code at every other site. |
 | **Platform user without rights** | Authenticated user of the web interface | Mitigated: project membership checks, including for actions on a network named by its identifier; role checks for user management and the log viewer; optional TOTP two-factor authentication; a login lockout per username and client address; and an HMAC-chained audit log (section 6 states what it covers and its limits). |
 
@@ -297,6 +334,59 @@ rather than adversarial. Because every site's admin identity can run code at eve
 other site, each institution must also trust every other participant, and the
 security of their hosts, with access to its own data. SwarmMed is not designed for
 open participation by untrusted parties.
+
+### What job code can reach at a site
+
+Job code runs in the FL containers that the site's Hub starts: the client
+containers and, at the coordinating site or at a standby site after a switch,
+the server container. In a standard installation, where the Hub runs in Docker
+Compose, SwarmMed starts these containers with every volume of the Hub's
+application container (`--volumes-from`) and as root. Each FL container
+therefore sees:
+
+* the whole installation directory, including `.env` (the database, Redis and
+  MinIO passwords, `SECRET_KEY`, `FERNET_KEYS`, `BACKUP_ENCRYPTION_KEY` and
+  `MINIO_KMS_SECRET_KEY`) and `.secrets/` (the services' private keys, and the CA
+  and client keys of the script sandbox's Docker daemon);
+* `workspaces/`: the startup kits and private keys of every network of every
+  project on that Hub, and their training results.
+
+SwarmMed's data adapter, and the training scripts of four bundled examples, also
+load that `.env` into the training process's environment.
+
+With these, code that runs in an FL container can read every object in the
+Hub's MinIO, that is every project's imported data and results, and act as any
+participant or admin of any other study on the Hub. A client container uses the
+host's network by default, so it can also reach PostgreSQL and Redis, which
+listen on the host's loopback address, and the Hub's Docker networks, including
+the unauthenticated Docker API proxy (`docker-proxy`, port 2375), which controls
+the host ([Security](security.md#host-docker-access)). The proxy's reach from
+the host's network follows from how Docker connects a host to its bridge
+networks, and the failover rehearsal with version 1.0.6 on 24 November 2026
+showed it ([Server failover](failover.md#testing-status)): a container started
+on the host network of a Hub's Docker Engine, as the client containers are,
+received the Engine's version from the proxy's address on `db_network` without
+authentication. Only that read-only request was sent; that such code can also
+create and start containers through the proxy, and so control the host, follows
+from the proxy's settings, not from a test.
+
+A Hub that runs outside containers, as at the worked example's training sites,
+mounts only the participant's own kit folder, the internal CA certificate,
+`DATA_DIR` and `SCRATCH_DIR`. Its containers still run as root and, on the
+host's network, still reach the Docker API proxy if the host also runs a
+SwarmMedHub installation in Docker Compose.
+
+Until this is narrowed:
+
+* give access to a Hub only for studies whose consortia may see one another's
+  keys and data, and run studies of different consortia on separate Hubs;
+* keep nothing in `.env` that the platform does not need;
+* treat the right to submit jobs to a network as the right to administer every
+  site's Hub host;
+* do not install a Hub on a host shared with services or containers that the
+  study's participants must not control: through the Docker API proxy, job code
+  can act on every container of the host's Docker Engine (this follows from the
+  proxy's settings; it was not tried).
 
 ## 5. What is not implemented
 
@@ -313,6 +403,9 @@ State these plainly when answering an information-security review:
   exported package always contains every participant's identity, a leaked
   certificate cannot be revoked, and every site's admin identity is provisioned as
   `project_admin` (section 2).
+* **No isolation of FL containers from the Hub.** In a standard installation they
+  get every volume of the Hub's application container and run as root
+  ([section 4](#what-job-code-can-reach-at-a-site)).
 * **No verification tool for the audit-log chain** (section 6).
 * **No formal verification or third-party audit** of the implementation.
 
@@ -368,7 +461,8 @@ State these plainly when answering an information-security review:
    to every participant's port 5085 (status gossip and training-state mirroring);
    blocking them does not stop training but leaves remote participants shown as
    offline. Participating hosts should also firewall NVFlare's internal client
-   listener.
+   listener, which accepts connections on all of the host's IPv4 addresses
+   (section 2).
 3. Keep the study PKI for the lifetime of the study only; re-provision for a new
    study rather than reusing certificates. Handle the startup package as described
    under [Key custody](#key-custody-what-the-startup-package-contains).
@@ -379,4 +473,7 @@ State these plainly when answering an information-security review:
    download it from any participant's web interface.
 6. Admit only participants that every other participant trusts to run code on its
    hosts, until non-coordinating sites can be given an admin role without
-   `submit_job` and `byoc`.
+   `submit_job` and `byoc`. Until FL containers are limited to their own
+   network's files, this extends to every study on the same Hub: give studies
+   with different participants separate Hubs
+   ([What job code can reach at a site](#what-job-code-can-reach-at-a-site)).

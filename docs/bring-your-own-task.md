@@ -92,9 +92,12 @@ if __name__ == "__main__":
   the number under the key `accuracy` in the `meta` given to `send_model`, not in
   `metrics`: the mean of the sites' values in a round, from round 1 on, where higher is
   better. Put a score there that grows as the model improves, even if your task's main
-  metric is another one.
+  metric is another one. A resumed run chooses its best model again, from its first
+  resumed round on ([Server failover](failover.md#what-swarmmed-provides)).
 * The number of rounds comes from `SWARMMEDHUB_SWARM_ROUNDS` if set, else from
-  `SWARM_ROUNDS` in `training.py`, else 10.
+  `SWARM_ROUNDS` in `training.py`, else 10. The job carries this number to every site
+  (`config/swarmmed_run.json` in each app), so `swarmed training resume` knows it at
+  any site.
 * Import the machine-learning library at the top of the file: SwarmMed detects the
   framework from the imports of `training.py` when it builds the job.
 * Fix the seeds, limit the threads (`torch.set_num_threads`), do not write to

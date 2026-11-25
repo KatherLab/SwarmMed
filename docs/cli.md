@@ -55,6 +55,14 @@ When the CLI runs in the container:
   variables apply to it. `network start` hands the start to the Celery worker,
   so variables that control how a network starts, such as client-only mode, must
   be set for the worker ([Networking](networking.md)).
+* **Files the CLI writes.** The CLI runs as root in the container, while the web
+  interface and the Celery worker run as `appuser`. Files that it writes into
+  `workspaces/`, such as an imported network or a training job, are handed to
+  `appuser`, so that the web interface and the worker can start, switch and
+  delete the network and submit the next job. What cannot be handed over is
+  named in a warning in the Hub's log. If the worker reports that it cannot make
+  a start script executable, restart it (`docker compose restart celery_worker`):
+  at its start it hands `workspaces/` to `appuser`.
 * **Do not run `uv` inside the container.** `/app` is the host's repository
   directory, and uv treats the host's `.venv` as broken there: it deletes it and
   creates an empty one owned by root.
@@ -109,8 +117,10 @@ Exit codes:
 - `2`: usage or validation error
 - `1`: unexpected failure
 
-`network start --wait` returns when the network is running or has failed, and
-exits with code 2 if it ends in the `ERROR` state.
+`network start --wait` returns when the network is running, that is when this
+Hub's FL containers run, or has failed, and exits with code 2 if it ends in the
+`ERROR` state. The sites join the FL server only afterwards:
+`swarmed network status` at the Hub that runs the server shows them as joined.
 
 ## Workflow Quickstart
 
@@ -224,7 +234,10 @@ The command also prints the network fingerprint, the SHA-256 of the package's
 `manifest.json`, as 16 groups of four characters. With `--json`,
 `result.package_fingerprint` gives it as plain hex, as `network show` does, and
 `result.package_sha256` the SHA-256 of the file written. As long as the network's
-kits do not change, exporting it again gives the same file. Read the fingerprint
+kits do not change, exporting it again gives the same file. Export it before the
+network first starts: a later export from a Hub at which a site's FL client ran
+also carries that site's job folders, with their models and round-start
+checkpoints, to every Hub that imports it. Read the fingerprint
 out to every other site by phone or video call, not through the channel that
 carries the package
 ([Verifying the startup package](networking.md#verifying-the-startup-package)).
@@ -254,6 +267,9 @@ swarmed network import \
 
 Before it writes anything, the import checks every file of the package against
 its manifest and refuses entries with absolute paths, `..` or symbolic links.
+It also refuses the package, and writes nothing, when the project's or the
+network's folder in `workspaces/` is a symbolic link: the import would write the
+network wherever the link points and hand that to `appuser`.
 With `--expect-fingerprint`, a package with another network fingerprint, or
 without one, is refused too; spaces, colons, dashes and case in the value are
 ignored, and an empty value is an error rather than no check, so that a script
@@ -277,10 +293,19 @@ swarmed network use --user alice <NETWORK_UUID>
 swarmed network start --user alice <NETWORK_UUID> --wait
 ```
 
-At a participating site, set client-only mode for the worker before starting
-the network; otherwise the start also launches a copy of the FL server from the
-imported package. A coordinating host that does not train uses server-only mode.
-Both are described in [Networking](networking.md).
+At a participating site, set client-only mode for the worker, and the site's
+name for the worker and the `app` service, before starting the network;
+otherwise the start also launches a copy of the FL server from the imported
+package. A coordinating host that does not train uses server-only mode. Both are
+described in [Networking](networking.md).
+
+While this Hub is switched to an FL server that another site started
+(`network failover` without `--start-server`), `network start` does not start
+the Hub's own FL server, and outside client-only mode no FL client either: the
+network ends in `ERROR`, and its log says why. With `--wait` the command exits
+with code 2, and while the Hub is switched its message also names the server the
+Hub uses, as a possible cause
+([Server failover](failover.md#when-the-hub-that-ran-the-server-comes-back)).
 
 ### 7. Start and watch training
 
@@ -293,7 +318,44 @@ The network must be running on this Hub. The job is not submitted if the
 project's stored code has no `training.py`, for example while the object store is
 unavailable. The number of rounds comes from `SWARMMEDHUB_SWARM_ROUNDS`, passed
 with `docker exec -e`, or else from `SWARM_ROUNDS` in `training.py`, and is 10 if
-neither is set ([Developer](developer.md#training-scripts-nvflare)).
+neither is set ([Developer](developer.md#training-scripts-nvflare)). Every site's
+copy of the job records this number (`config/swarmmed_run.json` in each app), so
+`swarmed training resume` finds it at any site.
+
+Commands that take a job (`training status`, `watch`, `stop`, `checkpoints` and
+`resume`) accept the `identifier` of this Hub's record of it, its FLARE job ID
+(`flare_job_uuid` in `training list`), or the first 8 or more characters of its
+FLARE job ID if no other job starts with them. Anything else names no job: the
+command exits with code 2 and says that the job was not found, or, for
+characters that several jobs start with, lists them
+(`'<characters>' matches N jobs (...); give more of the FLARE job ID.`). A
+command that is given a job never acts on another one. Without a job,
+`training status` and `training stop` take the network's latest job, whatever its
+status, so name the job to stop.
+
+`training stop` records the job as stopped only when the FL server takes the
+abort, or answers that the job has already finished; a job whose record had
+already ended then keeps its status. When the server refuses the abort, for
+example for a job that it does not know or that it lists as running but does
+not run, or when it does not answer, the command exits with code 2 with
+`The FL server did not abort job <id>:` and the server's answer, and leaves the
+job's record as it was; **Stop Training** on the Training page shows the same
+error. When the Hub cannot reach the server at all, the command exits with
+code 1 with `Unexpected failure: cannot connect to FLARE admin API`, and the
+record also stays as it was.
+
+After a stop, NVIDIA FLARE's abort leaves lines that look like faults but are
+expected: `ERROR` lines and `RuntimeError` tracebacks
+(`request to abort the job`) in a site's job log, and `ERROR` lines at the FL
+server that say `failed to end workflow controller`, one of them with
+`FATAL_SYSTEM_ERROR`.
+
+Hubs can record the end of the same job differently: a training site's Hub
+takes it from the end of its own FL client's log, and can record a job that the
+FL server aborted as completed, or a stopped job as failed. Rely on the record
+at the Hub that ran the job's FL server, and for a stopped job on the record at
+the Hub where `training stop` ran: the FL server's log can make a stopped job
+look failed too.
 
 When the Hub's job monitor has flagged a running job as stalled, for example
 because a site dropped out, `training status`, `list` and `watch` print a
@@ -381,26 +443,37 @@ reachable through `results explanations`.
 
 If only the FL server stopped and its host is still there, stop and start the network
 at the coordinating Hub the same way as before, then resume the run
-([Restarting the server](failover.md#restarting-the-server-where-it-ran)). If the
-host or its network is lost:
+([Restarting the server](failover.md#restarting-the-server-where-it-ran)). A site
+whose FL client has stopped as well, for example because its host restarted,
+starts it again with `swarmed network start --user alice <NETWORK_UUID> --wait`.
+If the FL server's host or its network is lost:
 
 ```bash
 # at the standby site
 swarmed network failover --user alice <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --start-server --wait
-# at every other site
+# at every other site, and at the coordinating Hub when it comes back
 swarmed network failover --user alice <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --wait
-# at a site with the project and a checkpoint
-swarmed training checkpoints --user alice <JOB_UUID>
-swarmed training resume --user alice <JOB_UUID>
+# at one training site, the standby for example
+swarmed training checkpoints --user alice <JOB_UUID> --network <NETWORK_UUID>
+swarmed training resume --user alice <JOB_UUID> --network <NETWORK_UUID>
 ```
 
-The interrupted job cannot continue on another server; `training resume` starts a
-new job at the interrupted round from the newest checkpoint at the site. See
-[Server failover](failover.md) for what each command does and what has to be in
-place beforehand. The resumed job carries the checkpoint, so over slow links it
-may need longer FLARE timeouts; `training resume` warns about the two settings
-unless `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its own environment (see
-[Resuming over a slow link](failover.md#resuming-over-a-slow-link)).
+`<JOB_UUID>` is the interrupted job's FLARE job ID, the same at every site
+(`flare_job_uuid` in `training list`). The interrupted job cannot continue on
+another server; `training resume` starts a new job at the interrupted round from
+the job's newest checkpoint at the site. The Hub needs no record of the job: it
+finds the job by its folder in the network's workspace. With `--json`,
+`training checkpoints` also gives `network_identifier`, `found_by` (how the Hub
+found the job: `record`, `job folder` or `newest checkpoint`), and `total_rounds`
+and `total_rounds_from` (the run's total and where the Hub found it; `null` and
+empty when it does not know it); its `job_identifier` is `null` when the Hub has
+no record of the job. For a run started before SwarmMed 1.0.6, add
+`--rounds <TOTAL>` unless this Hub ran the run's FL server; `--rounds` takes 1 to
+100000. See [Server failover](failover.md) for what each command does and what
+has to be in place beforehand. The resumed job carries the checkpoint, so over
+slow links it may need longer FLARE timeouts; `training resume` warns about the
+two settings unless `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set in its own
+environment (see [Resuming over a slow link](failover.md#resuming-over-a-slow-link)).
 
 ## Command Tree
 

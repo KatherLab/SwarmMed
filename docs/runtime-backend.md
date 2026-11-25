@@ -25,7 +25,7 @@ described in [SwarmMed and NVIDIA FLARE](nvflare-comparison.md).
 |---|---|---|
 | **Provisioning and PKI** | `apps/network/provision.py` (`generate_flare_startup_kit`, 70–443); `apps/network/master_template.yml` | Writes an NVFlare `project.yml` (a server and, for each site, a client and an admin identity with the `project_admin` role) and runs `nvflare provision` with NVFlare's workspace, Docker, static-file, certificate and signature builders. Expects the kits in `workspace/<project>/prod_00/<participant>/startup` and adds SwarmMed's own files to them (`.all_participants.json`, `server_host.txt`, `server_aliases.txt`). Rewrites site names to satisfy NVFlare's naming rule (no underscores; 58–67). Since release 1.0.5 it then signs each kit's `startup` folder again with NVFlare's `nvflare.lighter.utils.sign_folders` and `load_private_key`, using the root CA key that `nvflare provision` keeps in `workspace/<project>/state/cert.json` (`root_pri_key`); if that fails, provisioning only logs a warning. The template is a modified copy of an NVFlare Lighter template, 2,022 lines. |
 | **Startup packages** | `apps/network/utils.py` (`create_startup_kits_zip`, 208–332); `apps/network/services.py` (`import_network`, 254–658) | Export packs each site's kit together with an admin kit and a copy of the server kit (`admin_startup/`, `server_startup/`). Import rebuilds the `prod_00` layout, renames admin kits to `admin-<site>@nvidia.com`, and recovers the server address from `server_host.txt`, `project.yml` or the `overseer_agent` endpoint in `fed_client.json`. |
-| **Container start-up** | `apps/network/tasks.py` (kit discovery, 237–286, 323–397, 446–536; `start_swarm_network_task`, 1376–1990; `run_nvflare_preflight_check`, 1993–2082) | Finds server and client kits by their `fed_server.json` or `fed_client.json`; starts each container with the kit's `sub_start.sh`, which runs NVFlare's `server_train` or `client_train` module; removes NVFlare's `pid.fl` markers; publishes the two server ports read from `fed_server.json`; mounts NVFlare's state directory `/tmp/nvflare`; maps the host name `server` to the coordinating host; sets `NVFLARE_START_METHOD=spawn`; runs `nvflare.tool.preflight_check` with an admin kit. |
+| **Container start-up** | `apps/network/tasks.py` (kit discovery, 237–286, 323–397, 446–536; `start_swarm_network_task`, 1376–1990; `run_nvflare_preflight_check`, 1993–2082) | Finds server and client kits by their `fed_server.json` or `fed_client.json`; starts each container with the kit's `sub_start.sh`, which runs NVFlare's `server_train` or `client_train` module; removes NVFlare's `pid.fl` markers; publishes the two server ports read from `fed_server.json`; keeps NVFlare's job store (`/tmp/nvflare`) inside the server's container, so that each start begins with a new one; maps the host name `server` to the coordinating host; sets `NVFLARE_START_METHOD=spawn`; runs `nvflare.tool.preflight_check` with an admin kit. |
 | **Job construction** | `apps/training/services.py` (`submit_training_job`, 490–991) | Lays out an NVFlare job (`app_server`, `app_client/custom`) and builds it with NVFlare's Job API (`FedJob`): `SwarmServerController` and `SwarmClientController` (the client-controlled swarm workflow; every site trains and is eligible to aggregate, and every site's result is required), `InTimeAccumulateWeightedAggregator`, `PTFileModelPersistor` or `NPModelPersistor` chosen from the training script's imports, `SimpleIntimeModelSelector`, and a Client API executor that runs `custom/training.py`. |
 | **Training-script contract** | `apps/training/flare_adapter.py` (16–17, 596–660, 713–725); `examples/*/training.py`; `experiments/duke_mst_cli/training.py` | The adapter's `init`, `receive`, `send` and `is_running` wrap `nvflare.client`, and `send` packs the weights into an `FLModel`. The eight example scripts use the adapter; the breast-MRI example also hands its Lightning trainer to NVFlare's `lightning.patch`. The worked example imports `nvflare.client.lightning` directly and does the same (lines 15–16, 113). |
 | **Job control** | `apps/training/runtime.py` (57–742); `apps/training/services.py` (`sync_job_from_nvflare_status`, 252–290; `stop_training_job`, 994–1041) | Opens NVFlare admin sessions (`Session` from `nvflare.fuel.flare_api`) with an admin kit, taking the user name from the kit certificate's common name, probing candidate hosts and ports, and patching gRPC to override the TLS server name. Sends `submit_job`, `list_jobs`, `list_clients` and `abort_job`, and parses the replies. |
@@ -145,23 +145,27 @@ file layouts or log messages would affect the same places.
 ## NVFlare version
 
 The Hub, meaning the Django and Celery processes that provision networks, build
-jobs and use the admin API, is pinned to `nvflare==2.7.1` (`pyproject.toml`, line
-70; `uv.lock`). The FL server and clients run in runtime containers and use
+jobs and use the admin API, is pinned to `nvflare==2.7.1` (`pyproject.toml`;
+`uv.lock`). The FL server and clients run in runtime containers and use
 whichever FLARE build the runtime image contains. A Hub starts all of its server
-and client containers from one image (`apps/network/tasks.py`, 1424–1473, 1923):
+and client containers from one image (`start_swarm_network_task` in
+`apps/network/tasks.py`):
 
 * By default the image is built for each network from `python:3.12-slim` and the
   project's runtime requirements, which always include `nvflare==2.7.1`
-  (`apps/network/tasks.py`, 810–864; `apps/common/utils.py`, 56–67). The code
-  first looks for a Dockerfile in `prod_00/nvflare/` (1451–1463), but NVFlare
-  2.7.1 writes its Dockerfile to `prod_00/nvflare_compose/`, so the build from
-  `python:3.12-slim` is the one that runs.
+  (`_build_local_fallback_image` in `apps/network/tasks.py`, with the list from
+  `collect_project_runtime_requirements` in `apps/common/utils.py`, 56–67). The
+  code first looks for a Dockerfile in `prod_00/nvflare/`
+  (`start_swarm_network_task`), but NVFlare 2.7.1 writes its Dockerfile to
+  `prod_00/nvflare_compose/`, so the build from `python:3.12-slim` is the one
+  that runs.
 * `SWARMMEDHUB_FLARE_IMAGE` names an image to use instead. It takes effect only
   together with `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE=true`: the check for
-  project-specific requirements (929–968) counts packages from SwarmMed's own
-  baseline, such as `torch`, as project requirements, so without the second
-  variable the image is always rebuilt (1431–1443). SwarmMed does not check which
-  FLARE build the configured image contains.
+  project-specific requirements (`_has_custom_runtime_requirements`) counts
+  packages from SwarmMed's own baseline, such as `torch`, as project
+  requirements, so without the second variable the image is always rebuilt
+  (`start_swarm_network_task`). SwarmMed does not check which FLARE build the
+  configured image contains.
 
 The worked example's instructions set both variables
 (`experiments/duke_mst_cli/README.md`, 18–19), and its runs used

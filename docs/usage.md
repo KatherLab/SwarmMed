@@ -248,7 +248,7 @@ After creating a network, you need to start it to enable communication between p
 3.  Starting the network can take a few minutes. You can monitor the progress on the **Logs** page.
 
 !!! warning "Participating sites start in client-only mode"
-    Every startup package also contains the FL server's kit. At a participating site, set client-only mode for the Hub's Celery worker before starting the network (`SWARMMEDHUB_CLIENT_ONLY_MODE=true` and `SWARMMEDHUB_LOCAL_PARTICIPANT=<the site's name>`). Otherwise the start also launches a copy of the FL server, and the site's client registers with that copy instead of the coordinator. A coordinating host that does not train uses `SWARMMEDHUB_SERVER_ONLY_MODE=true` instead. These are environment variables, not options in the interface; see [Networking](networking.md).
+    Every startup package also contains the FL server's kit. At a participating site, set client-only mode for the Hub's Celery worker before starting the network (`SWARMMEDHUB_CLIENT_ONLY_MODE=true` and `SWARMMEDHUB_LOCAL_PARTICIPANT=<the site's name>`). Otherwise the start also launches a copy of the FL server, and the site's client registers with that copy instead of the coordinator. Set the site's name for the `app` service too, so that an import of a single site's kit warns when the kit is another site's ([How a Hub knows which site it is](networking.md#how-a-hub-knows-which-site-it-is)). A coordinating host that does not train uses `SWARMMEDHUB_SERVER_ONLY_MODE=true` instead. These are environment variables, not options in the interface; see [Networking](networking.md).
 
 ### 10. 🧠 Start Training
 

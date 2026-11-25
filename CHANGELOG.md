@@ -5,6 +5,303 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-11-DD
+
+### Changed
+
+- `swarmed training checkpoints` and `swarmed training resume` work at any
+  training site, the standby included, whether or not the site's Hub holds a
+  record of the interrupted job
+  ([Server failover](docs/failover.md#resuming-the-run)). They find the job by
+  this Hub's record, else by the job's folder in the network's workspace, else by
+  the job that a checkpoint given with `--checkpoint` names. A copied round-start
+  checkpoint names its own job and round, also one written by 1.0.3 to 1.0.5, so
+  it needs no `--start-round`; a checkpoint of another job or network is refused.
+  `training resume --checkpoint FILE` without a job and without `--network`
+  takes the network from the checkpoint, else from the one network at this Hub
+  that holds the job's folders, and otherwise asks for `--network`; only a model
+  file that names no job is resumed in the current network. Without a job, both
+  commands take the job of the newest round-start checkpoint at this site, or the
+  Hub's latest job if there is none, and stop when the Hub's latest record of a
+  job names another one; records of failed submissions, which name no FLARE job,
+  do not count. When the Hub had no record of the interrupted job, the resume
+  records it as failed once its checks have passed, and says so in a warning.
+  `training checkpoints --json` also gives `network_identifier`, `found_by`,
+  `total_rounds` and `total_rounds_from`, gives `job_identifier` as `null` when
+  the Hub has no record, and gives each checkpoint's `job_id`, `network` and
+  `total_rounds`. The help of both commands says that the job is given by its
+  FLARE job ID, which is the same at every site, or by this Hub's record of it;
+  the record IDs that `training list` shows differ from Hub to Hub.
+- Every job records the run's total number of rounds in each site's app
+  (`config/swarmmed_run.json`), and its round-start checkpoints hold it too
+  ([Server failover](docs/failover.md#what-swarmmed-provides)).
+  `swarmed training resume` takes the total from `--rounds`, else from the job's
+  own files at this Hub, else from the checkpoint, and says where it took it
+  from. It no longer takes a record's total or this Hub's
+  `SWARMMEDHUB_SWARM_ROUNDS` or `SWARM_ROUNDS`, and stops with a message that
+  names `--rounds` when it finds no total. A run started before 1.0.6 therefore
+  needs `--rounds` when it is resumed at a Hub that did not run its FL server.
+  A `--rounds` that differs from the job's total is used, with a warning. Upgrade
+  every Hub of a network before relying on a resume without `--rounds`: a Hub
+  that runs an earlier version neither writes the file into the jobs it submits
+  nor reads it.
+- `swarmed training resume` refuses while the network's current FL server runs
+  any other job, not only the interrupted one, so that a run resumed at one site
+  is not resumed again at another; `--force` skips the check, as its help now
+  says ([Server failover](docs/failover.md#resuming-the-run)).
+- A site's Hub records the jobs that its own FL client runs from the logs of the
+  FL containers it started for the network, which carry the label
+  `swarmmedhub.network_id`, also when it does not find the address it was
+  provisioned with among its own
+  ([Networking](docs/networking.md#how-a-hub-knows-which-site-it-is)). It used
+  to pick the containers only by the Hub's addresses and, without one, read the
+  logs of every container on the Docker host whose name contains "server",
+  "client" or "nvflare", including other deployments' containers on a shared
+  host. Containers without the label are no longer read, and each container's
+  job is recorded only in its own network.
+- Every FL server that SwarmMed starts, a restarted one or a standby, begins with
+  a new FLARE job store
+  ([Server failover](docs/failover.md#what-happens-when-the-server-is-lost)).
+  Earlier versions kept the store in the server kit's `.nvflare_persist` folder
+  only where the Hub's worker saw the checkout at the host's path, which a
+  standard installation does not; that folder is no longer used and can be
+  deleted. A restarted server therefore never lists the interrupted job and never
+  dispatches a job that was still queued when it stopped, and the resume after a
+  restart in place needs no `--force`.
+- `swarmed network start` does not start this Hub's FL server while the Hub is
+  switched to a server that another site started, and outside client-only mode
+  no FL client either: the network then shows `ERROR`, and its log says why and
+  points to the failover guide's return to the coordinating server
+  ([Server failover](docs/failover.md#when-the-hub-that-ran-the-server-comes-back)).
+  While the Hub is switched, `network start --wait` names the server the Hub
+  uses as a possible cause. `swarmed network failover --start-server` and starts
+  in client-only mode are not held back. At a Hub whose own FL clients still
+  run, a refused start sets `ERROR` too, so the Hub no longer discovers new jobs
+  and refuses `training start` and `resume` until `swarmed network failover`
+  restarts its clients, which the guide says to do only once the run has
+  finished.
+- [Server failover](docs/failover.md#testing-status) describes the failover
+  rehearsed on 23 November 2026 with SwarmMed 1.0.5 on two lab machines in one
+  institution: during round 3 of a 40-round run of the ECG template on CPU, the
+  server was moved to the standby, the run was resumed at round 3 with one round
+  repeated and none lost, and the server was moved back. It names what the
+  rehearsal needed with 1.0.5 (a Celery worker running as root, the resume at a
+  site with `SWARMMEDHUB_LOCAL_ADDRESSES` instead of the standby, and `--rounds`)
+  and what it does not show, and no longer says that a failover across hosts has
+  not been carried out. It also describes the rehearsal repeated on 24 November
+  2026 with 1.0.6, which needed none of these: the standby itself resumed the run
+  without `--rounds`, and the run completed once it had been resumed a second
+  time, after a race in NVIDIA FLARE 2.7.1 had ended the first resumed job. It
+  also describes a restart of the server in place and its repeat on 25 November,
+  in which a resume at a site whose Hub had no record of the job completed the
+  run at its second attempt, after the race had ended the first.
+  [Networking](docs/networking.md#validation-status) lists the machines' own
+  addresses, without an overlay, as used in both rehearsals within one
+  institution.
+- [Server failover](docs/failover.md#resuming-the-run) says what to do when a race
+  in NVIDIA FLARE 2.7.1's swarm client controller ends a resumed job, and that
+  the `--wait` options of `swarmed network failover` and `swarmed network start`
+  can return before the new server has started and before the sites have joined
+  it. It also says how a site whose FL client has stopped, for example because
+  its host restarted, starts it again, and that after a return to the
+  coordinating server every resume warns about the previous server. The
+  [CLI guide](docs/cli.md#7-start-and-watch-training) names the error lines that
+  a stop leaves, which are expected, and says that Hubs can record the end of
+  the same job differently.
+- [Server failover](docs/failover.md#before-a-study-choose-the-standby-site) asks
+  for `SWARMMEDHUB_LOCAL_PARTICIPANT` for both `app` and `celery_worker` at the
+  standby and every training site, for the coordinating server's image settings
+  at the standby, and for a check during the first run that the standby lists the
+  job and a round-start checkpoint of it. It describes what to do when the Hub
+  that ran the server comes back while the standby serves (leave its server down
+  and switch it to the standby with `swarmed network failover`), checks before a
+  restart in place that no standby has taken over, and says that a resumed job
+  chooses its best model among its own rounds only.
+- [Networking](docs/networking.md#how-a-hub-knows-which-site-it-is) explains what
+  `SWARMMEDHUB_LOCAL_PARTICIPANT` and a Hub's own addresses
+  (`SWARMMEDHUB_LOCAL_ADDRESSES`, NetBird, Tailscale) are each used for. They were
+  presented as alternatives; they are not. The client-only example, and the
+  usage guide, set the site's name for the `app` service too, so that the
+  import's warning about another site's kit applies.
+- [Security](docs/security.md#script-sandbox) and
+  [Installation](docs/installation.md#software-and-network-access) say that the
+  privileged script sandbox, `sandbox-dind`, can load modules into the host's
+  kernel, and that its Docker daemon tries to load `bridge` and `br_netfilter`
+  when it starts.
+- The [threat model](docs/threat-model.md#key-custody-what-the-startup-package-contains)
+  says that the FL server's log names the same admin identity for every Hub, and
+  that deleting a network can leave files that the FL containers wrote as root,
+  keys included, on disk unless the Celery worker is restarted first. The
+  [installation guide](docs/installation.md#build-and-run) says that the
+  PgBouncer container keeps restarting on a new installation, which does not
+  affect the Hub, and the [CLI guide](docs/cli.md#5-create-or-import-a-network)
+  says to export the startup package before the network first starts, since a
+  later export also carries the job folders of the sites that trained at that
+  Hub.
+
+### Fixed
+
+- FL server and client starts no longer fail with `Permission denied` when
+  `HOST_PROJECT_PATH` lies under a folder that the Celery worker cannot enter,
+  such as `/root`. This affected `swarmed network start`, `network failover` and
+  `network failover --start-server`: for clients since 1.0.1, and for the server
+  since 1.0.4 when `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` is set. The worker no longer
+  has to run as root ([Server failover](docs/failover.md#testing-status)).
+- A network imported with `swarmed network import`, which runs as root, could
+  not be started, switched to another FL server or used as the standby with the
+  default Celery worker, which runs as `appuser`: the import left the network's
+  folder owned by root and its start scripts not executable. The import now
+  hands the folder to `appuser`, also when it fails, and keeps the execute bits
+  that the package records ([CLI](docs/cli.md#running-the-cli)). A network
+  imported by an earlier version is repaired when the worker restarts, which the
+  upgrade does.
+- A network created or imported with the CLI as its project's first network at a
+  Hub left the project's folder in `workspaces/` owned by root, so that the web
+  interface could not add another network to the project. When the worker cannot
+  make a start script executable, the error now names the file, its owner and
+  `docker compose restart celery_worker`.
+- `swarmed training status`, `watch`, `stop`, `checkpoints` and `resume` take a
+  job's record identifier, its FLARE job ID, or the first 8 or more characters
+  of its FLARE job ID if they name exactly one job; `checkpoints` and `resume`
+  also count the job folders in the network's workspace
+  ([CLI](docs/cli.md#7-start-and-watch-training)). Anything else names no job:
+  the command exits with code 2 and says that the job was not found, or lists the
+  jobs that the characters match. Version 1.0.5 failed with
+  `Unexpected failure: ... is not a valid UUID` for anything but a whole UUID.
+  `training stop <JOB>`, and `training status <JOB>` with `--network`, of a job
+  that is not found now exit with code 2; version 1.0.5 stopped the network's
+  newest running job, or showed its latest job, instead.
+- `swarmed training stop` and **Stop Training** on the Training page record a
+  job as stopped only when the FL server took the abort or answered that the job
+  had already finished ([CLI](docs/cli.md#7-start-and-watch-training)). When the
+  server refuses the abort, for example for a job that it does not know or that
+  it lists as running but does not run, or when it does not answer, they show
+  the server's answer and leave the job's record as it was; the command exits
+  with code 2. A job whose record had already ended keeps its status instead of
+  becoming stopped. Version 1.0.5 recorded the job as stopped whatever the
+  server answered. When the Hub cannot reach the server at all, the command
+  still fails with `Unexpected failure` and exit code 1, and leaves the record
+  as it was.
+- `swarmed training resume --rounds` must be between 1 and 100000: 0 was
+  ignored, and a value too large for the job's record was submitted to every
+  site before saving the record failed with `integer out of range`. A total
+  above 100000 in a job's files or checkpoints, which code in the FL client
+  containers can write, counts as unknown.
+- A round-start checkpoint's JSON, or a job's run file, nested too deeply to
+  read counts as no data, instead of failing `training checkpoints` and
+  `training resume` with `Unexpected failure`.
+- `swarmed training stop`, and `swarmed training start` or `resume` after a
+  failed submission, no longer hang after their output: the Hub closes its FLARE
+  admin session in every case. The job monitor and the Training page's status
+  check also close theirs when a command fails.
+- A site's Hub stored 10 as the number of rounds of a job it learned of from its
+  FL client's logs, and the job monitor and the progress display fell back to 10,
+  or to the rounds in another job's server settings, when a record had no total.
+  `swarmed training resume` used that number unless `--rounds` was given, so a
+  resumed 40-round run would have stopped at round 10. The Hub no longer stores a
+  total it does not know, shows no percentage and no ETA without one, and no
+  longer replaces its own total with one that another Hub reports. Records
+  written by earlier versions keep their numbers.
+- The job monitor runs one pass at a time
+  ([Server failover](docs/failover.md#when-a-site-drops-out)). Passes that took
+  longer than the minute between them, for example while an FL server was down,
+  overlapped and could upload a finished job's results twice.
+- `swarmed network status`, the Network page and the status that a Hub sends to
+  the other Hubs showed the clients of a stopped FL server as joined: they were
+  read from the stopped container's log, for example at a coordinating Hub that
+  came back while the standby served. The Hub now reads that log only while the
+  server's container runs.
+- A training job asks its own Hub for its data manifest at the host's loopback
+  address before the Docker gateway address, which the Hub's host check refused
+  with an error and a traceback in its log at every job start.
+- A training job started or resumed with the CLI left its folder owned by root,
+  so the web interface could not start the network's next job until the
+  containers restarted. The job's folder and `resumed_jobs.json` are now handed
+  to `appuser`, also after a failed submission, and what cannot be handed over
+  is named in a warning in the training log.
+- A job that ended while `swarmed training watch`, `training status` or the
+  Training page was open kept the round count of the job monitor's last pass,
+  for example 17 of 20 rounds. `training status --json` also gives
+  `rounds_finished`.
+- The round count that NVIDIA FLARE logs at the end of a job ("number of rounds
+  completed") was read as a round number, so the aggregating site reported one
+  round more than the others, for example 5 for a job with rounds 0 to 4.
+- A Hub that cannot tell which participant it is in a running network says so in
+  its log once every six hours, instead of logging a warning every 30 s.
+- After a return to the coordinating server, `swarmed network status` shows
+  `switched` as `false` at every Hub, and the switch log no longer calls the
+  coordinating site's own server a standby or says that it switched from an
+  address to the same address. The switch record is kept
+  ([Server failover](docs/failover.md#returning-to-the-coordinating-server)).
+- `docs/failover.md` said that a restarted FL server marks the interrupted job
+  as abandoned. A server that SwarmMed starts has a new job store and does not
+  list the job; only a server container brought back by hand with its old store
+  marks it. The guide now says to start a server again only with SwarmMed's
+  commands, since after a bare `docker restart` NVIDIA FLARE refuses to start.
+  `docs/runtime-backend.md` said that SwarmMed mounts FLARE's state directory
+  for every server.
+- `docs/failover.md` said that any training site can resume a run. With 1.0.5
+  only a site whose Hub held a record of the job could, which a Hub that did not
+  find its provisioned address among its own never had; with 1.0.6 any training
+  site can. It also said that the resume gives the admin session 20 s to log in
+  to each server: a server whose admin port does not accept a connection within
+  1 s gets 5 s.
+- `docs/networking.md` said that the FL client's job processes connect to their
+  parent process at the site's provisioned address. They connect to
+  `localhost`; FLARE does not use that address. It also said that the
+  coordinating Hub shows client status from its FL server's log only if it
+  recognises its own address. That holds for the Network page;
+  `swarmed network status` reads the log of the network's FL server container at
+  the Hub while that container runs.
+- `docs/networking.md`, `docs/threat-model.md` and `docs/security.md` said that
+  the generated web certificate names only `localhost` and `127.0.0.1`. Since
+  1.0.1 it also names `swarmmedhub`, `host.docker.internal` and `172.17.0.1`; it
+  names no site's address.
+
+### Security
+
+- The [threat model](docs/threat-model.md#what-job-code-can-reach-at-a-site) and
+  the [security page](docs/security.md#fl-runtime-containers) state what job code
+  can reach in an FL container of a standard installation, which 1.0.6 does not
+  change: every volume of the Hub's application container, including its `.env`
+  and `.secrets/` and every network's kits and keys at that Hub, as root; the
+  data adapter loads that `.env` into the training process; and a client
+  container on the host's network can reach the Hub's unauthenticated Docker API
+  proxy. The failover rehearsal with this version showed that reach with a
+  read-only request; that job code there can also create and start containers
+  through the proxy, and so take over the host, follows from the proxy's
+  settings and was not tried. The threat model also advises against installing
+  a Hub on a host shared with services or containers that the study's
+  participants must not control.
+- The [threat model](docs/threat-model.md#where-training-data-is-read) says that
+  the data adapter prints every presigned URL it tries, signature included, to
+  the job's log at the site, and that the manifest's URLs stay valid for 24
+  hours, which 1.0.6 does not change.
+- Training containers ask only their own Hub for their data manifest
+  ([Networking](docs/networking.md#traffic-between-hubs)). They asked the FL
+  server's host first, after a server switch the standby site's host; the
+  request carried the project's manifest secret, which a host with another
+  installation's certificate did not receive. On the host's network the data
+  adapter no longer falls back to plain HTTP, whose host names went to the
+  site's DNS, also not in a container that an earlier version started; an
+  adapter that cannot tell which network its container is on uses no plain
+  HTTP. The adapter comes with the job, so this holds for jobs submitted by a Hub
+  of this version.
+- `swarmed network import` refuses, and writes nothing, when the project's or
+  the network's folder in `workspaces/` is a symbolic link, and the hand-over of
+  an imported network to the Celery worker never follows a link
+  ([CLI](docs/cli.md#5-create-or-import-a-network)). The import runs as root, so
+  a link planted there made it write the package wherever the link pointed.
+- The [threat model](docs/threat-model.md#key-custody-what-the-startup-package-contains)
+  says that the private keys have mode 644 at every Hub that holds the network,
+  the importing sites included, and that the files in `workspaces/` belong to
+  user ID 1000 on the host. It and the
+  [operating systems](docs/os-support.md#container-runtime-features-across-operating-systems)
+  page no longer say that the FL client's internal listener binds to
+  `localhost`: with NVIDIA FLARE 2.7.1 it accepts connections on all IPv4
+  addresses, with host networking the host's, as the networking guide and the
+  security page already said.
+
 ## [1.0.5] - 2026-11-23
 
 ### Added

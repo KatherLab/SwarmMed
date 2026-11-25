@@ -24,11 +24,18 @@ drops out of a run ([When a site drops out](#when-a-site-drops-out)).
 
 * The sites can no longer exchange models, so the run stops.
 * FLARE keeps no state that lets a restarted or replacement server continue a
-  swarm job. A restarted server tells the sites to abort the job. NVIDIA FLARE
-  2.7.1, in the image SwarmMed builds, and the FLARE build in the worked
-  example's image also mark the job as abandoned (`FINISHED:ABANDONED`). The
-  FLARE build in MediSwarm 1.9.3's image does not, and keeps listing the job as
-  running.
+  swarm job. A restarted server tells the sites to abort the job when they
+  reconnect. SwarmMed starts every FL server, a restarted one or a standby, with
+  a new job store, so a restarted server does not list the interrupted job at
+  all. Start an FL server again only with SwarmMed's commands
+  ([Restarting the server](#restarting-the-server-where-it-ran)), not with
+  `docker restart` or `docker start`: after a bare `docker restart` of an FL
+  container, NVIDIA FLARE finds its old process-ID file and refuses to start.
+  If a server container is nevertheless brought back by hand with its old job
+  store, NVIDIA FLARE 2.7.1, in the image SwarmMed builds, and the FLARE build
+  in the worked example's image mark the job as abandoned
+  (`FINISHED:ABANDONED`), and the FLARE build in MediSwarm 1.9.3's image keeps
+  listing it as running.
 * NVIDIA FLARE's own failover support (one active server with standby servers,
   chosen by an "overseer") was retired in FLARE 2.6 to 2.8 and never continued a
   swarm job across a switch. SwarmMed runs FLARE 2.7.1 and cannot use it.
@@ -44,13 +51,21 @@ When the FL server's process or container has stopped but its host and the
 host's network are fine, for example because the container stopped or the host
 was restarted, start the server again at the same host:
 
-1. At the coordinating Hub, stop the network and start it again the same way as
+1. Make sure that no standby server has taken over the network in the meantime:
+   ask the standby site, or check the study's operating procedure. If one has,
+   do not start the server here; see
+   [When the Hub that ran the server comes back](#when-the-hub-that-ran-the-server-comes-back).
+2. At the coordinating Hub, stop the network and start it again the same way as
    it was started:
 
     ```bash
     swarmed network stop <NETWORK_UUID> --wait
     swarmed network start <NETWORK_UUID> --wait
     ```
+
+    `swarmed network start --wait` returns once the server's container runs,
+    before the server has started and before the sites are back; resume only
+    once `swarmed network status` there shows them as joined.
 
     The Hub's Celery worker must have the image settings
     (`SWARMMEDHUB_FLARE_IMAGE`, `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE`) and the
@@ -60,23 +75,30 @@ was restarted, start the server again at the same host:
     that command again. [Resuming over a slow link](#resuming-over-a-slow-link)
     explains what goes wrong otherwise. If the resumed job will cross slow
     links, set `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` for this start as well.
-2. The other sites need to do nothing. Their FL clients keep running and
+
+3. The other sites need to do nothing. Their FL clients keep running and
    reconnect to the restarted server by themselves: the server takes them back
    on the tokens it gave them before, which it signed with its private key, so
-   they do not register again. In a test across three hospitals, the FL server
-   was restarted at its host while the sites' clients kept running, and all three
-   reconnected without any action at the sites.
-3. Resume the interrupted run ([Resuming the run](#resuming-the-run)). The
-   restarted server has told the sites to abort the job. NVIDIA FLARE 2.7.1 and
-   the FLARE build in the worked example's image have also marked it as
-   abandoned. The FLARE build in MediSwarm 1.9.3's image keeps listing it as
-   running: `swarmed training resume` then refuses, and `swarmed training stop`
-   does not change that. Once you have made sure that no other FL server runs
-   for the network, resume with `--force`.
+   they do not register again. In a test across three hospitals, and in the
+   rehearsal of 24 and 25 November 2026, the FL server was restarted at its host
+   while the sites' clients kept running, and all the sites reconnected without
+   any action at them. If a site's FL client stopped as well, for example
+   because the site's host restarted, `swarmed network status` there can still
+   show the network as `RUNNING`, the Hub's last record: run
+   `swarmed network start <NETWORK_UUID> --wait` at that site, which replaces
+   its stopped FL client container.
+4. Resume the interrupted run ([Resuming the run](#resuming-the-run)). The
+   restarted server has told the sites to abort the job and does not list it,
+   so the resume needs no `--force`. If the server container came back by hand
+   with its old job store instead, the FLARE build in MediSwarm 1.9.3's image
+   still lists the job as running: `swarmed training resume` then refuses, and
+   `swarmed training stop` does not change that. Once you have made sure that
+   no other FL server runs for the network, resume with `--force`.
 
 If the server runs at a standby site after a switch, restart it there with the
-command that started it. As at the coordinating Hub, the site's Celery worker
-must have the image settings that the server was started with.
+command that started it, once you have made sure that no other FL server runs
+for the network. As at the coordinating Hub, the site's Celery worker must have
+the image settings that the server was started with.
 
 ```bash
 swarmed network failover <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --start-server --wait
@@ -98,13 +120,18 @@ Use the standby server only when the server's host or its network is lost.
 * **Round-start checkpoints.** At the start of each round, every training site
   writes the model that round starts from to `swarmmed_resume_checkpoint.pt` in
   the job's app folder, overwriting the previous one, with the round number in
-  `swarmmed_resume_checkpoint.json`. The first round of a new run starts from an
-  empty model and writes none. The file is as large as the model (94 MB for
-  the MST model of the worked example). FLARE itself saves the global model
-  (`FL_global_model.pt`) only at the site that aggregated the round.
+  `swarmmed_resume_checkpoint.json`. For jobs submitted with SwarmMed 1.0.6 or
+  later, both files also hold the run's total number of rounds, and every site's
+  copy of the job holds it in `config/swarmmed_run.json` of its app folder. The
+  first round of a new run starts from an empty model and writes none. The file
+  is as large as the model (94 MB for the MST model of the worked example).
+  FLARE itself saves the global model (`FL_global_model.pt`) only at the site
+  that aggregated the round.
 * **Resume.** `swarmed training resume` submits a new job that starts at the
-  interrupted round from the newest checkpoint at the site and runs the rounds
-  that are left. The round numbers continue those of the interrupted run.
+  interrupted round from the job's newest checkpoint at the site and runs the
+  rounds that are left. The round numbers continue those of the interrupted
+  run. Any training site can resume the run, the standby included, whether or
+  not its Hub started the job.
 
 What they do not do:
 
@@ -116,6 +143,20 @@ What they do not do:
   weights, such as optimiser state, starts afresh.
 * Only PyTorch jobs can be resumed, because FLARE's PyTorch persistor loads the
   checkpoint.
+* The resumed job chooses its best model only among its own rounds. FLARE's
+  model selector keeps the global model with the best validation metric so far
+  as `best_FL_global_model.pt`, but the resumed job does not know the metrics of
+  the rounds before the interruption, so the first round it validates counts as
+  a new best. The interrupted job's own `best_FL_global_model.pt` stays in that
+  job's folder at the site that aggregated its best round, and that site's job
+  log names the metric ("new best validation metric at round N"). To report the
+  best model of the whole run, compare the two. In the rehearsal of 23 November
+  2026, the resumed job took round 3 as its best (0.800), although round 2 had
+  reached 0.813 before the loss.
+* A Hub whose FL server was lost does not learn, when it comes back, that the
+  sites have switched to the standby, and may still show the network and the
+  interrupted job as running
+  ([When the Hub that ran the server comes back](#when-the-hub-that-ran-the-server-comes-back)).
 
 ## Before a study: choose the standby site
 
@@ -124,6 +165,19 @@ The standby site needs:
 * the network's whole startup package, imported into its Hub as at any
   participating site (a Hub that imported only its own site's kit cannot start
   the server);
+* the settings of every participating site: client-only mode for its Celery
+  worker, and the site's name as provisioned for both the `celery_worker` and the
+  `app` service (`SWARMMEDHUB_CLIENT_ONLY_MODE=true`,
+  `SWARMMEDHUB_LOCAL_PARTICIPANT=<site>`;
+  [Networking](networking.md#what-the-platform-requires)). To resume a run, the
+  standby needs neither `SWARMMEDHUB_LOCAL_ADDRESSES` nor connections between the
+  Hubs on port 5085
+  ([How a Hub knows which site it is](networking.md#how-a-hub-knows-which-site-it-is));
+* for its Celery worker, the image settings of the coordinating server
+  (`SWARMMEDHUB_FLARE_IMAGE`, `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE`) and its
+  `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT`, so that the standby server runs the same
+  FLARE build with the same time limits
+  ([Resuming over a slow link](#resuming-over-a-slow-link));
 * an IPv4 address that every other site can reach, and inbound connections on
   the fed-learn and admin ports (8002 and 8003 unless changed), as at the
   coordinating site (see [Networking](networking.md)). Host names are not
@@ -137,6 +191,14 @@ The standby site needs:
 Write the standby's address into the study's operating procedure, so that every
 site has it when the coordinating host is down.
 
+During the first run of the study, check at the standby that its Hub knows the
+job: `swarmed training list --network <NETWORK_UUID>` lists it, with the FLARE
+job ID that the coordinating Hub shows (`flare_job_uuid`) and the run's number of
+rounds, and `swarmed training checkpoints <JOB_UUID> --network <NETWORK_UUID>`
+lists a round-start checkpoint of it. Better still, rehearse the switch, the
+resume and the return with a short run before the study
+([Testing status](#testing-status)).
+
 ## Switching to the standby server
 
 1. Make sure the coordinating server is down, and stays down, before any site
@@ -148,7 +210,9 @@ site has it when the coordinating host is down.
     swarmed network failover <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --start-server --wait
     ```
 
-3. At every other site, and at the coordinating Hub if it is still reachable:
+3. At every other site, and at the coordinating Hub if it is still reachable or
+   once it comes back
+   ([When the Hub that ran the server comes back](#when-the-hub-that-ran-the-server-comes-back)):
 
     ```bash
     swarmed network failover <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --wait
@@ -166,12 +230,17 @@ At each Hub the command:
   start, the Hub keeps the server it used before and the network shows `ERROR`.
   Without `--start-server`, stops an FL server container of the network at this
   Hub, if one is running;
-* marks the network's running jobs as failed;
+* marks the running jobs that this Hub has recorded as failed;
 * restarts the network's FL client containers at this Hub so that the name
   `server` resolves to the new address. With `--wait`, the command returns once
-  the clients have restarted. A Hub without client containers only switches its
-  own connection to the server and keeps the network's status, and `--wait`
-  returns once the switch is recorded.
+  the clients have restarted, which can be before the new server has started
+  and before the sites have registered with it: before you resume, check at the
+  standby that `swarmed network status` shows every site as joined. A Hub
+  without client containers only switches its own connection to the server and
+  sets the network to `RUNNING`, except that without `--start-server` a
+  `STOPPED` or `PROVISIONED` network keeps its status; `--wait` returns once the
+  switch is recorded or, with `--start-server`, once the server's container
+  runs.
 
 As with `swarmed network start`, the Hub's Celery worker carries out the
 command, so client-only mode and the site's training variables (for example
@@ -191,15 +260,70 @@ the network that still ran at a Hub, or ran again, received that Hub's jobs.
 `swarmed network status` shows which server the Hub uses (`fl_server`) and the
 addresses its admin session tries, in order (`fl_server.admin_session_hosts`).
 
+### When the Hub that ran the server comes back
+
+A Hub whose FL server stopped while the sites switched to the standby does not
+learn of the switch. When it comes back, its FL server's container stays
+stopped, because SwarmMed starts FL containers without a restart policy, and the
+sites stay with the standby. The Hub may still show the network and the
+interrupted job as running; `swarmed network status` shows the sites as
+offline. Do not restart the server there. At that Hub, switch to the standby as
+the other sites did:
+
+```bash
+swarmed network failover <NETWORK_UUID> --server-host <STANDBY_ADDRESS> --wait
+```
+
+This starts no FL server: it stops an FL server container of the network at this
+Hub if one runs, marks the interrupted job as failed, points the Hub's admin
+session at the standby, and restarts the Hub's FL client containers of the
+network, if it has any, against the standby. Move the server back later, once the
+current run has finished or been stopped, as described next.
+
+While a Hub is switched to an FL server that another site started, `swarmed
+network start` does not start the Hub's own FL server, and outside client-only
+mode not its FL clients either: the network then shows `ERROR`. The network's
+log says why, names the server the Hub uses, and points to
+[Returning to the coordinating server](#returning-to-the-coordinating-server)
+for running the server at this Hub again. With `--wait`, the command exits with
+code 2; while the Hub is switched, its message also names that server, as a
+possible cause, and points to this section. To start only the Hub's FL clients
+while it is switched, set client-only mode for its Celery worker. The return
+below starts the server with `swarmed network failover ... --start-server`.
+
+At a Hub whose own FL clients still run, such as a coordinating Hub that also
+trains, a refused start sets `ERROR` too, although the clients keep training.
+The Hub then no longer discovers new jobs of the network and refuses `swarmed
+training start` and `swarmed training resume`. Once the run has finished, not
+during it, switch that Hub to the standby again with the command above: this
+restarts the Hub's FL clients, which during the run would stop the run, and sets
+the network to `RUNNING`.
+
+### Returning to the coordinating server
+
 To return to the coordinating server later, once the current run has finished
 or been stopped:
 
 1. At the standby site, switch to the coordinating server's address without
-   `--start-server`. This stops the standby's server.
+   `--start-server`. This stops the standby's server. With `--wait`, the command
+   returns once the standby's server container has stopped and the site's FL
+   clients have restarted: SwarmMed gives the server 15 s and then kills it, and
+   the stopped container stays at the standby.
 2. At the coordinating site, run the command with its own address and
-   `--start-server`.
+   `--start-server`. With `--wait`, it returns before the server has started:
+   start or resume a job only once `swarmed network status` at that Hub shows
+   every site as joined.
 3. At every other site, run the command with the coordinating server's address,
    without `--start-server`.
+
+Afterwards every Hub shows `switched` as `false` in `swarmed network status`,
+because it uses the network's own server address again. The record stays in
+`prod_00/.active_server.json`: it still names the server the Hub used before,
+which `swarmed training resume` also asks, and it still takes precedence over
+`SWARMMEDHUB_SERVER_HOST`. While that previous server is down, every resume
+therefore spends about 5 s on it and warns that it must stay down; after a
+return, that warning is expected. To use another address, switch again with
+`swarmed network failover`.
 
 ### Moving the server's address instead (not tested)
 
@@ -214,27 +338,54 @@ tested.
 
 ## Resuming the run
 
-At a Hub that has the study's project and the newest checkpoint:
+At any training site, the standby included, whose Hub has the study's project
+with the same training code
+([Before a study](#before-a-study-choose-the-standby-site)):
 
 ```bash
-swarmed training checkpoints <JOB_UUID>
-swarmed training resume <JOB_UUID>
+swarmed training checkpoints <JOB_UUID> --network <NETWORK_UUID>
+swarmed training resume <JOB_UUID> --network <NETWORK_UUID>
 ```
+
+`<JOB_UUID>` is the interrupted job's FLARE job ID, which is the same at every
+site: `flare_job_uuid` in the output of `swarmed training list`, and the name of
+the job's folder in the site's workspace. The `identifier` of a Hub's own record
+of the job differs from Hub to Hub. The first 8 or more characters of the FLARE
+job ID are enough if no other job at the Hub, recorded or in the network's
+workspace, starts with them; otherwise the command names the jobs that do
+([CLI](cli.md#7-start-and-watch-training)).
 
 `training checkpoints` lists the checkpoints of the job at this site, newest
 round first. Round-start checkpoints exist at every training site, so any of
-them can resume the run. A Hub that does not train, such as a coordinating Hub in
-server-only mode, has none: copy a site's checkpoint file to it and pass it with
-`--checkpoint FILE --start-round N`, where `N` is the round the file starts
-(`next_round` in the `.json` next to a round-start checkpoint).
+them can resume the run; resume it at one site only, agreed in advance. The Hub
+needs no record of the job: if it has none, for example because another Hub
+started the job, it finds the job by its folder in the network's workspace, and
+records it when it resumes it. Without `<JOB_UUID>`, both commands take the job
+of the newest round-start checkpoint at this site, or without one the Hub's
+latest job, and stop if the Hub's latest job is another one. A submission that
+failed, which records no FLARE job ID, does not count as the latest job.
+
+A Hub that does not train, such as a coordinating Hub in server-only mode, has
+no checkpoints: copy a site's `swarmmed_resume_checkpoint.pt` to it and pass
+`--checkpoint FILE --network <NETWORK_UUID>`. The file names its job and round.
+Without `--network` and without a job, the command takes the network that the
+file names, as a checkpoint of a job submitted with SwarmMed 1.0.6 or later
+does, else the one network at this Hub that holds the job's folders, and
+otherwise asks for `--network`. For another model file, which names no job,
+also give the job and `--start-round N`, where `N` is the round the file starts
+(`next_round` in the `.json` next to a round-start checkpoint). Given without a
+job, such a file is taken for the job that the command finds without
+`<JOB_UUID>`, in the current network unless `--network` is given.
 
 `training resume`:
 
-* takes the newest checkpoint at this site, or the file given with
-  `--checkpoint`;
-* refuses while the network's current server still lists the interrupted job as
-  active, and when it cannot ask that server, for example because the server
-  does not answer;
+* takes the interrupted job's newest checkpoint at this site, or the file given
+  with `--checkpoint`, and refuses a checkpoint of another job or another
+  network;
+* refuses while the network's current server lists the interrupted job, or any
+  other job, as active, and when it cannot ask that server, for example because
+  the server does not answer. A job that is already running may be this run,
+  resumed at another site: do not resume it twice;
 * after a switch, also asks the server the Hub used before
   (`previous_server_host` in `.active_server.json`, or, for a record without
   it, the address in `SWARMMEDHUB_SERVER_HOST` or the kits' `server_host.txt`).
@@ -244,17 +395,49 @@ server-only mode, has none: copy a site's checkpoint file to it and pass it with
   down;
 * gives the Hub's admin session 20 s (`SWARMMEDHUB_FLARE_CONNECT_TIMEOUT`) to
   log in to each server, as a job submission does, and each server as long
-  again to answer;
+  again to answer. A server whose admin port does not accept a connection
+  within 1 s gets 5 s to log in, or the setting if it is shorter, so a server
+  that is down costs 5 to 6 s;
 * skips these checks with `--force`;
-* submits a job with FLARE's `start_round` set to the checkpoint's round and runs
-  the rounds left of the interrupted job's total (`--rounds` sets the total);
+* submits a job with FLARE's `start_round` set to the checkpoint's round, which
+  runs the rounds left of the run's total. The total comes from the job: every
+  site's copy of a job submitted with SwarmMed 1.0.6 or later holds it, and so
+  do its round-start checkpoints. For a run started with an earlier version,
+  pass `--rounds` with the number of rounds the run was started with, except at
+  the Hub that ran the job's FL server, which finds the total in that server's
+  job settings. The command stops rather than guess, and its message names
+  `--rounds`. `--rounds` always sets the total, from 1 to 100000, with a warning
+  when it differs from the total the job records; a total above 100000 in the
+  job's files or checkpoints counts as unknown. The Hub's log, which the command
+  prints, names the round the new job starts at, the total and where the total
+  came from, for example `Job <JOB_UUID> resumed as <NEW_JOB_UUID> from round 3
+  of 40 (total from --rounds).`;
 * marks the interrupted job as failed, unless it has already ended:
   `swarmed network stop` marks a running job as stopped, and a switch marks it
-  as failed.
+  as failed. A Hub that had no record of the job records it as failed, once the
+  checks have passed, and says so in a warning.
 
 The checkpoint travels inside the job to the starting site. The new job records
 what it started from in `config/swarmmed_resume.json` of the starting site's app,
 and the Hub keeps a list in `workspaces/<project>/<network>/job/resumed_jobs.json`.
+Every site's copy of the new job also describes the run in
+`config/swarmmed_run.json`.
+
+With NVIDIA FLARE 2.7.1, a race in FLARE's swarm client controller can end a
+job after some rounds: one site logs `already running a task: aborting it` in
+the job's log and takes no further part, and the FL server aborts the job
+(`FINISHED:EXECUTION_EXCEPTION`) once that site has not reported its status for
+90 s, NVIDIA FLARE 2.7.1's default limit. The race ends new jobs too
+([Networking](networking.md#netbird-test-on-one-host)); in the rehearsal of 24
+and 25 November 2026 it ended three of the six resumed jobs
+([Testing status](#testing-status)). If it ends a resumed job, wait until the FL
+server has ended that job, or stop it
+([When a site drops out](#when-a-site-drops-out)), because `training resume`
+refuses while the server lists it as running, then resume the interrupted job
+again with the same command, as in that rehearsal: the new job starts again
+from the interrupted job's checkpoint and repeats the rounds that the ended job
+ran. Resuming the ended job itself, from its own newer checkpoints, has not been
+tested.
 
 ### Resuming over a slow link
 
@@ -335,8 +518,8 @@ worked example's image, the job keeps running:
 in a test across three hospitals, the Hub showed a job as running for five hours
 after one site's training process had been killed.
 
-The Hub's job monitor, which runs every minute in the Celery worker, therefore
-warns about a running job when
+The Hub's job monitor, which runs every minute in the Celery worker, one pass at
+a time, therefore warns about a running job when
 
 * **the FL server reports a site as dropped out**: its training job as missing
   (the site's FL client runs, but the job's process has ended) or its FL client
@@ -370,8 +553,11 @@ What to do:
    running, and what the job's log at the site says.
 2. Stop the job, with **Stop Training** on the Training page or
    `swarmed training stop <JOB_UUID>`. FLARE cannot take a site back into a
-   running swarm job.
-3. Once the site can train again, resume the run from the newest checkpoint as
+   running swarm job. The job is recorded as stopped only once the FL server
+   has taken the abort, or has answered that the job had already finished;
+   otherwise both show an error and the job's record stays as it was
+   ([CLI](cli.md#7-start-and-watch-training)).
+3. Once the site can train again, resume the job from its newest checkpoint as
    described in [Resuming the run](#resuming-the-run). Only PyTorch jobs can be
    resumed; start other jobs again. The resumed job's progress counts the rounds
    of the whole run, so it shows 0 % until the job's first round has finished,
@@ -385,7 +571,7 @@ What to do:
 | `SWARMMEDHUB_RESUME_CHECKPOINTS` | the process that submits the job | `false` stops writing round-start checkpoints; `FL_global_model.pt` is still saved by the aggregating site |
 | `SWARMMEDHUB_FLARE_ADMIN_TIMEOUT` | the process that starts the FL server: for a start from the CLI or the web interface, the Hub's Celery worker (`docker-compose.override.yml` under `celery_worker`, not `.env`); applies from the next server start | seconds the FL server waits for each site's reply, for example when it deploys a job (provisioned: 10 s); see [Resuming over a slow link](#resuming-over-a-slow-link) |
 | `SWARMMEDHUB_SWARM_START_TASK_TIMEOUT` | the process that submits the job (`docker exec -e` for the CLI, `docker-compose.override.yml` under `app` for the web interface) | whole seconds the FL server waits for the starting site to start the workflow; without it, 600 s for a resumed job and the FLARE build's default for a new one (10 s in NVIDIA FLARE 2.7.1) |
-| `SWARMMEDHUB_FLARE_CONNECT_TIMEOUT` | the process that submits the job | seconds the Hub's admin session gets to log in to an FL server when it submits a job and when `swarmed training resume` asks a server whether it still runs the job; in the latter case also the seconds the server gets to answer; default 20 |
+| `SWARMMEDHUB_FLARE_CONNECT_TIMEOUT` | the process that submits the job | seconds the Hub's admin session gets to log in to an FL server when it submits a job and when `swarmed training resume` asks a server whether it still runs the job; in the latter case also the seconds the server gets to answer; default 20. An address whose admin port does not accept a connection within 1 s gets at most 5 s |
 | `SWARMMEDHUB_STALL_WARNING_MINUTES` | the Celery worker (set it in `.env`) | minutes without a finished round after which a running job is flagged as stalled; default `60`, `0` turns the check off, an invalid value means `60` and a warning in the log ([When a site drops out](#when-a-site-drops-out)) |
 
 ## Testing status
@@ -393,19 +579,195 @@ What to do:
 The unit tests cover the switch, the server kit, the job changes, the choice of
 checkpoint, the addresses the Hub's admin session uses before and after a switch,
 and the checks before a resume, with Docker and the FL servers replaced by
-stand-ins. A test in FLARE's simulator
+stand-ins. Since 1.0.6 they also cover a resume at a Hub that has no record of
+the job, found by its folder or by a copied checkpoint; the run's total in every
+job and checkpoint; the refusal while the server runs another job; a site's Hub
+that identifies itself only with `SWARMMEDHUB_LOCAL_PARTICIPANT` and records the
+job its FL client runs; starting the network, switching servers and starting
+the standby with a Celery worker that runs as an unprivileged user, after an
+import with the CLI as root; the refusal of `swarmed network start` while the
+Hub is switched to a server that another site started; which job the start of a
+FLARE job ID names; and that `swarmed training stop` changes no record when the
+FL server refuses the abort or does not answer. A test in FLARE's simulator
 (`SWARMMEDHUB_RUN_FLARE_SIMULATOR=1`, in `apps/training/test_resume_simulator.py`)
 runs a four-round job, then resumes it at round 3 for a six-round run, and checks
-that every site starts round 3 from the same weights as in the first run. It
-passed with NVIDIA FLARE 2.7.1 and inside the image of the worked example
-(`SWARMMEDHUB_SIMULATOR_IMAGE`).
+that every site starts round 3 from the same weights as in the first run, and,
+since 1.0.6, that every site's round-start checkpoints of the resumed job name
+the run's six rounds. With version 1.0.6 it passed on 24 November 2026 with
+NVIDIA FLARE 2.7.1 in a Python environment on the host. Its earlier form,
+without the check of the run's total, also passed inside the image of the
+worked example (`SWARMMEDHUB_SIMULATOR_IMAGE`); the extended form has not been
+run there.
 
 In the test across three hospitals described in
 [Resuming over a slow link](#resuming-over-a-slow-link), the FL server was
 restarted at its host, and the sites' clients reconnected to it without any
 action at the sites.
 
-A failover across hosts, with the server stopped during a run, the standby
-started at another host, the sites switched and the run resumed, has not yet
-been carried out, and neither has moving the server's address to another
-machine. Rehearse them before relying on them in a study.
+On 23 November 2026 the failover was rehearsed once, with SwarmMed 1.0.5 and
+NVIDIA FLARE 2.7.1, on two lab machines in one institution, not at hospitals.
+Three Hubs ran in privileged containers, each with its own Docker Engine: the
+coordinating Hub, which ran only the FL server, and two training sites with one
+PTB-XL share of the
+[ECG template](https://github.com/KatherLab/SwarmMed/blob/main/examples/ecg_ptbxl/README.md)
+each, on CPU. One site, the agreed standby, ran on the second machine, the other
+on the same machine as the coordinating Hub. The sites reached the FL server, and
+later the standby, at the machines' own addresses, without an overlay or VPN,
+and traffic between the Hubs on port 5085 was blocked.
+
+During round 3 of a 40-round run of a model with 79,749 parameters, the
+coordinating Hub's container was killed. The standby started the server with
+`swarmed network failover ... --start-server`, and the other site switched to it
+with `swarmed network failover`. Both sites were registered with the standby's
+server 3 min 11 s after the kill; 2 min 30 s of that passed before the first
+command, while the operator checked that the coordinating server was down. The
+run was resumed with `swarmed training resume` at the other site, not at the
+standby (see below). The command asked the current server, the standby's, first,
+and warned that the previous server could not be reached and must stay down.
+Training restarted at round 3, 5 min 12 s after the kill, from weights identical
+to those that round had started from before the loss. Round 3, which had run for
+less than a second, was repeated, and no completed round was lost. The run
+finished with the same final global model, byte for byte, at both sites. It was
+not compared with an uninterrupted run.
+
+When the coordinating Hub was started again, its FL server stayed down, and the
+switched sites stayed with the standby. The coordinating Hub still showed the
+network and the job as running and the sites as joined. The three commands under
+[Returning to the coordinating server](#returning-to-the-coordinating-server)
+then moved the server back in 1 min 17 s. For about 31 s no FL server accepted
+connections, and two servers never ran at the same time. A 5-round run then
+completed. All three Hubs showed the same network fingerprint, and two altered
+copies of the startup package were refused at import, with nothing written.
+
+With version 1.0.5 the rehearsal needed three things that a default
+installation does not have or that this guide did not ask for:
+
+* Every Hub's Celery worker ran as root, through a change to the worker's
+  entrypoint made for the rehearsal. With the default worker, the first FL start
+  at every Hub failed with a permission error. Version 1.0.6 removes the causes.
+* The standby could not resume the run. Its Hub, set up with
+  `SWARMMEDHUB_LOCAL_PARTICIPANT` and without `SWARMMEDHUB_LOCAL_ADDRESSES`, held
+  no record of the job, which the coordinating Hub had submitted, and every form
+  of `swarmed training resume` refused. The run was resumed at the other site,
+  whose Hub had a record only because `SWARMMEDHUB_LOCAL_ADDRESSES` had been set
+  there before training. Version 1.0.6 resumes at any training site, with or
+  without a record.
+* The resume needed `--rounds 40`: the resuming site's record gave 10 rounds, a
+  number its Hub had guessed. Version 1.0.6 carries the run's total in every job
+  and checkpoint, and never guesses it.
+
+On 24 November 2026 the rehearsal was repeated with SwarmMed 1.0.6, in the same
+layout, on the same two machines and with the same template and data. It needed
+none of the three changes above. Every Hub's Celery worker ran as the image's
+unprivileged user. The standby and the other site identified themselves only
+with `SWARMMEDHUB_CLIENT_ONLY_MODE` and `SWARMMEDHUB_LOCAL_PARTICIPANT`, and no
+Hub had `SWARMMEDHUB_LOCAL_ADDRESSES`. Both sites imported the startup package
+with the CLI as root, with `--expect-fingerprint`, and all three Hubs showed the
+same network fingerprint. Traffic between the Hubs on port 5085 was blocked, and
+every training job asked only its own Hub for its data manifest. As in the first
+rehearsal, and unlike a default installation, the Hubs ran in privileged
+containers and were set up by running the steps of `make start` separately;
+they used the FL ports 8012 and 8013, a prebuilt runtime image
+(`SWARMMEDHUB_FLARE_IMAGE` with `SWARMMEDHUB_FORCE_CONFIGURED_IMAGE`), no GPU and
+`SWARMMEDHUB_FLARE_ADMIN_TIMEOUT=300`, and the script sandbox's Docker Engine was
+kept from loading kernel modules.
+
+During round 13 of a 40-round run, less than 2 s after the round had begun, the
+coordinating Hub's container was killed. The standby started the server with
+`swarmed network failover ... --start-server`, and the other site switched to it
+with `swarmed network failover`. Both sites were registered with the standby's
+server 93 s after the kill; 75 s of that passed before the first command. The
+run was then resumed at the standby itself with
+`swarmed training resume <JOB_UUID> --network <NETWORK_UUID>`, without
+`--rounds`, `--start-round`, `--checkpoint` or `--force`: the standby's Hub had
+recorded the job from its own FL client's log, and the command took the run's
+40 rounds from the job's files and the checkpoint from the standby's own copy of
+the job. It asked the standby's server first, and warned that the previous
+server could not be reached and must stay down. Training restarted at round 13,
+4 min 12 s after the kill, from weights identical to those that round had
+started from before the loss. After two rounds, a race in NVIDIA FLARE 2.7.1's
+swarm client controller ended that job: one site logged
+`already running a task: aborting it`, and the server aborted the job 96 s
+later, once that site had not reported its status for 90 s. While the server
+still listed that job as running, a second `swarmed training resume` of the
+interrupted job at the other site was refused, and no job was submitted. Once
+the server had ended the job, the same command, run again at the standby,
+restarted round 13, 8 min 11 s after the kill, and that job completed rounds
+13 to 39. Round 13, which had begun before the loss, and the first resumed job's
+rounds 13 and 14 were trained again; no completed round of the interrupted job
+was lost. Both sites ended with the same final global model, byte for byte, and
+the same best model, which the resumed job chose among rounds 13 to 39 only.
+
+When the coordinating Hub was started again, its FL server stayed down, and
+`swarmed network status` there showed the sites as offline; with 1.0.5 it had
+shown them as joined. Once that Hub had switched to the standby, `swarmed network
+start` there exited with code 2, naming the standby's server, and started no FL
+server. After the run, the three commands under
+[Returning to the coordinating server](#returning-to-the-coordinating-server)
+moved the server back. Both sites were registered with it 37 s after the first
+command, no FL server accepted connections for at least 13 and at most 29 s, and
+two servers never ran at the same time.
+
+The server was then restarted in place
+([Restarting the server](#restarting-the-server-where-it-ran)). During round 3
+of a 10-round run its container alone was killed, and `swarmed network stop` and
+`swarmed network start` at the coordinating Hub started a new server. Both sites
+reconnected to it 25 and 32 s after the kill, without any action at them, and
+aborted the job, which the new server did not list. The run was resumed at the
+other site, not the standby, without `--rounds`, after that site's record of the
+job had been deleted for the test: its Hub found the job by its folder in the
+network's workspace and warned that it had no record. FLARE's race ended that
+resumed job after rounds 3 to 5, and the same command, run again, completed the
+run, but by then the first attempt had recorded the job. Afterwards,
+`swarmed training stop` of a running job returned in 10 s, and the server
+aborted the job.
+
+On 25 November 2026 the three Hubs, which had been stopped the day before, were
+started again. Each still showed the network as `RUNNING`, although its FL
+server or client had stopped with the Hub's own Docker Engine, and
+`swarmed network start <NETWORK_UUID> --wait` at each Hub started it again. The
+restart in place and the resume at the other site were then repeated, with that
+site's record of the job deleted again before every attempt: both sites again
+reconnected without any action at them, FLARE's race ended the first resumed job
+again, and the second, which again found the job by its folder and warned that
+the Hub had no record of it, completed the run, with the same final global model
+at both sites.
+
+Nothing needed a change to the documented settings or commands, but FLARE's race
+ended three of the six resumed jobs, and each time the interrupted job was
+resumed again with the same command ([Resuming the run](#resuming-the-run)).
+Separately, on 24 November, at one site, `swarmed network start` without
+`SWARMMEDHUB_FLARE_IMAGE` built the default runtime image with the unprivileged
+worker, an image of 12.4 GB, in about 4 min, and the site registered with the
+server again; no training ran in that image. A container started on the host
+network of a Hub's Docker Engine, as the FL clients are, received the Engine's
+version from the Hub's Docker API proxy without authentication; no other request
+was sent ([Security](security.md#host-docker-access)).
+
+Neither rehearsal shows:
+
+* the failover across hospitals or institutions, through a VPN, NAT, firewalls
+  or slow links;
+* training in the runtime image that SwarmMed builds by default, or without the
+  other settings listed above;
+* how long detecting the failure and agreeing on the switch take: the times
+  above assume an operator ready at every Hub;
+* other ways to lose the server: a reboot, a power loss or a network partition
+  (the sites' connections were refused at once, without timeouts), a loss during
+  aggregation or while a job is deployed, a second failover, a switch while the
+  coordinating server can still be reached, or a coordinating server that runs
+  again at its address while the standby serves;
+* moving the server's address, a coordinating Hub that also trains, Hubs that
+  exchange status on port 5085, or a site that drops out during the failover;
+* larger models or GPUs: the checkpoint was 330 KB, not the 94 MB of the worked
+  example's model;
+* that the resumed run matches an uninterrupted one. The choice of the best model
+  also started again at the resumed round
+  ([What they do not do](#what-swarmmed-provides));
+* the web interface, that the failover's results can be repeated, or how often
+  FLARE's race ends a job: each rehearsal switched to one standby once, during
+  one run.
+
+Moving the server's address to another machine has not been tested. Rehearse a
+failover with your own sites, and with a short run, before relying on it in a
+study.

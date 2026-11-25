@@ -411,8 +411,12 @@ Deployment notes from these runs:
   fix.
 - **Workspace permissions:** at hospital A, starting the FL client failed with permission errors on
   the FL workspace until the Hub's Celery worker ran as root; the same change was made at hospitals
-  B and C before their clients first started. Whether a standard installation is affected was not
-  checked.
+  B and C before their clients first started. A failover rehearsal on 23 Nov 2026 found a cause of
+  such errors in a standard installation, a SwarmMed folder under `/root`, which the worker's user
+  cannot enter, and the review after it a second one: a network imported with the CLI, which runs as
+  root, left its folder to root. These hospital installations were probably hit by one of them,
+  which was not checked. SwarmMed 1.0.6 removes both causes, so the worker no longer has to run as
+  root.
 - **Admin identity:** all four Hubs logged in to the FL server's admin port with one identity,
   hospital A's `project_admin`, so the server's log names the same user for every Hub; only the
   connection's source address tells them apart. The startup package gives every site every identity
@@ -428,7 +432,10 @@ Sites on separate hosts were tested on 13 and 16 Nov 2026 (above). Not tested: G
 sites on one host or more than three on separate hosts; more than three runs, or other data splits;
 ECGs of the hospitals' own patients; SwarmMed installed directly on a hospital's server rather than
 in an added container; installation and operation by a hospital's own staff; failover to the standby
-FL server; NetBird as the overlay; the PTB-XL 500 Hz records.
+FL server at the hospitals (it was rehearsed twice with this template on two lab machines in one
+institution: on 23 Nov 2026 with SwarmMed 1.0.5, which needed workarounds, and on 24 Nov 2026 with
+1.0.6, which did not; see [Server failover](../../docs/failover.md#testing-status)); NetBird as the
+overlay; the PTB-XL 500 Hz records.
 
 ## Explainability
 

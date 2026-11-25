@@ -28,15 +28,20 @@ a second port, the admin port, and their Hubs can exchange status over HTTPS
 | Direction | Endpoint | Default port | Purpose |
 |---|---|---|---|
 | participating site → coordinating site | FL server, fed-learn port | 8002 | client registration, task exchange, model payloads |
-| participating site's Hub, if it runs one → coordinating site | FL server, admin port | 8003 | job-status polling every 60 s; job submission if training is started from that Hub |
+| participating site's Hub, if it runs one → coordinating site | FL server, admin port | 8003 | job-status polling every 60 s; job submission, and the check before `swarmed training resume`, if training is started or resumed from that Hub |
 | every Hub ↔ every other participant's Hub | SwarmMedHub HTTPS | 5085 (fixed in code) | status exchange and training-state mirroring; optional |
 | users' browsers → their own site | SwarmMedHub web interface | 5085 (443 serves the same site) | the interface, at the site that hosts it |
 
 The coordinating site's own Hub and the `swarmed` CLI reach the admin port from
 the same host, so job submission and run control there need no firewall
-opening. A participating Hub starts polling the admin port as soon as the
-startup bundle is imported; if the port is blocked, that Hub learns nothing about
-jobs from the server and each poll waits for connection timeouts.
+opening. A participating Hub's job monitor connects to the admin port every 60 s
+as soon as the startup bundle is imported; if the port is blocked, each attempt
+waits for connection timeouts. The Hub's job records do not depend on it: they
+come from the jobs the Hub submits and from the logs of its own FL containers.
+With NVIDIA FLARE 2.7.1 the monitor does not yet find, in the server's job list,
+jobs that other Hubs submitted. A Hub that resumes a run asks the server over
+this port whether it still runs the job, or any other job
+([Server failover](failover.md#resuming-the-run)).
 
 Both server ports are configurable with `SWARMMEDHUB_FED_LEARN_PORT` and
 `SWARMMEDHUB_ADMIN_PORT`. This is necessary when the host already runs another
@@ -98,17 +103,22 @@ conveniences, which read NetBird or Tailscale, are the exception.
 Client-only mode, and the choice of which site's kit to start from the bundle,
 are environment variables of the process that starts the network. That is the
 Hub's Celery worker: a start from the web interface or the CLI is handed to it.
+The site's name is also read in the `app` container, where the CLI and the web
+interface import the startup package, so set it for both services:
 
 ```yaml
 # docker-compose.override.yml at a participating site, next to docker-compose.yml
 services:
+  app:
+    environment:
+      - SWARMMEDHUB_LOCAL_PARTICIPANT=site-a   # the site's name as provisioned
   celery_worker:
     environment:
       - SWARMMEDHUB_CLIENT_ONLY_MODE=true
-      - SWARMMEDHUB_LOCAL_PARTICIPANT=site-a   # the site's name as provisioned
+      - SWARMMEDHUB_LOCAL_PARTICIPANT=site-a
 ```
 
-Apply it with `docker compose up -d celery_worker`. Without
+Apply it with `docker compose up -d app celery_worker`. Without
 `SWARMMEDHUB_LOCAL_PARTICIPANT`, the start aborts unless the hostname or one of
 the host's addresses (its NetBird and Tailscale addresses and those in
 `SWARMMEDHUB_LOCAL_ADDRESSES`) matches a site in the bundle. On the coordinating host,
@@ -118,6 +128,37 @@ site. The port variables above go in the same file, under both `app` and
 `celery_worker`. These settings apply to every network the Hub starts. The
 worked example set the same variables for the processes that started each
 site's client and the coordinating server.
+
+### How a Hub knows which site it is
+
+A Hub learns which participant it is in two ways: from
+`SWARMMEDHUB_LOCAL_PARTICIPANT`, the site's name as provisioned, or from its own
+addresses, its NetBird and Tailscale addresses and those in
+`SWARMMEDHUB_LOCAL_ADDRESSES`, one of which must then be the address the site
+was provisioned with. They are used for different things:
+
+| The Hub ... | with `SWARMMEDHUB_LOCAL_PARTICIPANT` | with the provisioned address among its own |
+|---|---|---|
+| starts the site's FL client from the bundle (`swarmed network start`, `swarmed network failover`) | yes, set for `celery_worker` | yes |
+| records the jobs that its FL client runs, also those started at another Hub, and resumes them (`swarmed training checkpoints`, `swarmed training resume`) | not needed | not needed |
+| sends its status to the other Hubs and mirrors their training state ([Traffic between Hubs](#traffic-between-hubs)) | no | yes |
+| shows its own FL client as online in `swarmed network status` and on the Network page | no | yes |
+| at the coordinating host, shows the clients' status from its FL server's log on the Network page | no: the server has no site name | yes |
+| warns at import when a single site's kit is another site's | yes, set for `app` | no |
+
+A Hub records the jobs of its site from the jobs it submits and from the logs of
+its own FL containers, which SwarmMed labels with the network's ID, whoever
+submitted the jobs. `swarmed training resume` finds an interrupted job by its
+folder in the network's workspace, also without a record. So job records and the
+resume need neither setting, and no connection between the Hubs on port 5085.
+Set `SWARMMEDHUB_LOCAL_PARTICIPANT` at every site that trains, the standby
+included, for both services. List the server address in
+`SWARMMEDHUB_LOCAL_ADDRESSES` at the coordinating host, unless it is one of the
+host's NetBird or Tailscale addresses, and a site's provisioned address at any
+site whose Hub is to exchange status with the other Hubs. Up to version 1.0.5, a
+Hub without its provisioned address among its own did not record a job that
+another Hub had submitted, and could not resume it
+([Server failover](failover.md#testing-status)).
 
 ## Listening ports by host role
 
@@ -197,11 +238,13 @@ Both need inbound connections on port 5085:
 * Participating Hubs get the job state from the coordinating Hub only if it
   accepts their connections. Otherwise their Training page falls back to other
   participants' Hubs, their own client container's log and their admin-port
-  polling.
+  polling. Their job records and `swarmed training resume` do not depend on this
+  channel.
 * On any Hub, each peer that silently drops these connections delays every
   status refresh of the Training and home pages by up to 2 s.
-* The coordinating Hub's Network page does not use this channel; it reads its
-  own FL server's log.
+* A Hub that runs the network's FL server reads the clients' status from that
+  server's log; see [The overlay helper and the Hub](#the-overlay-helper-and-the-hub)
+  for when the Network page does so.
 * Training, model exchange and results are not affected.
 
 !!! note "Known limitation"
@@ -216,21 +259,29 @@ A Hub accepts these requests only if the address it was provisioned with is
 listed in its `DJANGO_ALLOWED_HOSTS`; the same applies to every name or address
 users type into their browsers. A Hub sends status only if it finds one of
 its own addresses among the participants (see
-[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)).
+[The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). A Hub that
+finds none says so in its log once every six hours.
 
 The channel uses HTTPS without certificate verification by default
 (`SWARMMEDHUB_SKIP_PEER_SSL_VERIFY` defaults to `true`). Turning verification on
 does not work with the generated certificates: each site's web certificate is
-issued by that site's own internal CA and names only `localhost` and
-`127.0.0.1`, which is also why browsers on other machines warn about it.
+issued by that site's own internal CA and names only the host's local names and
+addresses (`localhost`, `swarmmedhub`, `host.docker.internal`, `127.0.0.1` and
+`172.17.0.1`; before version 1.0.1 only `localhost` and `127.0.0.1`), not the
+site's address, which is also why browsers on other machines warn about it.
 Requests are authenticated with one token per network, carried in every site's
 startup bundle, so anyone holding a bundle can post status for any participant.
 Restrict port 5085 to the participants' addresses.
 
 Training containers that read their data through the platform's data adapter
-(the bundled examples do; the worked example read a local directory) first ask
-the coordinating Hub on port 5085 for their data manifest, then their own Hub.
-Nothing needs to answer that first request.
+(the bundled examples do; the worked example read a local directory) ask their
+own Hub for their data manifest, over HTTPS on port 5085 of their own host. Only
+a container on a Docker network also tries plain HTTP to the Hub's application
+container; one on the host's network never does, also when an earlier version of
+SwarmMed started it. The data adapter comes with the job, so this holds for jobs
+submitted by a Hub of version 1.0.6 or later. Versions 1.0.5 and earlier asked
+the FL server's host first, after a server switch the standby site's host;
+nothing needed to answer there.
 
 ## Addressing
 
@@ -270,10 +321,14 @@ docker exec -w /app swarmmedhub python3 -m swarmed_cli.main network create \
 
 Each participant also needs an IPv4 address of its own (`--participant NAME=IPv4`).
 It does not have to be public or reachable from other sites, but it must stay
-assigned to that site's host for the study: it is written into the site's kit,
-the FL client's job processes connect to their parent process at that address,
-and other Hubs use it to reach that site's Hub. A participant entered without a
-valid IPv4 address gets no startup kit; provisioning only logs a warning.
+assigned to that site's host for the study: it is written into the startup
+package, other Hubs use it to reach that site's Hub, and the site's Hub
+recognises its own site by it for the status exchange between Hubs and, without
+`SWARMMEDHUB_LOCAL_PARTICIPANT`, to pick the site's kit
+([How a Hub knows which site it is](#how-a-hub-knows-which-site-it-is)). FLARE
+itself does not use it: the FL client's job processes reach their parent process
+at `localhost`. A participant entered without a valid IPv4 address gets no
+startup kit; provisioning only logs a warning.
 
 ### The overlay helper and the Hub
 
@@ -315,9 +370,13 @@ The Hub uses that address:
   NetBird's and Tailscale's, counts, and so does every address in
   `SWARMMEDHUB_LOCAL_ADDRESSES`; with `SWARMMEDHUB_OVERLAY=none`, only the
   latter count. A Hub sends status and mirrors training state
-  ([Traffic between Hubs](#traffic-between-hubs)), and the coordinating Hub
-  shows client status from its FL server's log, only if one of these is the
-  address it was provisioned with;
+  ([Traffic between Hubs](#traffic-between-hubs)) only if one of these is the
+  address it was provisioned with. The Network page shows client status from
+  the FL server's log only at a Hub that recognises the server's address as its
+  own; elsewhere it shows the status that other Hubs sent. `swarmed network
+  status` shows client status from the log of the network's FL server container
+  at this Hub while that container runs, also at a Hub that does not recognise
+  itself, such as a standby after a switch;
 * as one of the ways, with `SWARMMEDHUB_LOCAL_PARTICIPANT` and the hostname, to
   pick the local client kit from a bundle;
 * for the overlay status on the Network page: the address, NetBird's or
@@ -513,12 +572,16 @@ tells them apart.
 The Hub reads NetBird and Tailscale (see
 [The overlay helper and the Hub](#the-overlay-helper-and-the-hub)). With any
 other option, enter the server address in the network form or give it with the
-CLI's `--server-ip`, set `SWARMMEDHUB_OVERLAY=none`, and at each site list the
-address the site was provisioned with in `SWARMMEDHUB_LOCAL_ADDRESSES`, or set
-`SWARMMEDHUB_LOCAL_PARTICIPANT`. Tailscale (the worked example) and an existing
-VPN between institutions (the three-hospital runs of the ECG template) have been
-used for training across hosts so far; NetBird has been exercised in a
-containers-only test on one host ([Validation status](#validation-status)).
+CLI's `--server-ip`, and set `SWARMMEDHUB_OVERLAY=none`. At each site set
+`SWARMMEDHUB_LOCAL_PARTICIPANT`, and list the address the site was provisioned
+with in `SWARMMEDHUB_LOCAL_ADDRESSES` where the Hub is to exchange status with
+other Hubs; at the coordinating host list the server address there
+([How a Hub knows which site it is](#how-a-hub-knows-which-site-it-is)).
+Tailscale (the worked example), an existing VPN between institutions (the
+three-hospital runs of the ECG template) and, within one institution, the hosts'
+own addresses (two failover rehearsals) have been used for training across hosts
+so far; NetBird has been exercised in a containers-only test on one host
+([Validation status](#validation-status)).
 
 ### NetBird (recommended)
 
@@ -755,7 +818,7 @@ connect to the server.
 | Tailscale | Used for the worked example: the coordinating host and three training hosts on one tailnet, with the coordinating host's Tailscale address as the server address |
 | NetBird | Exercised in a containers-only test on one host on 11 November 2026 ([below](#netbird-test-on-one-host)); not yet used for training across hosts |
 | An existing VPN between institutions (neither NetBird nor Tailscale) | Used for training across three hospitals and a coordinating host on 13 and 16 November 2026 ([ECG template](https://github.com/KatherLab/SwarmMed/blob/main/examples/ecg_ptbxl/README.md#what-was-run)): server address given with `--server-ip` and listed in `SWARMMEDHUB_LOCAL_ADDRESSES` at the coordinating host; the hospitals connected outbound only; Docker's default address pools had to be moved off the VPN's address range |
-| Direct routed addressing, no overlay | Not yet exercised; no platform change expected for FLARE traffic |
+| Direct routed addressing, no overlay | Used within one institution, in two failover rehearsals on two lab machines (23 and 24 November 2026): the sites reached the FL server, and later the standby, at the machines' own addresses, with the Hubs in containers on them ([Server failover](failover.md#testing-status)); no platform change was needed for FLARE traffic. Not yet used between institutions |
 | Self-hosted WireGuard | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
 | OpenVPN, site-to-site IPSec | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
 
@@ -850,6 +913,15 @@ NetBird.
   from the same host, so a submission that fails while clients are connected is
   rarely a firewall problem. The training log lists the hosts and ports the
   check before submission tried.
+* A site's Hub lists a job that another Hub started
+  (`swarmed training list --network <NETWORK_UUID>`) once its job monitor, which
+  runs every minute, has read the job in the log of the site's running FL client
+  container. Containers that SwarmMed did not start carry no
+  `swarmmedhub.network_id` label, and their logs are not read. A Hub that does
+  not list the job can still resume it:
+  `swarmed training checkpoints <JOB_UUID> --network <NETWORK_UUID>` finds the
+  job by its folder in the network's workspace
+  ([Server failover](failover.md#resuming-the-run)).
 * Check what the server sees, on the coordinating host:
   `docker logs swarm-<first 12 characters of the network ID>-server | grep "New client"`
   (for example `swarm-1a7f19db-dd2-server`). The address after `@` is the one

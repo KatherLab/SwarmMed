@@ -71,6 +71,10 @@ there, the application image measured 19.9 GB and the Python environment that
   all of the host's addresses. Ports that Docker publishes are not filtered by
   host firewalls such as UFW; [Networking](networking.md#listening-ports-by-host-role)
   lists every port and how to restrict them.
+* **A privileged container.** The script sandbox, `sandbox-dind`, runs
+  privileged with its own Docker daemon, and can load kernel modules on the host
+  ([Security](security.md#script-sandbox)). On a host shared with other users,
+  agree this with the host's administrators first.
 
 ## 1. 🐳 Docker
 
@@ -95,6 +99,9 @@ Two features of the web interface use this host's overlay address:
   `SWARMMEDHUB_LOCAL_ADDRESSES`
   ([Networking](networking.md#the-overlay-helper-and-the-hub)); otherwise the Hub
   sends no status to the other participants' Hubs and shows them as offline.
+  The site's name, `SWARMMEDHUB_LOCAL_PARTICIPANT`, which a training site sets
+  for the `app` and `celery_worker` services, does not take the address's place
+  here ([How a Hub knows which site it is](networking.md#how-a-hub-knows-which-site-it-is)).
 
 SwarmMed does not install, configure or join the overlay; joining it is a manual
 step. The documentation recommends NetBird with a management server that the
@@ -258,7 +265,7 @@ mode when it rewrites it.
 
 `make env` reads the answers from standard input, so they can also be piped in
 (`printf 'site-a\n' | make env`); an empty answer takes the default shown in
-brackets, as in a terminal. Once the input has ended (Ctrl-D, `</dev/null`, a CI
+brackets, as in a terminal. Once the input has ended (Ctrl-D, `< /dev/null`, a CI
 job, or `ssh host make restart` without input), it asks nothing more. It keeps
 the values set in `.env` and generates missing secrets as usual. A missing
 variable that it would otherwise ask for gets the template's default, and the
@@ -308,6 +315,11 @@ helper), `docker compose build` and `docker compose up -d`.
 * **Restarts.** Every service has the restart policy `always`, so Docker starts
   the stack again when the Docker daemon starts after a reboot. The overlay
   helper is not restarted; run `make overlay`.
+* **PgBouncer.** On a new installation the `pgbouncer` container exits right
+  after it starts, and Docker keeps restarting it. The likely cause is that it
+  cannot read its configuration, which the start-up writes readable only by
+  root. The default configuration does not use PgBouncer (`DB_HOST=postgres`),
+  so the Hub is not affected ([Security](security.md#database-proxy-pgbouncer)).
 
 `make stop` stops the stack and removes its containers; the database and
 object-store volumes are kept, and nothing restarts until the next `make start`.
