@@ -5,7 +5,6 @@ with object storage for training code and result uploads.
 """
 
 import ast
-import json
 import os
 import re
 import shutil
@@ -27,9 +26,13 @@ TRAINING_ROUND_PATTERNS = (
     re.compile(r"Round\s+(\d+)\s+\|", re.I),
     re.compile(r"Round:\s+(\d+)", re.I),
     re.compile(r"finished training round\s+(\d+)", re.I),
-    re.compile(r"number of rounds completed\s+(\d+)", re.I),
     re.compile(r"Start aggregation for round\s+(\d+)", re.I),
 )
+
+# FLARE's "Swarm Learning Done: number of rounds completed K" at the end of a job
+# counts the job's rounds, which are numbered from 0, so its last round is K - 1.
+# A resumed job counts only its own rounds; then K - 1 is a lower bound.
+TRAINING_ROUND_COUNT_PATTERN = re.compile(r"number of rounds completed\s+(\d+)", re.I)
 
 TRAINING_COMPLETION_MARKERS = (
     "ending workflow",
@@ -183,6 +186,8 @@ def extract_training_rounds(log_text: str) -> int:
             round_number = int(match.group(1))
             if round_number > rounds_finished:
                 rounds_finished = round_number
+    for match in TRAINING_ROUND_COUNT_PATTERN.finditer(log_text):
+        rounds_finished = max(rounds_finished, int(match.group(1)) - 1)
     return rounds_finished
 
 
@@ -391,11 +396,28 @@ def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> i
     its round numbers continue the interrupted run, so the count returned is
     ``start_round + num_rounds``.
     """
-    for workflow in config.get("workflows", []):
+    plan = extract_swarm_round_plan(config)
+    return plan[0] if plan else default
+
+
+def extract_swarm_round_plan(config: dict) -> tuple[int, int] | None:
+    """Return the rounds of the whole run and the start round of a swarm job.
+
+    Reads the swarm controller of an NVFLARE server config. A resumed run starts
+    at ``start_round`` and runs ``num_rounds`` more rounds; its round numbers
+    continue the interrupted run, so the whole run has ``start_round +
+    num_rounds`` rounds.
+
+    Returns:
+        tuple[int, int] | None: The whole run's rounds and the start round, or
+        None if the config has no swarm controller with a round count.
+    """
+    workflows = config.get("workflows") if isinstance(config, dict) else None
+    for workflow in workflows if isinstance(workflows, list) else []:
         if not isinstance(workflow, dict):
             continue
         args = workflow.get("args") or {}
-        if "num_rounds" not in args:
+        if not isinstance(args, dict) or "num_rounds" not in args:
             continue
 
         workflow_id = str(workflow.get("id") or "").lower()
@@ -414,17 +436,9 @@ def extract_total_rounds_from_flare_config(config: dict, default: int = 10) -> i
         except (TypeError, ValueError):
             continue
         if rounds > 0:
-            return rounds + max(start_round, 0)
-    return default
-
-
-def extract_total_rounds_from_config_file(path: str, default: int = 10) -> int:
-    """Read an NVFLARE config file and return its Swarm round count."""
-    try:
-        with open(path) as handle:
-            return extract_total_rounds_from_flare_config(json.load(handle), default)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return default
+            start_round = max(start_round, 0)
+            return rounds + start_round, start_round
+    return None
 
 
 def _scope_logs_to_latest_job(logs: str, job_id_pattern: re.Pattern) -> tuple[str | None, str]:
@@ -465,12 +479,19 @@ def should_update_terminal_status(
     }
 
 
-def scrape_docker_progress(participant_ids=None):
+def scrape_docker_progress(participant_ids=None, *, network_id=None):
     """Scrapes progress from local docker containers running NVFlare clients/servers.
 
     Args:
         participant_ids (list, optional): List of participant IDs to filter containers.
             Defaults to None.
+        network_id (optional): Read the FL containers that SwarmMed started at this
+            Hub for this network, which carry its ``swarmmedhub.network_id`` label,
+            instead of matching names. A Hub that knows none of its own addresses
+            finds them too.
+
+    Without either, nothing is read: through the Docker host, the names of other
+    deployments' containers can look like FLARE's.
 
     Returns:
         list: A list of dictionaries with extracted progress info (container, job_id,
@@ -478,17 +499,28 @@ def scrape_docker_progress(participant_ids=None):
     """
     from logs.logger import get_logger
     log = get_logger()
-    
+
+    if network_id is None and not participant_ids:
+        log.training.debug("Scrape: no network and no participants; nothing to read")
+        return []
+
     docker_path = shutil.which("docker") or "docker"
     if not docker_path:
         log.training.error("Scrape: Docker CLI not found in PATH")
         return []
 
+    if network_id is not None:
+        # The label that every FL container SwarmMed starts carries (since 1.0.0).
+        label = f"label=swarmmedhub.network_id={network_id}"
+        list_command = [docker_path, "ps", "--filter", label, "--format", "{{.Names}}"]
+    else:
+        list_command = [docker_path, "ps", "--format", "{{.Names}}"]
+
     # Get all running container names
     try:
         # Bandit B603: args are a fixed list; shell=False; binary resolved via shutil.which.
         result = subprocess.run(  # nosec B603
-            [docker_path, "ps", "--format", "{{.Names}}"],
+            list_command,
             capture_output=True, text=True, check=True
         )
         container_names = result.stdout.splitlines()
@@ -499,7 +531,9 @@ def scrape_docker_progress(participant_ids=None):
 
     # Filter candidates
     candidates = []
-    if participant_ids:
+    if network_id is not None:
+        candidates = [name.strip() for name in container_names if name.strip()]
+    else:
         log.training.debug(f"Scrape: Looking for participants: {participant_ids}")
         for p_id in participant_ids:
             # Match exact name or name with prefix/suffix (docker-compose style)
@@ -508,11 +542,6 @@ def scrape_docker_progress(participant_ids=None):
             for c_name in container_names:
                 if pattern.search(c_name):
                     candidates.append(c_name)
-    else:
-        log.training.debug("Scrape: No participant_ids provided, falling back to generic search")
-        for c_name in container_names:
-            if "client" in c_name.lower() or "server" in c_name.lower() or "nvflare" in c_name.lower():
-                candidates.append(c_name)
 
     log.training.debug(f"Scrape: Filtered candidate containers: {candidates}")
 

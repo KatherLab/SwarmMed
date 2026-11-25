@@ -5,23 +5,28 @@ host the retries reached other FL servers), re-upload each finished job's result
 every minute, and overwrite the job's completion time each time.
 """
 
+import json
 import os
 import tempfile
 from datetime import timedelta
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from network.models import SwarmNetwork
+from network.models import SwarmNetwork, SwarmParticipant
 from project.models import Project
 
+from . import resume as training_resume
 from . import services as training_services
 from . import tasks
 from .models import TrainingJob
 
 JOB_UUID = "22222222-2222-2222-2222-222222222222"
+OTHER_JOB_UUID = "99999999-9999-9999-9999-999999999999"
 
 
 class MonitorFinishedJobsTests(TestCase):
@@ -139,6 +144,243 @@ class MonitorFinishedJobsTests(TestCase):
         self.assertEqual(job.status, "COMPLETED")
         self.assertIsNotNone(job.completed_at)
         self.assertGreaterEqual(job.completed_at, before)
+
+
+class MonitorTotalRoundsTests(TestCase):
+    """A site's monitor records only the job's own total of rounds, never a guess."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base_dir = tmp.name
+        user = User.objects.create_user(
+            username="totals", password="test-password"
+        )  # nosec B106
+        self.project = Project.objects.create(title="Totals Project", author=user)
+        self.network = SwarmNetwork.objects.create(
+            name="Totals Network", project=self.project, author=user, status="RUNNING"
+        )
+        self.prod = (
+            Path(tmp.name)
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(self.network.identifier)
+            / "workspace"
+            / "study"
+            / "prod_00"
+        )
+        # A site whose FL client runs the job; its log shows two rounds.
+        self.job_dir = self.prod / "node-B" / JOB_UUID
+        (self.job_dir / "app_node-B" / "config").mkdir(parents=True)
+        (self.job_dir / "log.txt").write_text("Finished round 2\n")
+        self.job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=JOB_UUID,
+            flare_job_uuid=JOB_UUID,
+        )
+        for target, value in (
+            ("training.tasks.logger", MagicMock()),
+            (
+                "network.overlay.get_local_addresses",
+                MagicMock(return_value=frozenset()),
+            ),
+            ("training.utils.scrape_docker_progress", MagicMock(return_value=[])),
+            (
+                "training.tasks.resolve_admin_session_target",
+                MagicMock(return_value=None),
+            ),
+            (
+                "training.tasks.summarize_training_log",
+                MagicMock(
+                    return_value={"rounds_finished": 2, "terminal_status": None}
+                ),
+            ),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _monitored_job(self):
+        with override_settings(BASE_DIR=self.base_dir):
+            tasks.monitor_training_jobs()
+        self.job.refresh_from_db()
+        return self.job
+
+    def test_a_client_only_site_stores_no_guessed_total(self):
+        job = self._monitored_job()
+
+        self.assertEqual(job.rounds_finished, 2)
+        self.assertIsNone(job.total_rounds)
+        self.assertIsNone(job.progress_percent)
+
+    def test_another_jobs_server_config_is_not_used(self):
+        config = self.prod / "server" / OTHER_JOB_UUID / "app_server" / "config"
+        config.mkdir(parents=True)
+        (config / "config_fed_server.json").write_text(
+            json.dumps(
+                {
+                    "workflows": [
+                        {
+                            "id": "swarm_controller",
+                            "path": "nvflare.app_common.ccwf.swarm_server_ctl."
+                            "SwarmServerController",
+                            "args": {"num_rounds": 30},
+                        }
+                    ]
+                }
+            )
+        )
+
+        job = self._monitored_job()
+
+        self.assertIsNone(job.total_rounds)
+        self.assertIsNone(job.progress_percent)
+
+    def test_the_total_is_read_from_the_jobs_run_file(self):
+        training_resume.write_run_file(
+            self.job_dir,
+            network_id=self.network.identifier,
+            total_rounds=8,
+            start_round=0,
+        )
+
+        job = self._monitored_job()
+
+        self.assertEqual(job.total_rounds, 8)
+        self.assertEqual(job.progress_percent, 37)  # rounds 0-2 of 8
+
+
+class SiteRecordTests(TestCase):
+    """A site Hub records the job that its own FL client runs.
+
+    It finds its FL containers by the network's label, not by an address: a Hub
+    identified only by SWARMMEDHUB_LOCAL_PARTICIPANT knows none of its own.
+    """
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base_dir = tmp.name
+        self.user = User.objects.create_user(
+            username="site", password="test-password"
+        )  # nosec B106
+        self.project = Project.objects.create(title="Site Project", author=self.user)
+        self.network = self._network("Site Network")
+        self.local_addresses = frozenset()
+        # Docker on this host: network ID -> (container name, its log).
+        self.containers: dict[str, tuple[str, str]] = {}
+        for target, value in (
+            ("training.tasks.logger", MagicMock()),
+            (
+                "network.overlay.get_local_addresses",
+                MagicMock(side_effect=lambda: self.local_addresses),
+            ),
+            (
+                "training.tasks.resolve_admin_session_target",
+                MagicMock(return_value=None),
+            ),
+            ("training.utils.shutil.which", MagicMock(return_value="docker")),
+            ("training.utils.subprocess.run", MagicMock(side_effect=self._docker)),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        environment = patch.dict(
+            os.environ, {"SWARMMEDHUB_LOCAL_PARTICIPANT": "site-b"}
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def _network(self, name):
+        return SwarmNetwork.objects.create(
+            name=name, project=self.project, author=self.user, status="RUNNING"
+        )
+
+    def _docker(self, args, **_kwargs):
+        if args[1] == "ps":
+            if "--filter" in args:
+                label = args[args.index("--filter") + 1]
+                names = [
+                    name
+                    for network_id, (name, _log) in self.containers.items()
+                    if label == f"label=swarmmedhub.network_id={network_id}"
+                ]
+            else:  # every container on the Docker host
+                names = [name for name, _log in self.containers.values()]
+            return SimpleNamespace(
+                returncode=0, stdout="".join(f"{n}\n" for n in names), stderr=""
+            )
+        if args[1] == "logs":
+            logs = dict(self.containers.values())
+            return SimpleNamespace(returncode=0, stdout=logs[args[-1]], stderr="")
+        raise AssertionError(args)
+
+    def _client_runs(self, network, job):
+        """The site's FL client container of a network, two rounds into a job."""
+        self.containers[str(network.identifier)] = (
+            f"swarm-{str(network.identifier)[:12]}-site-b",
+            f"[identity=site-b, run={job}]: Got job {job}\n"
+            f"[identity=site-b, run={job}, peer=site-c]: Finished round 2\n",
+        )
+
+    def _monitor(self):
+        with override_settings(BASE_DIR=self.base_dir):
+            tasks.monitor_training_jobs()
+
+    def _records(self, network):
+        return list(
+            TrainingJob.objects.filter(network=network).values_list(
+                "flare_job_uuid", flat=True
+            )
+        )
+
+    def test_a_site_hub_without_addresses_records_the_job_its_client_runs(self):
+        self._client_runs(self.network, JOB_UUID)
+        job_dir = (
+            Path(self.base_dir)
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(self.network.identifier)
+            / "workspace"
+            / "study"
+            / "prod_00"
+            / "site-b"
+            / JOB_UUID
+        )
+        (job_dir / "app_site-b" / "config").mkdir(parents=True)
+        training_resume.write_run_file(
+            job_dir, network_id=self.network.identifier, total_rounds=40, start_round=0
+        )
+
+        self._monitor()
+
+        self.assertEqual(self._records(self.network), [JOB_UUID])
+        job = TrainingJob.objects.get(network=self.network)
+        self.assertEqual(
+            (job.status, job.total_rounds, job.rounds_finished), ("RUNNING", 40, 2)
+        )
+
+    def test_a_job_of_another_network_is_not_recorded(self):
+        # Both networks have a site named site-b at this Hub's address.
+        self.local_addresses = frozenset({"192.0.2.20"})
+        other_network = self._network("Other Network")
+        for network in (self.network, other_network):
+            SwarmParticipant.objects.create(
+                network=network,
+                user=self.user,
+                role="CLIENT",
+                participant_id="site-b",
+                ip="192.0.2.20",
+            )
+        self._client_runs(self.network, JOB_UUID)
+        self._client_runs(other_network, OTHER_JOB_UUID)
+
+        self._monitor()
+
+        self.assertEqual(self._records(self.network), [JOB_UUID])
+        self.assertEqual(self._records(other_network), [OTHER_JOB_UUID])
 
 
 class CompletionTimeTests(TestCase):

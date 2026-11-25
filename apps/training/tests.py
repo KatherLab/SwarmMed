@@ -1,5 +1,6 @@
 """Tests for the training app."""
 
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,8 +13,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from network.models import SwarmNetwork, SwarmParticipant
-from project.models import Project
+from project.models import Project, UserCurrentProject
 
+from . import resume as training_resume
 from . import services as training_services
 from .flare_adapter import (
     _build_manifest_request_url,
@@ -22,6 +24,7 @@ from .flare_adapter import (
     receive_model,
 )
 from .models import TrainingJob
+from .runtime import get_training_progress_info
 from .utils import (
     extract_total_rounds_from_flare_config,
     infer_training_terminal_status,
@@ -104,6 +107,24 @@ class TrainingLogSummaryTests(SimpleTestCase):
         self.assertEqual(summary["rounds_finished"], 1)
         self.assertIsNone(summary["terminal_status"])
 
+    def test_the_round_count_at_the_end_of_a_job_is_a_count(self):
+        # Rounds count from 0, so a job of rounds 0-4 completed 5 rounds.
+        job = "56565656-5656-5656-5656-565656565656"
+        done = (
+            f"2026-11-23 16:10:09,186 - SwarmClientController - INFO - "
+            f"[identity=site-c, run={job}]: Swarm Learning Done: "
+            "number of rounds completed {}\n"
+        )
+
+        self.assertEqual(summarize_training_log(done.format(5))["rounds_finished"], 4)
+        # A resumed job counts only its own rounds (here 3-5).
+        self.assertEqual(
+            summarize_training_log("Finished round 5\n" + done.format(3))[
+                "rounds_finished"
+            ],
+            5,
+        )
+
     def test_per_round_training_log_is_not_treated_as_terminal(self):
         summary = summarize_training_log(
             "Training finished for round. Sending updates to server...\n"
@@ -169,6 +190,78 @@ class TrainingLogSummaryTests(SimpleTestCase):
         self.assertEqual(results[0]["job_id"], new_job)
         self.assertIsNone(results[0]["terminal_status"])
         self.assertFalse(results[0]["ended"])
+
+    @patch("training.utils.shutil.which", return_value="docker")
+    @patch("training.utils.subprocess.run")
+    def test_docker_scrape_reads_only_the_networks_labelled_containers(
+        self, mock_run, _mock_which
+    ):
+        network_id = "0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d"
+        job = "12121212-1212-1212-1212-121212121212"
+        container = f"swarm-{network_id[:12]}-site-b"
+
+        def fake_run(args, **_kwargs):
+            if args[1] == "ps":
+                # Docker lists only the containers that carry the label.
+                return SimpleNamespace(returncode=0, stdout=f"{container}\n", stderr="")
+            if args[1] == "logs":
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=f"[identity=site-b, run={job}]: Finished round 2\n",
+                    stderr="",
+                )
+            raise AssertionError(args)
+
+        mock_run.side_effect = fake_run
+
+        results = scrape_docker_progress(network_id=network_id)
+
+        self.assertEqual(
+            [call.args[0] for call in mock_run.call_args_list],
+            [
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    f"label=swarmmedhub.network_id={network_id}",
+                    "--format",
+                    "{{.Names}}",
+                ],
+                ["docker", "logs", "--tail", "2000", container],
+            ],
+        )
+        self.assertEqual(
+            [(r["container"], r["job_id"], r["rounds_finished"]) for r in results],
+            [(container, job, 2)],
+        )
+
+    @patch("training.utils.shutil.which", return_value="docker")
+    @patch("training.utils.subprocess.run")
+    def test_docker_scrape_without_a_network_or_participants_reads_nothing(
+        self, mock_run, _mock_which
+    ):
+        job = "34343434-3434-3434-3434-343434343434"
+
+        def fake_run(args, **_kwargs):
+            if args[1] == "ps":
+                # Another deployment on the same Docker host runs a server too.
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout="swarm-abc-server\nother_deployment_server\n",
+                    stderr="",
+                )
+            if args[1] == "logs":
+                return SimpleNamespace(
+                    returncode=0, stdout=f"run={job}: Finished round 1\n", stderr=""
+                )
+            raise AssertionError(args)
+
+        mock_run.side_effect = fake_run
+
+        self.assertEqual(scrape_docker_progress(), [])
+        self.assertNotIn(
+            "logs", [call.args[0][1] for call in mock_run.call_args_list]
+        )
 
 
 class FlareAdapterReceiveModelTests(SimpleTestCase):
@@ -239,6 +332,36 @@ class TrainingIdentityServiceTests(TestCase):
             1,
         )
 
+    def test_a_record_created_meanwhile_by_another_process_is_returned(self):
+        # The job monitor, the Training page and the CLI can all record a job.
+        flare_uuid = "88888888-8888-8888-8888-888888888888"
+        recorded_meanwhile = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=flare_uuid,
+            flare_job_uuid=flare_uuid,
+        )
+        select_related = TrainingJob.objects.select_related
+
+        def lookup_before_the_other_process(*fields):
+            return select_related(*fields).exclude(pk=recorded_meanwhile.pk)
+
+        with patch.object(
+            TrainingJob.objects,
+            "select_related",
+            side_effect=lookup_before_the_other_process,
+        ):
+            job, created = training_services.ensure_training_job(
+                network=self.network, flare_job_id=flare_uuid, status="FAILED"
+            )
+
+        self.assertFalse(created)
+        self.assertEqual(job.id, recorded_meanwhile.id)
+        self.assertEqual(
+            TrainingJob.objects.filter(flare_job_uuid=flare_uuid).count(), 1
+        )
+
     def test_persist_training_job_state_preserves_stopped_progress(self):
         job = TrainingJob.objects.create(
             project=self.project,
@@ -286,6 +409,38 @@ class TrainingIdentityServiceTests(TestCase):
         self.assertEqual(job.status, "COMPLETED")
         self.assertEqual(job.progress_percent, 100)
         self.assertEqual(job.rounds_finished, 4)
+
+    def test_a_peer_total_does_not_replace_a_known_one(self):
+        # A Hub of SwarmMed 1.0.5 can hold a guessed total of 10.
+        known, unknown = (
+            TrainingJob.objects.create(
+                project=self.project,
+                network=self.network,
+                status="RUNNING",
+                flare_job_id=flare_uuid,
+                flare_job_uuid=flare_uuid,
+                total_rounds=total_rounds,
+            )
+            for flare_uuid, total_rounds in (
+                ("abababab-abab-abab-abab-abababababab", 40),
+                ("cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd", None),
+            )
+        )
+
+        for job in (known, unknown):
+            training_services.sync_job_from_remote_payload(
+                network=self.network,
+                remote_job={
+                    "flare_job_id": job.flare_job_uuid,
+                    "status": "RUNNING",
+                    "total_rounds": 10,
+                    "rounds_finished": 1,
+                },
+            )
+            job.refresh_from_db()
+
+        self.assertEqual(known.total_rounds, 40)
+        self.assertEqual(unknown.total_rounds, 10)
 
     @patch("training.services.build_training_status_payload")
     def test_get_training_status_payload_persists_terminal_status(self, mock_build):
@@ -356,6 +511,61 @@ class TrainingIdentityServiceTests(TestCase):
         self.assertEqual(job.status, "COMPLETED")
         self.assertEqual(job.progress_percent, 100)
 
+    def _status_check(self, job, log_text):
+        """`training status` (or the Training page) while the job's log says so."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_dir = (
+                Path(tmpdir)
+                / "workspaces"
+                / str(self.project.identifier)
+                / str(self.network.identifier)
+                / "workspace"
+                / "prod_00"
+                / job.flare_job_uuid
+                / "app_server"
+            )
+            log_dir.mkdir(parents=True)
+            (log_dir / "log.txt").write_text(log_text, encoding="utf-8")
+            with (
+                override_settings(BASE_DIR=tmpdir),
+                # A running job's progress is also read from local FL containers.
+                patch(
+                    "training.runtime.summarize_runtime_container_logs",
+                    return_value=None,
+                ),
+            ):
+                payload = training_services.get_training_status_payload(
+                    network=self.network, job=job
+                )
+        job.refresh_from_db()
+        return payload
+
+    def _running_job(self, flare_uuid, rounds_finished):
+        return TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=flare_uuid,
+            flare_job_uuid=flare_uuid,
+            total_rounds=20,
+            rounds_finished=rounds_finished,
+        )
+
+    def test_a_status_check_that_sees_the_end_saves_the_last_round(self):
+        # Once the job has ended, the monitor no longer reads its rounds.
+        job = self._running_job("90909090-9090-9090-9090-909090909090", 11)
+
+        self._status_check(job, "Finished round 19\nending workflow\n")
+
+        self.assertEqual((job.status, job.rounds_finished), ("COMPLETED", 19))
+
+    def test_a_running_status_check_saves_its_rounds(self):
+        job = self._running_job("91919191-9191-9191-9191-919191919191", 3)
+
+        self._status_check(job, "Finished round 5\n")
+
+        self.assertEqual((job.status, job.rounds_finished), ("RUNNING", 5))
+
     def test_completed_job_does_not_revert_to_running(self):
         job = TrainingJob.objects.create(
             project=self.project,
@@ -375,6 +585,144 @@ class TrainingIdentityServiceTests(TestCase):
 
         self.assertEqual(job.status, "COMPLETED")
         self.assertEqual(job.progress_percent, 100)
+
+
+def _swarm_server_config(num_rounds: int) -> str:
+    return json.dumps(
+        {
+            "workflows": [
+                {
+                    "id": "swarm_controller",
+                    "path": "nvflare.app_common.ccwf.swarm_server_ctl."
+                    "SwarmServerController",
+                    "args": {"num_rounds": num_rounds},
+                }
+            ]
+        }
+    )
+
+
+class JobTotalTestCase(TestCase):
+    """A running network whose jobs' folders are in a temporary workspace."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base_dir = tmp.name
+        self.user = User.objects.create_user(
+            username="totals", password="test-password"
+        )  # nosec B106
+        self.project = Project.objects.create(title="Totals Project", author=self.user)
+        self.network = SwarmNetwork.objects.create(
+            name="Totals Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        self.prod = (
+            Path(tmp.name)
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(self.network.identifier)
+            / "workspace"
+            / "study"
+            / "prod_00"
+        )
+
+    def _job_with_run_file(self, flare_uuid: str, total_rounds: int, site="node-B"):
+        """A job's folder at a site, with the plan that every job carries."""
+        job_dir = self.prod / site / flare_uuid
+        (job_dir / f"app_{site}" / "config").mkdir(parents=True)
+        training_resume.write_run_file(
+            job_dir,
+            network_id=self.network.identifier,
+            total_rounds=total_rounds,
+            start_round=0,
+        )
+
+    def _server_config_of(self, flare_uuid: str, num_rounds: int):
+        config = self.prod / "server" / flare_uuid / "app_server" / "config"
+        config.mkdir(parents=True)
+        (config / "config_fed_server.json").write_text(_swarm_server_config(num_rounds))
+
+
+class SyncDockerResultTests(JobTotalTestCase):
+    def test_a_scraped_job_gets_its_own_total_or_none(self):
+        without_run_file = "e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1"
+        with_run_file = "f2f2f2f2-f2f2-f2f2-f2f2-f2f2f2f2f2f2"
+        self._job_with_run_file(with_run_file, 40)
+
+        for flare_uuid, total_rounds, progress in (
+            (without_run_file, None, None),
+            (with_run_file, 40, 7),  # rounds 0-2 of 40
+        ):
+            with (
+                self.subTest(total_rounds=total_rounds),
+                override_settings(BASE_DIR=self.base_dir),
+            ):
+                job = training_services.sync_job_from_docker_result(
+                    network=self.network,
+                    result={
+                        "job_id": flare_uuid,
+                        "rounds_finished": 2,
+                        "terminal_status": None,
+                    },
+                )
+                job.refresh_from_db()
+                self.assertEqual(job.total_rounds, total_rounds)
+                self.assertEqual(job.progress_percent, progress)
+
+
+class ProgressInfoTests(JobTotalTestCase):
+    """A running job's progress counts against the job's own total only."""
+
+    JOB = "d3d3d3d3-d3d3-d3d3-d3d3-d3d3d3d3d3d3"
+
+    def _progress(self, **fields):
+        job = TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=self.JOB,
+            flare_job_uuid=self.JOB,
+            **fields,
+        )
+        with (
+            override_settings(
+                BASE_DIR=self.base_dir,
+                CACHES={
+                    "default": {
+                        "BACKEND": "django.core.cache.backends.dummy.DummyCache"
+                    }
+                },
+            ),
+            # A running job's progress is also read from local FL containers.
+            patch(
+                "training.runtime.summarize_runtime_container_logs", return_value=None
+            ),
+        ):
+            return get_training_progress_info(job, self.network)
+
+    def test_unknown_total_gives_no_percentage(self):
+        info = self._progress(rounds_finished=3)
+
+        self.assertEqual(info["progress"], 0)
+        self.assertEqual(info["eta"], "-")
+
+    def test_progress_uses_the_jobs_own_total_not_another_jobs(self):
+        self._server_config_of("c4c4c4c4-c4c4-c4c4-c4c4-c4c4c4c4c4c4", 40)
+
+        info = self._progress(total_rounds=5, rounds_finished=1)
+
+        self.assertEqual(info["progress"], 40)
+
+    def test_progress_uses_the_total_of_the_jobs_run_file(self):
+        self._job_with_run_file(self.JOB, 8)
+
+        info = self._progress(rounds_finished=3)
+
+        self.assertEqual(info["progress"], 50)
+        self.assertNotEqual(info["eta"], "-")
 
 
 class TrainingViewServiceParityTests(TestCase):
@@ -461,6 +809,33 @@ class TrainingViewServiceParityTests(TestCase):
         job = response.json()["job"]
         self.assertEqual(job["stall_warning"], "Site site-b dropped out.")
         self.assertEqual(job["last_round_at"], last_round_at.isoformat())
+
+    def test_status_api_reads_only_the_current_networks_containers(self):
+        self.user.profile.accepted_terms = True
+        self.user.profile.accepted_policy = True
+        self.user.profile.save(update_fields=["accepted_terms", "accepted_policy"])
+        UserCurrentProject.objects.create(user=self.user, project=self.project)
+        self.client.force_login(self.user)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            override_settings(BASE_DIR=tmpdir),
+            patch.dict("os.environ", {"SWARMMEDHUB_DISABLE_ASYNC_LOGGING": "1"}),
+            patch(
+                "network.overlay.get_local_addresses",
+                return_value=frozenset({"127.0.0.1"}),
+            ),
+            patch("training.utils.scrape_docker_progress", return_value=[]) as scrape,
+            patch(
+                "training.runtime.summarize_runtime_container_logs", return_value=None
+            ),
+            patch("training.views._nvflare_status_payload", return_value=None),
+            patch("training.views.requests.get"),
+        ):
+            response = self.client.get(reverse("training:training_status_api"))
+
+        self.assertEqual(response.status_code, 200)
+        scrape.assert_called_once_with(network_id=self.network.identifier)
 
     def test_find_local_global_model_prefers_canonical_filename(self):
         with tempfile.TemporaryDirectory() as base_dir:

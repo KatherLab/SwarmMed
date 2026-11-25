@@ -316,12 +316,19 @@ def build_parser() -> argparse.ArgumentParser:
     training_stop.add_argument("--network")
     training_stop.set_defaults(handler="training_stop", command_name="training stop")
 
+    interrupted_job_help = (
+        "The interrupted job: its FLARE job ID, which is the same at every site, "
+        "or this Hub's record of it (default: the job of the newest round-start "
+        "checkpoint at this site)."
+    )
     training_checkpoints = training_subparsers.add_parser(
         "checkpoints",
         parents=[common_parent],
         help="List the checkpoints of a job at this site that a run can resume from.",
     )
-    training_checkpoints.add_argument("job_identifier", nargs="?")
+    training_checkpoints.add_argument(
+        "job_identifier", nargs="?", help=interrupted_job_help
+    )
     training_checkpoints.add_argument("--network")
     training_checkpoints.set_defaults(
         handler="training_checkpoints", command_name="training checkpoints"
@@ -333,9 +340,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Continue an interrupted run as a new job from the newest checkpoint here.",
     )
     training_resume.add_argument(
-        "job_identifier",
-        nargs="?",
-        help="The interrupted job (default: the network's latest job).",
+        "job_identifier", nargs="?", help=interrupted_job_help
     )
     training_resume.add_argument("--network")
     training_resume.add_argument(
@@ -350,14 +355,19 @@ def build_parser() -> argparse.ArgumentParser:
     training_resume.add_argument(
         "--rounds",
         type=int,
-        help="Rounds of the whole run (default: the interrupted job's).",
+        help=(
+            "Rounds of the whole run. Default: the total recorded in the job at "
+            "this site or in its checkpoint; needed for a run started before "
+            "SwarmMed 1.0.6, except at the Hub that ran its FL server."
+        ),
     )
     training_resume.add_argument(
         "--force",
         action="store_true",
         help=(
             "Submit without asking the FL server, and after a server switch the "
-            "previous one, whether it still runs the job."
+            "previous one, whether it still runs the job, and even while the "
+            "network's FL server runs another job."
         ),
     )
     training_resume.set_defaults(
@@ -880,11 +890,12 @@ def run(args: argparse.Namespace):
                 network = job.network
             else:
                 network = resolve_network(state)
+            # A named job must be found; without one, the network's latest job.
             job = resolve_training_job(
                 state,
                 job_identifier=args.job_identifier,
                 network=network,
-                required=False,
+                required=bool(args.job_identifier),
             )
             result = training_services.get_training_status_payload(
                 network=network, job=job
@@ -951,11 +962,12 @@ def run(args: argparse.Namespace):
                 if args.network
                 else resolve_network(state)
             )
+            # A named job must be found: never stop another one instead.
             job = resolve_training_job(
                 state,
                 job_identifier=args.job_identifier,
                 network=network,
-                required=False,
+                required=bool(args.job_identifier),
             )
             job = training_services.stop_training_job(
                 actor=state.user, network=network, job=job
@@ -963,28 +975,50 @@ def run(args: argparse.Namespace):
             result = training_services.serialize_training_job(job)
 
         elif handler_name in {"training_checkpoints", "training_resume"}:
+            checkpoint = getattr(args, "checkpoint", None)
             if args.network:
                 network = resolve_network(state, network_identifier=args.network)
-            elif args.job_identifier:
+            elif args.job_identifier or checkpoint:
+                # The job's record or folders, or the checkpoint, name the
+                # network; a checkpoint that names no job, the current one.
                 network = None
             else:
                 network = resolve_network(state)
-            job = resolve_training_job(
-                state, job_identifier=args.job_identifier, network=network
+            # The job needs no record here: the standby, for one, may have none.
+            found = training_services.locate_interrupted_job(
+                user=state.user,
+                identifier=args.job_identifier,
+                network=network,
+                checkpoint_path=checkpoint,
             )
-            network = network or job.network
             if handler_name == "training_checkpoints":
+                total_rounds, total_rounds_from = (
+                    training_services.resolve_run_total(
+                        network=found.network,
+                        flare_uuid=found.flare_uuid,
+                        required=False,
+                    )
+                )
                 result = {
-                    "job_identifier": str(job.identifier),
-                    "flare_job_id": job.flare_job_uuid or job.flare_job_id,
-                    "checkpoints": training_services.list_resume_checkpoints(job),
+                    "job_identifier": (
+                        str(found.record.identifier) if found.record else None
+                    ),
+                    "flare_job_id": found.flare_uuid,
+                    "network_identifier": str(found.network.identifier),
+                    "found_by": found.found_by,
+                    "total_rounds": total_rounds,
+                    "total_rounds_from": total_rounds_from,
+                    "checkpoints": training_services.list_resume_checkpoints(
+                        found.network, found.flare_uuid
+                    ),
                 }
             else:
                 new_job = training_services.resume_training_job(
                     actor=state.user,
-                    network=network,
-                    from_job=job,
-                    checkpoint_path=args.checkpoint,
+                    network=found.network,
+                    from_job=found.record,
+                    flare_job_uuid=found.flare_uuid,
+                    checkpoint_path=checkpoint,
                     start_round=args.start_round,
                     total_rounds=args.rounds,
                     force=args.force,

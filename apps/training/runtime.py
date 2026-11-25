@@ -21,10 +21,10 @@ from common.utils import get_safe_slug
 from logs.logger import get_logger
 from network.failover import active_server_record_for_startup, admin_session_pin
 
+from .resume import read_run_total
 from .utils import (
     clamp_progress_percent,
     extract_flare_job_uuid,
-    extract_total_rounds_from_config_file,
     should_update_terminal_status,
     summarize_training_log,
 )
@@ -52,6 +52,7 @@ def build_training_status_payload(current_network, job):
         "eta": info["eta"],
         "job_id": job.flare_job_id,
         "created_at": job.created_at.isoformat(),
+        "rounds_finished": info.get("rounds_finished"),
     }
 
 
@@ -795,6 +796,25 @@ def new_secure_session_with_host(
     raise RuntimeError("cannot connect to FLARE admin API")
 
 
+@contextlib.contextmanager
+def admin_session(session):
+    """Close an admin session however the block that uses it ends.
+
+    An admin session that is left open keeps FLARE's connection threads
+    running: a CLI process then never exits, and the worker and the web
+    process keep the threads of every session that failed. A logout that
+    fails is ignored.
+
+    Args:
+        session: A session from :func:`new_secure_session_with_host`.
+    """
+    try:
+        yield session
+    finally:
+        with contextlib.suppress(Exception):
+            session.close()
+
+
 def nvflare_status_payload(current_network):
     """Fetch the current NVFlare job status directly from the admin API."""
     cache_key = f"nvflare_status_payload_{current_network.identifier}"
@@ -809,16 +829,16 @@ def nvflare_status_payload(current_network):
 
     try:
         admin_name, admin_dir, server_ip = admin_target
-        session = new_secure_session_with_host(
-            username=admin_name,
-            startup_kit_location=admin_dir,
-            host=server_ip,
-            timeout=15.0,
-            network_id=current_network.identifier,
-        )
-        response = session.api.do_command("list_jobs")
-        with contextlib.suppress(Exception):
-            session.close()
+        with admin_session(
+            new_secure_session_with_host(
+                username=admin_name,
+                startup_kit_location=admin_dir,
+                host=server_ip,
+                timeout=15.0,
+                network_id=current_network.identifier,
+            )
+        ) as session:
+            response = session.api.do_command("list_jobs")
 
         jobs = parse_nvflare_jobs(response)
         job = select_nvflare_job(jobs)
@@ -991,6 +1011,13 @@ def get_training_progress_info(training_job, current_network):
         or extract_flare_job_uuid(training_job.flare_job_id)
         or str(training_job.flare_job_id or "")
     )
+    total_rounds = training_job.total_rounds
+    # -1 until a round has finished, as the job monitor records it.
+    rounds_finished = (
+        training_job.rounds_finished
+        if training_job.rounds_finished is not None
+        else -1
+    )
 
     if training_job.status == "RUNNING":
         is_training_running = True
@@ -1009,7 +1036,6 @@ def get_training_progress_info(training_job, current_network):
             have_cached_progress = False
 
         try:
-            total_rounds = training_job.total_rounds or 10
             workspace_dir = os.path.join(
                 settings.BASE_DIR,
                 "workspaces",
@@ -1017,22 +1043,10 @@ def get_training_progress_info(training_job, current_network):
                 str(current_network.identifier),
                 "workspace",
             )
-            for root, _dirs, files in os.walk(workspace_dir):
-                if "config_fed_server.json" not in files:
-                    continue
-                total_rounds = extract_total_rounds_from_config_file(
-                    os.path.join(root, "config_fed_server.json"),
-                    default=total_rounds,
-                )
-                if total_rounds != 10:
-                    break
+            # The job's own total, or none: then there is no percentage. Another
+            # job's settings in the workspace say nothing about this job.
+            total_rounds = total_rounds or read_run_total(workspace_dir, job_uuid)
 
-            # -1 until a round has finished, as the job monitor records it.
-            rounds_finished = (
-                training_job.rounds_finished
-                if training_job.rounds_finished is not None
-                else -1
-            )
             terminal_status = None
 
             def scan_log_tail(file_path: str) -> None:
@@ -1072,7 +1086,7 @@ def get_training_progress_info(training_job, current_network):
                         terminal_status = runtime_summary["terminal_status"]
 
             if terminal_status:
-                if not have_cached_progress and total_rounds > 0:
+                if not have_cached_progress and total_rounds:
                     rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                     training_progress = min(
                         99, int(rounds_completed * 100 / total_rounds)
@@ -1083,7 +1097,7 @@ def get_training_progress_info(training_job, current_network):
 
                 training_status = terminal_status.title()
                 is_training_running = False
-            elif not have_cached_progress and total_rounds > 0:
+            elif not have_cached_progress and total_rounds:
                 rounds_completed = rounds_finished + 1 if rounds_finished >= 0 else 0
                 training_progress = min(99, int(rounds_completed * 100 / total_rounds))
         except Exception as exc:
@@ -1105,7 +1119,9 @@ def get_training_progress_info(training_job, current_network):
     if effective_status == "RUNNING":
         elapsed = (now - start_time).total_seconds()
         duration_str = format_duration(elapsed)
-        if training_progress > 0:
+        if not total_rounds:
+            eta_str = "-"  # unknown without the job's total
+        elif training_progress > 0:
             total_est = elapsed / (training_progress / 100.0)
             remaining = total_est - elapsed
             eta_str = format_duration(remaining)
@@ -1123,6 +1139,9 @@ def get_training_progress_info(training_job, current_network):
         "duration": duration_str,
         "eta": eta_str,
         "is_running": is_training_running,
+        # The last finished round that the logs at this Hub show, for the
+        # record: the job monitor no longer reads a job once it has ended.
+        "rounds_finished": rounds_finished if rounds_finished >= 0 else None,
     }
     if training_job.status == "RUNNING":
         cache.set(cache_key, result, 5)

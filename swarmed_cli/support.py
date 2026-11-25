@@ -163,8 +163,10 @@ def resolve_training_job(
     if job_identifier:
         try:
             job = training_services.get_training_job(
-                network=network, identifier=job_identifier
+                network=network, identifier=job_identifier, user=state.user
             )
+        except training_services.SeveralJobsMatch:
+            raise
         except LookupError:
             job = None
         if job and project_services.user_can_access_project(state.user, job.project):

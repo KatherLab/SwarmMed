@@ -5,10 +5,11 @@ and synchronization of result files (weights/logs) to S3 storage.
 """
 
 import contextlib
-import json
 import os
+import uuid
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from celery import shared_task
@@ -19,7 +20,9 @@ from network.models import SwarmNetwork
 
 from . import services as training_services
 from .models import TrainingJob
+from .resume import read_run_total
 from .runtime import (
+    admin_session,
     new_secure_session_with_host,
     parse_nvflare_jobs,
     resolve_admin_session_target,
@@ -29,7 +32,6 @@ from .stall import describe_stall, same_stall, stall_warning_minutes
 from .utils import (
     ClientDropouts,
     extract_flare_job_uuid,
-    extract_total_rounds_from_config_file,
     progress_from_rounds,
     scan_client_dropouts,
     summarize_training_log,
@@ -39,6 +41,11 @@ from .utils import (
 
 # How much of the end of each log the monitor reads.
 LOG_TAIL_BYTES = 512 * 1024
+
+# How long a pass of the job monitor may hold its lock. A pass that dies without
+# releasing it, such as one in a worker that was killed, delays the next passes
+# by at most this long.
+MONITOR_LOCK_SECONDS = 10 * 60
 
 
 def _results_already_uploaded(project_id, flare_job_uuid):
@@ -56,27 +63,6 @@ def _completion_time(job, terminal_status):
     if job.status == terminal_status and job.completed_at:
         return job.completed_at
     return timezone.now()
-
-
-def _get_total_rounds(workspace_base):
-    """Helper to extract the configured number of training rounds from NVFlare config.
-
-    Searches for config_fed_server.json anywhere in workspace_base.
-
-    Args:
-        workspace_base (str): The base directory of the NVFlare workspace.
-
-    Returns:
-        int: The total number of rounds as an integer. Defaults to 10.
-    """
-    # Search for config_fed_server.json anywhere in workspace_base
-    for root, _dirs, files in os.walk(workspace_base):
-        if "config_fed_server.json" in files:
-            cfg_path = os.path.join(root, "config_fed_server.json")
-            rounds = extract_total_rounds_from_config_file(cfg_path, default=10)
-            if rounds != 10:
-                return rounds
-    return 10
 
 
 def _select_result_root(target: str, app_subdir: str) -> str:
@@ -166,6 +152,12 @@ def _update_stall_warning(job, dropouts, *, previous, threshold_minutes, log):
         )
 
 
+def _monitor_lock_key() -> str:
+    # One lock per database: a test run beside a live Hub can use the Hub's
+    # cache, but the test runner gives it a database of its own.
+    return f"training:monitor_training_jobs:{settings.DATABASES['default']['NAME']}"
+
+
 @shared_task
 def monitor_training_jobs():
     """Periodic task to monitor training jobs and sync results.
@@ -173,12 +165,34 @@ def monitor_training_jobs():
     Discovers new jobs from the FLARE server, scrapes local Docker logs for
     real-time progress, warns about running jobs that have stalled (see
     :mod:`training.stall`), and automatically uploads finalized results to S3.
-    """
-    from network.overlay import get_local_addresses
 
+    One pass at a time: a pass that is due while another one runs, in any worker
+    process, returns at once. The lock is held in the cache, which all worker
+    processes and containers share.
+    """
+    key, token = _monitor_lock_key(), uuid.uuid4().hex
+    try:
+        locked = cache.add(key, token, MONITOR_LOCK_SECONDS)
+    except Exception:
+        locked = None  # the cache cannot be reached: run without the lock
+    if locked is False:
+        logger.get_logger().training.debug(
+            "Monitor: the previous pass is still running; skipping this one."
+        )
+        return
+    try:
+        _monitor_pass()
+    finally:
+        if locked:
+            with contextlib.suppress(Exception):
+                if cache.get(key) == token:
+                    cache.delete(key)
+
+
+def _monitor_pass():
+    """One pass of :func:`monitor_training_jobs`."""
     from .utils import scrape_docker_progress
 
-    local_addresses = get_local_addresses()
     log = logger.get_logger()
     stall_minutes = stall_warning_minutes(log)
     # The warnings shown before this pass: the steps before Step 4 clear a job's
@@ -202,15 +216,16 @@ def monitor_training_jobs():
 
         try:
             admin_name, admin_dir, server_ip = admin_target
-            sess = new_secure_session_with_host(
-                username=admin_name,
-                startup_kit_location=admin_dir,
-                host=server_ip,
-                timeout=10.0,
-                network_id=network.identifier,
-            )
-
-            response = sess.api.do_command("list_jobs")
+            with admin_session(
+                new_secure_session_with_host(
+                    username=admin_name,
+                    startup_kit_location=admin_dir,
+                    host=server_ip,
+                    timeout=10.0,
+                    network_id=network.identifier,
+                )
+            ) as sess:
+                response = sess.api.do_command("list_jobs")
             remote_jobs = parse_nvflare_jobs(response)
 
             for rj in remote_jobs:
@@ -245,20 +260,15 @@ def monitor_training_jobs():
                     if status in {"COMPLETED", "FAILED", "STOPPED"}
                     else None,
                 )
-
-            with contextlib.suppress(Exception):
-                sess.close()
         except Exception:
             continue
 
-    # 2. LOCAL DOCKER SCRAPING: Check running containers for progress
+    # 2. LOCAL DOCKER SCRAPING: Check running containers for progress: the FL
+    # containers this Hub runs for the network, by the network's label, so that
+    # a Hub that knows none of its addresses records the job its client runs.
     for network in active_networks:
         try:
-            local_participants = network.participants.filter(ip__in=local_addresses)
-            participant_ids = [p.participant_id for p in local_participants]
-            docker_results = scrape_docker_progress(
-                participant_ids=participant_ids
-            )
+            docker_results = scrape_docker_progress(network_id=network.identifier)
 
             for res in docker_results:
                 job_id = res["job_id"]
@@ -322,14 +332,16 @@ def monitor_training_jobs():
             if admin_target:
                 try:
                     admin_name, admin_dir, server_ip = admin_target
-                    sess = new_secure_session_with_host(
-                        username=admin_name,
-                        startup_kit_location=admin_dir,
-                        host=server_ip,
-                        timeout=10.0,
-                        network_id=job.network.identifier,
-                    )
-                    resp = sess.api.do_command(f"list_jobs {flare_job_uuid}")
+                    with admin_session(
+                        new_secure_session_with_host(
+                            username=admin_name,
+                            startup_kit_location=admin_dir,
+                            host=server_ip,
+                            timeout=10.0,
+                            network_id=job.network.identifier,
+                        )
+                    ) as sess:
+                        resp = sess.api.do_command(f"list_jobs {flare_job_uuid}")
                     rjobs = parse_nvflare_jobs(resp)
                     if rjobs:
                         rstatus = str(
@@ -341,7 +353,6 @@ def monitor_training_jobs():
                             terminal_status, rstatus
                         ):
                             terminal_status = rstatus
-                    sess.close()
                 except Exception:
                     pass
 
@@ -352,8 +363,10 @@ def monitor_training_jobs():
                 rounds_finished = (
                     job.rounds_finished if job.rounds_finished is not None else -1
                 )
-                total_rounds = job.total_rounds or _get_total_rounds(
-                    workspace_base
+                # The job's own total, or none: another job's settings or a
+                # guess would be stored as this job's.
+                total_rounds = job.total_rounds or read_run_total(
+                    os.path.join(network_workspace_root, "workspace"), flare_job_uuid
                 )
                 dropouts = ClientDropouts()
 
@@ -400,7 +413,7 @@ def monitor_training_jobs():
                         )
                     )
 
-                if total_rounds > 0:
+                if total_rounds:
                     pct = progress_from_rounds(
                         rounds_finished,
                         total_rounds,

@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import uuid
 from contextlib import redirect_stdout
 from io import StringIO
@@ -21,9 +22,12 @@ from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase, override_settings
 from swarmed_cli.main import main
 
+from network import utils as network_utils
 from network.models import SwarmNetwork, SwarmParticipant
+from network.services import set_current_network
 from project.models import Project
 
+from . import resume as training_resume
 from . import services as training_services
 from .models import TrainingJob
 from .resume import (
@@ -37,6 +41,7 @@ from .resume import (
     ResumeCheckpoint,
     ResumePlan,
     add_resume_checkpoint_component,
+    describe_given_checkpoint,
     find_resume_checkpoints,
     ship_resume_checkpoint,
 )
@@ -85,13 +90,45 @@ if __name__ == "__main__":
 """
 
 
-def _write_round_start_checkpoint(app_dir: Path, next_round: int, site: str, value=1.0):
+# JSON that Python cannot parse: json.loads raises RecursionError, not ValueError.
+NESTED_JSON = "[" * 100_000 + "]" * 100_000
+
+
+def _write_round_start_checkpoint(
+    app_dir: Path,
+    next_round: int,
+    site: str,
+    value=1.0,
+    *,
+    total_rounds: int | None = 8,
+    job_id: str | None = None,
+    network: str | None = None,
+    saved_at: float | None = None,
+):
+    """Write a round-start checkpoint as the saver inside a job writes it.
+
+    The JSON and the metadata in the .pt name the run's total, as in a job
+    submitted by SwarmMed 1.0.6 or later; ``total_rounds=None`` writes them as
+    earlier releases did. The job is the folder's unless ``job_id`` names one.
+    """
     app_dir.mkdir(parents=True, exist_ok=True)
     weights = {"fc.weight": torch.full((2, 4), value), "fc.bias": torch.zeros(2)}
-    torch.save({"model": weights}, app_dir / CHECKPOINT_FILE)
-    (app_dir / METADATA_FILE).write_text(
-        json.dumps({"next_round": next_round, "site": site, "weights_format": "torch"})
+    metadata = {
+        "next_round": next_round,
+        "job_id": app_dir.parent.name if job_id is None else job_id,
+        "site": site,
+        "weights_format": "torch",
+        "num_tensors": len(weights),
+        "saved_at": time.time() if saved_at is None else saved_at,
+    }
+    if total_rounds is not None:
+        metadata.update(total_rounds=total_rounds, start_round=0)
+        if network is not None:
+            metadata["network"] = network
+    torch.save(
+        {"model": weights, "swarmmed_resume": metadata}, app_dir / CHECKPOINT_FILE
     )
+    (app_dir / METADATA_FILE).write_text(json.dumps(metadata))
     return weights
 
 
@@ -163,6 +200,76 @@ class FindResumeCheckpointsTests(SimpleTestCase):
 
         self.assertEqual(find_resume_checkpoints(self.root, self.job), [])
 
+    def test_metadata_comes_from_the_pt_when_the_json_is_missing(self):
+        app_dir = self.root / "node-B" / self.job / "app_node-B"
+        _write_round_start_checkpoint(app_dir, 3, "node-B")
+        (app_dir / METADATA_FILE).unlink()
+
+        checkpoint = describe_given_checkpoint(str(app_dir / CHECKPOINT_FILE), None)
+
+        self.assertEqual(
+            (
+                checkpoint.next_round,
+                checkpoint.site,
+                getattr(checkpoint, "job_id", None),
+                checkpoint.total_rounds,
+            ),
+            (3, "node-B", self.job, 8),
+        )
+
+    def test_metadata_keeps_only_valid_values(self):
+        # Code in the FL client containers can write the checkpoint and its JSON.
+        app_dir = self.root / "node-B" / self.job / "app_node-B"
+        _write_round_start_checkpoint(app_dir, 3, "node-B")
+        (app_dir / METADATA_FILE).write_text(
+            json.dumps(
+                {
+                    "next_round": -1,
+                    "job_id": "../../x",
+                    "network": self.job.upper(),
+                    "site": "../node-A",
+                    "total_rounds": "8",
+                    "weights_format": "pickle",
+                    "saved_at": "yesterday",
+                }
+            )
+        )
+
+        metadata = training_resume.checkpoint_metadata(app_dir / CHECKPOINT_FILE)
+        (checkpoint,) = find_resume_checkpoints(self.root, self.job)
+
+        self.assertEqual(metadata, {})
+        self.assertEqual(
+            (
+                checkpoint.next_round,
+                checkpoint.site,
+                checkpoint.job_id,
+                checkpoint.network,
+                checkpoint.total_rounds,
+                checkpoint.weights_format,
+            ),
+            # The site and the job are the folders'.
+            (None, "node-B", self.job, "", None, "torch"),
+        )
+
+    def test_a_checkpoint_total_beyond_any_run_counts_as_none(self):
+        app_dir = self.root / "node-B" / self.job / "app_node-B"
+        _write_round_start_checkpoint(app_dir, 3, "node-B", total_rounds=3_000_000_000)
+
+        (checkpoint,) = find_resume_checkpoints(self.root, self.job)
+
+        self.assertEqual((checkpoint.next_round, checkpoint.total_rounds), (3, None))
+
+    def test_a_json_nested_too_deeply_gives_way_to_the_pt(self):
+        app_dir = self.root / "study" / "prod_00" / "node-B" / self.job / "app_node-B"
+        _write_round_start_checkpoint(app_dir, 3, "node-B")
+        (app_dir / METADATA_FILE).write_text(NESTED_JSON)
+
+        (checkpoint,) = find_resume_checkpoints(self.root, self.job)
+
+        self.assertEqual((checkpoint.next_round, checkpoint.total_rounds), (3, 8))
+        self.assertEqual(training_resume.newest_round_start_job(self.root), self.job)
+
 
 class TotalRoundsTests(SimpleTestCase):
     def test_resumed_job_counts_rounds_from_zero(self):
@@ -188,6 +295,251 @@ class TotalRoundsTests(SimpleTestCase):
             ]
         }
         self.assertEqual(extract_total_rounds_from_flare_config(config), 20)
+
+
+def _write_job_file(root: Path, participant: str, job: str, relative: str, content):
+    """Write a file of a job as FLARE deploys the job at a site."""
+    path = root / "study" / "prod_00" / participant / job / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content if isinstance(content, str) else json.dumps(content))
+    return path
+
+
+def _swarm_server_config(*, num_rounds: int, start_round: int = 0) -> dict:
+    return {
+        "workflows": [
+            {
+                "id": "controller",
+                "path": SWARM_CONTROLLER,
+                "args": {"num_rounds": num_rounds, "start_round": start_round},
+            }
+        ]
+    }
+
+
+class JobFoldersTests(SimpleTestCase):
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        self.job = str(uuid.uuid4())
+
+    def test_a_job_id_or_its_prefix_finds_the_jobs_folders(self):
+        prod_dir = self.root / "study" / "prod_00"
+        expected = sorted(
+            [
+                prod_dir / self.job,
+                prod_dir / "node-A" / self.job,
+                prod_dir / "server" / self.job,
+            ]
+        )
+        for folder in expected:
+            folder.mkdir(parents=True)
+        # A deeper folder, a job whose ID differs in the eighth character, and a
+        # folder whose name only starts with the job's ID.
+        (prod_dir / "node-A" / self.job / "app_node-A" / self.job).mkdir(parents=True)
+        other = self.job[:7] + ("1" if self.job[7] == "0" else "0") + self.job[8:]
+        (prod_dir / "node-A" / other).mkdir()
+        (prod_dir / "node-A" / f"{self.job}.old").mkdir()
+
+        for identifier in (self.job, self.job.upper(), self.job[:8]):
+            with self.subTest(identifier=identifier):
+                self.assertEqual(
+                    sorted(training_resume.job_folders(self.root, identifier)),
+                    expected,
+                )
+
+    def test_anything_but_a_job_id_is_not_looked_up(self):
+        (self.root / "study" / "prod_00" / "node-A" / self.job).mkdir(parents=True)
+
+        with patch.object(Path, "glob", side_effect=AssertionError("looked up")):
+            for identifier in (
+                "",
+                "../../x",
+                "*",
+                "[0-9a-f]*",
+                self.job[:7],
+                f"{self.job}/..",
+                f"-{self.job[:8]}",
+                f"{self.job}0",
+            ):
+                with self.subTest(identifier=identifier):
+                    self.assertEqual(
+                        training_resume.job_folders(self.root, identifier), []
+                    )
+
+
+class ReadRunPlanTests(SimpleTestCase):
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name)
+        self.job = str(uuid.uuid4())
+
+    def _write(self, participant, relative, content, *, job=None) -> str:
+        job = job or self.job
+        path = _write_job_file(self.root, participant, job, relative, content)
+        return str(path.relative_to(self.root))
+
+    def _plan(self):
+        plan = training_resume.read_run_plan(self.root, self.job)
+        return plan and (plan.total_rounds, plan.start_round, plan.origin)
+
+    def test_the_run_file_comes_first_then_the_server_config_then_a_resume_record(self):
+        record = self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_resume.json",
+            {"start_round": 3, "total_rounds": 40},
+        )
+        self.assertEqual(self._plan(), (40, 3, record))
+
+        server_config = self._write(
+            "server",
+            "app_server/config/config_fed_server.json",
+            _swarm_server_config(num_rounds=27, start_round=3),
+        )
+        self.assertEqual(self._plan(), (30, 3, server_config))
+
+        run_file = self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"total_rounds": 8, "start_round": 3},
+        )
+        self.assertEqual(self._plan(), (8, 3, run_file))
+
+    def test_only_whole_rounds_in_range_from_the_jobs_own_folders_count(self):
+        # Code in the FL client containers can write these files.
+        self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"total_rounds": 30, "start_round": 0},
+            job=str(uuid.uuid4()),
+        )
+        for content in (
+            {"total_rounds": 5, "start_round": 5},
+            {"total_rounds": 5, "start_round": -1},
+            {"total_rounds": "8", "start_round": 0},
+            {"total_rounds": True, "start_round": 0},
+            {"total_rounds": 8, "start_round": 2.0},
+            {"total_rounds": 8},
+            [8, 3],
+            "{not json",
+        ):
+            with self.subTest(content=content):
+                self._write("node-A", "app_node-A/config/swarmmed_run.json", content)
+                self.assertIsNone(self._plan())
+
+    def test_a_total_beyond_any_run_counts_as_none(self):
+        # A job record holds at most 2**31 - 1 rounds; no run has 100000.
+        self._write(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"total_rounds": 3_000_000_000, "start_round": 0},
+        )
+        server_config = self._write(
+            "server",
+            "app_server/config/config_fed_server.json",
+            _swarm_server_config(num_rounds=5),
+        )
+
+        self.assertEqual(self._plan(), (5, 0, server_config))
+
+    def test_a_file_nested_too_deeply_counts_as_no_data(self):
+        self._write("node-A", "app_node-A/config/swarmmed_run.json", NESTED_JSON)
+        server_config = self._write(
+            "server",
+            "app_server/config/config_fed_server.json",
+            _swarm_server_config(num_rounds=5),
+        )
+
+        self.assertEqual(self._plan(), (5, 0, server_config))
+
+
+class ResumeCheckpointSaverTests(SimpleTestCase):
+    """The round-start checkpoint as the saver writes it inside a FLARE job."""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.app_root = Path(temp_dir.name) / "app_node-A"
+        (self.app_root / "config").mkdir(parents=True)
+        self.job = str(uuid.uuid4())
+        self.network = str(uuid.uuid4())
+
+    def _save_round_start(self, current_round=3):
+        from nvflare.apis.fl_constant import FLContextKey, ReservedKey
+        from nvflare.apis.fl_context import FLContext
+        from nvflare.app_common.abstract.model import ModelLearnableKey
+        from nvflare.app_common.app_constant import AppConstants
+
+        from .swarmmed_resume import ResumeCheckpointSaver
+
+        fl_ctx = FLContext()
+        for key, value in {
+            AppConstants.GLOBAL_MODEL: {
+                ModelLearnableKey.WEIGHTS: {"fc.weight": torch.ones(2, 4)}
+            },
+            AppConstants.CURRENT_ROUND: current_round,
+            FLContextKey.APP_ROOT: str(self.app_root),
+            ReservedKey.RUN_NUM: self.job,
+            ReservedKey.IDENTITY_NAME: "node-A",
+        }.items():
+            fl_ctx.set_prop(key, value, private=True, sticky=False)
+
+        ResumeCheckpointSaver()._save(fl_ctx)
+
+        written = json.loads((self.app_root / METADATA_FILE).read_text())
+        embedded = torch.load(self.app_root / CHECKPOINT_FILE, weights_only=True)
+        self.assertEqual(embedded["swarmmed_resume"], written)
+        self.assertIsInstance(written.pop("saved_at"), float)
+        return written
+
+    def test_checkpoint_records_the_run_total_and_network(self):
+        (self.app_root / "config" / "swarmmed_run.json").write_text(
+            json.dumps(
+                {
+                    "format": 1,
+                    "network": self.network,
+                    "total_rounds": 40,
+                    "start_round": 0,
+                    "num_rounds": 40,
+                    "from_flare_job": "",
+                }
+            )
+        )
+
+        self.assertEqual(
+            self._save_round_start(),
+            {
+                "next_round": 3,
+                "job_id": self.job,
+                "site": "node-A",
+                "weights_format": "torch",
+                "num_tensors": 1,
+                "total_rounds": 40,
+                "start_round": 0,
+                "network": self.network,
+            },
+        )
+
+    def test_checkpoint_without_run_file_keeps_the_old_keys(self):
+        # A job submitted before the run file existed, or a file it cannot read.
+        for content in (None, "{not json", json.dumps(["not", "a", "plan"])):
+            with self.subTest(content=content):
+                run_file = self.app_root / "config" / "swarmmed_run.json"
+                if content is not None:
+                    run_file.write_text(content)
+
+                self.assertEqual(
+                    self._save_round_start(),
+                    {
+                        "next_round": 3,
+                        "job_id": self.job,
+                        "site": "node-A",
+                        "weights_format": "torch",
+                        "num_tensors": 1,
+                    },
+                )
 
 
 def _exported_job(root: Path, clients=("node-A", "node-B")) -> Path:
@@ -316,21 +668,24 @@ def flare_admin_api(
     *,
     answers: bool = True,
     store_error: Exception | None = None,
+    running: tuple[str, ...] = (),
 ):
     """NVIDIA FLARE 2.7.1's admin API client, connected to a stand-in FL server.
 
-    The server runs FLARE's own ``list_jobs`` command over a job store that holds
-    ``jobs`` (job ID -> status, or -> fields of the job's meta), and the client's
-    own processing turns the server's answer into what ``do_command`` returns.
-    Only the network connection is replaced; with ``answers=False`` the server
-    does not answer in time, and with ``store_error`` reading the job store
-    raises that error.
+    The server runs FLARE's own job commands, such as ``list_jobs`` and
+    ``abort_job``, after FLARE's own pre-authorization, over a job store that
+    holds ``jobs`` (job ID -> status, or -> fields of the job's meta); its job
+    runner runs the jobs in ``running``. The client's own processing turns the
+    server's answer into what ``do_command`` returns. Only the network
+    connection is replaced; with ``answers=False`` the server does not answer in
+    time, and with ``store_error`` reading the job store raises that error.
     """
     from nvflare.apis.job_def import Job
     from nvflare.apis.job_def_manager_spec import JobDefManagerSpec
     from nvflare.fuel.hci.client.api import AdminAPI
     from nvflare.fuel.hci.conn import Connection
     from nvflare.fuel.hci.proto import validate_proto
+    from nvflare.fuel.hci.server.authz import AuthzFilter
     from nvflare.fuel.hci.server.reg import ServerCommandRegister
     from nvflare.private.fed.server.job_cmds import JobCommandModule
 
@@ -355,9 +710,16 @@ def flare_admin_api(
     engine.job_def_manager = MagicMock(spec=JobDefManagerSpec)
     engine.job_def_manager.get_all_jobs.return_value = store
     engine.job_def_manager.get_all_jobs.side_effect = store_error
+    stored = {job.job_id: job for job in store}
+    engine.job_def_manager.get_job.side_effect = lambda job_id, *_: stored.get(job_id)
+    # As FLARE's JobRunner.stop_run answers.
+    engine.job_runner.stop_run.side_effect = lambda job_id, _ctx: (
+        "" if job_id in running else f"Job {job_id} is not running."
+    )
     engine.new_context.side_effect = lambda: contextlib.nullcontext(MagicMock())
     commands = ServerCommandRegister(app_ctx=engine)
     commands.register_module(JobCommandModule())
+    commands.add_filter(AuthzFilter())
     commands.finalize()
 
     def send_request(*, request, **_kwargs):
@@ -381,6 +743,22 @@ def flare_admin_api(
     api.cmd_timeout = None
     api.cell = SimpleNamespace(send_request=send_request)
     return api
+
+
+def chown_refused_for(name: str):
+    """An ``os.chown`` that fails for the paths with this name, as on a mount
+    that maps root to another user."""
+
+    def chown(path, *_args, **_kwargs):
+        if Path(path).name == name:
+            raise PermissionError(1, "Operation not permitted", str(path))
+
+    return chown
+
+
+def warnings_logged(category_logger) -> list[str]:
+    """The warnings logged through a mocked category of the Hub's logger."""
+    return [str(call.args[0]) for call in category_logger.warning.call_args_list]
 
 
 class SubmitHarness:
@@ -482,6 +860,44 @@ class SubmitHarness:
 
     def client_workspace(self, client: str) -> Path:
         return self.network_dir / "workspace" / "resume_project" / "prod_00" / client
+
+    def _submitted_rounds(self):
+        """The start round and the number of rounds of the submitted job."""
+        config = self.submitted[-1] / "app_server/config/config_fed_server.json"
+        args = json.loads(config.read_text())["workflows"][0]["args"]
+        return args.get("start_round", 0), args["num_rounds"]
+
+    @contextlib.contextmanager
+    def as_root(self):
+        """Run as the documented CLI does, as root in the app container.
+
+        Yields a recorder of ``os.chown``: what is handed to the worker's user
+        (uid and gid 4242 here, appuser in a container).
+        """
+        with (
+            patch.object(os, "geteuid", return_value=0),
+            patch.object(os, "chown") as chown,
+            patch.object(
+                network_utils, "_runtime_service_identity", return_value=(4242, 4242)
+            ),
+        ):
+            yield chown
+
+    def assert_left_to_the_worker(self, chown, folder: Path, *, including: str):
+        """Assert that the folder and everything in it was handed to the worker."""
+        handed = {
+            Path(call.args[0])
+            for call in chown.call_args_list
+            if call.args[1:] == (4242, 4242)
+            and call.kwargs == {"follow_symlinks": False}
+        }
+        everything = {folder}
+        for current, dirs, files in os.walk(folder):
+            everything.update(Path(current, name) for name in (*dirs, *files))
+        self.assertIn(folder / including, everything)
+        self.assertEqual(
+            sorted(str(path.relative_to(folder)) for path in everything - handed), []
+        )
 
 
 class SubmitWithResumeTests(SubmitHarness, TestCase):
@@ -681,12 +1097,134 @@ class SubmitWithResumeTests(SubmitHarness, TestCase):
                 path="x", next_round=4, site="", source="given"
             ),
             start_round=4,
+            total_rounds=4,
         )
         with self.assertRaisesRegex(ValueError, "Nothing to resume"):
             training_services.submit_training_job(
                 actor=self.user, network=self.network, resume=plan
             )
         self.assertEqual(TrainingJob.objects.count(), 0)
+
+    def _run_files(self, job: Path) -> dict:
+        """The run file of each app of a submitted job, None where it is missing."""
+        return {
+            app.name: json.loads(path.read_text()) if path.is_file() else None
+            for app in sorted(job.glob("app_*"))
+            for path in [app / "config" / "swarmmed_run.json"]
+        }
+
+    def test_every_app_describes_the_run(self):
+        os.environ["SWARMMEDHUB_SWARM_ROUNDS"] = "8"
+
+        training_services.submit_training_job(actor=self.user, network=self.network)
+
+        expected = {
+            "format": 1,
+            "network": str(self.network.identifier),
+            "total_rounds": 8,
+            "start_round": 0,
+            "num_rounds": 8,
+            "from_flare_job": "",
+        }
+        self.assertEqual(
+            self._run_files(self.submitted[0]),
+            {app: expected for app in ("app_node-A", "app_node-B", "app_server")},
+        )
+
+    def test_a_resumed_job_describes_the_whole_run(self):
+        old_uuid = str(uuid.uuid4())
+        plan = self._plan_from_round(3)
+        plan.total_rounds = 8
+        plan.from_flare_job = old_uuid
+
+        training_services.submit_training_job(
+            actor=self.user, network=self.network, resume=plan
+        )
+
+        expected = {
+            "format": 1,
+            "network": str(self.network.identifier),
+            "total_rounds": 8,
+            "start_round": 3,
+            "num_rounds": 5,
+            "from_flare_job": old_uuid,
+        }
+        self.assertEqual(
+            self._run_files(self.submitted[0]),
+            {app: expected for app in ("app_node-A", "app_node-B", "app_server")},
+        )
+
+    def test_a_resume_without_a_total_is_not_submitted(self):
+        plan = self._plan_from_round(3)
+        plan.total_rounds = None
+
+        with self.assertRaisesRegex(
+            ValueError, "needs the run's total number of rounds"
+        ):
+            training_services.submit_training_job(
+                actor=self.user, network=self.network, resume=plan
+            )
+        self.assertEqual(self.submitted, [])
+        self.assertEqual(TrainingJob.objects.count(), 0)
+
+    def test_a_job_submitted_as_root_leaves_its_folder_to_the_worker(self):
+        # The web interface and the worker, which run as appuser, write the
+        # network's next job into the same folder.
+        with self.as_root() as chown:
+            training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assert_left_to_the_worker(
+            chown, self.network_dir / "job", including="generated"
+        )
+
+    def test_a_failed_submission_still_leaves_the_folder_to_the_worker(self):
+        self.session.submit_job.side_effect = RuntimeError("submission refused")
+
+        with (
+            self.as_root() as chown,
+            self.assertRaisesMessage(RuntimeError, "submission refused"),
+        ):
+            training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assert_left_to_the_worker(
+            chown, self.network_dir / "job", including="app_client/custom"
+        )
+
+    def test_what_cannot_be_handed_to_the_worker_is_logged(self):
+        with (
+            self.as_root() as chown,
+            patch.object(training_services, "get_logger") as get_logger,
+        ):
+            chown.side_effect = chown_refused_for("generated")
+            job = training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assertEqual(job.status, "RUNNING")
+        warned = warnings_logged(get_logger.return_value.training)
+        folder = str(self.network_dir / "job" / "generated")
+        self.assertTrue(any(folder in text for text in warned), warned)
+
+    def test_a_job_folder_that_cannot_be_reached_is_logged(self):
+        with (
+            patch.object(
+                training_services,
+                "ensure_worker_writable",
+                side_effect=PermissionError(13, "Permission denied"),
+            ),
+            patch.object(training_services, "get_logger") as get_logger,
+        ):
+            job = training_services.submit_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assertEqual(job.status, "RUNNING")
+        warned = warnings_logged(get_logger.return_value.training)
+        self.assertTrue(any("Permission denied" in text for text in warned), warned)
 
 
 class ServerRouting:
@@ -760,9 +1298,21 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
             total_rounds=8,
         )
 
-    def _checkpoint_at(self, client: str, next_round: int):
+    def _checkpoint_at(self, client: str, next_round: int, **fields):
         app_dir = self.client_workspace(client) / self.old_uuid / f"app_{client}"
-        return _write_round_start_checkpoint(app_dir, next_round, client)
+        return _write_round_start_checkpoint(app_dir, next_round, client, **fields)
+
+    def _job_file(self, participant: str, relative: str, content, *, job=None):
+        """Write a file into a job's folder here, the interrupted job's by default."""
+        path = self.client_workspace(participant) / (job or self.old_uuid) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(content))
+        return path
+
+    def _forget_the_total(self):
+        """As a record that a site's job monitor created, or that has no total."""
+        TrainingJob.objects.filter(pk=self.old_job.pk).update(total_rounds=None)
+        self.old_job.refresh_from_db()
 
     def _assert_not_resumed(self):
         self.assertEqual(self.submitted, [])
@@ -791,6 +1341,64 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
         )
         self.assertEqual(records[0]["from_flare_job"], self.old_uuid)
         self.assertEqual(records[0]["checkpoint"]["site"], "node-B")
+
+    def test_a_resume_run_as_root_leaves_the_job_folder_to_the_worker(self):
+        self._checkpoint_at("node-A", 3)
+
+        with self.as_root() as chown:
+            training_services.resume_training_job(
+                actor=self.user, network=self.network
+            )
+
+        self.assert_left_to_the_worker(
+            chown, self.network_dir / "job", including="resumed_jobs.json"
+        )
+
+    def test_a_resume_record_that_cannot_be_handed_to_the_worker_is_logged(self):
+        self._checkpoint_at("node-A", 3)
+
+        with (
+            self.as_root() as chown,
+            patch.object(training_services, "get_logger") as get_logger,
+        ):
+            chown.side_effect = chown_refused_for("resumed_jobs.json")
+            training_services.resume_training_job(
+                actor=self.user, network=self.network
+            )
+
+        warned = warnings_logged(get_logger.return_value.training)
+        record = str(self.network_dir / "job" / "resumed_jobs.json")
+        self.assertTrue(any(record in text for text in warned), warned)
+
+    def test_a_job_id_from_a_caller_must_be_a_flare_job_id(self):
+        for flare_job_uuid in ("../../x", self.old_uuid[:8], "error"):
+            with (
+                self.subTest(flare_job_uuid=flare_job_uuid),
+                patch.object(
+                    training_services,
+                    "_network_workspace_root",
+                    side_effect=AssertionError("a network's workspace was looked at"),
+                ),
+                self.assertRaisesMessage(
+                    ValueError, f"'{flare_job_uuid}' is not a FLARE job ID."
+                ),
+            ):
+                training_services.resume_training_job(
+                    actor=self.user, network=self.network, flare_job_uuid=flare_job_uuid
+                )
+        self._assert_not_resumed()
+        self.assertEqual(TrainingJob.objects.count(), 1)
+
+        # The ID in capitals is the same job.
+        self._checkpoint_at("node-A", 3)
+        training_services.resume_training_job(
+            actor=self.user, network=self.network, flare_job_uuid=self.old_uuid.upper()
+        )
+
+        (record,) = json.loads(
+            (self.network_dir / "job" / "resumed_jobs.json").read_text()
+        )
+        self.assertEqual(record["from_flare_job"], self.old_uuid)
 
     def test_an_interrupted_job_that_has_ended_keeps_its_status(self):
         self._checkpoint_at("node-A", 2)
@@ -824,6 +1432,36 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
             "build may still list the job as running; then pass --force.",
             str(refused.exception),
         )
+
+    def test_refuses_while_the_server_runs_another_job(self):
+        # The run, already resumed at another site.
+        self._checkpoint_at("node-A", 2)
+        resumed_elsewhere = str(uuid.uuid4())
+        self.session.api.do_command.side_effect = flare_admin_api(
+            {self.old_uuid: "FINISHED:ABANDONED", resumed_elsewhere: "RUNNING"}
+        ).server_execute
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"The network's FL server already runs job {resumed_elsewhere} "
+            r"\(RUNNING\)\. If that job is this run, resumed at another site, do "
+            r"not resume it again\..*--force",
+        ):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_a_finished_job_on_the_server_does_not_block_a_resume(self):
+        self._checkpoint_at("node-A", 2)
+        self.session.api.do_command.side_effect = flare_admin_api(
+            {
+                self.old_uuid: "FINISHED:ABANDONED",
+                str(uuid.uuid4()): "FINISHED:COMPLETED",
+            }
+        ).server_execute
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+
+        self.assertEqual(len(self.submitted), 1)
 
     def test_refuses_when_the_server_gives_no_job_list(self):
         self._checkpoint_at("node-A", 2)
@@ -1005,6 +1643,157 @@ class ResumeTrainingJobTests(ServerRouting, SubmitHarness, TestCase):
             training_services.resume_training_job(
                 actor=self.user, network=self.network, checkpoint_path=str(path)
             )
+
+    def test_a_guessed_total_is_never_used(self):
+        # The record's total as a site's job monitor stored it before 1.0.6.
+        TrainingJob.objects.filter(pk=self.old_job.pk).update(total_rounds=10)
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+
+        with self.assertRaisesRegex(ValueError, r"not known at this Hub.*--rounds"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+
+    def test_the_resuming_hubs_round_count_is_not_used(self):
+        # The harness's training script says SWARM_ROUNDS = 4.
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+
+        with self.assertRaisesRegex(ValueError, r"not known at this Hub.*--rounds"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+        self.assertEqual(self.session_calls, [])
+
+    def test_the_total_comes_from_the_jobs_run_file(self):
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+        run_file = self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {
+                "format": 1,
+                "network": str(self.network.identifier),
+                "total_rounds": 8,
+                "start_round": 0,
+                "num_rounds": 8,
+                "from_flare_job": "",
+            },
+        )
+
+        new_job = training_services.resume_training_job(
+            actor=self.user, network=self.network
+        )
+
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+        self.assertEqual(new_job.total_rounds, 8)
+        (record,) = json.loads(
+            (self.network_dir / "job" / "resumed_jobs.json").read_text()
+        )
+        self.assertEqual(record["total_rounds"], 8)
+        self.assertEqual(
+            record["total_rounds_from"],
+            str(run_file.relative_to(self.network_dir / "workspace")),
+        )
+
+    def test_the_total_comes_from_that_jobs_server_config_only(self):
+        # FLARE keeps the server's folder of a running or interrupted job.
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+        for job, rounds in ((str(uuid.uuid4()), 30), (self.old_uuid, 8)):
+            self._job_file(
+                "server",
+                "app_server/config/config_fed_server.json",
+                _swarm_server_config(num_rounds=rounds),
+                job=job,
+            )
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_a_1_0_5_resume_record_gives_the_total(self):
+        # The interrupted job resumed another one; SwarmMed 1.0.5 recorded that
+        # in the starting site's app.
+        self._forget_the_total()
+        self._checkpoint_at("node-A", 10, total_rounds=None)
+        self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_resume.json",
+            {
+                "start_round": 3,
+                "total_rounds": 40,
+                "from_job": "",
+                "from_flare_job": str(uuid.uuid4()),
+                "checkpoint_source": "round-start",
+                "checkpoint_site": "node-B",
+                "checkpoint_round": 3,
+                "num_tensors": 2,
+            },
+        )
+
+        training_services.resume_training_job(actor=self.user, network=self.network)
+
+        self.assertEqual(self._submitted_rounds(), (10, 30))
+
+    def test_the_total_comes_from_a_copied_checkpoint(self):
+        # No folder of the job here: the checkpoint was copied from another site.
+        self._forget_the_total()
+        copied = self.base_dir / "copied"
+        _write_round_start_checkpoint(copied, 3, "node-B", job_id=self.old_uuid)
+
+        training_services.resume_training_job(
+            actor=self.user,
+            network=self.network,
+            checkpoint_path=str(copied / CHECKPOINT_FILE),
+        )
+
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_rounds_given_override_a_known_total_with_a_warning(self):
+        self._checkpoint_at("node-A", 3, total_rounds=40)
+        self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"format": 1, "total_rounds": 40, "start_round": 0, "num_rounds": 40},
+        )
+        warnings = []
+
+        training_services.resume_training_job(
+            actor=self.user, network=self.network, total_rounds=30, warnings=warnings
+        )
+
+        self.assertEqual(self._submitted_rounds(), (3, 27))
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("--rounds 30 differs from the run's 40 rounds", warnings[0])
+
+    def test_a_total_beyond_any_run_in_the_jobs_files_is_not_used(self):
+        # Code in the FL client containers can write the job's files.
+        self._checkpoint_at("node-A", 3, total_rounds=None)
+        self._job_file(
+            "node-A",
+            "app_node-A/config/swarmmed_run.json",
+            {"format": 1, "total_rounds": 3_000_000_000, "start_round": 0},
+        )
+
+        with self.assertRaisesMessage(ValueError, "Pass --rounds"):
+            training_services.resume_training_job(actor=self.user, network=self.network)
+        self._assert_not_resumed()
+        self.assertEqual(self.session_calls, [])
+
+    def test_rounds_beyond_any_run_are_refused_before_any_server_is_asked(self):
+        self._checkpoint_at("node-A", 3)
+
+        for rounds in (0, 100_001, 3_000_000_000):
+            with (
+                self.subTest(rounds=rounds),
+                self.assertRaisesMessage(
+                    ValueError, "--rounds must be between 1 and 100000."
+                ),
+            ):
+                training_services.resume_training_job(
+                    actor=self.user, network=self.network, total_rounds=rounds
+                )
+        self._assert_not_resumed()
+        self.assertEqual(self.session_calls, [])
 
     def test_active_check_reads_the_server_job_list(self):
         other_uuid = str(uuid.uuid4())
@@ -1261,3 +2050,470 @@ class ResumeCommandTests(ServerRouting, SubmitHarness, TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("FL server at 100.64.0.1", warnings[0])
         self.assertIn("Keep that server down", warnings[0])
+
+
+class ResumeWithoutRecordTests(ServerRouting, SubmitHarness, TestCase):
+    """`swarmed training checkpoints` and `resume` at a Hub with no record of the job.
+
+    As at the standby after a server switch: its job monitor never recorded the
+    interrupted job, but the site's folder of the job holds its checkpoints.
+    """
+
+    def setUp(self):
+        self.old_uuid = str(uuid.uuid4())
+        super().setUp()
+        # Leave out the note on slow links that every resume prints.
+        os.environ["SWARMMEDHUB_FLARE_ADMIN_TIMEOUT"] = "300"
+        self.network_id = str(self.network.identifier)
+
+    def _checkpoint_at(self, client: str, next_round: int, *, job=None, **fields):
+        app_dir = self.client_workspace(client) / (job or self.old_uuid)
+        app_dir = app_dir / f"app_{client}"
+        _write_round_start_checkpoint(app_dir, next_round, client, **fields)
+        return app_dir / CHECKPOINT_FILE
+
+    def _record(self, flare_uuid: str) -> TrainingJob:
+        return TrainingJob.objects.create(
+            project=self.project,
+            network=self.network,
+            status="RUNNING",
+            flare_job_id=flare_uuid,
+            flare_job_uuid=flare_uuid,
+            total_rounds=8,
+        )
+
+    def _cli(self, *arguments):
+        stdout = StringIO()
+        with (
+            # Keep the checkout's .env, which the CLI loads, out of the test.
+            patch("swarmed_cli.bootstrap.load_dotenv"),
+            redirect_stdout(stdout),
+        ):
+            code = main(["training", *arguments, "--user", "resumer", "--json"])
+        return code, json.loads(stdout.getvalue())
+
+    def _resume_records(self):
+        return json.loads((self.network_dir / "job" / "resumed_jobs.json").read_text())
+
+    def test_checkpoints_are_listed_without_a_record(self):
+        self._checkpoint_at("node-A", 3)
+
+        code, envelope = self._cli(
+            "checkpoints", self.old_uuid, "--network", self.network_id
+        )
+
+        self.assertEqual(code, 0, envelope)
+        result = envelope["result"]
+        self.assertEqual(
+            (result["job_identifier"], result["flare_job_id"], result["found_by"]),
+            (None, self.old_uuid, "job folder"),
+        )
+        self.assertEqual(
+            [(c["site"], c["next_round"], c["job_id"]) for c in result["checkpoints"]],
+            [("node-A", 3, self.old_uuid)],
+        )
+        self.assertEqual(result["total_rounds"], 8)
+        self.assertEqual(TrainingJob.objects.count(), 0)
+
+    def test_checkpoints_find_the_network_from_the_job_folder(self):
+        # Another network of the user's, without a folder of the job.
+        SwarmNetwork.objects.create(
+            name="Second Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        self._checkpoint_at("node-A", 3)
+
+        code, envelope = self._cli("checkpoints", self.old_uuid)
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(envelope["result"]["network_identifier"], self.network_id)
+        self.assertEqual(len(envelope["result"]["checkpoints"]), 1)
+
+    def test_checkpoints_take_the_start_of_a_flare_job_id(self):
+        self._checkpoint_at("node-A", 3)
+
+        code, envelope = self._cli(
+            "checkpoints", self.old_uuid[:8], "--network", self.network_id
+        )
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(envelope["result"]["flare_job_id"], self.old_uuid)
+
+        # Another job whose ID starts the same way.
+        self._checkpoint_at("node-A", 2, job=self.old_uuid[:9] + str(uuid.uuid4())[9:])
+        code, envelope = self._cli(
+            "checkpoints", self.old_uuid[:8], "--network", self.network_id
+        )
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn(f"'{self.old_uuid[:8]}' matches 2 jobs", envelope["errors"][0])
+        self.assertIn("give more of the FLARE job ID", envelope["errors"][0])
+
+    def test_resume_without_a_record_records_both_jobs(self):
+        self._checkpoint_at("node-A", 3)
+
+        code, envelope = self._cli(
+            "resume", self.old_uuid, "--network", self.network_id
+        )
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(len(self.submitted), 1)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+        new_job = TrainingJob.objects.get(identifier=envelope["result"]["identifier"])
+        self.assertEqual((new_job.status, new_job.total_rounds), ("RUNNING", 8))
+        old_job = TrainingJob.objects.get(
+            network=self.network, flare_job_uuid=self.old_uuid
+        )
+        self.assertEqual((old_job.status, old_job.total_rounds), ("FAILED", 8))
+        self.assertIsNotNone(old_job.completed_at)
+        (record,) = self._resume_records()
+        self.assertEqual(
+            (record["from_job"], record["from_flare_job"]),
+            (str(old_job.identifier), self.old_uuid),
+        )
+        self.assertEqual(len(envelope["warnings"]), 1)
+        self.assertIn(f"had no record of job {self.old_uuid}", envelope["warnings"][0])
+
+    def test_network_and_checkpoint_alone_take_the_job_from_the_checkpoint(self):
+        checkpoint = self._checkpoint_at("node-A", 3)
+
+        code, envelope = self._cli(
+            "resume",
+            "--network",
+            self.network_id,
+            "--checkpoint",
+            str(checkpoint),
+            "--start-round",
+            "3",
+            "--rounds",
+            "8",
+        )
+
+        self.assertEqual(code, 0, envelope)
+        (record,) = self._resume_records()
+        self.assertEqual(record["from_flare_job"], self.old_uuid)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_a_copied_checkpoint_needs_no_json_and_no_start_round(self):
+        # Saved at another site by a job of SwarmMed 1.0.5; only the .pt was copied.
+        source = self.base_dir / "site-b" / self.old_uuid / "app_node-B"
+        _write_round_start_checkpoint(source, 3, "node-B", total_rounds=None)
+        copied = self.base_dir / "copied" / "copy.pt"
+        copied.parent.mkdir()
+        shutil.copyfile(source / CHECKPOINT_FILE, copied)
+
+        code, envelope = self._cli(
+            "resume",
+            "--network",
+            self.network_id,
+            "--checkpoint",
+            str(copied),
+            "--rounds",
+            "8",
+        )
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+        (record,) = self._resume_records()
+        self.assertEqual(
+            (record["from_flare_job"], record["checkpoint"]["site"]),
+            (self.old_uuid, "node-B"),
+        )
+
+    def test_a_copied_checkpoint_is_resumed_in_its_jobs_network(self):
+        # A checkpoint of SwarmMed 1.0.5 names its job but no network. Copied
+        # out of the job's folder, it is given while another network is current.
+        copied = self.base_dir / "copied" / "copy.pt"
+        copied.parent.mkdir()
+        shutil.copyfile(self._checkpoint_at("node-A", 3, total_rounds=None), copied)
+        current = SwarmNetwork.objects.create(
+            name="Current Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        current_dir = (
+            self.base_dir
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(current.identifier)
+        )
+        current_dir.mkdir(parents=True)
+        (current_dir / "runtime_requirements.txt").write_text("torch\n")
+        set_current_network(self.user, current)
+
+        code, envelope = self._cli(
+            "resume", "--checkpoint", str(copied), "--rounds", "8"
+        )
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(envelope["result"]["network_identifier"], self.network_id)
+        self.assertFalse(TrainingJob.objects.filter(network=current).exists())
+
+    def test_a_model_file_that_names_no_job_is_resumed_in_the_current_network(self):
+        self._checkpoint_at("node-A", 3)
+        model = self.base_dir / "copied" / "model.pt"
+        model.parent.mkdir()
+        torch.save({"model": {"fc.weight": torch.ones(2, 4)}}, model)
+        arguments = (
+            "resume",
+            "--checkpoint",
+            str(model),
+            "--start-round",
+            "3",
+            "--rounds",
+            "8",
+        )
+
+        code, envelope = self._cli(*arguments)
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn("No current network is selected", envelope["errors"][0])
+
+        set_current_network(self.user, self.network)
+        code, envelope = self._cli(*arguments)
+
+        self.assertEqual(code, 0, envelope)
+        (record,) = self._resume_records()
+        self.assertEqual(record["from_flare_job"], self.old_uuid)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_a_checkpoint_of_another_job_is_refused(self):
+        self._record(self.old_uuid)
+        other_job = str(uuid.uuid4())
+        checkpoint = self._checkpoint_at("node-A", 3, job=other_job)
+
+        code, envelope = self._cli(
+            "resume",
+            self.old_uuid,
+            "--network",
+            self.network_id,
+            "--checkpoint",
+            str(checkpoint),
+        )
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn(other_job, envelope["errors"][0])
+        self.assertIn(self.old_uuid, envelope["errors"][0])
+        self.assertEqual(self.submitted, [])
+
+    def test_the_checkpoints_folder_names_the_network(self):
+        # The job and its checkpoint without --network, from a job of SwarmMed
+        # 1.0.5; another network of the user's also holds a folder of the job.
+        second = SwarmNetwork.objects.create(
+            name="Second Network",
+            project=self.project,
+            author=self.user,
+            status="RUNNING",
+        )
+        (
+            self.base_dir
+            / "workspaces"
+            / str(self.project.identifier)
+            / str(second.identifier)
+            / "workspace"
+            / "resume_project"
+            / "prod_00"
+            / "node-A"
+            / self.old_uuid
+        ).mkdir(parents=True)
+        checkpoint = self._checkpoint_at("node-A", 3, total_rounds=None)
+
+        code, envelope = self._cli(
+            "resume",
+            self.old_uuid,
+            "--checkpoint",
+            str(checkpoint),
+            "--start-round",
+            "3",
+            "--rounds",
+            "8",
+        )
+
+        self.assertEqual(code, 0, envelope)
+        self.assertEqual(envelope["result"]["network_identifier"], self.network_id)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_a_checkpoint_of_another_network_is_refused(self):
+        self._record(self.old_uuid)
+        other_network = str(uuid.uuid4())
+        checkpoint = self._checkpoint_at("node-A", 3, network=other_network)
+
+        code, envelope = self._cli(
+            "resume",
+            self.old_uuid,
+            "--network",
+            self.network_id,
+            "--checkpoint",
+            str(checkpoint),
+        )
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn(f"belongs to network {other_network}", envelope["errors"][0])
+        self.assertEqual(self.submitted, [])
+
+    def test_without_a_record_the_standby_asks_both_servers(self):
+        self._checkpoint_at("node-A", 3)
+        self.switch_servers(server_started_here=True)
+
+        code, envelope = self._cli(
+            "resume", self.old_uuid, "--network", self.network_id
+        )
+
+        self.assertEqual(code, 0, envelope)
+        # The current server, the previous one, then the submission.
+        self.assertEqual(self.session_calls, ["", "100.64.0.1", ""])
+        self.assertTrue(
+            any("Keep that server down" in item for item in envelope["warnings"]),
+            envelope["warnings"],
+        )
+        self.assertEqual(len(self.submitted), 1)
+
+    def test_without_a_record_a_server_that_runs_the_job_refuses(self):
+        self._checkpoint_at("node-A", 3)
+        self.session.api.do_command.return_value = flare_list_jobs_reply(
+            [{"job_id": self.old_uuid, "status": "RUNNING"}]
+        )
+
+        code, envelope = self._cli(
+            "resume", self.old_uuid, "--network", self.network_id
+        )
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn(
+            f"Job {self.old_uuid} is still active on the network's FL server",
+            envelope["errors"][0],
+        )
+        self.assertEqual(self.submitted, [])
+        self.assertEqual(TrainingJob.objects.count(), 0)
+
+    def test_without_a_job_the_newest_checkpoint_job_is_resumed(self):
+        older, newer = str(uuid.uuid4()), str(uuid.uuid4())
+        self._checkpoint_at("node-A", 3, job=newer, saved_at=200.0)
+        # Written last here, but saved earlier by its job.
+        self._checkpoint_at("node-A", 5, job=older, saved_at=100.0)
+
+        code, envelope = self._cli(
+            "resume", "--network", self.network_id, "--rounds", "8"
+        )
+
+        self.assertEqual(code, 0, envelope)
+        (record,) = self._resume_records()
+        self.assertEqual(record["from_flare_job"], newer)
+        self.assertEqual(self._submitted_rounds(), (3, 5))
+
+    def test_without_a_job_a_latest_record_of_another_job_is_refused(self):
+        latest = str(uuid.uuid4())
+        self._record(latest)
+        self._checkpoint_at("node-A", 3)
+
+        code, envelope = self._cli("resume", "--network", self.network_id)
+
+        self.assertEqual(code, 2, envelope)
+        self.assertIn(latest, envelope["errors"][0])
+        self.assertIn(self.old_uuid, envelope["errors"][0])
+        self.assertEqual(self.submitted, [])
+
+    def test_without_a_job_a_failed_submission_does_not_hide_the_latest_job(self):
+        # The previous run, with a round-start checkpoint here.
+        previous = str(uuid.uuid4())
+        TrainingJob.objects.filter(pk=self._record(previous).pk).update(
+            status="COMPLETED"
+        )
+        self._checkpoint_at("node-A", 7, job=previous)
+        # The interrupted job, which has no round-start checkpoint here.
+        self._record(self.old_uuid)
+
+        # A submission that failed records a job without a FLARE job ID.
+        for failed in ("error", "unknown"):
+            with self.subTest(failed=failed):
+                row = TrainingJob.objects.create(
+                    project=self.project,
+                    network=self.network,
+                    status="FAILED",
+                    flare_job_id=failed,
+                )
+
+                code, envelope = self._cli("resume", "--network", self.network_id)
+
+                self.assertEqual(code, 2, envelope)
+                self.assertIn(self.old_uuid, envelope["errors"][0])
+                self.assertIn(previous, envelope["errors"][0])
+                row.delete()
+        self.assertEqual(self.submitted, [])
+
+    def test_an_identifier_that_is_no_job_id_is_not_looked_up_on_disk(self):
+        with patch.object(
+            training_services,
+            "_network_workspace_root",
+            side_effect=AssertionError("a network's workspace was looked at"),
+        ):
+            code, envelope = self._cli(
+                "resume", "../../x", "--network", self.network_id
+            )
+
+        self.assertEqual(code, 2, envelope)
+        self.assertEqual(envelope["errors"], ["Training job '../../x' was not found."])
+
+    def test_networks_of_other_projects_are_not_searched(self):
+        stranger = User.objects.create_user(
+            username="stranger", password="test-password"
+        )  # nosec B106
+        project = Project.objects.create(title="Other Project", author=stranger)
+        network = SwarmNetwork.objects.create(
+            name="Other Network", project=project, author=stranger, status="RUNNING"
+        )
+        _write_round_start_checkpoint(
+            self.base_dir
+            / "workspaces"
+            / str(project.identifier)
+            / str(network.identifier)
+            / "workspace"
+            / "other_project"
+            / "prod_00"
+            / "node-A"
+            / self.old_uuid
+            / "app_node-A",
+            3,
+            "node-A",
+        )
+
+        for command in ("checkpoints", "resume"):
+            with self.subTest(command=command):
+                code, envelope = self._cli(command, self.old_uuid)
+
+                self.assertEqual(code, 2, envelope)
+                self.assertEqual(
+                    envelope["errors"],
+                    [f"Training job '{self.old_uuid}' was not found."],
+                )
+        self.assertEqual(self.submitted, [])
+
+    def test_a_record_is_still_used_first(self):
+        record = self._record(self.old_uuid)
+        self._checkpoint_at("node-A", 3)
+
+        code, envelope = self._cli(
+            "checkpoints", str(record.identifier), "--network", self.network_id
+        )
+
+        self.assertEqual(code, 0, envelope)
+        result = envelope["result"]
+        self.assertEqual(
+            (result["job_identifier"], result["flare_job_id"]),
+            (str(record.identifier), self.old_uuid),
+        )
+        # The key is new in SwarmMed 1.0.6.
+        self.assertEqual(result.get("found_by", "record"), "record")
+
+        code, envelope = self._cli(
+            "resume", self.old_uuid, "--network", self.network_id
+        )
+
+        self.assertEqual(code, 0, envelope)
+        (resumed,) = self._resume_records()
+        self.assertEqual(resumed["from_job"], str(record.identifier))
+        self.assertEqual(TrainingJob.objects.count(), 2)
+        self.assertEqual(envelope["warnings"], [])

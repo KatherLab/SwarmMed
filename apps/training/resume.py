@@ -13,21 +13,29 @@ survives is on the training sites' disks:
 A resumed run is a new FLARE job that starts at the interrupted round
 (``start_round``) from the newest of these checkpoints. Only PyTorch jobs can be
 resumed, because the checkpoint is loaded by FLARE's ``PTFileModelPersistor``.
+
+Every job also carries the plan of the whole run in ``config/swarmmed_run.json``
+of each of its apps (:func:`write_run_file`), and the round-start checkpoints
+copy it, so that a site that did not run the FL server knows the run's total.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .utils import extract_swarm_round_plan
+
 # Names shared with swarmmed_resume.py, which runs inside the FLARE job.
 CHECKPOINT_FILE = "swarmmed_resume_checkpoint.pt"
 METADATA_FILE = "swarmmed_resume_checkpoint.json"
 METADATA_KEY = "swarmmed_resume"
+RUN_FILE = "swarmmed_run.json"
 RUNTIME_MODULE = Path(__file__).with_name("swarmmed_resume.py")
 COMPONENT_ID = "swarmmed_resume_checkpoint"
 COMPONENT_PATH = "swarmmed_resume.ResumeCheckpointSaver"
@@ -35,6 +43,20 @@ COMPONENT_PATH = "swarmmed_resume.ResumeCheckpointSaver"
 GLOBAL_MODEL_FILE = "FL_global_model.pt"
 START_CHECKPOINT_FILE = "swarmmed_resume_start.pt"
 RESUME_RECORD_FILE = "swarmmed_resume.json"
+SERVER_CONFIG_FILE = "config_fed_server.json"
+RUN_FILE_FORMAT = 1
+# More rounds than any run has. A larger total in a file that job code can
+# write is not a run's total, and a job record holds at most 2**31 - 1.
+MAX_RUN_ROUNDS = 100_000
+
+# A FLARE job ID as FLARE writes it (a network's identifier has the same form),
+# and what a job may be named by: its ID or a prefix of at least 8 characters.
+# Nothing else is looked up on disk.
+FLARE_JOB_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+JOB_ID_PREFIX_RE = re.compile(r"^[0-9a-f][0-9a-f-]{7,35}$")
+_SITE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$")
 
 # Logged by FLARE's swarm client controller when a site writes FL_global_model.pt:
 # as the round's aggregator, and when it receives the run's final model.
@@ -68,6 +90,14 @@ class ResumeCheckpoint:
     source: str
     weights_format: str = "torch"
     modified_at: float = 0.0
+    # Rounds of the whole run, named by the round-start checkpoints of jobs
+    # submitted by SwarmMed 1.0.6 or later.
+    total_rounds: int | None = None
+    # The FLARE job the checkpoint belongs to, from its metadata or its folder.
+    job_id: str = ""
+    # The network, named by the round-start checkpoints of jobs submitted by
+    # SwarmMed 1.0.6 or later.
+    network: str = ""
 
     def as_dict(self) -> dict:
         """Return the checkpoint as a plain dict, for CLI output and records."""
@@ -80,7 +110,7 @@ class ResumePlan:
 
     checkpoint: ResumeCheckpoint
     start_round: int
-    # Rounds of the whole run; None means the same count a new job would get.
+    # Rounds of the whole run; required for a resume.
     total_rounds: int | None = None
     from_job_identifier: str = ""
     from_flare_job: str = ""
@@ -89,6 +119,119 @@ class ResumePlan:
     def remaining_rounds(self) -> int:
         """Rounds the resumed job runs."""
         return int(self.total_rounds or 0) - self.start_round
+
+
+@dataclass
+class RunPlan:
+    """The rounds of a whole run, as one of its jobs' files at this Hub names them."""
+
+    total_rounds: int
+    start_round: int
+    # The file they were read from, relative to the network's workspace folder.
+    origin: str
+
+
+def job_folders(workspace_root, job_id: str) -> list[Path]:
+    """Return this Hub's folders of a FLARE job.
+
+    FLARE runs a job in ``<study>/prod_00/<participant>/<job>`` of the network's
+    workspace folder (``<study>/prod_00/<job>`` in older layouts). Both are found
+    by globs of fixed depth, not by a walk of the workspace.
+
+    Args:
+        workspace_root: The network's ``workspace`` folder at this Hub.
+        job_id: A FLARE job ID, or a prefix of one with at least 8 characters.
+            Anything else gives no folders, without a look at the disk.
+
+    Returns:
+        list[Path]: The folders whose name is a FLARE job ID that starts with
+        ``job_id``, sorted.
+    """
+    prefix = str(job_id or "").strip().lower()
+    if not JOB_ID_PREFIX_RE.fullmatch(prefix):
+        return []
+    root = Path(workspace_root)
+    found = set()
+    for pattern in (f"*/prod_00/*/{prefix}*", f"*/prod_00/{prefix}*"):
+        for path in root.glob(pattern):
+            if (
+                FLARE_JOB_ID_RE.fullmatch(path.name)
+                and path.name.startswith(prefix)
+                and path.is_dir()
+            ):
+                found.add(path)
+    return sorted(found)
+
+
+def _whole_rounds(total_rounds, start_round) -> tuple[int, int] | None:
+    """Return the two values if both are ints with 0 <= start < total <= max."""
+    values = (total_rounds, start_round)
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        return None
+    return values if 0 <= start_round < total_rounds <= MAX_RUN_ROUNDS else None
+
+
+def _recorded_rounds(content: dict) -> tuple:
+    return content.get("total_rounds"), content.get("start_round")
+
+
+def _controller_rounds(content: dict) -> tuple:
+    return extract_swarm_round_plan(content) or (None, None)
+
+
+def read_run_plan(workspace_root, flare_uuid: str) -> RunPlan | None:
+    """Return the plan of the run a job belongs to, from the job's files here.
+
+    Only the job's own folders (:func:`job_folders`) are read, in this order:
+
+    1. ``app_*/config/swarmmed_run.json``, in every app of a job submitted by
+       SwarmMed 1.0.6 or later, at every site.
+    2. ``app_server/config/config_fed_server.json``, the swarm controller's
+       ``start_round`` and ``num_rounds``, at the Hub that ran the job's FL
+       server. FLARE keeps this folder only for running and interrupted jobs.
+    3. ``app_*/config/swarmmed_resume.json``, written into a job resumed by
+       SwarmMed 1.0.3 to 1.0.5, at its starting site.
+
+    Code in the FL client containers can write to the job folders, so only
+    ints with ``0 <= start_round < total_rounds <= MAX_RUN_ROUNDS`` are taken.
+
+    Args:
+        workspace_root: The network's ``workspace`` folder at this Hub.
+        flare_uuid: The FLARE job ID.
+
+    Returns:
+        RunPlan | None: The first plan found, or None.
+    """
+    root = Path(workspace_root)
+    folders = job_folders(root, flare_uuid)
+    for pattern, rounds_in in (
+        (f"app_*/config/{RUN_FILE}", _recorded_rounds),
+        (f"app_server/config/{SERVER_CONFIG_FILE}", _controller_rounds),
+        (f"app_*/config/{RESUME_RECORD_FILE}", _recorded_rounds),
+    ):
+        for folder in folders:
+            for path in sorted(folder.glob(pattern)):
+                try:
+                    content = json.loads(path.read_text())
+                except (OSError, ValueError, RecursionError):
+                    # RecursionError: JSON nested too deeply.
+                    continue
+                if not isinstance(content, dict):
+                    continue
+                rounds = _whole_rounds(*rounds_in(content))
+                if rounds:
+                    return RunPlan(*rounds, origin=str(path.relative_to(root)))
+    return None
+
+
+def read_run_total(workspace_root, flare_uuid: str) -> int | None:
+    """Return the run's total number of rounds that the job's files here name.
+
+    See :func:`read_run_plan`. None if they name none: a job's progress then has
+    no percentage, rather than one against a guessed total or another job's.
+    """
+    plan = read_run_plan(workspace_root, flare_uuid)
+    return plan.total_rounds if plan else None
 
 
 def _site_from_app_dir(app_dir: Path) -> str:
@@ -120,9 +263,124 @@ def _last_saved_round(job_dir: Path) -> int | None:
 def _read_metadata(app_dir: Path) -> dict:
     try:
         payload = json.loads((app_dir / METADATA_FILE).read_text())
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
+        # Job code can write the file. RecursionError: JSON nested too deeply.
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _round_count(value) -> int | None:
+    """Return a number of rounds read from a file if it is a plausible int."""
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 < value <= MAX_RUN_ROUNDS
+    ):
+        return value
+    return None
+
+
+def _valid_metadata(raw) -> dict:
+    """Keep the known keys of round-start metadata whose values are valid."""
+    if not isinstance(raw, dict):
+        return {}
+    metadata = {}
+    for key in ("job_id", "network"):
+        value = raw.get(key)
+        if isinstance(value, str) and FLARE_JOB_ID_RE.fullmatch(value):
+            metadata[key] = value
+    for key in ("next_round", "start_round"):
+        value = raw.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            metadata[key] = value
+    total_rounds = _round_count(raw.get("total_rounds"))
+    if total_rounds:
+        metadata["total_rounds"] = total_rounds
+    site = raw.get("site")
+    if isinstance(site, str) and _SITE_NAME_RE.fullmatch(site):
+        metadata["site"] = site
+    if raw.get("weights_format") in ("torch", "numpy"):
+        metadata["weights_format"] = raw["weights_format"]
+    saved_at = raw.get("saved_at")
+    if (
+        isinstance(saved_at, (int, float))
+        and not isinstance(saved_at, bool)
+        and math.isfinite(saved_at)
+    ):
+        metadata["saved_at"] = float(saved_at)
+    return metadata
+
+
+def checkpoint_metadata(path) -> dict:
+    """Return the round-start metadata of a checkpoint file.
+
+    The saver inside a job writes it twice: into ``swarmmed_resume_checkpoint.json``
+    next to ``swarmmed_resume_checkpoint.pt``, and into the ``.pt`` itself
+    (SwarmMed 1.0.3 and later). The JSON is read for a file of that name; for
+    any other file, such as a copy, or without the JSON, the ``.pt`` is loaded
+    with ``weights_only=True``.
+
+    Code in the FL client containers can write both, so only these keys are
+    kept, and only with a valid value: ``job_id`` and ``network`` (UUIDs as
+    FLARE and SwarmMed write them), ``next_round`` and ``start_round`` (ints >=
+    0), ``total_rounds`` (an int from 1 to ``MAX_RUN_ROUNDS``), ``site`` (a plain name),
+    ``weights_format`` and ``saved_at``.
+
+    Returns:
+        dict: The metadata; empty if the file has none.
+    """
+    path = Path(path)
+    if path.name == CHECKPOINT_FILE:
+        metadata = _read_metadata(path.parent)
+        if metadata:
+            return _valid_metadata(metadata)
+    try:
+        import torch
+
+        data = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception:  # not a checkpoint of plain tensors, or not readable
+        return {}
+    return _valid_metadata(data.get(METADATA_KEY) if isinstance(data, dict) else None)
+
+
+def _job_of_app_dir(app_dir: Path) -> str:
+    """Return the FLARE job of a job's app folder, ``<job>/app_<site>``, or ""."""
+    job = app_dir.parent.name
+    return job if FLARE_JOB_ID_RE.fullmatch(job) else ""
+
+
+def newest_round_start_job(workspace_root) -> str:
+    """Return the job of the round-start checkpoint that was saved last here.
+
+    Looks at the round-start checkpoints in the jobs' folders of the network's
+    workspace (see :func:`job_folders`) and takes the one whose ``saved_at`` is
+    the latest, else whose file changed last.
+
+    Args:
+        workspace_root: The network's ``workspace`` folder at this Hub.
+
+    Returns:
+        str: The FLARE job ID, or "" if there is no round-start checkpoint.
+    """
+    root = Path(workspace_root)
+    newest_job, newest_time = "", None
+    for pattern in (
+        f"*/prod_00/*/*/app_*/{CHECKPOINT_FILE}",
+        f"*/prod_00/*/app_*/{CHECKPOINT_FILE}",
+    ):
+        for path in root.glob(pattern):
+            job = _job_of_app_dir(path.parent)
+            if not job:
+                continue
+            saved_at = _valid_metadata(_read_metadata(path.parent)).get("saved_at")
+            if saved_at is None:
+                try:
+                    saved_at = path.stat().st_mtime
+                except OSError:
+                    continue
+            if newest_time is None or saved_at > newest_time:
+                newest_job, newest_time = job, saved_at
+    return newest_job
 
 
 def find_resume_checkpoints(
@@ -150,16 +408,18 @@ def find_resume_checkpoints(
             continue
         app_dir = Path(current)
         if CHECKPOINT_FILE in files:
-            metadata = _read_metadata(app_dir)
-            next_round = metadata.get("next_round")
+            metadata = checkpoint_metadata(app_dir / CHECKPOINT_FILE)
             found.append(
                 ResumeCheckpoint(
                     path=str(app_dir / CHECKPOINT_FILE),
-                    next_round=int(next_round) if isinstance(next_round, int) else None,
-                    site=str(metadata.get("site") or _site_from_app_dir(app_dir)),
+                    next_round=metadata.get("next_round"),
+                    site=metadata.get("site") or _site_from_app_dir(app_dir),
                     source=SOURCE_ROUND_START,
-                    weights_format=str(metadata.get("weights_format") or "torch"),
+                    weights_format=metadata.get("weights_format", "torch"),
                     modified_at=(app_dir / CHECKPOINT_FILE).stat().st_mtime,
+                    total_rounds=metadata.get("total_rounds"),
+                    job_id=metadata.get("job_id") or _job_of_app_dir(app_dir),
+                    network=metadata.get("network", ""),
                 )
             )
         if GLOBAL_MODEL_FILE in files:
@@ -171,6 +431,7 @@ def find_resume_checkpoints(
                     site=_site_from_app_dir(app_dir),
                     source=SOURCE_GLOBAL_MODEL,
                     modified_at=(app_dir / GLOBAL_MODEL_FILE).stat().st_mtime,
+                    job_id=_job_of_app_dir(app_dir),
                 )
             )
 
@@ -186,23 +447,29 @@ def find_resume_checkpoints(
 
 
 def describe_given_checkpoint(path: str, start_round: int | None) -> ResumeCheckpoint:
-    """Build a :class:`ResumeCheckpoint` for a file named by the operator."""
+    """Build a :class:`ResumeCheckpoint` for a file named by the operator.
+
+    A round-start checkpoint names its job, round and site, also as a copy
+    under another name (see :func:`checkpoint_metadata`); a job of SwarmMed
+    1.0.6 or later also names the run's total and the network.
+    """
     checkpoint = Path(path).expanduser().resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
-    metadata = (
-        _read_metadata(checkpoint.parent) if checkpoint.name == CHECKPOINT_FILE else {}
-    )
+    metadata = checkpoint_metadata(checkpoint)
     next_round = start_round
-    if next_round is None and isinstance(metadata.get("next_round"), int):
-        next_round = metadata["next_round"]
+    if next_round is None:
+        next_round = metadata.get("next_round")
     return ResumeCheckpoint(
         path=str(checkpoint),
         next_round=next_round,
-        site=str(metadata.get("site") or ""),
+        site=metadata.get("site", ""),
         source=SOURCE_GIVEN,
-        weights_format=str(metadata.get("weights_format") or "torch"),
+        weights_format=metadata.get("weights_format", "torch"),
         modified_at=checkpoint.stat().st_mtime,
+        total_rounds=metadata.get("total_rounds"),
+        job_id=metadata.get("job_id", ""),
+        network=metadata.get("network", ""),
     )
 
 
@@ -284,6 +551,48 @@ def add_resume_checkpoint_component(job_path) -> list[str]:
         if not module_target.exists():
             shutil.copyfile(RUNTIME_MODULE, module_target)
         changed.append(app_dir.name)
+    return changed
+
+
+def write_run_file(
+    job_path,
+    *,
+    network_id,
+    total_rounds: int,
+    start_round: int,
+    from_flare_job: str = "",
+) -> list[str]:
+    """Write the plan of the whole run into every app of an exported job.
+
+    Each app's ``config/swarmmed_run.json``, the server's included, names the
+    network, the run's total number of rounds, the round the job starts at and
+    the job it resumes, if any. FLARE deploys the whole app folder to each site,
+    and :class:`swarmmed_resume.ResumeCheckpointSaver` copies the plan into each
+    round-start checkpoint, so every training site knows the run's total.
+
+    Args:
+        job_path: Folder of the exported job.
+        network_id: The network's identifier, the same at every site.
+        total_rounds: Rounds of the whole run.
+        start_round: The round the job starts at; 0 for a new run.
+        from_flare_job: The FLARE job ID of the run's interrupted job.
+
+    Returns:
+        list[str]: The app folders that were changed.
+    """
+    run = {
+        "format": RUN_FILE_FORMAT,
+        "network": str(network_id),
+        "total_rounds": int(total_rounds),
+        "start_round": int(start_round),
+        "num_rounds": int(total_rounds) - int(start_round),
+        "from_flare_job": str(from_flare_job or ""),
+    }
+    changed = []
+    for config_dir in sorted(Path(job_path).glob("app_*/config")):
+        if config_dir.is_dir():
+            (config_dir / RUN_FILE).write_text(json.dumps(run, indent=4))
+            changed.append(config_dir.parent.name)
     return changed
 
 
