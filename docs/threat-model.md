@@ -72,6 +72,11 @@ data off-site.
     the 100.64.0.0/10 range that address can belong to another peer, so update
     installations from before that date.
 
+    The data adapter also prints the presigned URLs it probes, signature
+    included, to the job's log at the site, and the manifest's URLs stay valid
+    for 24 hours, so for a day anyone who has a site's job logs and can reach its
+    MinIO can read the files they name.
+
 ### The hub-to-hub status channel
 
 Separately from FLARE, each site's web interface talks directly to the other
