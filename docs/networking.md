@@ -579,7 +579,7 @@ other Hubs; at the coordinating host list the server address there
 ([How a Hub knows which site it is](#how-a-hub-knows-which-site-it-is)).
 Tailscale (the worked example), an existing VPN between institutions (the
 three-hospital runs of the ECG template) and, within one institution, the hosts'
-own addresses (a failover rehearsal) have been used for training across hosts so
+own addresses (two failover rehearsals) have been used for training across hosts so
 far; NetBird has been exercised in a containers-only test on one host
 ([Validation status](#validation-status)).
 
@@ -818,11 +818,9 @@ connect to the server.
 | Tailscale | Used for the worked example: the coordinating host and three training hosts on one tailnet, with the coordinating host's Tailscale address as the server address |
 | NetBird | Exercised in a containers-only test on one host on 11 November 2026 ([below](#netbird-test-on-one-host)); not yet used for training across hosts |
 | An existing VPN between institutions (neither NetBird nor Tailscale) | Used for training across three hospitals and a coordinating host on 13 and 16 November 2026 ([ECG template](https://github.com/KatherLab/SwarmMed/blob/main/examples/ecg_ptbxl/README.md#what-was-run)): server address given with `--server-ip` and listed in `SWARMMEDHUB_LOCAL_ADDRESSES` at the coordinating host; the hospitals connected outbound only; Docker's default address pools had to be moved off the VPN's address range |
-| Direct routed addressing, no overlay | Used once, within one institution: in the failover rehearsal of 23 November 2026 on two lab machines, the sites reached the FL server, and later the standby, at the machines' own addresses, with the Hubs in containers on them ([Server failover](failover.md#testing-status)); no platform change was needed for FLARE traffic. Not yet used between institutions |
+| Direct routed addressing, no overlay | Used within one institution, in two failover rehearsals on two lab machines (23 and 24 November 2026): the sites reached the FL server, and later the standby, at the machines' own addresses, with the Hubs in containers on them ([Server failover](failover.md#testing-status)); no platform change was needed for FLARE traffic. Not yet used between institutions |
 | Self-hosted WireGuard | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
 | OpenVPN, site-to-site IPSec | Not yet exercised; no platform change expected for FLARE traffic; give the server address explicitly and set `SWARMMEDHUB_OVERLAY=none` |
-
-<!-- r106-fill: after the 1.0.6 re-run, update the "Direct routed addressing, no overlay" row (and the matching clause in "Options") if the re-run used the machines' own addresses again, for example "Used in two failover rehearsals within one institution (23 November 2026 and <date>)" -->
 
 Federated training has no dependency on any of them beyond reachability and a
 stable IPv4 address for every participant, so for FLARE traffic the untested

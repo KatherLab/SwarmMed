@@ -88,9 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rehearsal needed with 1.0.5 (a Celery worker running as root, the resume at a
   site with `SWARMMEDHUB_LOCAL_ADDRESSES` instead of the standby, and `--rounds`)
   and what it does not show, and no longer says that a failover across hosts has
-  not been carried out. [Networking](docs/networking.md#validation-status) lists
-  the machines' own addresses, without an overlay, as used once within one
-  institution. <!-- r106-fill: add the 1.0.6 re-run in one sentence once its paragraph in Testing status is written -->
+  not been carried out. It also describes the rehearsal repeated on 24 November
+  2026 with 1.0.6, which needed none of these: the standby itself resumed the run
+  without `--rounds`, and the run completed once it had been resumed a second
+  time, after a race in NVIDIA FLARE 2.7.1 had ended the first resumed job.
+  [Networking](docs/networking.md#validation-status) lists the machines' own
+  addresses, without an overlay, as used in both rehearsals within one
+  institution.
 - [Server failover](docs/failover.md#before-a-study-choose-the-standby-site) asks
   for `SWARMMEDHUB_LOCAL_PARTICIPANT` for both `app` and `celery_worker` at the
   standby and every training site, for the coordinating server's image settings
