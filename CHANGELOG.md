@@ -91,19 +91,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not been carried out. It also describes the rehearsal repeated on 24 November
   2026 with 1.0.6, which needed none of these: the standby itself resumed the run
   without `--rounds`, and the run completed once it had been resumed a second
-  time, after a race in NVIDIA FLARE 2.7.1 had ended the first resumed job.
+  time, after a race in NVIDIA FLARE 2.7.1 had ended the first resumed job. It
+  also describes a restart of the server in place and its repeat on 25 November,
+  in which a resume at a site whose Hub had no record of the job completed the
+  run at its second attempt, after the race had ended the first.
   [Networking](docs/networking.md#validation-status) lists the machines' own
   addresses, without an overlay, as used in both rehearsals within one
   institution.
 - [Server failover](docs/failover.md#resuming-the-run) says what to do when a race
-  in NVIDIA FLARE 2.7.1's swarm controller ends a resumed job, and that the
-  `--wait` options of `swarmed network failover` and `swarmed network start`
-  return before the new server has started and the sites have registered with
-  it. The [CLI guide](docs/cli.md#7-start-and-watch-training) names the error
-  lines that a stop leaves, which are expected, and says that Hubs can record the
-  end of the same job differently. The
-  [threat model](docs/threat-model.md#1-what-leaves-a-site) says that the data
-  adapter prints the presigned URLs it probes to the job's log.
+  in NVIDIA FLARE 2.7.1's swarm client controller ends a resumed job, and that
+  the `--wait` options of `swarmed network failover` and `swarmed network start`
+  can return before the new server has started and before the sites have joined
+  it. It also says how a site whose FL client has stopped, for example because
+  its host restarted, starts it again, and that after a return to the
+  coordinating server every resume warns about the previous server. The
+  [CLI guide](docs/cli.md#7-start-and-watch-training) names the error lines that
+  a stop leaves, which are expected, and says that Hubs can record the end of
+  the same job differently.
 - [Server failover](docs/failover.md#before-a-study-choose-the-standby-site) asks
   for `SWARMMEDHUB_LOCAL_PARTICIPANT` for both `app` and `celery_worker` at the
   standby and every training site, for the coordinating server's image settings
@@ -266,7 +270,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proxy. The failover rehearsal with this version showed that reach with a
   read-only request; that job code there can also create and start containers
   through the proxy, and so take over the host, follows from the proxy's
-  settings and was not tried.
+  settings and was not tried. The threat model also advises against installing
+  a Hub on a host shared with services or containers that the study's
+  participants must not control.
+- The [threat model](docs/threat-model.md#where-training-data-is-read) says that
+  the data adapter prints every presigned URL it tries, signature included, to
+  the job's log at the site, and that the manifest's URLs stay valid for 24
+  hours, which 1.0.6 does not change.
 - Training containers ask only their own Hub for their data manifest
   ([Networking](docs/networking.md#traffic-between-hubs)). They asked the FL
   server's host first, after a server switch the standby site's host; the

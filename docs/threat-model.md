@@ -72,7 +72,7 @@ data off-site.
     the 100.64.0.0/10 range that address can belong to another peer, so update
     installations from before that date.
 
-    The data adapter also prints the presigned URLs it probes, signature
+    The data adapter also prints every presigned URL it tries, signature
     included, to the job's log at the site, and the manifest's URLs stay valid
     for 24 hours, so for a day anyone who has a site's job logs and can reach its
     MinIO can read the files they name.

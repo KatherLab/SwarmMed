@@ -579,8 +579,8 @@ other Hubs; at the coordinating host list the server address there
 ([How a Hub knows which site it is](#how-a-hub-knows-which-site-it-is)).
 Tailscale (the worked example), an existing VPN between institutions (the
 three-hospital runs of the ECG template) and, within one institution, the hosts'
-own addresses (two failover rehearsals) have been used for training across hosts so
-far; NetBird has been exercised in a containers-only test on one host
+own addresses (two failover rehearsals) have been used for training across hosts
+so far; NetBird has been exercised in a containers-only test on one host
 ([Validation status](#validation-status)).
 
 ### NetBird (recommended)

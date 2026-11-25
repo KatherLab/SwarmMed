@@ -119,7 +119,7 @@ Exit codes:
 
 `network start --wait` returns when the network is running, that is when this
 Hub's FL containers run, or has failed, and exits with code 2 if it ends in the
-`ERROR` state. The sites register with the FL server a few seconds later:
+`ERROR` state. The sites join the FL server only afterwards:
 `swarmed network status` at the Hub that runs the server shows them as joined.
 
 ## Workflow Quickstart
@@ -345,14 +345,17 @@ code 1 with `Unexpected failure: cannot connect to FLARE admin API`, and the
 record also stays as it was.
 
 After a stop, NVIDIA FLARE's abort leaves lines that look like faults but are
-expected: a `RuntimeError` traceback (`request to abort the job`) in a site's
-job log, and an `ERROR` line at the FL server (`failed to end workflow
-controller on all clients`).
+expected: `ERROR` lines and `RuntimeError` tracebacks
+(`request to abort the job`) in a site's job log, and `ERROR` lines at the FL
+server that say `failed to end workflow controller`, one of them with
+`FATAL_SYSTEM_ERROR`.
 
 Hubs can record the end of the same job differently: a training site's Hub
 takes it from the end of its own FL client's log, and can record a job that the
 FL server aborted as completed, or a stopped job as failed. Rely on the record
-at the Hub that ran the job's FL server.
+at the Hub that ran the job's FL server, and for a stopped job on the record at
+the Hub where `training stop` ran: the FL server's log can make a stopped job
+look failed too.
 
 When the Hub's job monitor has flagged a running job as stalled, for example
 because a site dropped out, `training status`, `list` and `watch` print a
@@ -441,9 +444,9 @@ reachable through `results explanations`.
 If only the FL server stopped and its host is still there, stop and start the network
 at the coordinating Hub the same way as before, then resume the run
 ([Restarting the server](failover.md#restarting-the-server-where-it-ran)). A site
-whose own Hub or host restarted starts its FL client again with
-`swarmed network start <NETWORK_UUID> --wait`. If the FL server's host or its
-network is lost:
+whose FL client has stopped as well, for example because its host restarted,
+starts it again with `swarmed network start --user alice <NETWORK_UUID> --wait`.
+If the FL server's host or its network is lost:
 
 ```bash
 # at the standby site
@@ -458,8 +461,8 @@ swarmed training resume --user alice <JOB_UUID> --network <NETWORK_UUID>
 `<JOB_UUID>` is the interrupted job's FLARE job ID, the same at every site
 (`flare_job_uuid` in `training list`). The interrupted job cannot continue on
 another server; `training resume` starts a new job at the interrupted round from
-the job's newest checkpoint at the site. The Hub needs no record of the job: it finds
-the job by its folder in the network's workspace. With `--json`,
+the job's newest checkpoint at the site. The Hub needs no record of the job: it
+finds the job by its folder in the network's workspace. With `--json`,
 `training checkpoints` also gives `network_identifier`, `found_by` (how the Hub
 found the job: `record`, `job folder` or `newest checkpoint`), and `total_rounds`
 and `total_rounds_from` (the run's total and where the Hub found it; `null` and
