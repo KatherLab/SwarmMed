@@ -95,6 +95,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [Networking](docs/networking.md#validation-status) lists the machines' own
   addresses, without an overlay, as used in both rehearsals within one
   institution.
+- [Server failover](docs/failover.md#resuming-the-run) says what to do when a race
+  in NVIDIA FLARE 2.7.1's swarm controller ends a resumed job, and that the
+  `--wait` options of `swarmed network failover` and `swarmed network start`
+  return before the new server has started and the sites have registered with
+  it. The [CLI guide](docs/cli.md#7-start-and-watch-training) names the error
+  lines that a stop leaves, which are expected, and says that Hubs can record the
+  end of the same job differently. The
+  [threat model](docs/threat-model.md#1-what-leaves-a-site) says that the data
+  adapter prints the presigned URLs it probes to the job's log.
 - [Server failover](docs/failover.md#before-a-study-choose-the-standby-site) asks
   for `SWARMMEDHUB_LOCAL_PARTICIPANT` for both `app` and `celery_worker` at the
   standby and every training site, for the coordinating server's image settings
