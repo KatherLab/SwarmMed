@@ -400,6 +400,19 @@ and the Hub keeps a list in `workspaces/<project>/<network>/job/resumed_jobs.jso
 Every site's copy of the new job also describes the run in
 `config/swarmmed_run.json`.
 
+With NVIDIA FLARE 2.7.1, a race in FLARE's swarm controller can end a job after
+some rounds: one site logs `already running a task: aborting it` in the job's
+log and takes no further part, and the FL server aborts the job once that site
+has not reported its status for 90 s (`FINISHED:EXECUTION_EXCEPTION`). The race
+ends new jobs too ([Networking](networking.md#netbird-test-on-one-host)); in the
+rehearsal of 24 November 2026 it ended two of the four resumed jobs
+([Testing status](#testing-status)). If it ends a resumed job, wait until the FL
+server has ended that job, because `training resume` refuses while the server
+lists it as running, then resume the interrupted job again with the same
+command, as in that rehearsal: the new job starts again from the interrupted
+job's checkpoint and repeats the rounds that the ended job ran. Resuming the
+ended job itself, from its own newer checkpoints, has not been tested.
+
 ### Resuming over a slow link
 
 A resumed job carries the checkpoint (94 MB for the MST model of the worked
