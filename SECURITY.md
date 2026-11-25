@@ -38,7 +38,7 @@ Limitations to be aware of before reporting, because they are documented design 
 - The coordinating FL server relays every model update between sites and, in the default configuration, can read it.
 - The startup package that every site imports contains every participant's private key, the FL server's private key and, for each site, an admin identity that may run code at every site.
 - The web interfaces of different sites exchange status over HTTPS without certificate verification by default, authenticated by one shared token per network.
-- Validation and visualization scripts run in containers whose network is not isolated, and the application and worker containers control the host's Docker daemon through an unauthenticated proxy.
+- Validation and visualization scripts run in containers whose network is not isolated, and the application and worker containers control the host's Docker daemon through an unauthenticated proxy, which code in FL client containers on the host's network, the default on Linux, can also reach.
 - The `swarmed` CLI performs no authentication; anyone who can run it on a SwarmMedHub host can act as any user.
 
 ## ⚙️ Secure Configuration

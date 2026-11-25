@@ -243,6 +243,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- The [threat model](docs/threat-model.md#what-job-code-can-reach-at-a-site) and
+  the [security page](docs/security.md#fl-runtime-containers) state what job code
+  can reach in an FL container of a standard installation, which 1.0.6 does not
+  change: every volume of the Hub's application container, including its `.env`
+  and `.secrets/` and every network's kits and keys at that Hub, as root; the
+  data adapter loads that `.env` into the training process; and a client
+  container on the host's network can reach the Hub's unauthenticated Docker API
+  proxy. The failover rehearsal with this version showed that reach with a
+  read-only request; that job code there can also create and start containers
+  through the proxy, and so take over the host, follows from the proxy's
+  settings and was not tried.
 - Training containers ask only their own Hub for their data manifest
   ([Networking](docs/networking.md#traffic-between-hubs)). They asked the FL
   server's host first, after a server switch the standby site's host; the
@@ -258,14 +269,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an imported network to the Celery worker never follows a link
   ([CLI](docs/cli.md#5-create-or-import-a-network)). The import runs as root, so
   a link planted there made it write the package wherever the link pointed.
-- The [threat model](docs/threat-model.md#what-job-code-can-reach-at-a-site) and
-  the [security page](docs/security.md#fl-runtime-containers) state what job code
-  can reach in an FL container of a standard installation, which 1.0.6 does not
-  change: every volume of the Hub's application container, including its `.env`
-  and `.secrets/` and every network's kits and keys at that Hub, as root; the
-  data adapter loads that `.env` into the training process; and a client
-  container on the host's network can probably reach the Hub's Docker API proxy,
-  which has not been tested. <!-- r106-rerun: the docker-proxy wording if the re-run's optional probe ran -->
 - The [threat model](docs/threat-model.md#key-custody-what-the-startup-package-contains)
   says that the private keys have mode 644 at every Hub that holds the network,
   the importing sites included, and that the files in `workspaces/` belong to

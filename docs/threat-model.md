@@ -319,7 +319,7 @@ Consequences for a consortium:
 | **Network attacker** between sites | Observes or tampers with traffic on the wire | Mitigated for FLARE traffic: mutual TLS with a study-specific CA on the server's fed-learn and admin ports, and joining requires a startup kit. **Not mitigated for the web interfaces' site-to-site traffic**: the hub-to-hub calls skip certificate verification by default, and the network token they carry also authorises downloading the latest global model from any participant's web interface (section 1). NVFlare's internal parent–job connection at each site is plain TCP, on a listener that accepts connections on all of the host's IPv4 addresses (section 2). |
 | **Honest-but-curious participant** | Runs the protocol correctly, inspects everything it legitimately receives | **Partially mitigated.** Every participant receives aggregated model weights each round, and the aggregating client receives other sites' updates. Parameter sharing alone does not prevent model inversion, membership inference or gradient leakage. No differential privacy or secure aggregation is configured by default. Every participant also holds every other participant's keys (section 2). |
 | **Honest-but-curious coordinator** | Operates the FL server | **Not mitigated.** Sees relayed model updates (section 3), and holds every participant's private key if it provisioned the study or imported the whole package (section 2). |
-| **Malicious participant** | Sends crafted or poisoned updates, or misuses the keys and rights it was given | **Not mitigated.** There is no robust aggregation, update-norm clipping, or anomaly detection, so a participant can degrade or backdoor the joint model. Beyond that, every site's admin certificate is provisioned with NVFlare's `project_admin` role, which the generated authorization policy allows to submit jobs with custom code (`byoc`) to all sites. A malicious participant can therefore run arbitrary code in every other site's client container, which has access to that site's data and uses the host's network, and exfiltrate raw data. In a standard installation that code also reads the site Hub's secrets and every other study held by that Hub, and may be able to take over the site's host ([What job code can reach at a site](#what-job-code-can-reach-at-a-site)). <!-- r106-rerun: "may be able to take over" rests on the untested reach of the Docker API proxy; change it if the re-run's optional docker-proxy probe settles it --> SwarmMed offers no setting to provision a narrower role. Admission control is social and cryptographic (who receives the package), not behavioural. |
+| **Malicious participant** | Sends crafted or poisoned updates, or misuses the keys and rights it was given | **Not mitigated.** There is no robust aggregation, update-norm clipping, or anomaly detection, so a participant can degrade or backdoor the joint model. Beyond that, every site's admin certificate is provisioned with NVFlare's `project_admin` role, which the generated authorization policy allows to submit jobs with custom code (`byoc`) to all sites. A malicious participant can therefore run arbitrary code in every other site's client container, which has access to that site's data and uses the host's network, and exfiltrate raw data. In a standard installation that code also reads the site Hub's secrets and every other study held by that Hub, and it can reach the Hub's unauthenticated Docker API proxy, whose settings let it take over the site's host; the failover rehearsal with version 1.0.6 showed the reach with a read-only request, and no takeover was tried ([What job code can reach at a site](#what-job-code-can-reach-at-a-site)). SwarmMed offers no setting to provision a narrower role. Admission control is social and cryptographic (who receives the package), not behavioural. |
 | **Compromised site host** | Root on a participating machine | **Not contained.** Such a host holds its own patient data, which is the site's responsibility to protect. It also holds the whole startup package, so an attacker who compromises one site obtains every participant's identity, the FL server's key and the `project_admin` right to run code at every other site. |
 | **Platform user without rights** | Authenticated user of the web interface | Mitigated: project membership checks, including for actions on a network named by its identifier; role checks for user management and the log viewer; optional TOTP two-factor authentication; a login lockout per username and client address; and an HMAC-chained audit log (section 6 states what it covers and its limits). |
 
@@ -355,8 +355,15 @@ participant or admin of any other study on the Hub. A client container uses the
 host's network by default, so it can also reach PostgreSQL and Redis, which
 listen on the host's loopback address, and the Hub's Docker networks, including
 the unauthenticated Docker API proxy (`docker-proxy`, port 2375), which controls
-the host ([Security](security.md#host-docker-access)). The last point follows
-from how Docker connects a host to its bridge networks; it has not been tested. <!-- r106-rerun: keep "has not been tested" unless the re-run's optional docker-proxy probe settles it -->
+the host ([Security](security.md#host-docker-access)). The proxy's reach from
+the host's network follows from how Docker connects a host to its bridge
+networks, and the failover rehearsal with version 1.0.6 on 24 November 2026
+showed it ([Server failover](failover.md#testing-status)): a container started
+on the host network of a Hub's Docker Engine, as the client containers are,
+received the Engine's version from the proxy's address on `db_network` without
+authentication. Only that read-only request was sent; that such code can also
+create and start containers through the proxy, and so control the host, follows
+from the proxy's settings, not from a test.
 
 A Hub that runs outside containers, as at the worked example's training sites,
 mounts only the participant's own kit folder, the internal CA certificate,
@@ -370,7 +377,11 @@ Until this is narrowed:
   keys and data, and run studies of different consortia on separate Hubs;
 * keep nothing in `.env` that the platform does not need;
 * treat the right to submit jobs to a network as the right to administer every
-  site's Hub host.
+  site's Hub host;
+* do not install a Hub on a host shared with services or containers that the
+  study's participants must not control: through the Docker API proxy, job code
+  can act on every container of the host's Docker Engine (this follows from the
+  proxy's settings; it was not tried).
 
 ## 5. What is not implemented
 
